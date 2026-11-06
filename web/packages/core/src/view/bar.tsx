@@ -1,32 +1,19 @@
-// Шапка экрана и полоса связи.
+// Шапка экрана, полоса «Нет связи» и лампа связи.
 import { Dot, hhmm, IconBtn, Pill, TextBtn, useNow } from "@switchboard/web-ui";
-import type { Head } from "../types.ts";
-import { linkPill } from "./nav.tsx";
-import type { Page } from "./shell.tsx";
+import { useCore } from "./place.tsx";
 
-/** Что шапка рисует: данные выборки; действие раздела зовётся из свежей шапки. */
-function headOf({ core, modules }: Page) {
-  if (!core.current || core.stopped !== null) return null;
-  const { screen: name, params } = core.current;
-  const found = modules.screenOf(name);
-  if (!found) return null;
-  const [e, s] = found;
-  const head = s.head && !modules.off(e) ? modules.trap<Head | undefined>(e, `экране ${name}`, () => s.head!(params)) : undefined;
-  return {
-    section: !!s.nav,
-    title: head?.title ?? s.nav ?? s.label ?? "",
-    sub: head?.sub,
-    dot: head?.dot,
-    mono: head?.mono,
-    pill: head?.pill,
-    action: head?.action && { label: head.action.label, text: head.action.text },
-  };
-}
+const WORDS = {
+  open: ["на связи", "ok"],
+  closed: ["нет связи", "bad"],
+  stopped: ["нет связи", "bad"],
+  connecting: ["подключаюсь", "wait"],
+} as const;
 
-function runAction(page: Page) {
-  const { screen, params } = page.core.current!;
-  const [e, s] = page.modules.screenOf(screen)!;
-  page.modules.trap(e, `экране ${screen}`, () => s.head?.(params).action?.run());
+/** Лампа связи; bare — без слов, с подсказкой. */
+export function ConnPill({ bare }: { bare?: boolean }) {
+  const { page } = useCore();
+  const [text, tone] = WORDS[page.use(() => page.link)];
+  return bare ? <Pill tone={tone} conn title={text} aria-label={text} /> : <Pill tone={tone} conn>{text}</Pill>;
 }
 
 const FIND = (
@@ -36,68 +23,80 @@ const FIND = (
   </svg>
 );
 
-export function Bar({ page }: { page: Page }) {
-  const { core, bus, wide } = page;
-  const head = bus.use(() => headOf(page));
-  const link = bus.use(() => core.link);
-  const at = bus.use(() => (link === "closed" ? core.rosterAt : null));
-  if (!head) return <header className="sb-bar" hidden />;
-  const coreOwn = link === "open" ? head.section && !head.pill : true;
-  const shown = linkPill(link);
+/** Шапка открытого экрана: данные выборки; действие раздела зовётся из свежей шапки. */
+function useHead() {
+  const { page, mods } = useCore();
+  const head = () => {
+    const { screen, params } = page.current!;
+    const s = mods.screens.get(screen)!;
+    return { s, h: mods.call(s.mod, `экране ${screen}`, () => s.def.head?.(params)) };
+  };
+  const view = page.use(() => {
+    if (!page.current || page.stop) return null;
+    const { s, h } = head();
+    return {
+      section: !!s.def.nav,
+      title: h?.title ?? s.def.nav ?? s.def.label ?? "",
+      sub: page.link === "closed" && page.dataAt ? `данные на ${hhmm(new Date(page.dataAt))}` : h?.sub,
+      dot: h?.dot,
+      mono: h?.mono,
+      pill: h?.pill,
+      action: h?.action && { label: h.action.label, text: h.action.text },
+      own: page.link === "open" && !(!!s.def.nav && !h?.pill),
+    };
+  });
+  const act = () => {
+    const { s, h } = head();
+    mods.call(s.mod, `экране ${s.name}`, () => h?.action?.run());
+  };
+  return { view, act };
+}
+
+export function Bar() {
+  const { page, route } = useCore();
+  const { view: h, act } = useHead();
+  if (!h) return <header className="sb-bar" hidden />;
   return (
     <header className="sb-bar">
-      {head.section ? (
+      {h.section ? (
         <div className="sb-logo" aria-hidden="true">
           S
         </div>
       ) : (
-        <IconBtn className="sb-back" aria-label="Назад" onClick={page.back}>
+        <IconBtn className="sb-back" aria-label="Назад" onClick={route.back}>
           ‹
         </IconBtn>
       )}
-      {head.dot && <Dot kind={head.dot} />}
+      {h.dot && <Dot kind={h.dot} />}
       <div className="sb-bt">
-        <b className={head.mono ? "m" : undefined}>{head.title}</b>
-        {at ? <span>{`данные на ${hhmm(at)}`}</span> : head.sub && <span>{head.sub}</span>}
+        <b className={h.mono ? "m" : undefined}>{h.title}</b>
+        {h.sub && <span>{h.sub}</span>}
       </div>
-      {head.section && !wide && (
-        <>
-          <IconBtn className="sb-find" data-find="1" aria-label="Найти" onClick={page.search}>
-            {FIND}
-          </IconBtn>
-          {head.action && (
-            <IconBtn className="sb-find pri" data-new="1" aria-label={head.action.label} onClick={() => runAction(page)}>
-              {head.action.text}
-            </IconBtn>
-          )}
-        </>
+      {h.section && !page.wide && (
+        <IconBtn className="sb-find" data-find="1" aria-label="Найти" onClick={page.toggleSearch}>
+          {FIND}
+        </IconBtn>
       )}
-      {coreOwn ? (
-        <Pill tone={shown.tone} conn>
-          {shown.text}
-        </Pill>
-      ) : (
-        head.pill && <Pill tone={head.pill.tone}>{head.pill.text}</Pill>
+      {h.section && !page.wide && h.action && (
+        <IconBtn className="sb-find pri" data-new="1" aria-label={h.action.label} onClick={act}>
+          {h.action.text}
+        </IconBtn>
       )}
+      {h.own ? h.pill && <Pill tone={h.pill.tone}>{h.pill.text}</Pill> : <ConnPill />}
     </header>
   );
 }
 
 /** Полоса «Нет связи»: когда снова — обратным отсчётом. */
-export function Off({ page }: { page: Page }) {
-  const { core, bus, wide } = page;
-  const lost = bus.use(() => core.lost);
-  const at = bus.use(() => (wide ? core.rosterAt : null));
-  useNow(lost ? 1000 : 0);
-  const left = lost ? Math.ceil((lost.retryAt - Date.now()) / 1000) : 0;
+export function Off() {
+  const { page, link } = useCore();
+  const v = page.use(() => (page.down && !page.stop ? { retryAt: page.down.retryAt, at: page.wide ? page.dataAt : 0 } : null));
+  useNow(v ? 1000 : 0);
+  const left = v ? Math.ceil((v.retryAt - Date.now()) / 1000) : 0;
   return (
-    <div className="sb-off" role="status" hidden={!lost}>
-      {lost && (
-        <>
-          <span>{["Нет связи с relay", at && `данные на ${hhmm(at)}`, left > 0 ? `снова через ${left} с` : "подключаюсь"].filter(Boolean).join(" · ")}</span>
-          <TextBtn onClick={page.now}>Сейчас</TextBtn>
-        </>
-      )}
+    <div className="sb-off" role="status" hidden={!v}>
+      {v && <span>{["Нет связи с relay", v.at && `данные на ${hhmm(new Date(v.at))}`, left > 0 ? `снова через ${left} с` : "подключаюсь"].filter(Boolean).join(" · ")}</span>}
+      {v && <TextBtn onClick={link.now}>Сейчас</TextBtn>}
     </div>
   );
 }

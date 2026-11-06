@@ -1,28 +1,66 @@
-// Адрес страницы: #путь?пары. Экран находит реестр, здесь — только форма адреса и выбор списка рядом.
+// Адрес: экран и параметры после #. Адрес — источник правды: и open, и назад, и ссылка идут через него.
+import type { Modules } from "./modules.ts";
+import type { Page } from "./page.ts";
 import type { Params } from "./types.ts";
 
-/** Разобрать адрес после #. */
-export function parseHash(hash: string): { path: string; params: Params } {
-  const text = hash.replace(/^#/, "");
-  const q = text.indexOf("?");
-  return q < 0 ? { path: text, params: {} } : { path: text.slice(0, q), params: Object.fromEntries(new URLSearchParams(text.slice(q + 1))) };
-}
+export type Route = ReturnType<typeof createRoute>;
 
-/** Адрес экрана с параметрами. */
-export function toHash(path: string, params: Params = {}): string {
-  const q = new URLSearchParams(params).toString();
-  return `#${path}${q ? `?${q}` : ""}`;
-}
+export function createRoute(page: Page, mods: Modules) {
+  const { win } = page;
+  const home = () => mods.sections[0]?.name;
 
-/** Те же ли параметры. */
-export const sameParams = (a: Params = {}, b: Params = {}): boolean => {
-  const keys = Object.keys(a);
-  return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
-};
+  function addressOf(screen: string, params: Params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return `#${mods.screens.get(screen)?.def.path ?? screen}${query ? `?${query}` : ""}`;
+  }
 
-/** Список слева: тот, что уже стоит слева или открыт сейчас, иначе первый. */
-export function masterOf(lists: string | string[] | undefined, was: { screen: string; master: string | null } | null): string | null {
-  if (!lists) return null;
-  const all = [lists].flat();
-  return all.find((l) => l === was?.master) ?? all.find((l) => l === was?.screen) ?? all[0];
+  /** Экран адреса; незнакомый адрес — домашний раздел. */
+  function parse(): { screen: string; params: Params } {
+    const hash = win.location.hash.slice(1);
+    const at = hash.indexOf("?");
+    const path = at < 0 ? hash : hash.slice(0, at);
+    const s = [...mods.screens.values()].find((x) => (x.def.path ?? x.name) === path && !mods.isTop(x));
+    return s ? { screen: s.name, params: Object.fromEntries(new URLSearchParams(at < 0 ? "" : hash.slice(at + 1))) } : { screen: home(), params: {} };
+  }
+
+  /** Список слева: тот, что уже стоит или открыт сейчас, иначе первый. */
+  function masterOf(screen: string) {
+    const lists = [page.o.beside?.[screen] ?? []].flat();
+    if (!page.wide || !lists.length) return null;
+    const was = page.current;
+    return lists.find((l) => l === was?.master) ?? lists.find((l) => l === was?.screen) ?? lists[0];
+  }
+
+  /** Открыть экран адреса: до первого roster и после отказа не открывается ничего. */
+  function follow() {
+    if (!page.roster || page.stop) return;
+    const { screen, params } = parse();
+    const was = page.current;
+    if (!screen || (was?.screen === screen && JSON.stringify(was.params) === JSON.stringify(params))) return;
+    page.current = { screen, params, master: masterOf(screen) };
+    page.changed();
+    mods.each("переходе", (d) => d.on?.current?.({ screen, params }));
+  }
+
+  return {
+    follow,
+    addressOf,
+    open(screen: string, params?: Params) {
+      const hash = addressOf(screen, params);
+      if (win.location.hash === hash) return;
+      win.history.pushState({ depth: (win.history.state?.depth ?? 0) + 1 }, "", hash);
+      follow();
+    },
+    back() {
+      if (win.history.state?.depth) return win.history.back();
+      win.history.replaceState(null, "", addressOf(home()));
+      follow();
+    },
+    /** Убрать приглашение из адреса. */
+    clear: () => win.history.replaceState(null, "", win.location.pathname + win.location.search),
+    listen(on: { signal: AbortSignal }) {
+      win.addEventListener("hashchange", follow, on);
+      win.addEventListener("popstate", follow, on);
+    },
+  };
 }
