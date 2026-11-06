@@ -991,6 +991,25 @@ describe("смена границы модулей: снять модуль и �
   });
 });
 
+describe("сверка со старым кодом", () => {
+  const set = (s: Stub, x: Record<string, unknown>) => req(s, "~x", "releases.set", { machine: "win", ...x });
+  const built = async (key: string) => JSON.parse(entries(Buffer.from(await (await env.BUCKET.get(key))!.arrayBuffer())).find((x) => x.path === "build.json")!.data!.toString("utf8"));
+
+  it("on: true снимает и силу: следующий on: false остановит часть штатно (чьё: код)", async () => {
+    const s = fresh();
+    await fakeCf(NONE);
+    await inR2("capture", "1.4.0");
+    await req(s, "~x", "releases.deploy", { part: "capture" });
+    await set(s, { part: "capture", on: false, force: true });
+    await set(s, { part: "capture", on: true });
+    expect((await result(req(s, "~x", "releases.list", { part: "capture" }))).machines).toEqual([{ machine: "win", plan: { capture: {} } }]);
+    expect(brief(plans(await set(s, { part: "capture", on: false }))[0]).parts.find((p) => p.part === "capture")).toEqual({ part: "capture", version: "1.4.0", on: false });
+    // on: true вместе с force — сила остаётся: её просили этим же кадром
+    await set(s, { part: "capture", on: true, force: true });
+    expect((await result(req(s, "~x", "releases.list", { part: "capture" }))).machines[0].plan.capture).toEqual({ force: true });
+  });
+});
+
 describe("releases.fetch", () => {
   // источник всех эталонов блока: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): releases.fetch даёт ссылку
   // на чтение архива; другой репо берёт из каталога контракт и стенд

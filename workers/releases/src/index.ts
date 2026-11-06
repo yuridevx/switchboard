@@ -70,7 +70,8 @@ async function fetchLink({ cat, f }: Asked) {
 function entryOf(was: PlanEntry | undefined, f: Frame): PlanEntry {
   const pin = f.pin === undefined ? was?.pin : (f.pin as string | null);
   const on = (f.on ?? was?.on) as boolean | undefined;
-  const force = (f.force ?? was?.force) as boolean | undefined;
+  // включённая часть силы не держит: следующая остановка без force — штатная
+  const force = (f.force ?? (f.on === true ? undefined : was?.force)) as boolean | undefined;
   const env = (f.env ?? was?.env) as Record<string, string> | undefined;
   return { ...(pin && { pin }), ...(on === false && { on }), ...(force && { force }), ...(env && Object.keys(env).length && { env }) };
 }
