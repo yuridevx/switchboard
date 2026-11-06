@@ -67,7 +67,7 @@ export function make(): Module {
     const mark = markOf(s).get();
     // до точки старта правило молчит: первая точка после перезапуска Host — она
     if (down || leaving.has(s.info.callsign) || !mark || (!started && why === "rule") || !existsSync(conversationOf(s))) return;
-    const first = mark.base === undefined ? save(s, why) : save(s, "raise", { base: mark.base }).then(() => markOf(s).set({ r2: true }));
+    const first = mark.base === undefined ? save(s, why) : save(s, "raise", { base: mark.base }).then(() => markOf(s).update((m) => m && { r2: true }));
     void first.catch((e) => (isRefusal(e) && e.word === "not_owner" ? leave(s) : undefined)).catch(() => {});
   }
 
