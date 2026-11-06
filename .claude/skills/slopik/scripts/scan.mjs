@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import { eachFunction } from "./functions.mjs";
 
 const [root, out] = process.argv.slice(2);
 const ts = createRequire(join(process.cwd(), "package.json"))("typescript");
@@ -23,36 +24,29 @@ const fns = [];
 const wrappers = [];
 for (const file of files) {
   const text = readFileSync(join(root, file), "utf8");
-  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : file.endsWith(".mjs") ? ts.ScriptKind.JS : ts.ScriptKind.TS);
-  const leaves = (n, acc = []) => {
+  const leaves = (sf, n, acc = []) => {
     if (ts.isJSDoc(n)) return acc;
     if (ts.isToken(n)) {
       if (n.kind === ts.SyntaxKind.EndOfFileToken) return acc;
       if (n.kind === ts.SyntaxKind.Identifier) acc.push("I");
       else if (n.kind === ts.SyntaxKind.StringLiteral || n.kind === ts.SyntaxKind.NumericLiteral || n.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral) acc.push("L");
       else acc.push(String(n.kind));
-    } else n.getChildren(sf).forEach((k) => leaves(k, acc));
+    } else n.getChildren(sf).forEach((k) => leaves(sf, k, acc));
     return acc;
   };
-  const visit = (n) => {
-    if (ts.isFunctionLike(n) && n.body) {
-      const owner = n.name?.getText(sf) ?? (ts.isVariableDeclaration(n.parent) || ts.isPropertyAssignment(n.parent) ? n.parent.name.getText(sf) : null);
-      const toks = leaves(n.body);
-      const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
-      fns.push({ name: owner, file, line, mod: moduleOf(file), toks, pos: n.getStart(sf), end: n.end });
-      // сквозная обёртка: тело — один вызов, аргументы только параметры
-      const body = ts.isBlock(n.body) ? (n.body.statements.length === 1 ? n.body.statements[0] : null) : n.body;
-      const expr = body && (ts.isReturnStatement(body) ? body.expression : ts.isExpressionStatement(body) ? body.expression : ts.isExpression(body) ? body : null);
-      const call = expr && ts.isAwaitExpression(expr) ? expr.expression : expr;
-      if (owner && call && ts.isCallExpression(call)) {
-        const params = n.parameters.map((p) => p.name.getText(sf));
-        const args = call.arguments.map((a) => a.getText(sf));
-        if (args.length === params.length && args.every((a, i) => a === params[i])) wrappers.push({ name: owner, to: call.expression.getText(sf).slice(0, 50), file, line });
-      }
+  eachFunction(ts, file, text, (n, sf, owner, line) => {
+    const toks = leaves(sf, n.body);
+    fns.push({ name: owner, file, line, mod: moduleOf(file), toks, pos: n.getStart(sf), end: n.end });
+    // сквозная обёртка: тело — один вызов, аргументы только параметры
+    const body = ts.isBlock(n.body) ? (n.body.statements.length === 1 ? n.body.statements[0] : null) : n.body;
+    const expr = body && (ts.isReturnStatement(body) ? body.expression : ts.isExpressionStatement(body) ? body.expression : ts.isExpression(body) ? body : null);
+    const call = expr && ts.isAwaitExpression(expr) ? expr.expression : expr;
+    if (owner && call && ts.isCallExpression(call)) {
+      const params = n.parameters.map((p) => p.name.getText(sf));
+      const args = call.arguments.map((a) => a.getText(sf));
+      if (args.length === params.length && args.every((a, i) => a === params[i])) wrappers.push({ name: owner, to: call.expression.getText(sf).slice(0, 50), file, line });
     }
-    ts.forEachChild(n, visit);
-  };
-  visit(sf);
+  });
 }
 
 // 1. одно имя в разных модулях, тело не пустяк
@@ -83,7 +77,7 @@ for (const key of cand) {
   for (const s of x.sh) if (y.sh.has(s)) c++;
   const j = c / (x.sh.size + y.sh.size - c);
   if (j < 0.5) continue;
-  const row = { ka: `${x.mod}:${x.name ?? x.file}`, kb: `${y.mod}:${y.name ?? y.file}`, j: +j.toFixed(2), a: `${x.mod} ${x.name ?? "?"} ${x.file}:${x.line}`, b: `${y.mod} ${y.name ?? "?"} ${y.file}:${y.line}`, toks: Math.min(x.toks.length, y.toks.length) };
+  const row = { ka: `${x.mod}:${x.name ?? x.file}`, kb: `${y.mod}:${y.name ?? y.file}`, fa: `${x.file}:${x.line}`, fb: `${y.file}:${y.line}`, j: +j.toFixed(2), a: `${x.mod} ${x.name ?? "?"} ${x.file}:${x.line}`, b: `${y.mod} ${y.name ?? "?"} ${y.file}:${y.line}`, toks: Math.min(x.toks.length, y.toks.length) };
   (x.mod === y.mod ? nearIn : near).push(row);
 }
 near.sort((p, q) => q.toks * q.j - p.toks * p.j);
@@ -116,5 +110,5 @@ for (const w of wrappers.slice(0, 40)) lines.push(`${w.name} → ${w.to} · ${w.
 lines.push(`\n== совместные правки между модулями: ${coupled.length} пар`);
 for (const c of coupled.slice(0, 25)) lines.push(`${c.k}: ${c.n} коммитов, связанность ${c.deg}`);
 writeFileSync(out, lines.join("\n"));
-writeFileSync(out + ".json", JSON.stringify({ functions: fns.length, small: fns.filter((f) => f.toks.length < 30).length, near: near.map(({ ka, kb, j, toks }) => ({ ka, kb, j, toks })), inside: nearIn.map(({ ka, kb, j, toks }) => ({ ka, kb, j, toks })) }));
+writeFileSync(out + ".json", JSON.stringify({ functions: fns.length, small: fns.filter((f) => f.toks.length < 30).length, near: near.map(({ ka, kb, fa, fb, j, toks }) => ({ ka, kb, fa, fb, j, toks })), inside: nearIn.map(({ ka, kb, fa, fb, j, toks }) => ({ ka, kb, fa, fb, j, toks })) }));
 console.log(`файлов ${files.length} · функций ${fns.length} · одноимённых ${sameName.length} · почти-клонов ${near.length} (внутри модуля ${nearIn.length}) · обёрток ${wrappers.length} · связанных пар ${coupled.length}`);

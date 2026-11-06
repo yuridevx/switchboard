@@ -16,8 +16,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const home = () => process.env.SLOPIK_HOME ?? join(homedir(), ".switchboard-slopik");
 const git = (root: string, ...a: string[]) => execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 });
 
-type Pair = { ka: string; kb: string; j: number; toks: number };
-type Snapshot = { sha: string; functions: number; small: number; near: Pair[]; inside: Pair[]; config: string };
+export type Pair = { ka: string; kb: string; fa: string; fb: string; j: number; toks: number };
+export type Snapshot = { sha: string; functions: number; small: number; near: Pair[]; inside: Pair[]; config: string };
 export type Wake = { house: string; why: "правка" | "след"; detail: string };
 
 /** Таблица markdown под заголовком → строки ячеек. */
@@ -82,14 +82,14 @@ export function snapshot(root: string, name: string): Snapshot {
   const out = join(home(), `scan-${name}.txt`);
   execFileSync("node", [join(here, "scan.mjs"), root, out], { cwd: root, stdio: "pipe" });
   const scan = JSON.parse(readFileSync(`${out}.json`, "utf8"));
-  const config = git(root, "hash-object", join(here, "scan.mjs")).trim();
+  const config = git(root, "hash-object", join(here, "scan.mjs"), join(here, "functions.mjs")).trim().split(/\s+/).join(" ");
   const snap: Snapshot = { sha: git(root, "rev-parse", "HEAD").trim(), config, ...scan };
   writeFileSync(join(home(), `pairs-${name}.json`), JSON.stringify(snap));
   return snap;
 }
 
 const keyOf = (p: Pair) => [p.ka, p.kb].sort().join(" = ");
-const load = (name: string): Snapshot => JSON.parse(readFileSync(join(home(), `pairs-${name}.json`), "utf8"));
+export const load = (name: string): Snapshot => JSON.parse(readFileSync(join(home(), `pairs-${name}.json`), "utf8"));
 
 /**
  * Судьбы по двум снимкам. Детектор знает только «пара ушла»: была ли это настоящая сводка, решает чтение.
@@ -116,7 +116,7 @@ export function fate(before: Snapshot, after: Snapshot, alive: (key: string) => 
 }
 
 type Pass = { confirmed: number; rejected: number; queue: number; waiting?: number; failed?: number };
-const journalFile = () => join(home(), "journal.jsonl");
+export const journalFile = () => join(home(), "journal.jsonl");
 
 export function pass(p: Pass, sha: string): void {
   mkdirSync(home(), { recursive: true });
@@ -126,7 +126,7 @@ export function pass(p: Pass, sha: string): void {
 
 /** Остановка: файл stop в SLOPIK_HOME, очереди нет, или последний проход ничего не подтвердил, или приёмка сломалась дважды подряд. */
 export function stop(): { go: boolean; why: string } {
-  const rows: Pass[] = existsSync(journalFile()) ? readFileSync(journalFile(), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+  const rows: Pass[] = existsSync(journalFile()) ? readFileSync(journalFile(), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((r) => !r.kind) : [];
   const [prev, last] = rows.slice(-2).length === 2 ? rows.slice(-2) : [undefined, rows.at(-1)];
   if (!last) return { go: true, why: "проходов ещё не было" };
   if (last.failed && prev?.failed) return { go: false, why: "приёмка отказала два прохода подряд: дальше решает человек" };
