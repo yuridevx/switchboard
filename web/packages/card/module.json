@@ -1,7 +1,7 @@
 {
   "name": "web-card",
   "type": "web",
-  "version": "3.2.6",
+  "version": "3.2.7",
   "into": [
     "pult",
     "phone"
