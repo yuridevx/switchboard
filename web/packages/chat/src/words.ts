@@ -13,13 +13,7 @@ export const API_ERRORS: Record<string, string> = {
   unknown: "Неизвестная ошибка API",
 };
 
-export const REFUSAL_AREAS: Record<string, string> = {
-  bio: "биология и химия",
-  chem: "химия",
-  weapons: "оружие",
-  self_harm: "самоповреждение",
-  cyber: "кибербезопасность",
-};
+export const REFUSAL_AREAS: Record<string, string> = { bio: "биология и химия", chem: "химия", weapons: "оружие", self_harm: "самоповреждение", cyber: "кибербезопасность" };
 
 /** Почему ход отвечает запасная модель: {m} — модель сессии. */
 export const FALLBACK_WHY: Record<string, string> = {
@@ -45,9 +39,6 @@ export const TASK_END: Record<string, [string, "ok" | "bad" | "wait"]> = {
   stopped: ["Задача остановлена", "wait"],
   killed: ["Задача оборвана", "wait"],
 };
-
-/** Отказ человека в разрешении — словами claude в итоге инструмента. */
-export const DENIED = /^(The user doesn't want to proceed with this tool use\.|User rejected|The user rejected)/;
 
 /** Части контекста в панели своими подписями. */
 export const CONTEXT_PARTS: Record<string, string> = {

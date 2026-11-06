@@ -1,8 +1,7 @@
 // Галерея карточек для снимков: образцы сообщений SDK идут той же свёрткой и теми же строками, что и лента. Кнопки молчат.
-import { useMemo } from "react";
-import { fold, type Msg } from "../../src/fold.ts";
-import type { Env } from "../../src/store.ts";
-import { EnvCtx, Rows } from "../../src/view/Rows.tsx";
+import { Sample } from "../../src/sample.tsx";
+
+type Msg = Record<string, unknown>;
 
 const asst = (uuid: string, content: unknown[], x: Msg = {}) => ({ type: "assistant", uuid, message: { id: uuid, model: "claude-opus-5-5", content }, ...x });
 const tool = (uuid: string, name: string, input: Msg) => asst(uuid, [{ type: "tool_use", id: `t-${uuid}`, name, input }]);
@@ -10,7 +9,7 @@ const res = (uuid: string, content: unknown, isError = false) => ({ type: "user"
 const sys = (uuid: string, subtype: string, x: Msg = {}) => ({ type: "system", subtype, uuid, ...x });
 const HTML = "<!doctype html><html><body><h1>Отчёт</h1><p>Сборка зелёная.</p></body></html>";
 
-type Sample = { title: string; msgs: Msg[] };
+type Example = { title: string; msgs: Msg[] };
 
 const FENCE = "```";
 /** Опасный HTML в сообщении: эталон 6795 проверяет его в настоящем браузере. */
@@ -27,7 +26,7 @@ const HTML_MD = [
   FENCE,
 ].join("\n");
 
-const SECTIONS: Array<[string, Sample[]]> = [
+const SECTIONS: Array<[string, Example[]]> = [
   [
     "Сообщения",
     [
@@ -85,36 +84,12 @@ const SECTIONS: Array<[string, Sample[]]> = [
   ],
 ];
 
-const silent = (view: Env["view"]): Env => ({
-  callsign: "site@laptop",
-  wide: true,
-  view,
-  send: () => undefined,
-  rewind: () => null,
-  canAct: () => true,
-  label: (cs) => cs,
-  waiting: () => false,
-  act: () => {},
-  again: () => {},
-  cancel: () => {},
-  probe: () => {},
-  apply: () => {},
-  cancelRewind: () => {},
-  fill: () => {},
-});
-
-function SampleRow({ s }: { s: Sample }) {
-  const env = useMemo(() => {
-    const view = fold(s.msgs);
-    return { view, env: silent(() => view) };
-  }, [s]);
+function SampleRow({ s }: { s: Example }) {
   return (
     <div className="chat-galr" data-sample={s.title}>
       <div className="chat-galn">{s.title}</div>
       <div className="chat-galc">
-        <EnvCtx.Provider value={env.env}>
-          <Rows rows={env.view.rows} />
-        </EnvCtx.Provider>
+        <Sample msgs={s.msgs} />
       </div>
     </div>
   );

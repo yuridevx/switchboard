@@ -2,7 +2,7 @@
 import { useRef, type ReactNode } from "react";
 import { Btn, Cmd, Cta, In } from "@switchboard/web-ui";
 import { PROTO } from "@switchboard/relay";
-import { inviteNumber, keyId } from "../pass.ts";
+import { inviteNumber, keyId, UNREACHED } from "../pass.ts";
 import { useCore } from "./place.tsx";
 
 const Logo = () => <div className="sb-logo xl">S</div>;
@@ -10,12 +10,12 @@ const Ring = ({ tone, children }: { tone: "bad" | "wait"; children: string }) =>
 const Full = ({ children }: { children: ReactNode }) => <div className="sb-full">{children}</div>;
 const invite = (who: string) => `keys.invite client ${who} <почта>`;
 
-const Wipe = () => {
+const Wipe = ({ as: Button = Cta }: { as?: typeof Cta | typeof Btn }) => {
   const { pass } = useCore();
   return (
-    <Cta data-act="wipe" onClick={pass.wipe}>
+    <Button data-act="wipe" onClick={pass.wipe}>
       Стереть данные приложения
-    </Cta>
+    </Button>
   );
 };
 
@@ -95,12 +95,25 @@ const Refused = ({ word, pass }: { word: string; pass: string }) => (
 /** Экран остановки по слову. */
 function Stopped({ word, inviteRefused }: { word: string; inviteRefused?: boolean }) {
   const { page } = useCore();
+  if (inviteRefused && word === UNREACHED) {
+    return (
+      <Full>
+        <Ring tone="wait">↻</Ring>
+        <div className="sb-big">Нет связи с gate</div>
+        <p>{`gate не ответил: ${word}. Приглашение не потеряно.`}</p>
+        <Cta data-act="retry" onClick={() => page.win.location.reload()}>
+          Повторить
+        </Cta>
+        <Wipe as={Btn} />
+      </Full>
+    );
+  }
   if (inviteRefused) {
     return (
       <Full>
         <Ring tone="bad">×</Ring>
         <div className="sb-big">Приглашение не принято</div>
-        <p>{word === "bad_invite" ? "Оно уже принято, отозвано или набрано с ошибкой. Попросите агента выдать новое." : `gate не ответил: ${word}. Откройте ссылку ещё раз позже.`}</p>
+        <p>{word === "bad_invite" ? "Оно уже принято, отозвано или набрано с ошибкой. Попросите агента выдать новое." : `gate отказал: ${word}. Попросите агента выдать новое.`}</p>
         <Wipe />
       </Full>
     );

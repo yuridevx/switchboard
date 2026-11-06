@@ -54,6 +54,12 @@ describe("старт", () => {
     expect(document.querySelector<HTMLElement>(".sb-navcol")!.hidden).toBe(true);
     expect([...document.querySelectorAll<HTMLElement>(".sb-nv")].map((b) => b.dataset.screen)).toEqual(["inbox", "board", undefined]);
     expect(document.body.textContent).toContain("Флот");
+    // поиск на порядке настоящей сборки: модули идут по order(), первым с разделом — Настройки; строки — в порядке оболочки
+    document.querySelector<HTMLElement>("[data-find]")!.click();
+    await flush();
+    expect(document.querySelector(".sb-palit.first .l")!.textContent).toBe("Вам");
+    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flush();
     // вкладка «Флот»: разделы в порядке оболочки, журнала и точек на телефоне нет
     location.hash = "#accounts";
     window.dispatchEvent(new HashChangeEvent("hashchange"));

@@ -536,15 +536,6 @@ describe("экран", () => {
     expect(document.body.textContent).toContain("pc не на связи");
   });
 
-  it("нет ленты: полная строка; отказ — под лентой", async () => {
-    const r = roster((x) => {
-      const m = x.machines.find((y) => y.machine === "pc")!;
-      delete (m.contract as Record<string, unknown>)["session.watch"];
-    });
-    const t = await chat(IDLE, { relay: relayFor(r) });
-    expect(t.$(".chat-note")!.textContent).toBe("pc не отдаёт ленту — только переписка и ввод");
-  });
-
   it("фокус: шаги с размышлением, служебные строки отдельно, финал отделён от шагов того же ответа, итог хода последним", async () => {
     const t = await chat(IDLE, { wide: true });
     await t.click(t.button(/фокус/));
@@ -746,12 +737,13 @@ describe("экран вопроса", () => {
 
 // Случаи из общих тестов пульта: владелец — разговор с сессией, широкий вид. Источник — чьё: код.
 describe("из общих тестов пульта", () => {
-  it("158 · у машины нет session.watch: ленту не просим, ввод работает", async () => {
+  it("158 · у машины нет session.watch: ленту не просим, полная строка вместо ленты, ввод работает", async () => {
     const r = roster((x) => {
       delete (x.machines.find((y) => y.machine === "pc")!.contract as Record<string, unknown>)["session.watch"];
     });
     const t = await chat(IDLE, { relay: relayFor(r) });
     expect(t.relay.sent("session.watch")).toHaveLength(0);
+    expect(t.$(".chat-note")!.textContent).toBe("pc не отдаёт ленту — только переписка и ввод");
     await t.type("Катим");
     await t.click(t.$(".chat-send"));
     expect(t.relay.sent("session.prompt")).toEqual([expect.objectContaining({ callsign: IDLE, text: "Катим" })]);
