@@ -17,11 +17,11 @@ function dayOf(t: number): string {
   return new Date(t).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
 }
 
-/** Состав флота: машины с их since и сессии; пока связи нет — пусто. */
+/** Состав флота: машины с их since и сессии; пока связи нет — пусто. На связи без единой машины — не пусто: журнал читается и тогда. */
 const fleetOf = (app: App) => {
   const r = app.roster();
   if (app.link() !== "open" || !r) return "";
-  return [...r.machines.map((m) => `${m.machine}:${m.since}`), ...r.sessions.map((s) => s.callsign)].join("\n");
+  return ["open", ...r.machines.map((m) => `${m.machine}:${m.since}`), ...r.sessions.map((s) => s.callsign)].join("\n");
 };
 
 function Journal() {
