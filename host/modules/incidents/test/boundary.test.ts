@@ -1,7 +1,7 @@
 // Леса границы «журнал и инциденты», сторона Host: настоящий HTTP на 127.0.0.1, настоящие manage и chat через контракт;
 // снаружи — SDK, держатели, relay, часы стенда, подделки слотов, профилей и пуша. Импорт — только контракты; исход — ответ, кадр, ввод SDK, roster, журнал, раздел на диске.
 // Источник свойств доставки — слово пользователя 1 нояб.: «запрос пост не должен ничего ждать / инцидент должен быть доставлен хотя бы 1 раз». Номер — эталон-источник; без пометки — чьё: код.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
@@ -602,6 +602,23 @@ describe("инцидент: доставка хотя бы раз", () => {
     const refusals = st.journal().filter((l) => l.ev === "incident" && l.word === "shutting_down");
     expect(refusals.map((l) => l.id).sort()).toEqual([first.body.id, second.body.id].sort());
     expect(disk()).toHaveLength(2);
+  });
+
+  it("ход чужой сессии: список обращений на диске не переписывается", async () => {
+    // user_message_uuids приходит несколько раз за ход у каждой сессии машины, а запись — весь список с вложениями и fsync
+    const { st, post } = await bench();
+    await post({ type: "disk-full", key: "C:", text: "ждёт хода" });
+    await inputOf(st, "disk-full-1@win");
+    await st.open("docs@win");
+    await pause();
+    const file = join(st.home, "store", "host-incidents.json");
+    const was = statSync(file, { bigint: true });
+    const p = st.proc("docs@win");
+    turn(p, "ответ", { user_message_uuids: ["чужой"] });
+    await until(() => st.states("docs@win").at(-1)?.state === "idle");
+    await pause();
+    const now = statSync(file, { bigint: true });
+    expect([now.ino, now.mtimeNs]).toEqual([was.ino, was.mtimeNs]);
   });
 
   it("обращение без сессии: следующее обращение пробует и его — оба во вводе по порядку", async () => {

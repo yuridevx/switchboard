@@ -183,7 +183,7 @@ export function make(): Module {
       },
       event(_s, msg) {
         const taken = (msg as { user_message_uuids?: unknown }).user_message_uuids;
-        if (Array.isArray(taken)) disk().update((all = []) => all.filter((a) => !taken.includes(a.id)));
+        if (Array.isArray(taken) && appeals().some((a) => taken.includes(a.id))) disk().update((all = []) => all.filter((a) => !taken.includes(a.id)));
       },
     },
     requests: {
