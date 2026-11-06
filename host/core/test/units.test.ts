@@ -35,3 +35,16 @@ describe("команда claude", () => {
     expect(Date.now() - started).toBeLessThan(3000);
   }, 20_000);
 });
+
+describe("выпуск на диске", () => {
+  it("у модуля нет package.json: выключен он, выпуск и остальные модули живут", async () => {
+    // источник: устав «ошибка модуля — модуль выключен»; упаковка каталога package.json не требует, keeper host --check не зовёт
+    const root = mkdtempSync(join(tmpdir(), "switchboard-release-"));
+    const dir = join(root, "modules", "host-bad");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "module.json"), JSON.stringify({ name: "host-bad", type: "sdk", version: "1.0.0", provides: {}, uses: {}, config: {} }));
+    writeFileSync(join(root, "build.json"), JSON.stringify({ app: "host", version: "1.0.0", fleet: "test", modules: [{ name: "host-bad", version: "1.0.0" }], workers: {} }));
+    const release = await loadRelease(root, join(import.meta.dirname, ".."));
+    expect(release.modules[0].failed).toContain("host-bad: импорт");
+  });
+});
