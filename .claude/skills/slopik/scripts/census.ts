@@ -167,7 +167,7 @@ export function traces(root: string, before: string, after: string): Trace {
     }
   };
   const lost = git(root, "diff", "-U0", before, after, "--", ...tests).split("\n").filter((l) => l.startsWith("-") && /\bexpect\(/.test(l)).length;
-  const control = git(root, "diff", "--name-only", before, after, "--", ".claude/slopik", ":(glob).claude/skills/slopik*/**").split("\n").filter(Boolean);
+  const control = git(root, "diff", "--name-only", before, after, "--", ".claude/slopik", ":(glob).claude/skills/slopik*/**", ":(exclude).claude/slopik/books").split("\n").filter(Boolean);
   return { copies, lost, control };
 }
 

@@ -103,23 +103,24 @@ it("оба имени новые, копия в новой папке: пару 
 });
 
 it("снятые проверки, правка контроля и новый флаг — следы обхода, настоящая сводка их не даёт", () => {
-  const f = fate({ ...snap([]), flags: [] }, { ...snap([]), flags: ["x:y:wide"] }, () => false, { copies: () => 0, lost: 3, control: [".claude/slopik/pairs.md"] });
+  const f = fate({ ...snap([]), flags: [] }, { ...snap([]), flags: ["x:y:wide"] }, () => false, { copies: () => 0, lost: 3, control: [".claude/slopik/registry.md"] });
   for (const word of ["флаг", "снято проверок", "правка контроля"]) assert.ok(f.signs.some((s) => s.includes(word)));
   assert.deepEqual(fate(snap([]), snap([]), () => false, { copies: () => 0, lost: 0, control: [] }).signs, []);
 });
 
 it("следы считаются по дереву: тест без expect, правка судеб, литерал в новой папке", () => {
   put("workers/a/test/a.test.ts", "expect(1).toBe(1);\nexpect(2).toBe(2);\n");
-  put(".claude/slopik/pairs.md", "| a |\n");
+  put(".claude/slopik/registry.md", "| a |\n");
   put("workers/a/src/x.ts", 'export const t = "Удалить насовсем";\n');
   const a = commit();
   put("workers/a/test/a.test.ts", "expect(1).toBe(1);\n");
-  put(".claude/slopik/pairs.md", "| b |\n");
+  put(".claude/slopik/registry.md", "| b |\n");
   put("shared/y.ts", 'export const t = "Удалить насовсем";\n');
+  put(".claude/slopik/books/a.md", "# a\n");
   const b = commit();
   const t = traces(root, a, b);
   assert.equal(t.lost, 1);
-  assert.deepEqual(t.control, [".claude/slopik/pairs.md"]);
+  assert.deepEqual(t.control, [".claude/slopik/registry.md"]);
   assert.equal(t.copies(a, ["Удалить насовсем"]), 1);
   assert.equal(t.copies(b, ["Удалить насовсем"]), 2);
 });
