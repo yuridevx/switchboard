@@ -40,6 +40,16 @@ it("модуль без строки рождает хозяина, строка
   assert.deepEqual(c.gone, ["ghost"]);
 });
 
+it("рождение и уход видны по прошлому проходу, без строк реестра", () => {
+  const first = commit();
+  pass({ confirmed: 1, rejected: 0, queue: 1 }, first, ["a", "b", "old"]);
+  put("houses.mjs", `console.log(JSON.stringify([{ name: "a", dir: "workers/a/" }, { name: "b", dir: "workers/b/" }, { name: "new", dir: "workers/new/" }]))`);
+  commit();
+  const c = census(root);
+  assert.deepEqual(c.born, ["new"]);
+  assert.deepEqual(c.gone, ["old"]);
+});
+
 it("без события дом спит, правка будит только свой дом", () => {
   const first = commit();
   pass({ confirmed: 1, rejected: 0, queue: 1 }, first);

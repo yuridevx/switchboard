@@ -34,7 +34,7 @@ const B = "workers/b/src/index.ts";
 /** Снимок настоящим детектором: файл pairs-<имя>.json, как его пишет census snapshot. */
 const snap = (name: string): Snapshot => {
   const out = join(root, ".state", `scan-${name}.txt`);
-  execFileSync("node", [join(here, "scan.mjs"), root, out], { cwd: repo, stdio: "pipe" });
+  execFileSync("node", [join(here, "scan.mjs"), root, out], { cwd: repo, stdio: "pipe", env: { ...process.env, SLOPIK_HOUSES: JSON.stringify([{ name: "a", dir: "workers/a/" }, { name: "b", dir: "workers/b/" }, { name: "c", dir: "workers/c/" }]) } });
   const s = { sha: git("rev-parse", "HEAD"), config: "c", ...JSON.parse(readFileSync(`${out}.json`, "utf8")) };
   writeFileSync(join(root, ".state", `pairs-${name}.json`), JSON.stringify(s));
   return load(name);

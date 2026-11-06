@@ -55,6 +55,8 @@ export function named(root: string) {
 
 const stateFile = () => join(home(), "state.json");
 const lastPass = (): string | null => (existsSync(stateFile()) ? JSON.parse(readFileSync(stateFile(), "utf8")).last : null);
+/** Дома на момент прошлого прохода: рождение и уход видны и без строк реестра. */
+const lastHouses = (): string[] | null => (existsSync(stateFile()) ? (JSON.parse(readFileSync(stateFile(), "utf8")).houses ?? null) : null);
 
 /** Кто родился, кто ушёл, кого будить. Спящий дом без события не будится: число проходов ни на что не влияет. */
 export function census(root: string) {
@@ -66,8 +68,9 @@ export function census(root: string) {
   const held = new Map(people.flatMap((p) => p.houses.map((h) => [h, p.name] as const)));
   const known = new Set([...reg.houses.map((h) => h.name), ...held.keys()]);
   const names = new Set(mods.map((m) => m.name));
-  const born = mods.filter((m) => !known.has(m.name)).map((m) => m.name);
-  const gone = reg.houses.filter((h) => !names.has(h.name) && !held.has(h.name)).map((h) => h.name);
+  const seen = lastHouses();
+  const born = mods.filter((m) => !(seen ? seen.includes(m.name) : known.has(m.name)) && !held.has(m.name)).map((m) => m.name);
+  const gone = (seen ?? reg.houses.map((h) => h.name)).filter((h) => !names.has(h) && !held.has(h));
   /** Дом именного исчез: сам он не снимается, вопрос человеку. */
   const orphaned = [...held].filter(([h]) => !names.has(h)).map(([house, name]) => ({ name, house }));
   const longest = [...mods].sort((a, b) => b.dir.length - a.dir.length);
@@ -140,10 +143,10 @@ export function fate(before: Snapshot, after: Snapshot, alive: (key: string) => 
 type Pass = { confirmed: number; rejected: number; queue: number; waiting?: number; failed?: number };
 export const journalFile = () => join(home(), "journal.jsonl");
 
-export function pass(p: Pass, sha: string): void {
+export function pass(p: Pass, sha: string, houses?: string[]): void {
   mkdirSync(home(), { recursive: true });
   appendFileSync(journalFile(), `${JSON.stringify({ t: new Date().toISOString(), sha, ...p })}\n`);
-  writeFileSync(stateFile(), JSON.stringify({ last: sha }));
+  writeFileSync(stateFile(), JSON.stringify({ last: sha, houses }));
 }
 
 /** Остановка: файл stop в SLOPIK_HOME, очереди нет, или последний проход ничего не подтвердил, или приёмка сломалась дважды подряд. */
@@ -177,7 +180,7 @@ function main(argv: string[]): void {
       }
     };
     say(fate(load(rest[0]), load(rest[1]), defined));
-  } else if (command === "pass") pass(JSON.parse(rest[0]), git(root, "rev-parse", "HEAD").trim());
+  } else if (command === "pass") pass(JSON.parse(rest[0]), git(root, "rev-parse", "HEAD").trim(), housesOf(root).map((h) => h.name));
   else if (command === "stop") say(stop());
   else throw new Error("census | snapshot <имя> | fate <до> <после> | pass <json> | stop");
 }

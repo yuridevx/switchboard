@@ -17,6 +17,6 @@
 |---|---|---|---|
 | машина и имя адреса | `protocol` | `machineOf`, `nameOf` | `lastIndexOf\("@"\)` |
 | вход службы флота: кадр → ответ, отказ словом, строка журнала | `gate` | рядом с `entrance`; реализация — ветка `slopik-door`, ждёт решения | `class Refusal` |
-| сессия запроса по callsign | `host-core` | реализация — ветка `slopik-session`, ждёт решения | `host\.session\(req\.callsign` |
+| сессия запроса по callsign | `host` | реализация — ветка `slopik-session`, ждёт решения | `host\.session\(req\.callsign` |
 | кого доставать пушем | `host-push` | | |
 | подписки браузеров и доставка пуша | `push` | | |
