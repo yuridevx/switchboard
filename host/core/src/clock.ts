@@ -1,22 +1,16 @@
-// Часы ядра: время журнала и все пределы ядра идут по ним; на стенде их двигает тест.
-export interface Clock {
-  now(): number;
-  setTimeout(fn: () => void, ms: number): unknown;
-  clearTimeout(handle: unknown): void;
-}
+// Часы ядра: время журнала и все пределы. На стенде их двигает тест.
+export type Clock = { now(): number; setTimeout(fn: () => void, ms: number): unknown; clearTimeout(h: unknown): void };
 
 export const realClock: Clock = {
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),
-  clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
+  clearTimeout: (h) => clearTimeout(h as NodeJS.Timeout),
 };
 
-/** Предел по часам ядра: не успела за ms — ответ late. Саму работу не прерывает. */
-export function limit<T>(clock: Clock, work: T | Promise<T>, ms: number, late: () => T): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
+/** Обещание или late() за предел ms. Саму работу не прерывает: что прервать, знает вызывающий. */
+export function within<T>(clock: Clock, p: Promise<T>, ms: number, late: () => T): Promise<T> {
+  return new Promise((resolve, reject) => {
     const timer = clock.setTimeout(() => resolve(late()), ms);
-    Promise.resolve(work)
-      .then(resolve, reject)
-      .finally(() => clock.clearTimeout(timer));
+    p.then(resolve, reject).finally(() => clock.clearTimeout(timer));
   });
 }

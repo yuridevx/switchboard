@@ -1,90 +1,78 @@
-// Хранилище на диске: store/<модуль>.json — { machine, sessions: { callsign: … } }, store/core.json — { sessions: [запись] }.
-// Запись сразу: временный файл и rename, файл всегда целый JSON. Прочитанное держится в памяти процесса.
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+// Хранилище Host: store/<модуль>.json — { machine, sessions: { callsign: … } }, store/core.json — { sessions: [запись] }. Запись сразу: временный файл и rename.
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionState, Store } from "../contract.ts";
 
-/** Запись сессии в core.json: её читает следующий Host. */
-export type CoreRecord = {
-  callsign: string;
-  cwd: string;
-  session_id: string;
-  sdk: string;
-  /** остановлена намеренно: новый Host её не поднимает */
-  stopped: boolean;
-  state?: SessionState;
-  /** отправитель последнего ввода */
-  from?: string;
-  /** копия: разговор, от которого она пошла */
-  fork?: string;
-};
+/** Запись сессии у ядра: с неё начинает новый Host. fork — разговор, от которого пошла копия, пока своего файла нет. */
+export type CoreRecord = { callsign: string; cwd: string; session_id: string; sdk: string; stopped: boolean; state?: SessionState; from?: string | null; fork?: string };
 
-type Doc = { machine?: unknown; sessions?: Record<string, unknown> };
+type Sections = { machine?: unknown; sessions?: Record<string, unknown> };
 
-const clone = <T>(value: T): T => (value === undefined ? value : JSON.parse(JSON.stringify(value)));
+/** Значение таким, каким его прочтёт следующий Host. */
+const copy = <T>(v: T): T => (v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T));
 
-export class Stores {
-  private readonly dir: string;
-  private readonly docs = new Map<string, Doc>();
+export class Disk {
+  private files = new Map<string, Sections>();
+  private dir: string;
 
   constructor(dir: string) {
-    mkdirSync(dir, { recursive: true });
     this.dir = dir;
+    mkdirSync(dir, { recursive: true });
   }
 
-  private read<T>(name: string): T | undefined {
-    const file = join(this.dir, `${name}.json`);
-    return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as T) : undefined;
+  private path = (name: string) => join(this.dir, `${name}.json`);
+
+  private file(name: string): Sections {
+    let f = this.files.get(name);
+    if (!f) {
+      f = existsSync(this.path(name)) ? (JSON.parse(readFileSync(this.path(name), "utf8")) as Sections) : {};
+      this.files.set(name, f);
+    }
+    return f;
   }
 
   private write(name: string, value: unknown): void {
-    const file = join(this.dir, `${name}.json`);
-    // сброс на диск до rename: после обрыва питания файл старый или новый, а не нули
-    writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 1), { flush: true });
-    renameSync(`${file}.tmp`, file);
+    const tmp = `${this.path(name)}.tmp`;
+    writeFileSync(tmp, JSON.stringify(value), { flush: true });
+    renameSync(tmp, this.path(name));
   }
 
-  private doc(name: string): Doc {
-    let doc = this.docs.get(name);
-    if (!doc) this.docs.set(name, (doc = this.read<Doc>(name) ?? {}));
-    return doc;
-  }
-
-  /** Раздел модуля: машины или, с callsign, этой сессии. */
+  /** Раздел модуля: машины или сессии callsign. */
   section<T>(name: string, callsign?: string): Store<T> {
-    const get = () => clone((callsign ? this.doc(name).sessions?.[callsign] : this.doc(name).machine) as T | undefined);
+    const get = () => {
+      const f = this.file(name);
+      return (callsign === undefined ? f.machine : f.sessions?.[callsign]) as T | undefined;
+    };
     const set = (value: T | undefined) => {
-      const doc = this.doc(name);
-      const place = (callsign ? (doc.sessions ??= {}) : doc) as Record<string, unknown>;
-      const key = callsign ?? "machine";
-      if (value === undefined) delete place[key];
-      else place[key] = clone(value);
-      this.write(name, doc);
+      const f = this.file(name);
+      if (callsign === undefined) f.machine = value;
+      else if (value === undefined) delete (f.sessions ??= {})[callsign];
+      else (f.sessions ??= {})[callsign] = value;
+      this.write(name, f);
     };
     return {
-      get,
-      set,
+      get: () => copy(get()),
+      set: (v) => set(copy(v)),
       update(fn) {
-        set(fn(get()));
-        return get();
+        const v = fn(copy(get()));
+        set(copy(v));
+        return copy(v);
       },
     };
   }
 
-  /** Стереть разделы сессии у всех модулей на диске. */
-  forget(callsign: string): void {
-    for (const file of readdirSync(this.dir)) {
-      if (!file.endsWith(".json") || file === "core.json") continue;
-      const name = file.slice(0, -".json".length);
-      const doc = this.doc(name);
-      if (doc.sessions?.[callsign] === undefined) continue;
-      delete doc.sessions[callsign];
-      this.write(name, doc);
+  /** Разделы сессии у всех модулей на диске, и у тех, кого нет в сборке. */
+  dropSession(callsign: string): void {
+    for (const f of readdirSync(this.dir)) {
+      const name = f.slice(0, -".json".length);
+      if (!f.endsWith(".json") || name === "core" || this.file(name).sessions?.[callsign] === undefined) continue;
+      delete this.file(name).sessions![callsign];
+      this.write(name, this.file(name));
     }
   }
 
   records(): CoreRecord[] {
-    return this.read<{ sessions: CoreRecord[] }>("core")?.sessions ?? [];
+    return existsSync(this.path("core")) ? (JSON.parse(readFileSync(this.path("core"), "utf8")) as { sessions: CoreRecord[] }).sessions : [];
   }
 
   saveRecords(sessions: CoreRecord[]): void {
