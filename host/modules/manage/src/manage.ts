@@ -166,7 +166,8 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         const s = sessionOf(f);
         const { after_turn: afterTurn, from } = f;
         if (afterTurn !== undefined && afterTurn !== true) throw refuse("bad_spec", `session.remove ${s.info.callsign}: after_turn`);
-        if (afterTurn && (s.state === "busy" || s.state === "waiting")) {
+        // starting: после перезапуска Host ход идёт у держателя, вызов инструмента приходит до готовности
+        if (afterTurn && (s.state === "starting" || s.state === "busy" || s.state === "waiting")) {
           merge(s, { remove_after_turn: from as string });
           return { after_turn: true };
         }

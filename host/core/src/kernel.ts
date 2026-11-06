@@ -411,7 +411,7 @@ export class Kernel {
     const handler = owner?.module.frames?.[f.type];
     if (!handler && !listeners.length && f.type !== "roster") this.log({ kind: "refuse", ev: "frame", word: "unknown_request", why: `кадр ${f.type}: владельца нет` });
     if (this.shutting) return;
-    const s = this.sessions.get(String(f.callsign ?? f.to));
+    const s = this.about(f);
     if (handler && !this.off(owner!, s)) this.run(owner!, s, `frames.${f.type}`, () => handler(f, this.ctx(owner!, f)));
     for (const m of listeners) if (!this.off(m)) this.run(m, undefined, "on.frame", () => m.module.on!.frame!(frame));
   }
@@ -420,16 +420,21 @@ export class Kernel {
     return { host: this.hostFacade(m), from: f.from, signal: this.abort.signal };
   }
 
+  /** Сессия, о которой кадр или запрос: callsign или адрес to. */
+  private about(f: Frame): Session | undefined {
+    return this.sessions.get(String(f.callsign ?? f.to));
+  }
+
   /** Запрос владельцу на этой машине: от relay и от модуля — одна дорога. */
   private serve(f: Frame): Promise<Result> {
     const refused = (word: string, why: string, module?: string): Promise<Result> => {
-      this.log({ kind: "refuse", ev: "request", word, why, callsign: f.callsign as string | undefined, module });
+      this.log({ kind: "refuse", ev: "request", word, why, id: f.id, from: f.from, callsign: f.callsign as string | undefined, module });
       return Promise.resolve({ ok: false, error: word });
     };
     if (this.shutting) return refused("shutting_down", `${f.type}: Host останавливается`);
     const bad = accepts(f, this.served);
     if (bad) return refused(bad.word, bad.why);
-    const s = this.sessions.get(f.callsign as string);
+    const s = this.about(f);
     if (f.callsign !== undefined && !s) return refused("offline", `${f.type}: сессии ${String(f.callsign)} нет`);
     const m = this.owners.get(f.type)!;
     if (this.off(m, s)) return refused("module_error", `${f.type}: модуль ${m.name} выключен${m.failed === null ? ` в ${s!.callsign}` : ""}`, m.name);
@@ -441,7 +446,7 @@ export class Kernel {
           this.fail(m, s, `requests.${f.type}`, e);
           return { ok: false, error: "module_error" };
         }
-        this.write(m.name, { kind: "refuse", ev: "request", word: e.word, why: e.why, callsign: s?.callsign });
+        this.write(m.name, { kind: "refuse", ev: "request", word: e.word, why: e.why ?? `${f.type}: ${e.word}`, id: f.id, from: f.from, callsign: s?.callsign });
         return { ok: false, error: e.word, ...(e.why ? { why: e.why } : {}) };
       }
     })();

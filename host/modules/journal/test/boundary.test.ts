@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stand } from "@switchboard/host";
-import type { Manifest } from "@switchboard/host";
+import type { Ctx, Host, Manifest } from "@switchboard/host";
 import { make } from "../contract.ts";
 
 const { msg, standHost, until } = stand;
@@ -69,10 +69,10 @@ describe("сбои из сообщений SDK", () => {
     s.proc("wiki@laptop").send(msg.result({ subtype: "error_during_execution", is_error: true, startup_failure_reason: "cwd_unavailable", errors: ["папки нет"] }));
     await until(() => mine(s).length === 5);
     const siteLines = mine(s).filter((l) => l.callsign === "site@laptop");
-    expect(siteLines.filter((l) => l.ev === "sdk.api_retry").map((l) => [l.kind, l.attempt, l.error_status])).toEqual([
-      ["note", 1, 529],
-      ["note", 2, 529],
-      ["note", 3, 529],
+    expect(siteLines.filter((l) => l.ev === "sdk.api_retry").map((l) => [l.kind, l.attempt, l.error_status, l.error])).toEqual([
+      ["note", 1, 529, "overloaded"],
+      ["note", 2, 529, "overloaded"],
+      ["note", 3, 529, "overloaded"],
     ]);
     expect(siteLines.find((l) => l.ev === "sdk.result")).toMatchObject({ kind: "stop", word: "error_during_execution", why: "ход остановлен: API Error: 529 Overloaded" });
     expect(mine(s).find((l) => l.callsign === "wiki@laptop")).toMatchObject({ kind: "stop", ev: "sdk.result", word: "cwd_unavailable" });
@@ -199,6 +199,29 @@ describe("machine.journal", () => {
     expect(r).toMatchObject({ ok: true });
     expect((r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev)).toContain("целая");
     expect((r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev)).not.toContain("недо");
+  });
+
+  describe("чтение файлов — работа Host, у которого на одном потоке все сессии", () => {
+    /** Запрос напрямую: сигнал остановки Host — вход контракта модуля. */
+    function direct() {
+      folder({ "host-2026-10-30.jsonl": [H({ t: "2026-10-30T10:00:00.000Z", ev: "строка" })] });
+      const m = make();
+      void m.start!({ dataDir: process.env.SWITCHBOARD_HOME! } as Host);
+      return (signal: AbortSignal) => m.requests!["machine.journal"]({ type: "machine.journal", since: "2026-10-30T00:00:00.000Z", limit: 5 }, { signal } as Ctx);
+    }
+
+    it("пока файл читается, цикл событий Host идёт", async () => {
+      const ask = direct();
+      let turned = false;
+      setImmediate(() => (turned = true));
+      await ask(new AbortController().signal);
+      expect(turned).toBe(true);
+    });
+
+    it("сигнал остановки Host обрывает чтение файлов", async () => {
+      const ask = direct();
+      await expect((async () => ask(AbortSignal.abort()))()).rejects.toMatchObject({ name: "AbortError" });
+    });
   });
 
   it.each([

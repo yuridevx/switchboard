@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getSessionInfo, getSessionMessages, importSessionToStore } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { refuse } from "../contract.ts";
 import type { Module } from "../contract.ts";
 import { FakeRelay, msg, module, standHost, turn, until } from "../stand/index.ts";
 import type { FakeHolders, Stand } from "../stand/index.ts";
@@ -1172,5 +1173,89 @@ describe("сверка круга 3: правила из строк старог
     st.clock.advance(STOP_STEP);
     await starting;
     expect(st.query(CS).options.resume).toBe(s.info.session_id);
+  });
+});
+
+describe("раунд lost: сверка со старым кодом", () => {
+  it("запрос с адресом сессии в to — о ней: ошибка выключает модуль в этой сессии, отказ module_error только ей", async () => {
+    // источник: устав «Ошибку модуля ловит ядро: модуль выключается в этой сессии»; путь — message между сессиями: адрес в to, callsign нет
+    let broken = true;
+    const seen: string[] = [];
+    const peer = module("host-peer", {
+      requests: {
+        poke: (f) => {
+          if (broken) throw new Error("сломан");
+          seen.push(String(f.to));
+        },
+      },
+    });
+    const st = await stand({ modules: [peer] });
+    await st.open("a@laptop");
+    await st.open("b@laptop");
+    expect(await st.relay.request({ type: "poke", v: 1, to: "a@laptop" })).toMatchObject({ ok: false, error: "module_error" });
+    expect(lines(st, "module_failed")[0]).toMatchObject({ module: "host-peer", callsign: "a@laptop" });
+    await until(() => st.states("a@laptop").at(-1)?.failed?.["host-peer"]);
+    broken = false;
+    expect(await st.relay.request({ type: "poke", v: 1, to: "a@laptop" })).toMatchObject({ ok: false, error: "module_error" });
+    expect(await st.relay.request({ type: "poke", v: 1, to: "b@laptop" })).toMatchObject({ ok: true });
+    expect(seen).toEqual(["b@laptop"]);
+    expect(st.states("b@laptop").at(-1)?.failed).toBeUndefined();
+  });
+
+  it("query() бросил — нет файла claude в пакете SDK: отказ словами, ветка сбоя: один resume, второй — failed; stop и start работают", async () => {
+    // источник: устав «процесс claude умер — один resume, второй сбой до готовности — failed»; факт: SDK 0.3.311 бросает из query(), если pathToClaudeCodeExecutable нет и пакет платформы не найден
+    const st = await stand({ modules: [] });
+    const query = st.sdk.query;
+    st.sdk.query = (() => {
+      throw new Error("Native CLI binary for win32-x64 not found");
+    }) as never;
+    await expect(st.open(CS)).rejects.toThrow("Native CLI binary for win32-x64 not found");
+    const s = st.kernel.sessions.get(CS)!;
+    await until(() => s.state === "failed");
+    expect(lines(st, "session_exited")).toHaveLength(2);
+    expect(lines(st, "session_failed")[0].why).toContain("Native CLI binary");
+    await s.stop();
+    expect(s.state).toBe("stopped");
+    st.sdk.query = query;
+    await s.start();
+    expect(s.state).toBe("idle");
+  });
+
+  it("query() бросил на старте Host: сессия failed, Host всё равно ready", async () => {
+    // источник: устав «второй сбой до готовности — failed»; факт тот же: одна сессия не держит старт машины
+    const st = await stand({ modules: [], sessions: [{ callsign: CS }], start: false });
+    st.sdk.query = (() => {
+      throw new Error("Native CLI binary for win32-x64 not found");
+    }) as never;
+    await st.start();
+    expect(st.kernel.sessions.get(CS)!.state).toBe("failed");
+    expect(lines(st, "ready")).toHaveLength(1);
+  });
+
+  it("первый сбой до готовности: в отказе — причина выхода, а не только факт", async () => {
+    // источник: устав «ошибки — словами»; отказ идёт клиенту как open_failed, журнала он не видит; чьё: код — «процесс вышел до initialize — причина»
+    const st = await stand({ modules: [] });
+    st.holders.failInitNext = 1;
+    const opening = st.open(CS);
+    await until(() => st.holders.procs.get(CS)?.initializes === 1);
+    st.proc(CS).exit(1, "Invalid API key");
+    await expect(opening).rejects.toThrow("Invalid API key");
+  });
+
+  it("отказ в журнале: кто и какой запрос; причина есть и у отказа без слов", async () => {
+    // источник: устав «отвечаешь по фактам из журнала», принцип «ошибка словом, причина в журнале»; чьё: код — id, from и why у строки refuse
+    const no = module("host-no", {
+      requests: {
+        "no.x": () => {
+          throw refuse("nope");
+        },
+      },
+    });
+    const st = await stand({ modules: [no] });
+    expect(await st.relay.request({ id: "r1", type: "no.x", v: 1 })).toMatchObject({ ok: false, error: "nope" });
+    expect(await st.relay.request({ id: "r2", type: "absent.x", v: 1 })).toMatchObject({ ok: false, error: "unknown_request" });
+    const from = "panel-desk~owner@example.com";
+    expect(lines(st, "request").find((l) => l.word === "nope")).toMatchObject({ id: "r1", from, why: "no.x: nope", who: "host-no" });
+    expect(lines(st, "request").find((l) => l.word === "unknown_request")).toMatchObject({ id: "r2", from });
   });
 });

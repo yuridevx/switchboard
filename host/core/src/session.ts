@@ -210,7 +210,14 @@ export class Session {
     };
     const run: Run = { q: null, hold, opened, done: null as never, ready: false, closing: false };
     this.run = run;
-    run.q = k.sdk.query({ prompt: this.stream(run), options: k.queryOptions(this, parts, { ...plan.options, spawnClaudeCodeProcess }) });
+    try {
+      run.q = k.sdk.query({ prompt: this.stream(run), options: k.queryOptions(this, parts, { ...plan.options, spawnClaudeCodeProcess }) });
+    } catch (e) {
+      // процесса нет и не будет — та же ветка сбоя: файла claude нет в пакете SDK, query() бросает сразу
+      const why = (e as Error).message;
+      this.ended(run, { code: null, signal: null, stderr: why });
+      throw new Error(`${this.callsign}: процесс вышел до initialize — ${why}`);
+    }
     const read = (async () => {
       try {
         for await (const m of run.q) this.message(run, m);
@@ -231,8 +238,7 @@ export class Session {
     k.clock.clearTimeout(late);
     if (!ready) {
       open();
-      await run.done;
-      throw new Error(`${this.callsign}: процесс вышел до initialize`);
+      throw new Error(`${this.callsign}: процесс вышел до initialize — ${words(await run.done)}`);
     }
     if (run.closing || this.run !== run) return;
     run.ready = true;

@@ -61,6 +61,28 @@ describe("журнал флота", () => {
     expect(t.$("[data-ledger]")).not.toBeNull();
   });
 
+  it("ни одной машины на связи: журнал всё равно читается — запись об их уходе в нём", async () => {
+    const relay = fleetRelay(fleetRoster({ machines: [], sessions: [] }));
+    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [ev(1, { machine: "pc", text: "pc пропала" })], more: false } });
+    const t = await journal(relay);
+    expect(ids(t)).toEqual(["1"]);
+  });
+
+  it("смена машины: записи прежней сняты сразу; отказ — слово, чужих записей под новым выбором нет", async () => {
+    const relay = fleetRelay();
+    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs(), more: true } });
+    const t = await journal(relay);
+    relay.handlers["ledger.read"] = () => undefined;
+    await pick(t, "pc");
+    expect(ids(t)).toEqual([]);
+    expect(t.$("[data-ledger]")!.textContent).toBe("…");
+    expect(t.button("Раньше")).toBeNull();
+    relay.reply(relay.sent("ledger.read").at(-1)!.id!, { ok: false, error: "disconnected" });
+    await flush();
+    expect(ids(t)).toEqual([]);
+    expect(said(t)).toEqual(["ledger.read: disconnected"]);
+  });
+
   it("4159 · записи новые сверху по дням — «Сегодня», «Вчера», дата; время; текст как прислал ledger, «by»; справа — адрес, машина или from", async () => {
     const relay = fleetRelay();
     relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs(), more: false } });

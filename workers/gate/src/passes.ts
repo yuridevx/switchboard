@@ -8,7 +8,7 @@ const BAD_INVITE = { error: "bad_invite" } as const;
 
 export async function verify(db: D1Database, key: unknown): Promise<VerifyResult> {
   const from = Date.now();
-  const m = PASS.exec(String(key));
+  const m = typeof key === "string" ? PASS.exec(key) : null;
   if (!m) {
     console.log("bad_key пропуск не того вида: нужно role.name.kid.secret, роль host или client");
     return { error: "bad_key" };
@@ -59,7 +59,7 @@ export async function invite(db: D1Database, f: Record<string, unknown>, by: str
 
 /** Приём: секрет приглашения меняется на секрет пропуска одним оператором, второй приём строки не найдёт. */
 export async function redeem(db: D1Database, code: unknown) {
-  const m = INVITE.exec(String(code));
+  const m = typeof code === "string" ? INVITE.exec(code) : null;
   if (!m) {
     console.log("bad_invite приглашение не того вида: номер.секрет");
     return BAD_INVITE;

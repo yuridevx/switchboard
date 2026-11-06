@@ -1,5 +1,5 @@
 // host-journal: сбои из сообщений SDK — строками журнала машины; machine.journal — строки host и keeper из файлов журнала машины.
-import { readdirSync, readFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { refuse, type Frame, type Host, type LogRecord, type Module, type SDKMessage } from "@switchboard/host";
 
@@ -27,8 +27,8 @@ function init(m: Msg): LogRecord[] {
 const stop = (ev: string, why: string, fields: Msg = {}): LogRecord => ({ kind: "stop", ev, why, ...fields });
 
 const SYSTEM: Record<string, Lines> = {
-  api_retry: ({ attempt, max_retries, retry_delay_ms, error_status }) => [
-    { ev: "sdk.api_retry", why: `попытка ${attempt} из ${max_retries}: ${error_status ?? "нет ответа"}, пауза ${retry_delay_ms / 1000} с`, attempt, max_retries, retry_delay_ms, error_status },
+  api_retry: ({ attempt, max_retries, retry_delay_ms, error_status, error }) => [
+    { ev: "sdk.api_retry", why: `попытка ${attempt} из ${max_retries}: ${error_status ?? "нет ответа"}, пауза ${retry_delay_ms / 1000} с`, attempt, max_retries, retry_delay_ms, error_status, error },
   ],
   status: (m) => (m.compact_result === "failed" ? [stop("sdk.compact", `сжатие разговора не удалось: ${first(m.compact_error)}`)] : []),
   permission_denied: (m) => [
@@ -63,19 +63,15 @@ function parsed(text: string): Line[] {
 const optional = (v: unknown, ok: (v: unknown) => boolean) => v === undefined || ok(v);
 const isText = (v: unknown) => typeof v === "string";
 
-/** Строки журнала машины после since, старые первыми: файлы host и keeper с дня since. */
-function journal(dir: string, q: Frame) {
+/** Строки журнала машины после since, старые первыми: файлы host и keeper с дня since. Чтение не держит поток Host; остановка Host его обрывает. */
+async function journal(dir: string, q: Frame, signal: AbortSignal) {
   const { limit, kind, session, part } = q;
   if (!Number.isInteger(limit) || (limit as number) < 1) throw refuse("bad_frame", "limit — целое больше нуля");
   if (!isText(q.since) || Number.isNaN(Date.parse(q.since as string))) throw refuse("bad_frame", "since — время ISO");
   if (!optional(kind, Array.isArray) || !optional(session, isText) || !optional(part, isText)) throw refuse("bad_frame", "kind — список, session и part — текст");
   const since = new Date(q.since as string).toISOString();
-  let names: string[] = [];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    // папки ещё нет: строк нет
-  }
+  // папки ещё нет: строк нет
+  const names = await readdir(dir).catch(() => [] as string[]);
   const wanted = (l: Line) => l.t > since && (!kind || (kind as string[]).includes(l.kind ?? "note")) && (!session || l.callsign === session) && (!part || l.part === part);
   const dayOf = (name: string) => FILE.exec(name)?.[1];
   // дни по порядку; записей набралось больше limit — дальше не читается
@@ -83,7 +79,8 @@ function journal(dir: string, q: Frame) {
   const found: Line[] = [];
   for (const day of days) {
     if (found.length > (limit as number)) break;
-    const lines = names.filter((n) => dayOf(n) === day).flatMap((n) => readFileSync(join(dir, n), "utf8").split("\n").flatMap(parsed).filter(wanted));
+    const lines: Line[] = [];
+    for (const n of names.filter((x) => dayOf(x) === day)) lines.push(...(await readFile(join(dir, n), { encoding: "utf8", signal })).split("\n").flatMap(parsed).filter(wanted));
     found.push(...lines.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0)));
   }
   return { records: found.slice(0, limit as number), more: found.length > (limit as number) };
@@ -112,7 +109,7 @@ export function make(): Module {
       },
     },
     requests: {
-      "machine.journal": (q) => journal(join(host.dataDir, "journal"), q),
+      "machine.journal": (q, ctx) => journal(join(host.dataDir, "journal"), q, ctx.signal),
     },
   };
 }
