@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Сессии из кусочков</title>
+<style>
+/* Раскладка: колонка 1040px, стопка блоков; сверху конструктор сессии, ниже — устройство и доказательства. */
+:root{
+  --bg:#F2F4F8; --surface:#FFFFFF; --surface2:#E8ECF2; --ink:#131A25; --muted:#576377; --line:#D2D9E3; --line2:#E3E8EF;
+  --accent:#1E4ED0; --accent-weak:#E2E9FB; --on-accent:#FFFFFF;
+  --ok:#1C7548; --ok-weak:#DBF0E4; --wait:#955700; --wait-weak:#FAEACD; --bad:#B0222E; --bad-weak:#F7DDE0;
+  --chg-bg:#FFF5C2; --chg-edge:#D9B400;
+  --disp:"Unbounded","Golos Text",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:400 15.5px/1.55 var(--body);padding:28px 16px 64px;overflow-wrap:break-word}
+.wrap{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:22px;min-width:0}
+h1,h2,h3{text-wrap:balance;margin:0}
+h1{font:600 clamp(28px,4.6vw,42px)/1.1 var(--disp);letter-spacing:-.01em}
+h2{font:600 20px/1.25 var(--disp)}
+h3{font:600 15.5px/1.3 var(--body)}
+p{margin:0;max-width:72ch}
+code,.mono{font-family:var(--mono);font-size:.88em;overflow-wrap:anywhere}
+pre{margin:0;font:400 12.5px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+button{font:500 13.5px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible,tr:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.top{display:flex;flex-direction:column;gap:14px;padding-block:8px 6px}
+.lede{font-size:17.5px;max-width:72ch}
+.lede.chg{border:1px solid var(--chg-edge);border-radius:10px;padding:10px 14px}
+.lede.chg.read{border-color:var(--line)}
+.howto{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--muted)}
+.howto kbd{font:600 12px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:var(--surface);color:var(--ink)}
+.blk{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.chg{background:var(--chg-bg);border-color:var(--chg-edge)}
+.chg.read{background:var(--surface);border-color:var(--line)}
+.blk-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.blk-h p{flex-basis:100%}
+.tag{font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border-radius:999px;padding:4px 8px;background:var(--chg-edge);color:#1E1A00}
+.tag::after{content:"новое"}
+.chg.read .tag{background:var(--ok-weak);color:var(--ok)}
+.chg.read .tag::after{content:"прочитано ✓"}
+.inner{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
+.chg.read .inner{background:var(--surface2);border-color:var(--line2)}
+.pad{padding:14px;display:flex;flex-direction:column;gap:10px}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.compose{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:14px}
+@media (max-width:820px){.two,.compose{grid-template-columns:minmax(0,1fr)}}
+.fact{font-size:12.5px;border-left:2px solid var(--ok);padding-left:9px}
+.fact b{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.mark-banner{position:fixed;left:16px;bottom:16px;background:var(--ink);color:var(--bg);font-size:13px;padding:8px 12px;border-radius:9px}
+.fig{overflow-x:auto;margin:0}
+.fig figcaption{font-size:13px;color:var(--muted);margin-top:8px;max-width:72ch}
+svg.d{display:block;width:100%;min-width:640px;height:auto}
+.d .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.d .box.acc{fill:var(--accent-weak);stroke:var(--accent)}
+.d .box.you{fill:var(--wait-weak);stroke:var(--wait)}
+.d .box.ok{fill:var(--ok-weak);stroke:var(--ok)}
+.d .box.bad{fill:var(--bad-weak);stroke:var(--bad)}
+.d .box.dim{fill:var(--surface2);stroke:var(--line2)}
+.d text{fill:var(--ink);font:500 13px var(--body)}
+.d text.m{font:400 12px var(--mono)}
+.d text.s{font-size:11.5px;fill:var(--muted)}
+.d .ln{stroke:var(--muted);stroke-width:1.4;fill:none}
+.d .ln.ok{stroke:var(--ok);stroke-width:2}
+.d .ln.bad{stroke:var(--bad);stroke-dasharray:5 4}
+.d .tip{fill:var(--muted)}
+.d .tip.ok{fill:var(--ok)}
+.d g.chg rect.box{fill:var(--chg-bg);stroke:var(--chg-edge)}
+.d g.chg.read rect.box{fill:var(--surface);stroke:var(--line)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+.tw{overflow-x:auto}
+th,td{text-align:left;vertical-align:top;padding:7px 9px;border-bottom:1px solid var(--line2)}
+th{font:600 12px var(--body);color:var(--muted)}
+td.n,th.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.yes{color:var(--ok);font-weight:600}
+.no{color:var(--bad);font-weight:600}
+.pick{background:var(--ok-weak)}
+.cell b{display:block;font-weight:600}
+.cell small{display:block;font-size:12px;color:var(--muted);line-height:1.35}
+.cell.pick small{color:var(--ink)}
+.pieces{display:flex;flex-direction:column;gap:6px}
+.pc{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border:1px solid var(--line2);border-radius:8px;font-size:13.5px;background:var(--surface);cursor:pointer}
+.pc input{margin-top:4px}
+.pc small{display:block;color:var(--muted);font-size:12px;line-height:1.3}
+.stack{display:flex;flex-direction:column;gap:4px;min-height:32px}
+.st{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;background:var(--accent-weak);border:1px solid var(--accent);border-radius:8px;font:500 13px var(--mono)}
+.st span{flex:1;min-width:0}
+.st button{padding:1px 8px;font-size:12px}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg label{display:flex;gap:6px;align-items:center;padding:5px 9px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:var(--surface);cursor:pointer}
+.out td:first-child{white-space:nowrap;color:var(--muted);font-size:12.5px;width:1%}
+.out s{color:var(--muted)}
+.word{border:1px solid var(--bad);background:var(--bad-weak);border-radius:9px;padding:9px 12px;font-size:13.5px}
+.word b{font-family:var(--mono)}
+.code{background:var(--surface2);border-radius:9px;padding:10px 12px}
+tr.sel{background:var(--accent-weak)}
+tbody tr.rowb{cursor:pointer}
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:720px){.steps{grid-template-columns:minmax(0,1fr)}}
+.stepb{border:1px solid var(--line);border-radius:9px;padding:10px;display:flex;flex-direction:column;gap:4px;font-size:13px;background:var(--surface)}
+.stepb b{font:600 12.5px var(--mono)}
+.mock{display:flex;flex-direction:column;gap:9px;font-size:13.5px}
+.mock .f{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;align-items:center}
+.mock .v{border:1px solid var(--line);border-radius:7px;padding:5px 9px;font:400 12.5px var(--mono);background:var(--surface);min-height:30px}
+.mock .chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.mock .chip{font:500 12.5px var(--mono);background:var(--accent-weak);border:1px solid var(--accent);border-radius:999px;padding:3px 10px}
+.mock .chip.add{background:transparent;border-style:dashed;color:var(--muted)}
+ol.order{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:9px}
+ol.order li span{display:block;font-size:13px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.st{transition:background .12s}}
+/* Макеты экранов: токены и плотность пульта, своя тёмная тема; ниже 700px — раскладка телефона. */
+.app{--a-bg:#E6E9E4;--a-sf:#FBFCFA;--a-sf2:#F0F2EE;--a-ink:#17201B;--a-mu:#56625B;--a-ln:#D3D9D2;--a-ln2:#E2E6E0;--a-ok:#287649;--a-okw:#DCEEE2;--a-wt:#A85A05;--a-wtw:#FBEBD2;--a-bad:#B3302A;--a-badw:#F6DEDB;--a-bz:#2B5CCB;--a-bzw:#E0E7F8;
+  display:grid;grid-template-columns:150px minmax(0,1fr);background:var(--a-bg);color:var(--a-ink);border:1px solid var(--line);border-radius:12px;overflow:hidden;font:14px/1.45 "Geologica","Golos Text",system-ui,sans-serif;min-width:0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .app{--a-bg:#0D110F;--a-sf:#151A17;--a-sf2:#1B211D;--a-ink:#E2E8E3;--a-mu:#9AA69F;--a-ln:#2B342E;--a-ln2:#222A25;--a-ok:#66C691;--a-okw:#15301F;--a-wt:#F1A443;--a-wtw:#382810;--a-bad:#FF8B80;--a-badw:#3D1C19;--a-bz:#88A7FF;--a-bzw:#1B2646}}
+:root[data-theme="dark"] .app{--a-bg:#0D110F;--a-sf:#151A17;--a-sf2:#1B211D;--a-ink:#E2E8E3;--a-mu:#9AA69F;--a-ln:#2B342E;--a-ln2:#222A25;--a-ok:#66C691;--a-okw:#15301F;--a-wt:#F1A443;--a-wtw:#382810;--a-bad:#FF8B80;--a-badw:#3D1C19;--a-bz:#88A7FF;--a-bzw:#1B2646}
+.app .m,.app code{font-family:"JetBrains Mono",ui-monospace,Consolas,monospace;font-size:12.5px}
+.ap-side{display:flex;flex-direction:column;gap:2px;padding:14px 8px;background:var(--a-bg);border-right:1px solid var(--a-ln2)}
+.ap-side b{font-size:15px;padding:0 8px 10px}
+.ap-side span{padding:6px 8px;border-radius:8px;color:var(--a-ink);font-size:13.5px}
+.ap-side span.on{background:var(--a-sf);border:1px solid var(--a-ln)}
+.ap-main{background:var(--a-sf);padding:14px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.ap-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ap-head h4{margin:0;font-size:18px;font-weight:600;flex:1;min-width:120px}
+.ap-head .ap-in{flex:2;min-width:180px}
+.ap-in{border:1px solid var(--a-ln);border-radius:9px;padding:8px 11px;background:var(--a-sf);color:var(--a-mu);min-height:36px}
+.ap-in.sm{padding:6px 10px;min-height:32px;font-size:13px}
+.ap-in.tall{min-height:64px}
+.ap-in.chg{background:var(--chg-bg);border-color:var(--chg-edge)}
+.ap-in.chg.read{background:var(--a-sf);border-color:var(--a-ln)}
+.ap-btn{font:600 13px "Geologica",system-ui,sans-serif;border:1px solid var(--a-ln);background:var(--a-sf);color:var(--a-ink);border-radius:9px;padding:7px 12px;cursor:pointer;white-space:nowrap}
+.ap-btn.dark{background:var(--a-ink);color:var(--a-sf);border-color:var(--a-ink)}
+.ap-btn.sm{padding:3px 9px;font-size:12px}
+.ap-split{display:grid;grid-template-columns:230px minmax(0,1fr);gap:12px;min-width:0}
+.ap-list{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ap-grp{font:600 11.5px "JetBrains Mono",monospace;color:var(--a-mu);padding:8px 8px 4px;letter-spacing:.02em}
+.ap-row{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;border:1px solid transparent;background:transparent;border-radius:9px;padding:7px 9px;cursor:pointer;color:var(--a-ink);font:inherit;min-width:0;width:100%}
+.ap-row:hover{background:var(--a-sf2)}
+.ap-row.on{background:var(--a-sf2);border-color:var(--a-ln)}
+.ap-row b{font:600 13.5px "JetBrains Mono",monospace}
+.ap-row small{color:var(--a-mu);font-size:12.5px}
+.ap-tag{display:inline-block;font:600 10.5px "JetBrains Mono",monospace;background:var(--a-bzw);color:var(--a-bz);border-radius:999px;padding:2px 7px;margin-left:6px;vertical-align:1px}
+.ap-tag.st{background:var(--a-wtw);color:var(--a-wt)}
+.ap-tag.pr{background:var(--a-okw);color:var(--a-ok)}
+.ap-detail{border:1px solid var(--a-ln);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0;background:var(--a-sf)}
+.ap-dh{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.ap-dh div{flex:1;min-width:160px}
+.ap-dh h5{margin:0;font:600 16px "JetBrains Mono",monospace}
+.ap-dh small{display:block;color:var(--a-mu);font-size:12.5px}
+.ap-tabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--a-ln2);padding-bottom:6px}
+.ap-tabs button{font:600 12.5px "Geologica",system-ui,sans-serif;border:0;background:transparent;color:var(--a-mu);padding:5px 9px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.ap-tabs button[aria-selected="true"]{background:var(--a-ink);color:var(--a-sf)}
+.ap-files{display:flex;gap:5px;flex-wrap:wrap}
+.ap-files button{font:500 12px "JetBrains Mono",monospace;border:1px solid var(--a-ln);background:var(--a-sf2);color:var(--a-ink);border-radius:7px;padding:3px 8px;cursor:pointer}
+.ap-files button[aria-pressed="true"]{border-color:var(--a-ink)}
+.ap-text{background:var(--a-sf2);border-radius:8px;padding:10px 12px;font:12.5px/1.55 "JetBrains Mono",monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;color:var(--a-ink);max-height:260px;overflow:auto}
+.ap-sum{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 14px;font-size:13px}
+.ap-sum dt{color:var(--a-mu)}
+.ap-sum dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.ap-sum s{color:var(--a-mu)}
+.ap-form{display:flex;flex-direction:column;gap:10px}
+.ap-pop{border:1px solid var(--a-ln);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--a-sf)}
+.ap-ph{font-weight:600;font-size:13.5px;display:flex;gap:8px;align-items:baseline}
+.ap-ph span{font-weight:400;font-size:12px;color:var(--a-mu)}
+.ap-order{display:flex;flex-direction:column;gap:4px}
+.ap-ord{display:flex;align-items:center;gap:8px;border:1px solid var(--a-ln);background:var(--a-sf2);border-radius:8px;padding:5px 6px 5px 8px;font:500 13px "JetBrains Mono",monospace;min-width:0}
+.ap-ord .h{color:var(--a-mu);cursor:grab;letter-spacing:-2px}
+.ap-ord span.n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-ord button{border:0;background:transparent;color:var(--a-mu);cursor:pointer;font-size:14px;padding:0 6px}
+.ap-ord button:disabled{opacity:.25;cursor:default}
+.ap-opts{display:flex;flex-wrap:wrap;gap:5px}
+.ap-opts button{font:500 12.5px "JetBrains Mono",monospace;border:1px dashed var(--a-ln);background:transparent;color:var(--a-ink);border-radius:999px;padding:3px 10px;cursor:pointer}
+.ap-slots{display:flex;flex-direction:column;gap:6px}
+.ap-slots label{display:flex;gap:8px;align-items:baseline;font-size:13px;cursor:pointer;flex-wrap:wrap}
+.ap-slots small{color:var(--a-mu);font-size:12px;overflow-wrap:anywhere}
+.ap-chips{display:flex;flex-wrap:wrap;gap:6px}
+.ap-chip{font:500 12.5px "Geologica",system-ui,sans-serif;border:1px solid var(--a-ln);background:var(--a-sf2);border-radius:999px;padding:4px 11px;color:var(--a-ink)}
+.ap-chip b{font-weight:600}
+.ap-foot{display:flex;justify-content:flex-end}
+.ap-cards{display:flex;flex-direction:column;gap:10px}
+.ap-card{border:1px solid var(--a-ln);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:8px;background:var(--a-sf)}
+.ap-card.bad{border-color:var(--a-bad)}
+.ap-card.wait{border-color:var(--a-wt)}
+.ap-ch{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.ap-ch span{color:var(--a-mu);font-size:12.5px}
+.ap-mach{display:flex;gap:5px;flex-wrap:wrap}
+.ap-mach span{font:500 12px "JetBrains Mono",monospace;border-radius:999px;padding:3px 9px}
+.ap-mach .ok{background:var(--a-okw);color:var(--a-ok)}
+.ap-mach .bad{background:var(--a-badw);color:var(--a-bad)}
+.ap-conf{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--a-ln2);border-radius:8px;padding:7px 9px;font-size:13px}
+.ap-act{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.ap-env{font:12px "JetBrains Mono",monospace;color:var(--a-mu);flex:1;min-width:0;overflow-wrap:anywhere}
+.ap-map{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 12px;font-size:12.5px}
+.ap-map span{color:var(--a-mu)}
+.ap-map code{overflow-wrap:anywhere}
+.ap-link{color:var(--a-bz);text-decoration:underline;font-size:12.5px;cursor:pointer}
+.ap-pick{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:13px}
+.ap-pick .ap-chip{border-style:dashed}
+.ap-new{border:1px dashed var(--a-ln);border-radius:10px;padding:10px}
+.ap-grid{display:grid;grid-template-columns:70px minmax(0,1fr);gap:6px 10px;align-items:center;font-size:13px}
+.ap-grid span{color:var(--a-mu)}
+@media (max-width:700px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .ap-side{display:none}
+  .ap-split{grid-template-columns:minmax(0,1fr)}
+  .ap-list{flex-direction:row;overflow-x:auto;gap:4px;padding-bottom:4px}
+  .ap-list .ap-grp{display:none}
+  .ap-row{width:auto;flex:none;border-color:var(--a-ln);padding:5px 10px}
+  .ap-row small{display:none}
+  .ap-head .ap-in{flex-basis:100%}
+}
+
+
+/* Раскладка: та же колонка, что у дизайна профиля; сверху ход сообщения по шагам. */
+.flow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.flow{grid-template-columns:minmax(0,1fr)}
+.ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.ctl .cnt{font:600 12.5px var(--mono);color:var(--muted)}
+.role{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
+.role.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-weak)}
+.role h3{display:flex;gap:8px;align-items:baseline}
+.role .kv{display:grid;grid-template-columns:96px minmax(0,1fr);gap:4px 8px;font-size:13px}
+.role .kv span:nth-child(odd){color:var(--muted)}
+.role .kv span:nth-child(even){font-family:var(--mono);font-size:12.5px}
+.say{border-left:3px solid var(--accent);background:var(--accent-weak);border-radius:0 9px 9px 0;padding:10px 12px;font-size:14px}
+.say b{font-family:var(--mono);font-size:12.5px}
+.d .box.hl{stroke:var(--accent);stroke-width:2.5}
+.d .ln.hl{stroke:var(--accent);stroke-width:2.5}
+/* Правки второго прохода внутри жёлтых блоков: рамка, чтобы их было видно на жёлтом. */
+.chg .chg{outline:2px dashed var(--chg-edge);outline-offset:1px;border-radius:4px}
+.chg .chg.read{outline-color:var(--line)}
+.d g.chg rect.hlbg{fill:var(--chg-bg);stroke:var(--chg-edge);stroke-dasharray:4 3}
+.d g.chg.read rect.hlbg{fill:none;stroke:var(--line)}
+/* ===== Макеты в языке пульта: токены пульта внутри .pm ===== */
+.pm{--p-bg:#E6E9E4;--p-sf:#FBFCFA;--p-sf2:#F0F2EE;--p-ink:#17201B;--p-mu:#56625B;--p-ln:#D3D9D2;--p-ln2:#E2E6E0;--p-acc:#17201B;--p-accw:#E3E8E1;--p-on:#FBFCFA;--p-busy:#2B5CCB;--p-busyw:#E0E7F8;--p-wait:#A85A05;--p-waitw:#FBEBD2;--p-ok:#287649;--p-okw:#DCEEE2;--p-bad:#B3302A;--p-pf:"Geologica","Golos Text",system-ui,sans-serif;--p-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  font:14px/1.45 var(--p-pf);color:var(--p-ink);background:var(--p-bg);border-radius:12px;border:1px solid var(--line);overflow:hidden;min-width:0}
+:root:not([data-theme="light"]) .pm{--p-bg:#0D110F;--p-sf:#151A17;--p-sf2:#1B211D;--p-ink:#E2E8E3;--p-mu:#9AA69F;--p-ln:#2B342E;--p-ln2:#222A25;--p-acc:#E2E8E3;--p-accw:#232B26;--p-on:#151A17;--p-busy:#88A7FF;--p-busyw:#1B2646;--p-wait:#F1A443;--p-waitw:#382810;--p-ok:#66C691;--p-okw:#15301F;--p-bad:#FF8B80}
+:root[data-theme="dark"] .pm{--p-bg:#0D110F;--p-sf:#151A17;--p-sf2:#1B211D;--p-ink:#E2E8E3;--p-mu:#9AA69F;--p-ln:#2B342E;--p-ln2:#222A25;--p-acc:#E2E8E3;--p-accw:#232B26;--p-on:#151A17;--p-busy:#88A7FF;--p-busyw:#1B2646;--p-wait:#F1A443;--p-waitw:#382810;--p-ok:#66C691;--p-okw:#15301F;--p-bad:#FF8B80}
+.pm button{font:inherit;color:inherit;cursor:pointer}
+.pm-row2{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,4fr);gap:14px;align-items:start}
+.pm-row2{grid-template-columns:minmax(0,1fr)}
+.pm-h{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--p-sf);border-bottom:1px solid var(--p-ln2);font:600 17px var(--p-pf)}
+.pm-h .x{color:var(--p-mu);font-weight:400}
+.pm-b{padding:12px 14px;display:flex;flex-direction:column;gap:10px;position:relative}
+.pm-in{background:var(--p-sf);border:1px solid var(--p-ln);border-radius:10px;padding:9px 12px;color:var(--p-mu);font-size:14px}
+.pm-path{display:flex;gap:10px;align-items:center;background:var(--p-sf2);border-radius:10px;padding:9px 12px;font:600 13px var(--p-mono);flex-wrap:wrap}
+.pm-path span{font-weight:400;color:var(--p-mu)}
+.pm-chips{display:flex;flex-wrap:wrap;gap:6px}
+.pm-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--p-ln);background:var(--p-sf2);border-radius:999px;padding:4px 11px;font-size:13px;color:var(--p-ink);max-width:100%}
+.pm-chip .k{color:var(--p-mu)}
+.pm-chip b{font-weight:600}
+.pm-chip.on{border-color:var(--p-acc);box-shadow:0 0 0 1px var(--p-acc) inset}
+.pm-chip.wing{background:var(--p-busyw);border-color:transparent}
+.pm-chip.wing .k{color:var(--p-busy)}
+.pm-ta{background:var(--p-sf);border:1px solid var(--p-ln);border-radius:10px;padding:10px 12px;color:var(--p-mu);min-height:62px}
+.pm-go{align-self:flex-end;background:var(--p-acc);color:var(--p-on);border:0;border-radius:9px;padding:7px 14px;font-weight:600}
+.pm-pop{background:var(--p-sf);border:1px solid var(--p-ln);border-radius:14px;box-shadow:0 1px 2px rgba(20,30,25,.06),0 8px 24px rgba(20,30,25,.12);padding:10px;display:flex;flex-direction:column;gap:4px}
+.pm-pop .t{font-size:13px;color:var(--p-mu);padding:2px 6px 6px}
+.pm-opt{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:2px 8px;align-items:baseline;text-align:left;border:1px solid transparent;background:transparent;border-radius:10px;padding:8px 10px;width:100%}
+.pm-opt:hover{background:var(--p-sf2)}
+.pm-opt[aria-pressed="true"]{background:var(--p-accw);border-color:var(--p-ln)}
+.pm-opt .n{font:600 12px var(--p-mono);color:var(--p-mu)}
+.pm-opt b{font-weight:600}
+.pm-opt .r{font-size:12.5px;color:var(--p-mu);text-align:right}
+.pm-opt .r.pair{color:var(--p-busy)}
+.pm-opt small{grid-column:2 / 4;color:var(--p-mu);font-size:12.5px}
+/* телефон */
+.pm-phone{width:360px;max-width:100%;margin:0 auto;border-radius:22px;height:640px;display:flex;flex-direction:column;position:relative}
+.pm-phone .pm-h{font-size:17px;justify-content:flex-start;gap:12px}
+.pm-sheet{position:absolute;left:0;right:0;bottom:0;background:var(--p-sf);border-radius:18px 18px 0 0;border-top:1px solid var(--p-ln);padding:12px 10px 14px;display:flex;flex-direction:column;gap:4px;box-shadow:0 -8px 24px rgba(20,30,25,.12)}
+.pm-scrim{position:absolute;inset:0;background:rgba(20,30,25,.28)}
+.pm-cta{background:var(--p-acc);color:var(--p-on);border:0;border-radius:12px;padding:11px;font-weight:600;margin-top:6px}
+/* список */
+.pm-list{background:var(--p-sf);width:100%;max-width:380px}
+.pm-lh{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--p-ln2)}
+.pm-lh b{font:600 17px var(--p-pf);flex:1}
+.pm-pj{display:flex;align-items:center;gap:6px;padding:8px 12px;font-weight:600;font-size:14px;border-bottom:1px solid var(--p-ln2)}
+.pm-r{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:0 8px;padding:7px 12px 7px 10px;align-items:start}
+.pm-r.kid{padding-left:30px}
+.pm-dot{width:10px;height:10px;border-radius:50%;margin-top:5px;border:1.5px solid var(--p-mu)}
+.pm-dot.busy{background:var(--p-busy);border-color:var(--p-busy);box-shadow:0 0 0 3px var(--p-busyw)}
+.pm-dot.ok{background:var(--p-ok);border-color:var(--p-ok)}
+.pm-dot.wait{background:var(--p-wait);border-color:var(--p-wait)}
+.pm-t1{display:flex;align-items:baseline;gap:6px;min-width:0}
+.pm-t1 b{font:700 13px var(--p-mono)}
+.pm-t1 .at{margin-left:auto;font:400 12px var(--p-mono);color:var(--p-mu);white-space:nowrap}
+.pm-t2{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;color:var(--p-mu);flex-wrap:wrap}
+.pm-pill{display:inline-flex;font:600 11px var(--p-pf);padding:1px 7px;border-radius:999px;background:var(--p-sf2);border:1px solid var(--p-ln);color:var(--p-ink)}
+.pm-q{color:var(--p-wait);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.pm-wg{color:var(--p-busy)}
+.pm-badge{min-width:20px;height:20px;border-radius:999px;background:var(--p-wait);color:#fff;font:700 11px/20px var(--p-mono);text-align:center;padding:0 6px}
+.pm-list.dense .pm-r{grid-template-columns:16px minmax(0,1fr) auto}
+.pm-list.dense .pm-t2{display:none}
+.pm-vw{background:var(--p-sf);border:1px solid var(--p-ln);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px;max-width:380px}
+.pm-vw .g{font-size:12.5px;color:var(--p-mu)}
+.pm-vw .cs{display:flex;flex-wrap:wrap;gap:5px}
+.pm-vc{border:1px solid var(--p-ln);background:transparent;border-radius:999px;padding:4px 11px;font:600 12.5px var(--p-pf);color:var(--p-mu)}
+.pm-vc[aria-pressed="true"]{background:var(--p-acc);border-color:var(--p-acc);color:var(--p-on)}
+.pm-vc.new{outline:2px dashed var(--chg-edge);outline-offset:1px}
+.pm-lw{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;padding:12px}
+/* карточка */
+.pm-ch{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:var(--p-sf);border-bottom:1px solid var(--p-ln2)}
+.pm-ch b{font:700 14px var(--p-mono)}
+.pm-tabs{display:flex;gap:18px;padding:0 14px;background:var(--p-sf);border-bottom:1px solid var(--p-ln2);font-size:14px;color:var(--p-mu);overflow-x:auto}
+.pm-tabs span{padding:9px 0;white-space:nowrap}
+.pm-tabs span.on{color:var(--p-ink);box-shadow:0 -2px 0 var(--p-ink) inset}
+.pm-sec{display:flex;flex-direction:column;gap:6px}
+.pm-sec .g{font-size:12.5px;color:var(--p-mu);font-weight:600}
+.pm-task{border:1px solid var(--p-ln);border-left:3px solid var(--p-busy);background:var(--p-sf);border-radius:10px;padding:9px 12px;display:flex;flex-direction:column;gap:3px;font-size:13.5px}
+.pm-task .tt{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.pm-task .tt b{font-weight:600}
+.pm-task .m{color:var(--p-mu);font-size:12.5px}
+.pm-msg{background:var(--p-sf);border:1px solid var(--p-ln2);border-radius:10px;padding:9px 12px;font-size:13.5px}
+.pm-msg.you{background:var(--p-waitw);border-color:transparent;align-self:flex-end;max-width:80%}
+.shot-note{font-size:12.5px;color:var(--muted)}
+/* правки после снимков: цвет кнопок, подпись пары под именем на узком окне */
+.pm .pm-go,.pm .pm-cta{color:var(--p-on)}
+.pm-pop,.pm-sheet{container-type:inline-size}
+.pm-opt{grid-template-columns:22px minmax(0,1fr)}
+.pm-opt .r{grid-column:2;text-align:left}
+.pm-opt small{grid-column:2}
+.pm-opt b{min-width:0;overflow-wrap:anywhere}
+.d .box.hot{stroke:var(--accent);stroke-width:3}
+.d .ln.hot{stroke:var(--accent);stroke-width:3}
+button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-weak)}
+
+.um-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;margin:6px 0 12px}
+.um-legend span{display:inline-flex;align-items:center;gap:6px}
+.um-legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+.um-f{background:var(--um-f)}.um-d{background:var(--um-d)}
+:root{--um-f:#7bb48f;--um-d:#5b7fb8}
+.um-bars{display:grid;gap:4px}
+.um-bar{display:grid;grid-template-columns:minmax(120px,240px) 1fr;gap:10px;align-items:center;width:100%;background:none;border:0;padding:5px 6px;border-radius:6px;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.um-bar:hover,.um-bar[aria-expanded=true]{background:color-mix(in srgb,currentColor 8%,transparent)}
+.um-line{display:flex;height:14px;border-radius:4px;overflow:hidden}
+.um-line b{display:block;height:100%}
+.um-row{display:grid;grid-template-columns:1.1fr 1.3fr 1fr;gap:12px;padding:8px 6px;border-top:1px solid color-mix(in srgb,currentColor 14%,transparent);font-size:13.5px}
+.um-row .um-n{font-weight:600}
+.um-row small{display:block;opacity:.65;margin-top:2px}
+.um-row code{font-size:12px;overflow-wrap:anywhere}
+.um-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px}
+.um-tabs button{border:1px solid color-mix(in srgb,currentColor 22%,transparent);background:none;color:inherit;font:inherit;font-size:13px;padding:4px 10px;border-radius:999px;cursor:pointer}
+.um-tabs button[aria-pressed=true]{background:currentColor}
+.um-tabs button[aria-pressed=true] span{filter:invert(1)}
+.um-fig{margin:0}.um-fig img{width:100%;height:auto;display:block;border-radius:8px;border:1px solid color-mix(in srgb,currentColor 14%,transparent)}
+.um-fig figcaption{font-size:13.5px;margin-top:8px;opacity:.8}
+.um-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:8px 0 14px}
+.um-sum div{font-size:13px}.um-sum b{display:block;font-size:26px;line-height:1.2}
+.part-h{margin:44px 0 6px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;opacity:.65}
+@media (max-width:640px){.um-row{grid-template-columns:1fr}.um-bar{grid-template-columns:1fr}}
+</style></head><body>
+<div class="wrap">
+<header class="top">
+  <div class="eyebrow">Дизайн · сессии Claude на всех машинах</div>
+  <h1>Сессии из кусочков</h1>
+  <p class="lede chg" data-chg="un-lede">Сессия собирается из кусочков: папок в git с инструкциями, скилами, настройками и памятью. Ключ провайдера заводится один раз на весь флот. Две сессии могут работать парой: сильная модель ведёт, другая делает. Страница описывает <b>все фичи прототипа</b> поверх нынешнего кода.</p>
+  <div class="howto"><span><kbd>A</kbd> прочитал блок</span><span><kbd>Z</kbd> снять метку</span><span>Работа большая: меняет договор открытия сессии, запись в списке сессий, формат папки, вид аккаунта</span></div>
+</header>
+<section class="blk chg" id="map" data-chg="un-23">
+  <div class="blk-h"><h2>Что входит</h2><span class="tag"></span><p class="muted">Каждая строка — фича прототипа. Нажмите область.</p></div>
+  <div class="um-legend"><span><i class="um-f"></i>только экран, идёт сразу</span><span><i class="um-d"></i>нужны система и договор</span></div>
+  <div class="um-bars" id="umBars"></div>
+  <div id="umList"></div>
+  <p class="fact">В продукт не идут только помощники прототипа: подмена ответов, мок, комментарии и снимки.</p>
+</section>
+<section class="blk chg" id="shots" data-chg="un-24">
+  <div class="blk-h"><h2>Экраны</h2><span class="tag"></span><p class="muted">Снимки настоящего кода страницы с данными мока. Рыжие кружки — комментарии прототипа.</p></div>
+  <div class="um-tabs" id="umTabs"></div>
+  <figure class="um-fig"><img id="umImg" alt=""><figcaption id="umCap"></figcaption></figure>
+</section>
+<section class="blk chg" id="onmain" data-chg="un-25">
+  <div class="blk-h"><h2>На нынешнем коде</h2><span class="tag"></span><p class="muted">Прототип собран на коде, который с тех пор переписан. Здесь — что это изменило.</p></div>
+  <div class="um-sum"><div class="chg" data-chg="bl-sum1"><b>85</b>опор системы проверено</div><div><b>67</b>держатся как были</div><div class="chg" data-chg="bl-sum2"><b>18</b>изменились</div><div><b>75</b>файлов экранов получили место</div></div>
+  <div class="tw"><table><thead><tr><th>Что нашлось</th><th>Решение</th><th>Эталон</th></tr></thead><tbody>
+  <tr class="chg" data-chg="bl-on-merge"><td>Конфликт живёт одну минуту: следующее сведение делает <code>git add</code> и <code>commit</code> поверх незавершённого слияния, и метки конфликта уходят в репозиторий. Повторено на git: файл с метками в общей ветке за <b>1</b> такт</td><td>Пока идёт слияние, сведение клон не трогает: <code>state: conflict</code> держится до коммита сессии</td><td>8037</td></tr>
+  <tr class="chg" data-chg="bl-on-rotate"><td>Подъём читает папку ключа и флот не спрашивает, а папку переписывают только открытие, смена слота и перезапуск системы: сменённый ключ или адрес не доходят до другой машины даже после перезапуска сессии</td><td>Смена ключа идёт кадром каждой машине тем же путём, что план выпусков; папку переписывает система</td><td>8036</td></tr>
+  <tr class="chg" data-chg="bl-on-inc"><td>Инциденты открывают сессию с профилем из файла настроек машины, строкой: список сделал бы такое открытие отказом</td><td>В файле настроек профиль типа тоже список; модуль передаёт его как есть, кода нет, перевод файлов — в выкатке</td><td>8035</td></tr>
+  <tr class="chg" data-chg="bl-on-from"><td>Сообщение во вводе меняет «кто дал задачу» получателя: ведущий стал бы задавать свои вопросы ведомому, а отвечать тому нечем</td><td>Сообщения ведущему идут с той же отметкой, что итог хода</td><td>8107</td></tr>
+  <tr class="chg" data-chg="bl-on-dir"><td>Папка слота — ссылка на аккаунт: папка с файлами на её месте даёт отказ новому слоту, а слот с именем ключа и ключ делили бы одну папку</td><td>У ключа своя папка рядом с папками слотов; сессия помнит, что её слот — ключ</td><td>8011</td></tr>
+  <tr><td>Система поднимает сессии до подключения к флоту, а ошибка сборки запуска не становится отказом</td><td>Ключ флота спрашивается при открытии, смене слота и один раз после подключения. Подъём берёт его с диска</td><td>8031</td></tr>
+  <tr><td>Отказ в сборке запуска выключает модуль профилей в сессии: снять плохой кусочек нельзя</td><td>Сессия поднимается без кусочков, <code>state: error</code>, журнал. Уже так работает пропавший кусочек</td><td>8008</td></tr>
+  <tr><td>На старте системы настройки флота недоступны</td><td>Список репозиториев — первое чтение после подключения; кусочки на подъёме ищутся по папкам на диске</td><td>8024</td></tr>
+  <tr><td>Сведение коммитит только память и скилы</td><td>Весь клон: новые стиль, агент и правило уезжают сами, кода становится меньше</td><td>8030</td></tr>
+  <tr><td>Пробный запуск системы не делает запроса к модели</td><td>Проверка ключа — разовый запуск claude</td><td>8032</td></tr>
+  <tr><td>Кто сильнее, ключ флота или кусочек, зависел бы от порядка модулей</td><td>Уровень вклада <code>tier</code>, порядок уровней один, в ядре</td><td>8034</td></tr>
+  <tr><td>Точки зовут те же стоп и снятие, что и человек: перенос снял бы ведомого без его точки</td><td>Перенос ведущего — отказ <code>has_wing</code>; копия — без ведомого; откат поднимает ведомого без точки<span class="chg" data-chg="bl-on-probe">. Отказ стоит в плане подъёма: система цели видит ведомого в списке сессий, проба отказывает до остановки, кнопка переноса не нажимается</span></td><td>8118</td></tr>
+  <tr><td>Подъём из точки молча теряет профиль не строкой</td><td>Список проходит целиком</td><td>8033</td></tr>
+  <tr><td>Запрос без адреса не доходит до системы</td><td><span class="chg" data-chg="bl-on-prompt"><code>fleet.prompt { machine }</code></span></td><td>8028</td></tr>
+  <tr><td>Перетаскивание на доске переписано; в прототипе старый жест</td><td>Один жест: жест доски выносится в общий набор, таблица участника пользуется им</td><td>тест жеста</td></tr>
+  <tr><td>Разговор держит свёртку и окружение на экран; прототип ставил в колонку два куска</td><td>Колонка пары — один экран разговора плюс живая строка шага. Панель контекста — состояние экрана</td><td>тест разговора</td></tr>
+  <tr><td>Сверка 2 нояб. вернула меню ⋯, окна шапки, сведения сбоку</td><td>Слова 6 нояб. новее: шапка в строку, «Сведения» вкладкой. Источники этих тестов заменяются</td><td>5301, 5304–5306</td></tr>
+  <tr><td>Сверка вернула числа в фильтрах, группах машин, непрочитанном; в окне фильтра число прототип пропустил</td><td>Снять все: правило «без чисел»</td><td>тесты доски</td></tr>
+  <tr><td>Новый пакет таблицы участника не входил в сборку страниц</td><td>Добавить в обе сборки</td><td>5138, 5139</td></tr>
+  </tbody></table></div>
+  <p class="fact">Остаётся как на main: «Точки в R2», подзаголовок карточки на телефоне, окна «Вид списка» и фильтра, подсказки «@» и «/» поверх ленты. Слова пользователя об этих местах нет. Режим кнопками — только в поле ввода и настройках: вопросы, журнал и выбор на других экранах не меняются.</p>
+</section>
+<div class="part-h">Профиль из кусочков</div>
+<section class="blk chg" data-chg="pc-compose" id="compose">
+  <div class="blk-h"><h2>Собери сессию</h2><span class="tag"></span><p class="muted">Включайте профили, меняйте порядок и аккаунт: справа видно, что получит сессия и что уйдёт в Claude. Папки — пример.</p></div>
+  <div class="compose">
+    <div class="inner pad">
+      <h3>Профили</h3>
+      <div class="pieces" id="pieces"></div>
+      <h3>Порядок: нижний выигрывает</h3>
+      <div class="stack" id="stack"></div>
+      <h3>Аккаунт</h3>
+      <div class="seg" id="accounts"></div>
+    </div>
+    <div class="inner pad">
+      <div id="word"></div>
+      <div class="tw"><table class="out"><tbody id="out"></tbody></table></div>
+      <h3>Что получает Claude</h3>
+      <div class="code"><pre id="code"></pre></div>
+    </div>
+  </div>
+</section>
+<section class="blk chg" data-chg="pc-piece" id="piece">
+  <div class="blk-h"><h2>Кусочек — обычная папка</h2><span class="tag"></span></div>
+  <figure class="fig">
+    <svg class="d" viewBox="0 0 1000 382" role="img" aria-label="Каждая часть папки кусочка идёт в Claude своим штатным путём и попадает в своё место сессии">
+      <defs><marker id="a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip"></path></marker></defs>
+      <text class="s" x="10" y="18">в папке</text><text class="s" x="350" y="18">путь в Claude</text><text class="s" x="710" y="18">где оказывается</text>
+      <g>
+        <rect class="box" x="10" y="30" width="270" height="56" rx="8"></rect><text class="m" x="24" y="53">CLAUDE.md</text><text class="m" x="24" y="72">.claude/rules/*.md</text>
+        <rect class="box acc" x="350" y="30" width="290" height="56" rx="8"></rect><text x="364" y="53">дополнительная папка сессии</text><text class="s" x="364" y="72">плюс штатная переменная окружения</text>
+        <rect class="box ok" x="710" y="30" width="280" height="56" rx="8"></rect><text x="724" y="53">контекст сессии</text><text class="s" x="724" y="72">и каждого субагента с нуля</text>
+        <line class="ln" x1="280" y1="58" x2="348" y2="58" marker-end="url(#a1)"></line><line class="ln" x1="640" y1="58" x2="708" y2="58" marker-end="url(#a1)"></line>
+      </g>
+      <g>
+        <rect class="box" x="10" y="100" width="270" height="74" rx="8"></rect><text class="m" x="24" y="122">skills/  agents/  commands/</text><text class="m" x="24" y="141">hooks/   .mcp.json</text><text class="m" x="24" y="160">output-styles/</text>
+        <rect class="box acc" x="350" y="100" width="290" height="74" rx="8"></rect><text x="364" y="132">плагин сессии</text><text class="s" x="364" y="151">по одному на кусочек</text>
+        <rect class="box ok" x="710" y="100" width="280" height="74" rx="8"></rect><text x="724" y="132">скилы вида «папка:скил»</text><text class="s" x="724" y="151">агенты, хуки, серверы MCP</text>
+        <line class="ln" x1="280" y1="137" x2="348" y2="137" marker-end="url(#a1)"></line><line class="ln" x1="640" y1="137" x2="708" y2="137" marker-end="url(#a1)"></line>
+      </g>
+      <g>
+        <rect class="box" x="10" y="188" width="270" height="56" rx="8"></rect><text class="m" x="24" y="211">settings.json</text><text class="s" x="24" y="230">родной формат Claude, блок env внутри</text>
+        <rect class="box acc" x="350" y="188" width="290" height="56" rx="8"></rect><text x="364" y="211">настройки сессии и её окружение</text><text class="s" x="364" y="230">сливаются по порядку, нижний выигрывает</text>
+        <rect class="box ok" x="710" y="188" width="280" height="56" rx="8"></rect><text x="724" y="211">модель, усилие, разрешения,</text><text class="s" x="724" y="230">любая настройка и переменная</text>
+        <line class="ln" x1="280" y1="216" x2="348" y2="216" marker-end="url(#a1)"></line><line class="ln" x1="640" y1="216" x2="708" y2="216" marker-end="url(#a1)"></line>
+      </g>
+      <g>
+        <rect class="box" x="10" y="258" width="270" height="56" rx="8"></rect><text class="m" x="24" y="281">memory/</text><text class="s" x="24" y="300">MEMORY.md и файлы памяти</text>
+        <rect class="box acc" x="350" y="258" width="290" height="56" rx="8"></rect><text x="364" y="281">последняя память — домашняя</text><text class="s" x="364" y="300">остальные — текстом в системный промпт</text>
+        <rect class="box ok" x="710" y="258" width="280" height="56" rx="8"></rect><text x="724" y="281">запись и чтение во всех</text><text class="s" x="724" y="300">правка уходит в git своего кусочка</text>
+        <line class="ln" x1="280" y1="286" x2="348" y2="286" marker-end="url(#a1)"></line><line class="ln" x1="640" y1="286" x2="708" y2="286" marker-end="url(#a1)"></line>
+      </g>
+      <g>
+        <rect class="box" x="10" y="328" width="270" height="48" rx="8"></rect><text class="m" x="24" y="348">.claude-plugin/plugin.json</text><text class="m" x="24" y="366">name, description, metadata.use</text>
+        <rect class="box acc" x="350" y="328" width="290" height="48" rx="8"></rect><text x="364" y="348">манифест того же плагина</text><text class="s" x="364" y="366">родной формат, необязателен</text>
+        <rect class="box ok" x="710" y="328" width="280" height="48" rx="8"></rect><text x="724" y="348">префикс скилов</text><text class="s" x="724" y="366">и подпись в списке кусочков</text>
+        <line class="ln" x1="280" y1="352" x2="348" y2="352" marker-end="url(#a1)"></line><line class="ln" x1="640" y1="352" x2="708" y2="352" marker-end="url(#a1)"></line>
+      </g>
+    </svg>
+    <figcaption>Любая часть необязательна: кусочек — любая папка верхнего уровня репозитория.</figcaption>
+  </figure>
+  <div class="two">
+    <div class="inner pad"><h3>Кусочек с навыками</h3><div class="code"><pre>team/p/design/
+  skills/design/SKILL.md
+  skills/deliver/SKILL.md
+  agents/architect.md</pre></div></div>
+    <div class="inner pad"><h3>Кусочек с подписью и своим именем</h3><div class="code"><pre>beta/p/ops/.claude-plugin/plugin.json
+
+{ "name": "beta-ops", "description": "серверы команды beta" }</pre></div>
+      <p class="fact">Скил становится <b>beta-ops:restart</b>. Манифест без name: плагин молча пропал, <b>0</b> скилов из <b>1</b>, поэтому такой кусочек получает отказ.</p></div>
+  </div>
+  <div class="inner pad chg" data-chg="pc-sets">
+    <h3>Набор — кусочек с составом</h3>
+    <div class="two">
+      <div class="code"><pre>team/p/dev/.claude-plugin/plugin.json
+
+{ "name": "dev",
+  "description": "моя обычная работа",
+  "metadata": { "use": ["team/p/base",
+                        "team/p/switchboard",
+                        "team/p/design"] } }</pre></div>
+      <figure class="fig">
+        <svg class="d" viewBox="0 0 470 190" role="img" aria-label="Сессия хранит список как выбран, с набором; на каждом старте набор разворачивается в кусочки, сам набор встаёт после своего состава" style="min-width:420px">
+          <defs><marker id="a9" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip"></path></marker></defs>
+          <text class="s" x="10" y="16">хранит сессия</text><text class="s" x="250" y="16">на каждом старте</text>
+          <rect class="box acc" x="10" y="28" width="150" height="34" rx="7"></rect><text class="m" x="22" y="50">dev</text>
+          <rect class="box" x="10" y="72" width="150" height="34" rx="7"></rect><text class="m" x="22" y="94">github</text>
+          <rect class="box" x="250" y="28" width="210" height="26" rx="6"></rect><text class="m" x="262" y="46">base</text>
+          <rect class="box" x="250" y="58" width="210" height="26" rx="6"></rect><text class="m" x="262" y="76">switchboard</text>
+          <rect class="box" x="250" y="88" width="210" height="26" rx="6"></rect><text class="m" x="262" y="106">design</text>
+          <rect class="box acc" x="250" y="118" width="210" height="26" rx="6"></rect><text class="m" x="262" y="136">dev, если в нём что-то есть</text>
+          <rect class="box" x="250" y="148" width="210" height="26" rx="6"></rect><text class="m" x="262" y="166">github</text>
+          <line class="ln" x1="160" y1="45" x2="248" y2="45" marker-end="url(#a9)"></line><line class="ln" x1="160" y1="89" x2="248" y2="160" marker-end="url(#a9)"></line>
+        </svg>
+      </figure>
+    </div>
+    <p class="fact">Состав лежит в <b>metadata</b> манифеста: Claude это поле хранит и не читает. Плагин с набором загрузился так же, как без него: <b>2</b> плагина из <b>2</b>, скилы обоих в сессии. Правка набора в git меняет состав у всех сессий на следующем старте. Повтор — первое вхождение, набор внутри набора разворачивается, кольцо — отказ.</p>
+  </div>
+</section>
+<section class="blk chg" data-chg="pc-layers" id="layers">
+  <div class="blk-h"><h2>Кто выигрывает в настройках</h2><span class="tag"></span></div>
+  <figure class="fig">
+    <svg class="d" viewBox="0 0 1000 262" role="img" aria-label="Значения кусочков сливаются по порядку; ключ, заданный системой, выигрывает у кусочка с записью в журнале; ключи плательщика дают отказ">
+      <defs><marker id="a5" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip"></path></marker></defs>
+      <text class="s" x="10" y="18">ключ</text><text class="s" x="210" y="18">base</text><text class="s" x="380" y="18">fast, нижний</text><text class="s" x="550" y="18">система</text><text class="s" x="750" y="18">получает Claude</text>
+      <text class="m" x="10" y="52">effortLevel</text>
+      <rect class="box" x="210" y="30" width="140" height="36" rx="7"></rect><text class="m" x="224" y="53">high</text>
+      <rect class="box ok" x="750" y="30" width="240" height="36" rx="7"></rect><text class="m" x="764" y="53">high</text>
+      <line class="ln" x1="350" y1="48" x2="748" y2="48" marker-end="url(#a5)"></line>
+      <text class="m" x="10" y="108">model</text>
+      <rect class="box dim" x="210" y="86" width="140" height="36" rx="7"></rect><text class="m" x="224" y="109">opus</text>
+      <rect class="box" x="380" y="86" width="140" height="36" rx="7"></rect><text class="m" x="394" y="109">sonnet</text>
+      <rect class="box ok" x="750" y="86" width="240" height="36" rx="7"></rect><text class="m" x="764" y="109">sonnet</text>
+      <line class="ln" x1="520" y1="104" x2="748" y2="104" marker-end="url(#a5)"></line>
+      <text class="m" x="10" y="164">outputStyle</text>
+      <rect class="box" x="380" y="142" width="140" height="36" rx="7"></rect><text class="m" x="394" y="165">кратко</text>
+      <rect class="box acc" x="550" y="142" width="170" height="36" rx="7"></rect><text class="m" x="564" y="165">выбор в сессии</text>
+      <rect class="box ok" x="750" y="142" width="240" height="36" rx="7"></rect><text class="m" x="764" y="165">выбор в сессии + журнал</text>
+      <line class="ln" x1="720" y1="160" x2="748" y2="160" marker-end="url(#a5)"></line>
+      <text class="m" x="10" y="220">ANTHROPIC_BASE_URL</text>
+      <rect class="box bad" x="210" y="198" width="140" height="36" rx="7"></rect><text class="m" x="224" y="221">https://…</text>
+      <rect class="box bad" x="750" y="198" width="240" height="36" rx="7"></rect><text class="m" x="764" y="221">bad_profile</text>
+      <line class="ln bad" x1="350" y1="216" x2="748" y2="216"></line>
+    </svg>
+    <figcaption>Кусочки — данные из git. Конфликт данных не останавливает ничего, кроме своей сессии: проверка «у ключа один владелец» остаётся только между модулями системы, где два владельца — ошибка кода.</figcaption>
+  </figure>
+  <p class="fact">Проверка владельцев на старте системы отказывает целиком: одна сессия с конфликтом — ни одной сессии на машине. Поэтому значения кусочков до неё не доходят.</p>
+</section>
+<section class="blk chg" data-chg="pc-sides" id="sides">
+  <div class="blk-h"><h2>Четыре стороны атаки</h2><span class="tag"></span><p class="muted">Настоящий процесс claude 2.1.311 и поддельный API, который записывает запрос. Зелёное вошло в решение.</p></div>
+  <div class="tw"><table>
+    <thead><tr><th></th><th>SDK и штатные опции</th><th>Настройки и файлы</th><th>Переменные окружения</th><th>Скрытое</th></tr></thead>
+    <tbody>
+      <tr><th>Скилы, агенты, хуки, MCP</th>
+        <td class="cell pick"><b>Список плагинов</b><small>2 плагина → 2 скила. Две папки с одним именем и скилом → второй молча пропал</small></td>
+        <td class="cell"><b>Каталог и установка плагинов</b><small>нужна установка на каждой машине, у нас уже есть клон; не проверял</small></td>
+        <td class="cell"><b>Папки плагинов в переменной</b><small>то же, что список</small></td>
+        <td class="cell"><b>Плагин по ссылке</b><small>нужен архив, у нас есть git</small></td></tr>
+      <tr><th>Инструкции</th>
+        <td class="cell"><b>Добавка к системному промпту</b><small>субагент с нуля её не видит: 0 из 1</small></td>
+        <td class="cell"><b>@-импорт в CLAUDE.md</b><small>в дополнительной папке не раскрылся: 0 из 2</small></td>
+        <td class="cell pick"><b>Дополнительные папки + переменная</b><small>2 CLAUDE.md и 2 правила в запросе; субагент видит; родительская папка не подтянулась</small></td>
+        <td class="cell"><b>Второй корень проекта</b><small>корень один, по справке; не проверял</small></td></tr>
+      <tr><th>Настройки и переменные</th>
+        <td class="cell pick"><b>Настройки сессии</b><small>env из них дошёл до запроса: модель сменилась</small></td>
+        <td class="cell pick"><b>Файл в родном формате</b><small>любая настройка без перевода с нашего языка</small></td>
+        <td class="cell pick"><b>Окружение сессии</b><small>env кусочка идёт в окружение; ключ, заданный системой, выигрывает</small></td>
+        <td class="cell"><b>Агент главной нити</b><small>тоже держит модель и скилы, но агент на сессию один</small></td></tr>
+      <tr><th>Память</th>
+        <td class="cell pick"><b>Папка памяти + добавка к промпту</b><small>2 индекса из 2 в запросе; папка у Claude одна</small></td>
+        <td class="cell"><b>Ссылка на чужую память внутри своей</b><small>индекс чужой памяти не загружен: 0 из 1. @-импорт в MEMORY.md: 0 из 1</small></td>
+        <td class="cell"><b>Переменная с текстом памяти</b><small>работает, но не описана и повторяет добавку</small></td>
+        <td class="cell"><b>Хранилища с точками монтирования</b><small>идеально по форме, но за флагом сервера и облачным API. Включил: индекс памяти исчез, 0 из 1</small></td></tr>
+      <tr><th>Модель и провайдер</th>
+        <td class="cell"><b>Отключить thinking опцией</b><small>в запросе нет thinking; разово, на сессию</small></td>
+        <td class="cell pick"><b>Команда, выдающая токен</b><small>Authorization из файла; в Bash сессии токена нет</small></td>
+        <td class="cell pick"><b>Адрес и модели на alias</b><small>opus → kimi-k2 в запросе; субагент haiku → kimi-small; fable → kimi-f; сессия без модели → kimi-k2</small></td>
+        <td class="cell"><b>Каталог с адреса, встроенный шлюз</b><small>каталог пропускает только имена на claude: kimi отсеян. Шлюз — для входа и телеметрии, не переводчик</small></td></tr>
+      <tr><th>Несовместимые поля запроса</th>
+        <td class="cell"><b>Опция thinking</b><small>снимает только thinking; разово, на сессию</small></td>
+        <td class="cell"><b>alwaysThinkingEnabled: false</b><small>снимает только thinking; тот же ключ задаёт выбор в сессии</small></td>
+        <td class="cell pick"><b>DISABLE_THINKING + EFFORT_LEVEL=auto</b><small>обе описаны; в запросе нет ни thinking, ни effort; отвергавший провайдер ответил с 1-й попытки</small></td>
+        <td class="cell"><b>MODEL_CAPABILITIES</b><small>не описана; вместо thinking шлёт старый бюджет 31999</small></td></tr>
+      <tr><th>Подпись и имя кусочка</th>
+        <td class="cell pick"><b>Манифест плагина</b><small>name → префикс скилов, description → подпись. settings.json в корне плагина Claude своим не считает: model и запрет Bash из него не применились</small></td>
+        <td class="cell"><b>Свой файл в папке</b><small>второй формат и свой разбор ради одной подписи</small></td>
+        <td class="cell"><b>—</b></td>
+        <td class="cell"><b>—</b></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="blk chg" data-chg="pc-memory" id="memory">
+  <div class="blk-h"><h2>Память: одна домашняя, остальные рядом</h2><span class="tag"></span></div>
+  <figure class="fig">
+    <svg class="d" viewBox="0 0 1000 250" role="img" aria-label="Сессия читает индексы всех памятей; домашняя подключена штатно, остальные дописаны в системный промпт; файлы синхронизируются через git своего кусочка">
+      <defs><marker id="a2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip"></path></marker><marker id="a2o" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip ok"></path></marker></defs>
+      <rect class="box" x="10" y="20" width="240" height="60" rx="8"></rect><text x="24" y="44">base / memory</text><text class="s" x="24" y="64">как я работаю</text>
+      <rect class="box" x="10" y="95" width="240" height="60" rx="8"></rect><text x="24" y="119">ops / memory</text><text class="s" x="24" y="139">сервера и инциденты</text>
+      <rect class="box ok" x="10" y="170" width="240" height="60" rx="8"></rect><text x="24" y="194">switchboard / memory</text><text class="s" x="24" y="214">последняя в списке: домашняя</text>
+      <rect class="box acc" x="400" y="70" width="240" height="110" rx="10"></rect><text x="420" y="104">Сессия</text><text class="s" x="420" y="126">индексы всех трёх в запросе</text><text class="s" x="420" y="146">новое пишет в подходящую</text>
+      <line class="ln" x1="250" y1="50" x2="398" y2="96" marker-end="url(#a2)"></line><text class="s" x="282" y="56">путь и индекс в промпте</text>
+      <line class="ln" x1="250" y1="125" x2="398" y2="125" marker-end="url(#a2)"></line>
+      <line class="ln ok" x1="250" y1="200" x2="398" y2="154" marker-end="url(#a2o)"></line><text class="s" x="282" y="208">штатная папка памяти</text>
+      <rect class="box dim" x="760" y="70" width="230" height="110" rx="10"></rect><text x="778" y="104">git каждого кусочка</text><text class="s" x="778" y="126">запись файла запускает</text><text class="s" x="778" y="146">сведение его репозитория</text>
+      <line class="ln" x1="640" y1="125" x2="758" y2="125" marker-end="url(#a2)"></line><text class="s" x="662" y="115">Write, Edit</text>
+    </svg>
+    <figcaption>Субагент с нуля видит домашнюю память и все инструкции; остальные памяти — только главная нить сессии.</figcaption>
+  </figure>
+</section>
+<section class="blk chg" data-chg="pc-provider" id="provider">
+  <div class="blk-h"><h2>Модели и провайдеры: новый вид аккаунта</h2><span class="tag"></span><p class="muted">Сессия и сейчас выбирает слот — место, за которым стоит аккаунт. Провайдер встаёт в слот так же. Форма открытия не меняется: alias opus, sonnet, haiku и fable ведут к моделям провайдера. <span class="chg" data-chg="pc-k-head">Провайдер — ключ флота: заводится один раз, на каждой машине он сам себе слот.</span></p></div>
+  <figure class="fig">
+    <svg class="d" viewBox="0 0 1000 270" role="img" aria-label="Слот ведёт к аккаунту Claude или к аккаунту провайдера; провайдер задаёт адрес, модели и токен из файла; провайдер только с OpenAI API подключается через переводчик по тому же адресу">
+      <defs><marker id="a3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip"></path></marker></defs>
+      <rect class="box acc" x="10" y="100" width="130" height="66" rx="8"></rect><text x="28" y="128">Сессия</text><text class="s" x="28" y="148">выбрала слот</text>
+      <rect class="box" x="210" y="26" width="280" height="62" rx="8"></rect><text x="226" y="50">Аккаунт Claude</text><text class="s" x="226" y="70">вход по ссылке, лимиты, запасные</text>
+      <rect class="box ok" x="210" y="130" width="280" height="110" rx="8"></rect><text x="226" y="154">Аккаунт провайдера</text><text class="m" x="226" y="176">адрес, модели, ещё env</text><text class="m" x="226" y="196">токен в файле папки</text><text class="s" x="226" y="222">один в слоте, без лимитов и подмены</text>
+      <line class="ln" x1="140" y1="118" x2="208" y2="62" marker-end="url(#a3)"></line><line class="ln" x1="140" y1="148" x2="208" y2="180" marker-end="url(#a3)"></line>
+      <rect class="box dim" x="600" y="26" width="390" height="62" rx="8"></rect><text x="616" y="62">api.anthropic.com</text>
+      <rect class="box" x="600" y="118" width="390" height="50" rx="8"></rect><text x="616" y="139">Провайдер с API в формате Anthropic</text><text class="s" x="616" y="158">Kimi, DeepSeek, GLM и другие</text>
+      <rect class="box you" x="600" y="186" width="170" height="60" rx="8"></rect><text x="614" y="212">Переводчик</text><text class="s" x="614" y="232">LiteLLM и подобные</text>
+      <rect class="box" x="820" y="186" width="170" height="60" rx="8"></rect><text x="834" y="212">Только OpenAI API</text><text class="s" x="834" y="232">большинство хостов</text>
+      <line class="ln" x1="490" y1="57" x2="598" y2="57" marker-end="url(#a3)"></line><line class="ln" x1="490" y1="165" x2="598" y2="143" marker-end="url(#a3)"></line><line class="ln" x1="490" y1="205" x2="598" y2="216" marker-end="url(#a3)"></line><line class="ln" x1="770" y1="216" x2="818" y2="216" marker-end="url(#a3)"></line>
+      <text class="s" x="505" y="134">адрес</text><text class="s" x="505" y="228">адрес</text>
+    </svg>
+    <figcaption>Адреса провайдера и переводчика для сессии неотличимы: своего кода перевода в системе нет.</figcaption>
+  </figure>
+
+  <h3>Что уходит провайдеру: нажмите строку</h3>
+  <div class="tw"><table id="req">
+    <thead><tr><th>Настройка аккаунта</th><th class="n">модель</th><th class="n">бета</th><th class="n">thinking</th><th class="n">effort</th><th class="n">инструментов</th><th class="n">кэш</th></tr></thead>
+    <tbody id="reqb"></tbody>
+  </table></div>
+  <div class="code"><pre id="reqd"></pre></div>
+  <p class="fact">Провайдер отвергает thinking с ошибкой 400: claude делает <b>6</b> попыток, снижая число бета-заголовков с <b>8</b> до <b>5</b>, thinking оставляет, и пишет в сессию «API Error: 400 thinking: unknown parameter». Сессия видит отказ словами. Лечится данными аккаунта: с двумя описанными переменными тот же провайдер ответил с <b>1</b>-й попытки.</p>
+  <p class="fact">Полное имя модели не подменяется: <b>claude-sonnet-4-6</b> из настройки уходит провайдеру как есть, ответ провайдера сессия видит словами.</p>
+  <p class="fact">Remote Control на провайдере недоступен: claude отказывает за <b>18</b> мс — «only available when using Claude via api.anthropic.com»; причина видна в карточке сессии, остальное работает.</p>
+
+  <div class="two">
+    <div class="inner pad">
+      <h3>Токен: где он виден модели</h3>
+      <div class="tw"><table>
+        <thead><tr><th>Способ</th><th>Bash сессии видит</th></tr></thead>
+        <tbody>
+          <tr><td>Переменная окружения</td><td class="no mono">TOKEN=[fake]</td></tr>
+          <tr><td>Переменная + чистка окружения</td><td class="no">любая команда с $ в Bash отказывает</td></tr>
+          <tr class="pick"><td>Команда читает файл</td><td class="yes mono">TOKEN=[]</td></tr>
+        </tbody>
+      </table></div>
+      <p class="muted" style="font-size:13px">Сам файл модель прочитать может, как и файл входа Claude: токен не попадает в окружение дочерних процессов, а не спрятан от неё.</p>
+    </div>
+    <div class="inner pad">
+      <h3>Смена провайдера посреди разговора</h3>
+      <div class="steps">
+        <div class="stepb"><b>kimi-k2</b>ответ с thinking и подписью</div>
+        <div class="stepb"><b>other-model</b>разговор продолжен, чужих подписей в запросе 0</div>
+        <div class="stepb"><b>kimi-k2</b>подпись своей модели снова в запросе</div>
+      </div>
+      <p class="muted" style="font-size:13px">Claude сам снимает чужой thinking при смене имени модели, поэтому смена слота работает как сейчас: перезапуск и продолжение.</p>
+    </div>
+  </div>
+</section>
+<section class="blk chg" data-chg="pc-prompt" id="prompt">
+  <div class="blk-h"><h2>Системный промпт из профиля</h2><span class="tag"></span><p class="muted">Три штатных пути Claude, каждый — файлом в кусочке. Своего сборщика промпта нет.</p></div>
+  <figure class="fig">
+    <svg class="d" viewBox="0 0 1000 300" role="img" aria-label="Системный промпт складывается из основы Claude или агента-замены, стиля из кусочка и добавки системы; инструкции кусочков идут контекстом">
+      <text class="s" x="10" y="18">системный промпт, сверху вниз</text><text class="s" x="640" y="18">чем управляет кусочек</text>
+      <rect class="box" x="10" y="30" width="560" height="56" rx="8"></rect><text x="26" y="54">Основа Claude Code</text><text class="s" x="26" y="74">или вместо неё — промпт агента главной нити</text>
+      <rect class="box acc" x="640" y="30" width="350" height="56" rx="8"></rect><text class="m" x="656" y="54">agents/lead.md + settings.json: agent</text><text class="s" x="656" y="74">замена целиком: 6245 → 346 знаков</text>
+      <rect class="box" x="10" y="98" width="560" height="56" rx="8"></rect><text x="26" y="122">Раздел «Output Style»</text><text class="s" x="26" y="142">тон, формат, роль поверх основы</text>
+      <rect class="box acc" x="640" y="98" width="350" height="56" rx="8"></rect><text class="m" x="656" y="122">output-styles/terse.md + outputStyle</text><text class="s" x="656" y="142">имя только полное: «кусочек:стиль»</text>
+      <rect class="box dim" x="10" y="166" width="560" height="56" rx="8"></rect><text x="26" y="190">Добавка системы</text><text class="s" x="26" y="210">индексы недомашних памятей, инструменты флота; кусочек не трогает</text>
+      <rect class="box dim" x="640" y="166" width="350" height="56" rx="8"></rect><text x="656" y="190">не кусочка</text><text class="s" x="656" y="210">держит система</text>
+      <rect class="box ok" x="10" y="240" width="560" height="52" rx="8"></rect><text x="26" y="263">Контекст: CLAUDE.md и правила кусочков</text><text class="s" x="26" y="282">рядом с промптом; видят и субагенты</text>
+      <rect class="box acc" x="640" y="240" width="350" height="52" rx="8"></rect><text class="m" x="656" y="263">CLAUDE.md, .claude/rules/</text><text class="s" x="656" y="282">добавка, а не замена</text>
+    </svg>
+    <figcaption>Два кусочка задают стиль или агента — выигрывает нижний, как любая настройка. Просмотр профиля показывает, кто выиграл.</figcaption>
+  </figure>
+  <div class="tw"><table>
+    <thead><tr><th>Опыт: claude 2.1.311, поддельный API</th><th>Стиль в системном промпте</th></tr></thead>
+    <tbody>
+      <tr><td>плагин со стилем, стиль не выбран</td><td class="n">нет</td></tr>
+      <tr><td><code>outputStyle: "terse"</code></td><td class="n no">нет: короткое имя не находит стиль плагина</td></tr>
+      <tr class="pick"><td><code>outputStyle: "sk:terse"</code></td><td class="n yes">да: раздел «# Output Style: sk:terse»</td></tr>
+      <tr><td>то же с <code>keep-coding-instructions: false</code></td><td class="n">да; основа не сократилась, разница 4 знака — длина имени</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="blk chg" data-chg="pc-fleetkeys" id="fleetkeys">
+  <div class="blk-h"><h2>Ключи флота: один раз на все машины</h2><span class="tag"></span><p class="muted">Ключ API провайдера или Anthropic заводится один раз и виден слотом на каждом компьютере. Вход Claude по ссылке остаётся на своей машине.</p></div>
+  <figure class="fig">
+    <svg class="d" viewBox="0 0 1000 250" role="img" aria-label="Пульт пишет ключ в модуль ключей флота; система машины на старте сессии получает ключ по своему пропуску и кладёт в файл, откуда его читает claude">
+      <defs><marker id="k1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip"></path></marker></defs>
+      <rect class="box acc" x="10" y="30" width="170" height="70" rx="8"></rect><text x="26" y="58">Аккаунты</text><text class="s" x="26" y="78">завести, сменить ключ</text>
+      <g class="chg" data-chg="pa-acc-svg"><rect class="box ok" x="270" y="20" width="270" height="92" rx="8"></rect><text x="286" y="46">Ключи флота</text><text class="s" x="286" y="66">имя, env Claude, ключ</text><text class="s" x="286" y="86">своя база; ключ отдаёт только машине</text></g>
+      <rect class="box" x="640" y="20" width="350" height="92" rx="8"></rect><text x="656" y="46">Система любой машины</text><text class="s" x="656" y="66">на старте сессии: ключ по пропуску машины</text><text class="s" x="656" y="86">→ файл токена слота → claude читает его сам</text>
+      <line class="ln" x1="180" y1="65" x2="268" y2="65" marker-end="url(#k1)"></line><text class="s" x="190" y="56">пишет</text>
+      <line class="ln" x1="640" y1="66" x2="542" y2="66" marker-end="url(#k1)"></line><text class="s" x="560" y="56">просит</text>
+      <g class="chg" data-chg="bl-k-svg"><line class="ln" x1="542" y1="98" x2="638" y2="98" marker-end="url(#k1)"></line><text class="s" x="552" y="90">кадр: сменён</text></g>
+      <rect class="box dim" x="270" y="150" width="270" height="80" rx="8"></rect><text x="286" y="176">Вход Claude по ссылке</text><text class="s" x="286" y="196">на своей машине: refresh-токен</text><text class="s" x="286" y="214">меняется при каждом обновлении</text>
+      <rect class="box dim" x="640" y="150" width="350" height="80" rx="8"></rect><text x="656" y="176">Слоты в форме сессии</text><text class="m" x="656" y="198">этот компьютер: main, second</text><text class="m" x="656" y="218">флот: orca, kimi</text>
+    </svg>
+    <figcaption><span class="chg" data-chg="bl-k-cap">На машине ключ лежит только в своей папке, её переписывают открытие, смена слота, кадр о смене ключа и подключение системы. Сменили ключ один раз на пульте — кадр обновляет папку на каждой машине, где она есть: команда токена читает файл, поэтому новое значение доходит и до идущих сессий; адрес и настройки — на их следующем старте.</span></figcaption>
+  </figure>
+  <p class="fact">Делить вход Claude между машинами нельзя: refresh-токен меняется при каждом обновлении, и вторая машина с той же копией теряет вход. Поэтому через флот идут только ключи API. Ключ флота — сам себе слот: запасных и подмены у него нет.</p>
+</section>
+<section class="blk chg" data-chg="pc-mcp" id="mcp">
+  <div class="blk-h"><h2>Из других сессий: инструменты флота</h2><span class="tag"></span><p class="muted">Агент открывает и меняет сессии теми же инструментами флота. Новых — два.</p></div>
+  <div class="tw"><table>
+    <thead><tr><th>Инструмент</th><th>Что меняется</th><th>Пример</th></tr></thead>
+    <tbody>
+      <tr><td class="n">open</td><td><code>profile</code> — список кусочков и наборов; <code>slot</code> — слот машины или ключ флота</td><td><code>open { name:"audit", dir:"~/p", text:"…", profile:["team/p/dev"], slot:"orca" }</code></td></tr>
+      <tr><td class="n">update</td><td>+ <code>profile</code>: заменить список; живая сессия перезапускается и продолжает разговор</td><td><code>update { callsign:"audit@rog", profile:["team/p/dev","alpha/p/ops"] }</code></td></tr>
+      <tr><td class="n">list</td><td>у сессий — профиль и слот</td><td></td></tr>
+      <tr class="pick"><td class="n">profile</td><td>новый: что получит сессия с этим списком — тот же ответ, что на экране профилей; без списка — кусочки и наборы машины, слоты и ключи флота с моделями, клоны репозиториев</td><td><code>profile { machine:"rog", profile:["team/p/dev"] }</code></td></tr>
+      <tr class="pick"><td class="n">repos</td><td>новый: подключить и убрать репозитории флота</td><td><code>repos { add:["team/notes"] }</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="two">
+    <p class="fact">Новый кусочек, набор, стиль или агента агент пишет файлами в клоне: папку даёт <b>profile</b>, отправит сведение. Конфликт сводит так же — сессией в клоне.</p>
+    <p class="fact">Ключи флота агенту видны только именами и моделями. Завести или сменить ключ можно только на пульте: значение ключа не проходит через разговор модели и её журнал.</p>
+  </div>
+  <p class="fact">Инструментов флота <b>8</b> → <b>10</b>.</p>
+</section>
+<section class="blk chg" data-chg="pc-repos" id="repos">
+  <div class="blk-h"><h2>Репозитории кусочков</h2><span class="tag"></span><p class="muted">Один список репозиториев на весь флот. Машины сами клонируют, сводят и убирают клоны по нему. <span class="chg" data-chg="pa-repos-where">Управление — в настройках, рядом с приложением GitHub.</span></p></div>
+  <figure class="fig">
+    <svg class="d" viewBox="0 0 1000 250" role="img" aria-label="Пульт пишет список репозиториев в настройки флота; система каждой машины читает его на каждом сведении, берёт токен у приложения GitHub и клонирует, сводит или убирает репозиторий; состояние по машинам возвращается на экран">
+      <defs><marker id="a7" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip"></path></marker></defs>
+      <g class="chg" data-chg="pa-repos-svg"><rect class="box acc" x="10" y="90" width="170" height="70" rx="8"></rect><text x="26" y="118">Настройки</text><text class="s" x="26" y="138">добавить, убрать, свести</text></g>
+      <rect class="box ok" x="270" y="20" width="230" height="62" rx="8"></rect><text x="286" y="46">Настройки флота</text><text class="m" x="286" y="68">fleet.profiles.repos</text>
+      <rect class="box" x="590" y="20" width="400" height="200" rx="10"></rect><text x="606" y="44">Система каждой машины</text>
+      <rect class="box dim" x="606" y="58" width="368" height="34" rx="6"></rect><text class="s" x="618" y="80">раз в минуту и по кнопке: прочитать список</text>
+      <g class="chg" data-chg="bl-r-svg"><rect class="box dim" x="606" y="100" width="368" height="34" rx="6"></rect><text class="s" x="618" y="122">нет клона — клон; слияние — ждём; иначе коммит, pull, push</text></g>
+      <rect class="box dim" x="606" y="142" width="368" height="34" rx="6"></rect><text class="s" x="618" y="164">нет в списке — последний push, клон удалён</text>
+      <rect class="box dim" x="606" y="184" width="368" height="28" rx="6"></rect><text class="s" x="618" y="203">токен на час — у приложения GitHub флота</text>
+      <rect class="box" x="270" y="168" width="230" height="62" rx="8"></rect><text x="286" y="194">Приложение GitHub</text><text class="s" x="286" y="214">какие репозитории доступны</text>
+      <line class="ln" x1="180" y1="110" x2="268" y2="60" marker-end="url(#a7)"></line><text class="s" x="186" y="76">пишет список</text>
+      <line class="ln" x1="500" y1="50" x2="588" y2="74" marker-end="url(#a7)"></line><text class="s" x="512" y="48">читает</text>
+      <line class="ln" x1="180" y1="140" x2="268" y2="190" marker-end="url(#a7)"></line><text class="s" x="168" y="186">кандидаты</text>
+      <line class="ln" x1="500" y1="200" x2="604" y2="198" marker-end="url(#a7)"></line>
+      <line class="ln" x1="590" y1="140" x2="182" y2="130" marker-end="url(#a7)"></line><text class="s" x="322" y="128">состояние по машинам</text>
+    </svg>
+    <figcaption>Список хранится в одном месте. Клон на машине — рабочая копия git, не копия списка.</figcaption>
+  </figure>
+  <div class="inner pad chg" data-chg="pc-a2-fixer">
+    <h3>Конфликт сводит одна сессия</h3>
+    <figure class="fig">
+      <svg class="d" viewBox="0 0 1000 150" role="img" aria-label="Конфликт сведения виден на экране профилей и в журнале; по кнопке открывается одна сессия в клоне; сессии, которые пользуются кусочками этого репозитория, задания о конфликте не получают" style="min-width:600px">
+        <defs><marker id="a10" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip"></path></marker></defs>
+        <rect class="box bad" x="10" y="14" width="200" height="56" rx="8"></rect><text x="24" y="38">сведение: конфликт</text><text class="m" x="24" y="58">files, dir</text>
+        <g class="chg" data-chg="pa-fixer-svg"><rect class="box" x="270" y="14" width="220" height="56" rx="8"></rect><text x="284" y="38">настройки</text><text class="s" x="284" y="58">и строка в журнале</text></g>
+        <rect class="box acc" x="550" y="14" width="200" height="56" rx="8"></rect><text x="564" y="38">Свести в сессии</text><text class="s" x="564" y="58">человек нажал</text>
+        <rect class="box ok" x="810" y="14" width="180" height="56" rx="8"></rect><text x="824" y="38">одна сессия</text><text class="s" x="824" y="58">в клоне, с задачей</text>
+        <line class="ln" x1="210" y1="42" x2="268" y2="42" marker-end="url(#a10)"></line><line class="ln" x1="490" y1="42" x2="548" y2="42" marker-end="url(#a10)"></line><line class="ln" x1="750" y1="42" x2="808" y2="42" marker-end="url(#a10)"></line>
+        <rect class="box dim" x="270" y="92" width="480" height="44" rx="8"></rect><text x="284" y="112">9 сессий с кусочками этого репозитория</text><text class="s" x="284" y="128">работают как шли; заданий о конфликте в них 0</text>
+        <line class="ln bad" x1="110" y1="70" x2="268" y2="112"></line>
+      </svg>
+    </figure>
+    <p class="fact">Задание в каждую сессию кусочка на каждый ход дало бы <b>9</b> исполнителей одного конфликта в одном клоне и одну задачу, повторённую по разу на каждый кусочек репозитория в списке сессии. У сведения один инициатор: одна сессия по кнопке.</p>
+    <div class="steps chg" data-chg="bl-fix-steps">
+      <div class="stepb"><b>такт 1</b>конфликт: state conflict, файлы, папка клона</div>
+      <div class="stepb"><b>следующие такты</b>слияние идёт: коммитов, pull и push 0, состояние держится, меток в репозитории 0</div>
+      <div class="stepb"><b>коммит сессии</b>следующий такт сам тянет и отправляет, state ok</div>
+    </div>
+  </div>
+</section>
+<div class="part-h">Пара</div>
+<section class="blk chg" data-chg="pv2-flow" id="flow">
+  <div class="blk-h"><h2>Ход одной задачи</h2><span class="tag"></span><p class="muted">Нажимайте «Дальше».</p></div>
+  <div class="seg"><button type="button" id="pv-prev">← Назад</button><button type="button" id="pv-next">Дальше →</button><span class="muted" id="pv-cnt" style="font-size:13px"></span></div>
+  <figure class="fig">
+    <svg class="d" viewBox="0 0 1000 300" role="img" aria-label="Ведущий и ведомый — две сессии на одной машине, каждая со своим процессом claude, профилем и слотом; ведущий пишет ведомому инструментом флота send, итог хода ведомого приходит ведущему сам; пульт видит одну строку">
+      <defs><marker id="pv-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip"></path></marker></defs>
+      <rect class="box acc" id="pv-lead" x="20" y="40" width="330" height="150" rx="12"></rect>
+      <text x="38" y="66">Ведущий · audit@rog</text>
+      <text class="s" x="38" y="88">свой процесс claude</text>
+      <text class="m" x="38" y="112">профиль: main, design</text>
+      <text class="m" x="38" y="132">opus · высокое · слот main</text>
+      <text class="s" x="38" y="158">инструменты флота: send, answer</text>
+      <rect class="box ok" id="pv-wing" x="650" y="40" width="330" height="150" rx="12"></rect>
+      <text x="668" y="66">Ведомый · audit-wing@rog</text>
+      <g class="chg" data-chg="ba-flow-wing"><rect class="hlbg" x="662" y="75" width="290" height="19" rx="4"></rect><text class="s" x="668" y="88">свой процесс claude · инструментов флота нет</text></g>
+      <text class="m" x="668" y="112">профиль: main, tester</text>
+      <text class="m" x="668" y="132">haiku · низкое · ключ флота kimi</text>
+      <text class="s" x="668" y="158">parent = audit@rog · wing</text>
+      <line class="ln" id="pv-e1" x1="350" y1="90" x2="648" y2="90" marker-end="url(#pv-a)"></line><text class="s" x="420" y="80">send: задача</text>
+      <line class="ln" id="pv-e2" x1="648" y1="150" x2="352" y2="150" marker-end="url(#pv-a)"></line><text class="s" x="420" y="170">итог хода приходит сам</text>
+      <rect class="box dim" id="pv-pult" x="250" y="222" width="500" height="58" rx="10"></rect>
+      <text x="268" y="246">Пульт: одна строка, одна карточка</text>
+      <text class="m" x="268" y="268">audit · opus · main ▸ haiku · kimi</text>
+    </svg>
+    <figcaption id="pv-why"></figcaption>
+  </figure>
+</section>
+<section class="blk chg" data-chg="pv2-why2" id="why">
+  <div class="blk-h"><h2>Почему две сессии, а не субагент</h2><span class="tag"></span></div>
+  <div class="tw"><table>
+    <thead><tr><th>Нужно по слову пользователя</th><th>Субагент в процессе ведущего</th><th>Вторая сессия</th></tr></thead>
+    <tbody>
+      <tr><td>Свой слот, в том числе ключ флота</td><td class="no">нет: у описания агента 18 полей, ни одно не задаёт адрес; окружение одно на процесс — опыты 10–13</td><td class="yes">да: свой процесс, своё окружение</td></tr>
+      <tr><td>Свои модель и усилие</td><td>модель — только alias, усилие из файла главной нитью не применяется — опыты 10–13</td><td class="yes">да, как у любой сессии</td></tr>
+      <tr><td>Свой профиль и все настройки</td><td class="no">нет: профиль один на процесс</td><td class="yes">да, как у любой сессии</td></tr>
+      <tr><td>Снаружи одна сессия</td><td>да</td><td>да: строка и карточка сворачивают пару</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="blk chg" data-chg="pv2-how" id="how">
+  <div class="blk-h"><h2>Отношение и пути</h2><span class="tag"></span></div>
+  <div class="tw"><table>
+    <thead><tr><th>Что</th><th>Как</th><th>Новое</th></tr></thead>
+    <tbody>
+      <tr><td>Отношение</td><td>ведомый — дочь ведущего: поле <code>parent</code> уже есть; признак <code>wing</code> отличает ведомого от прочих дочерей</td><td>признак <code>wing</code> в записи</td></tr>
+      <tr class="chg" data-chg="ba-how-open"><td>Открыть ведомого</td><td>обычное <code>session.open</code> с <code>wing_of: &lt;ведущий&gt;</code> и настройками ведомого: родитель — ведущий, а не отправитель. Машину, папку и имя Host выводит из ведущего: <code>audit</code> → <code>audit-wing</code>, клиенты их не считают. Второй ведомый — отказ <code>has_wing</code>; ведомого у ведомого нет — отказ <code>bad_spec</code></td><td>поле <code>wing_of</code></td></tr>
+      <tr class="chg" data-chg="pa1-form"><td>Пара в форме</td><td>переключатель «Пара»: под ним те же поля, что у новой сессии, — профиль, модель, усилие, слот; заполнены как у ведущего, менять можно всё. «Открыть» шлёт три запроса по очереди: ведущий, ведомый с <code>wing_of</code>, задача ведущему</td><td>нет</td></tr>
+      <tr><td>Пара позже</td><td>в настройках карточки «Добавить ведомого» — тот же <code>session.open</code> с <code>wing_of</code></td><td>нет</td></tr>
+      <tr class="chg" data-chg="ba-how-task"><td>Задача ведомому</td><td>ведущий пишет инструментом флота <code>send</code>; из сессий писать ведомому может только он. Человек пишет с пульта обычным вводом: итог такого хода приходит человеку</td><td>нет</td></tr>
+      <tr class="chg" data-chg="pa3-result"><td>Итог ведомого</td><td>итог хода приходит родителю сам; процесс умер посреди хода — родителю слово об обрыве, шлёт модуль инструментов флота на <code>on.close</code>; вопрос ведомого — родителю, ответ — <code>answer</code></td><td>слово об обрыве хода</td></tr>
+      <tr class="chg" data-chg="pa3-know"><td>Ведущий знает ведомого</td><td>ведомый поднялся в первый раз — одно сообщение ведущему: кто ведомый и его настройки. Шлёт модуль инструментов флота на <code>on.open</code> при <code>start === "spawn"</code>. Пара сразу и пара позже идут одним путём, ведущий не перезапускается. Свою роль ведомый читает в задаче</td><td>нет</td></tr>
+      <tr class="chg" data-chg="pa1-sel"><td>Кто ведомый</td><td>один селектор на всех клиентов: сессия с <code>wing</code> и <code>parent</code>, равным ведущему. Отдельной записи пары и запроса пары нет</td><td>нет</td></tr>
+      <tr><td>Настройки потом</td><td>пульт — теми же запросами, что у любой сессии, по имени ведомого: <code>session.update</code>, <code>session.profile</code>, <code>session.slot</code>; <span class="chg" data-chg="ba-how-set">сессии, и сам ведущий, — только полем <code>wing</code> у <code>update</code> ведущего</span></td><td>нет</td></tr>
+      <tr class="chg" data-chg="pa1-remove"><td>Убрать ведомого</td><td>в настройках карточки, с подтверждением на месте: <code>session.remove</code> ведомого</td><td>нет</td></tr>
+      <tr class="chg" data-chg="ba-how-down"><td>Стоп, старт, снять</td><td><code>session.stop</code>, <code>session.start</code> и <code>session.remove</code> ведущего идут и на ведомого: снаружи это одна сессия. Те же запросы ведомому — только ему: <code>session.remove</code> ведомого снимает пару</td><td>одно правило в Host</td></tr>
+    </tbody>
+  </table></div>
+  <p class="fact">Ведомый — обычная сессия внутри Host и для пульта. Для других сессий он скрыт: с ним говорит только его ведущий.</p>
+</section>
+<section class="blk chg" data-chg="pv2-mcp" id="pair-mcp">
+  <div class="blk-h"><h2>Для других сессий пара — одна сессия</h2><span class="tag"></span></div>
+  <div class="tw"><table>
+    <thead><tr><th>Инструмент флота</th><th>Другая сессия видит</th><th>Ведущий видит</th></tr></thead>
+    <tbody>
+      <tr class="chg" data-chg="ba-mcp-list"><td class="n">list</td><td>одну сессию — ведущего, с пометкой «пара» и настройками ведомого внутри неё; адреса ведомого нет</td><td>и своего ведомого</td></tr>
+      <tr><td class="n">send</td><td>на адрес ведомого — отказ <code>pair_inside</code>; писать — ведущему</td><td>пишет ведомому</td></tr>
+      <tr class="chg" data-chg="ba-mcp-answer"><td class="n">answer</td><td>на адрес ведомого — <code>pair_inside</code></td><td>отвечает на вопрос ведомого</td></tr>
+      <tr class="chg" data-chg="ba-mcp-history"><td class="n">history</td><td>ленту ведущего; на адрес ведомого — <code>pair_inside</code></td><td>и ленту своего ведомого</td></tr>
+      <tr class="chg" data-chg="ba-mcp-open"><td class="n">open</td><td>+ <code>wing { profile, model, effort, slot }</code> — пара одним вызовом: ведущий, ведомый, затем задача. Ведомый не открылся — ведущий остаётся, задача не ушла, ответ называет слово</td><td>то же</td></tr>
+      <tr class="chg" data-chg="ba-mcp-update"><td class="n">update</td><td>+ <code>wing { … }</code> — настройки ведомого через ведущего; ведомого нет — откроет; <code>wing: null</code> — снять пару; на адрес ведомого — <code>pair_inside</code></td><td>то же</td></tr>
+      <tr class="chg" data-chg="ba-mcp-label"><td class="n">label</td><td>на адрес ведомого — <code>pair_inside</code></td><td>то же</td></tr>
+      <tr class="chg" data-chg="ba-mcp-remove"><td class="n">remove</td><td>ведущего — вместе с ведомым; на адрес ведомого — <code>pair_inside</code></td><td>то же</td></tr>
+    </tbody>
+  </table></div>
+  <p class="fact chg" data-chg="ba-mcp-rule">Правило одно, в модуле инструментов флота: адрес ведомого открыт только его ведущему и только для <code>send</code>, <code>answer</code>, <code>history</code>. Вид списка и проверка адреса берут его, своих фильтров у инструментов нет. Relay, ядро Host и пульт его не знают. Сессии говорят друг с другом только через инструменты флота: встроенная переписка Claude Code выключена.</p>
+  <p class="fact chg" data-chg="pa1-mcp-wing">Ведомому не выдаются ни сервер инструментов флота, ни добавка флота к промпту: задача приходит вводом, итог уходит сам, вопрос задаётся обычным вопросом. Переменная <code>CLAUDE_CODE_HARBOR_KITE=0</code> остаётся: встроенная переписка выключена и у него. Иначе его адрес вышел бы наружу отправителем сообщения и родителем открытых им сессий — опыт 17.</p>
+  <figure class="fig chg" data-chg="ba-mcp-fig">
+    <svg class="d" viewBox="0 0 1000 214" role="img" aria-label="Один список сессий с ведомым и признаком wing идёт двумя путями: через правило инструментов флота к моделям, где другая сессия видит только ведущего, а ведущий и ведомого; и целиком на страницы, где вид пары сворачивает ведомого, а служебные экраны показывают его сессией">
+      <defs><marker id="kv-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip"></path></marker></defs>
+      <rect class="box dim" x="16" y="52" width="250" height="112" rx="10"></rect>
+      <text x="32" y="78">Список сессий флота</text>
+      <text class="m" x="32" y="104">audit@rog</text>
+      <text class="m" x="32" y="124">audit-wing@rog · wing</text>
+      <text class="m" x="32" y="144">other@rog</text>
+      <line class="ln" x1="266" y1="84" x2="358" y2="50" marker-end="url(#kv-a)"></line>
+      <line class="ln" x1="266" y1="134" x2="358" y2="166" marker-end="url(#kv-a)"></line>
+      <rect class="box acc" x="360" y="18" width="220" height="62" rx="10"></rect>
+      <text x="376" y="44">Инструменты флота</text>
+      <text class="s" x="376" y="66">правило адреса ведомого</text>
+      <rect class="box ok" x="360" y="134" width="220" height="62" rx="10"></rect>
+      <text x="376" y="160">Страницы</text>
+      <text class="s" x="376" y="182">список целиком, вид читает wing</text>
+      <line class="ln" x1="580" y1="38" x2="668" y2="26" marker-end="url(#kv-a)"></line>
+      <line class="ln" x1="580" y1="60" x2="668" y2="72" marker-end="url(#kv-a)"></line>
+      <line class="ln" x1="580" y1="154" x2="668" y2="142" marker-end="url(#kv-a)"></line>
+      <line class="ln" x1="580" y1="176" x2="668" y2="188" marker-end="url(#kv-a)"></line>
+      <text x="674" y="24">Другая сессия</text><text class="m" x="674" y="42">audit · пара</text>
+      <text x="674" y="72">Ведущий</text><text class="m" x="674" y="90">audit, audit-wing</text>
+      <text x="674" y="140">«Работа», карточка, «Вам»</text><text class="m" x="674" y="158">пара одной строкой</text>
+      <text x="674" y="188">Аккаунты, журнал, машины</text><text class="m" x="674" y="206">ведомый — отдельной сессией</text>
+    </svg>
+  </figure>
+</section>
+<section class="blk chg" data-chg="ba-life" id="life">
+  <div class="blk-h"><h2>Жизнь пары</h2><span class="tag"></span><p class="muted">Выберите событие.</p></div>
+  <div class="seg" id="lf-btns"></div>
+  <figure class="fig">
+    <svg class="d" viewBox="0 0 1000 150" role="img" aria-label="Состояние ведущего и ведомого при выбранном событии и что идёт между ними">
+      <defs><marker id="lf-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" class="tip"></path></marker></defs>
+      <rect class="box" id="lf-lead" x="20" y="16" width="300" height="118" rx="12"></rect>
+      <text x="38" y="44">Ведущий</text>
+      <text class="m" id="lf-lead-s" x="38" y="74"></text>
+      <text class="s" id="lf-lead-n" x="38" y="102"></text>
+      <rect class="box" id="lf-wing" x="680" y="16" width="300" height="118" rx="12"></rect>
+      <text x="698" y="44">Ведомый</text>
+      <text class="m" id="lf-wing-s" x="698" y="74"></text>
+      <text class="s" id="lf-wing-n" x="698" y="102"></text>
+      <line class="ln" id="lf-e" x1="322" y1="80" x2="678" y2="80" marker-end="url(#lf-a)"></line>
+      <text class="s" id="lf-e-t" x="500" y="68" text-anchor="middle"></text>
+    </svg>
+    <figcaption id="lf-why"></figcaption>
+  </figure>
+  <p class="fact">Опыт 17 на стенде Host, настоящие модули сессий: родитель остановлен — дочь <b>busy</b>, итог отказан <b>offline</b>, после запуска родитель получил <b>0</b> сообщений; дочь <b>failed</b> — родителю <b>0</b>; родитель удалён — дочь осталась с адресом родителя.</p>
+</section>
+<section class="blk chg" data-chg="pv2-look" id="look">
+  <div class="blk-h"><h2>Особый вид пары</h2><span class="tag"></span><p class="muted">Экраны — в прототипе.</p></div>
+  <div class="tw"><table>
+    <thead><tr><th>Где</th><th>Чем пара отличается от обычной сессии</th></tr></thead>
+    <tbody>
+      <tr class="chg" data-chg="pa1-l-row"><td>Строка в списке «Работа»</td><td>одна строка: две лампы рядом, каждая своего состояния, и <code>opus ▸ haiku</code>. Слов «ведущий» и «ведомый» на экранах нет: всё говорит стрелка</td></tr>
+      <tr class="chg" data-chg="pa1-l-head"><td>Шапка карточки</td><td>в одну строку: имя пары и два участника значками, у каждого лампа и модель. Нажатие выбирает, кого показать: участник — только он, он же ещё раз или стрелка — обе стороны. Выбор запоминается</td></tr>
+      <tr class="chg" data-chg="pa1-l-feed"><td>Лента</td><td>одна сцена: одна или две колонки по выбору в шапке, без вкладок. У каждой стороны своя строка с настройками и шагом и своё поле ввода: адресат — поле в фокусе. Полоса значков действий стоит всегда, без анимации. На телефоне видна одна сторона, переключает шапка</td></tr>
+      <tr class="chg" data-chg="pa3-l-set"><td>Настройки и «Сведения»</td><td>настройки — общая таблица двух участников той же формы, что в новой сессии: профиль, модель, усилие, слот, быстрый режим, заголовок; режим разрешений — в настройках карточки, у каждой стороны свой. Внизу «Убрать ведомого». Вкладка «Сведения» показывает обе стороны: чья сессия, где она, аккаунт и лимиты, серверы MCP</td></tr>
+      <tr class="chg" data-chg="pa3-l-points"><td>«Точки» и «Журнал»</td><td><span class="chg" data-chg="un-20">обе стороны пары: точки и строки журнала ведомого видны рядом с ведущим, с его адресом. Откат ведущего на точку поднимает ведомого без точки. Перенос ведущего на другую машину — отказ <code>has_wing</code>: сначала снять ведомого; копия на другую машину идёт без ведомого</span></td></tr>
+      <tr class="chg" data-chg="pa3-l-phone"><td>Телефон</td><td>видна одна сторона, переключает шапка; настройки — столбцы друг под другом</td></tr>
+      <tr class="chg" data-chg="pa3-l-view"><td>Панель вида</td><td><span class="chg" data-chg="un-19">прежние переключатели: «Модель» показывает opus ▸ haiku; новый ключ «Пара» в группе «Строка» убирает вторую половину строки</span></td></tr>
+      <tr class="chg" data-chg="pa3-l-rail"><td>Полоса разделов</td><td>счётчики и значки считают пару одной сессией</td></tr>
+      <tr class="chg" data-chg="ba-look-inbox"><td>«Вам»</td><td>конец хода ведомого карточки не даёт; вопрос и сбой ведомого — карточка пары</td></tr>
+      <tr class="chg" data-chg="ba-look-tech"><td>Аккаунты, журнал, машины</td><td>ведомый — отдельной сессией: он занимает слот и процесс</td></tr>
+      <tr class="chg" data-chg="pa1-l-form"><td>Новая сессия</td><td>переключатель «Пара» под выбором папки; включён — таблица участников получает второй столбец с полным выбором, заполненным как у ведущего. Без окон поверх, форма не прыгает</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<div class="part-h">Договор и проверка</div>
+<section class="blk chg" data-chg="pc-contract" id="contract">
+  <div class="blk-h"><h2>Договор</h2><span class="tag"></span></div>
+  <div class="tw"><table>
+    <thead><tr><th>Запрос или поле</th><th>Форма</th></tr></thead>
+    <tbody>
+      <tr><td>Открыть сессию</td><td><code>session.open { …, profile: ["team/p/base", "team/p/dev"] }</code></td></tr>
+      <tr><td>Заменить список</td><td><code>session.profile { callsign, profile: [] }</code> → <code>{ restart }</code>; пустой список — без кусочков. <span class="chg" data-chg="pa3-restart">Смена списка у живой сессии перезапускает её, разговор продолжается</span></td></tr>
+      <tr><td>Запись сессии в списке сессий</td><td><span class="chg" data-chg="un-7"><code>profile: [{ id, state }]</code>, тот же список: наборы в нём наборами, развёрнутый список нигде не хранится; в окружение процесса claude список не идёт, его место — только эта запись. <code>state</code> — <code>ok</code> или <code>error</code>; причина ошибки — в журнале. Читатели — только список, другой формы нет</span></td></tr>
+      <tr class="chg" data-chg="pa1-list"><td>Список кусочков машины</td><td><code>machine.profiles</code> → <code>{ id: { about?, use?, kind, names } }</code>: <code>kind</code> — кусочек, набор или стиль, <code>about</code> — description манифеста, <code>names</code> — имена скилов, агентов, правил и файлов памяти для поиска. Моделей и усилия здесь нет: что выиграло в настройках, говорит <code>profile.view</code></td></tr>
+      <tr class="chg" data-chg="pc-k-c1"><td>Ключи флота</td><td><span class="chg" data-chg="un-1">модуль <code>workers/fleetkeys/</code>, своя база: <span class="chg" data-chg="bl-c-list"><code>fleetkeys.list</code> → <code>{ keys: { name: { env, settings } } }</code> без ключа; имя — те же знаки, что у слота, иначе <code>bad_frame</code>: оно становится папкой на машине;</span> <code>fleetkeys.set { name, env, key? }</code>: без <code>key</code> — прежний; <code>fleetkeys.remove { name }</code>; <code>fleetkeys.key { name }</code> → <code>{ env, settings, key }</code> только пропуску машины, иначе <code>not_machine</code><span class="chg" data-chg="bl-c-nokey">; ключа нет — <code>no_key</code>, у <code>.key</code> и <code>.remove</code></span>. <code>env</code> — родные переменные Claude: адрес <code>ANTHROPIC_BASE_URL</code> (нет — ключ Anthropic), модели <code>ANTHROPIC_DEFAULT_OPUS_MODEL</code> и других alias, окно <code>CLAUDE_CODE_DISABLE_1M_CONTEXT=1</code> — его вписывает форма нового ключа. Значений модуль не читает: своих полей адреса и моделей нет</span></td></tr>
+      <tr class="chg" data-chg="pa1-k-set"><td>Настройки ключа флота</td><td><code>fleetkeys.set { name, env, settings?, key? }</code>: <code>settings</code> — JSON в родном формате Claude, сливается в настройки сессии на этом слоте, например <code>modelOverrides</code>; <code>env</code> — любые свои переменные. <span class="chg" data-chg="bl-c-json">Текст JSON проверяет поле формы; не объект в запросе — <code>bad_frame</code>.</span> <code>fleetkeys.key</code> → <code>{ env, settings, key }</code>. Значения ключа идут вкладом <code>defaults</code>: это данные формы, они не могут уронить систему. Слово пользователя 6 нояб.: «надо добавить JSON мержа и кастомные env-переменные»</td></tr>
+      <tr class="chg" data-chg="pa3-k-store"><td>Как лежит ключ</td><td>значением в базе D1 модуля, своего шифрования нет: покой шифрует платформа; наружу ключ отдаёт только <code>fleetkeys.key</code> пропуску машины</td></tr>
+      <tr class="chg" data-chg="pa1-k-c2"><td>Слот на ключе флота</td><td><span class="chg" data-chg="un-2"><span class="chg" data-chg="bl-c-slot">при открытии и при смене слота система читает <code>fleetkeys.key</code> с пределом чтения и кладёт весь ответ в папку ключа: файл токена, <code>env</code> и <code>settings</code>. Папка своя, рядом с папками слотов: там лежат ссылки на аккаунты. Сессия помнит в своей записи, что её слот — ключ: имя ищется только при выборе, новый слот с тем же именем сессию не пересаживает.</span> Подъём сессии читает папку и флот не спрашивает: когда система машины поднимает сессии после своего перезапуска, связи ещё нет. После подключения система один раз обновляет папки своих ключей; ключа во флоте больше нет — папка удаляется. Не ответил при открытии — отказ словом. Папки нет на подъёме — журнал, сессия без вклада слота, claude сам говорит в ленте, что входа нет. Ключ флота в слоты машины не встаёт: <code>slot.set</code> и <code>slot.swap</code> с его именем — <code>no_account</code>. Имя слота ищется сначала среди слотов машины, потом среди ключей флота. Без slot выбор прежний — только среди слотов машины: ключ флота встаёт в сессию, только когда назван</span></td></tr>
+      <tr class="chg" data-chg="pa1-k-429"><td>Лимиты на ключе флота</td><td>ответ провайдера 429 — обычная ошибка хода, сессия видит её словами. <code>limitEvent</code> и ветка <code>rate_limit</code> входов явно обходят ключ флота: окон лимитов и подмены аккаунта у него нет</td></tr>
+      <tr class="chg" data-chg="pa3-k-check"><td>Проверка ключа флота</td><td><span class="chg" data-chg="un-3"><code>machine.key_check { machine, name }</code> → <code>{ ok, word }</code>: <span class="chg" data-chg="bl-c-check">один разовый запуск claude тем же вкладом, что у сессии на этом ключе: свежий <code>fleetkeys.key</code>, та же папка, та же команда токена; значения ключа нет ни в аргументах, ни в окружении;</span> <code>word</code> называет модель и время или причину. Пробный запуск системы запроса к модели не делает, поэтому не подходит. Счёта машин, куда ключ дошёл, нет</span></td></tr>
+      <tr class="chg" data-chg="pa1-view"><td>Просмотр профиля</td><td><code>profile.view { machine, profile: [id] }</code> → <code>{ pieces, tree, settings: { key: { value, from, lost } }, skills, agents, instructions, memory: { home, near }, prompt: { agent?, style? }, mcp, other, files: { id: [{ path, size }] } }</code> — тем же кодом, что собирает запуск, без текстов файлов. <code>tree</code> — развёртка наборов, <code>lost</code> — кто проиграл, <code>other</code> — файлы, которых Claude не читает. Экран спрашивает любую машину на связи: клоны у всех из одного списка</td></tr>
+      <tr class="chg" data-chg="pa1-file"><td>Текст файла</td><td><code>profile.file { machine, id, path }</code> → <code>{ text }</code>; больше предела — <code>too_large</code>. Только по нажатию на файл: у нашей памяти 191 файл</td></tr>
+      <tr class="chg" data-chg="pa1-fleetprompt"><td>Текст добавки флота</td><td><span class="chg" data-chg="un-4"><span class="chg" data-chg="bl-c-prompt"><code>fleet.prompt { machine }</code> → <code>{ text }</code> у модуля инструментов флота: он владелец текста. Запрос без адреса до системы не дойдёт, поэтому <code>machine</code>; просмотр профиля не знает сессии, поэтому в тексте имя-пример.</span> Модуль профилей его не знает и не повторяет</span></td></tr>
+      <tr class="chg" data-chg="pa1-promptview"><td>Вид «Промпт»</td><td>слои сверху вниз с размером в знаках: агент или основа Claude Code, стиль, добавка флота. Основа — именем, без текста и размера: своей копии её текста у системы нет</td></tr>
+      <tr class="chg" data-chg="pc-k-c3"><td>Аккаунты машины</td><td><code>machine.accounts</code> — только входы Claude, как сейчас; ключи флота — из <code>fleetkeys.list</code></td></tr>
+      <tr class="chg" data-chg="bl-c-changed"><td>Смена ключа флота</td><td>кадр <code>fleetkeys.changed { name }</code> без ответа: <code>fleetkeys.set</code> и <code>fleetkeys.remove</code> шлют его каждой машине тем же путём, что план выпусков: <code>relay.deliver</code>, список машин — <code>gate.list</code>. Система с папкой этого ключа читает <code>fleetkeys.key</code> и переписывает папку, на <code>no_key</code> удаляет её; папки нет — кадр пропущен. Машина вне связи обновляет папку после подключения. Слово пользователя 5 нояб.: ключ заводится один раз на все машины</td></tr>
+      <tr class="chg" data-chg="pa1-repos-key"><td>Репозитории кусочков</td><td><span class="chg" data-chg="un-5">ключ <code>fleet.profiles.repos: ["владелец/имя"]</code> в настройках всего флота, имя — одна константа в <code>tools/records</code>; раздел репозиториев в файле настроек машины убран. Машина читает ключ запросом <code>prefs.get</code> на каждом сведении и копии не держит: первое чтение — после подключения, не на старте. Кусочки на подъёме ищутся по папкам клонов на диске, списка им не нужно. Служба не отдаёт ключ, которого нет, поэтому пустой ответ — не пустой список: сведение пропущено с причиной в журнале, клоны не тронуты. Пустой список — значение <code>[]</code>, его записал человек</span></td></tr>
+      <tr class="chg" data-chg="pa1-repos-write"><td>Запись списка</td><td>экран настроек и инструмент <code>repos</code> пишут циклом записей флота: читают сам ключ, меняют один репозиторий, пишут целиком. Объединение ответов машин источником списка не бывает: машина не на связи не значит «репозитория нет»</td></tr>
+      <tr class="chg" data-chg="pc-repos-c2"><td>Состояние репозитория</td><td><code>machine.profiles</code> → <code>repos: { repo: { state, op?, files?, error?, dir, at } }</code>: <code>dir</code> — клон для сессии сведения, <code>at</code> — последнее сведение<span class="chg" data-chg="pc-a2-install">. Доступен ли репозиторий и ссылку установки знает только приложение GitHub: экран берёт их из его ответа, тем же запросом, что и список кандидатов</span></td></tr>
+      <tr class="chg" data-chg="pa3-merge"><td>«Свести в сессии»</td><td>экран настроек шлёт <code>session.open</code> с <code>dir</code> клона, затем задачу вводом: <span class="chg" data-chg="bl-c-merge">«Сведи конфликт репозитория &lt;repo&gt; в файлах &lt;files&gt;: обе версии, закоммить; отправит сведение». Токена GitHub у сессии нет, отправка одна — у сведения.</span> Текст собирает экран из ответа машины</td></tr>
+      <tr class="chg" data-chg="pa1-defaults"><td>Вклад в запуск сессии</td><td><span class="chg" data-chg="un-6"><code>defaults: { tier, env, settings }</code> рядом с ключами модуля; <code>tier</code> — <code>account</code> или <code>profile</code>. Порядок один и лежит в ядре: ключ модуля → <code>account</code> (ключ флота) → <code>profile</code> (кусочки), порядок списка модулей на него не влияет. Выше стоящий выигрывает, отброшенное — в журнале; проверка двух владельцев видит только ключи модулей</span></td></tr>
+    <tr class="chg" data-chg="bl-c-inc"><td>Профиль инцидента</td><td><code>types.&lt;тип&gt;.profile</code> в файле настроек машины — список, как в <code>session.open</code>; модуль инцидентов передаёт его как есть</td></tr><tr class="chg" data-chg="un-8"><td>Подъём из точки</td><td>подъём из точки передаёт <code>profile</code> списком: сейчас он молча пропускает всё, кроме строки, и профиль пропал бы без отказа</td></tr><tr class="chg" data-chg="un-9"><td>Сведение</td><td>коммитит весь клон с учётом <code>.gitignore</code>, а не только <code>memory/</code> и <code>skills/</code>: кусочек — любая папка, новый стиль, агент или правило уезжают сами<span class="chg" data-chg="bl-c-sync">. Пока в клоне идёт слияние, сведение не коммитит, не тянет и не отправляет, ответ держит <code>state: conflict</code> с файлами; убранный репозиторий в этом состоянии не удаляется</span></td></tr><tr class="chg" data-chg="ba-con-open"><td><code>session.open</code></td><td>+ <code>wing_of?: callsign</code> — открыть ведомым этой сессии: <code>parent</code> = она, признак <code>wing</code>; папку и имя <code>&lt;её имя&gt;-wing</code> выводит Host, клиент <code>dir</code> и <code>name</code> не шлёт; <code>machine</code> — её, запрос идёт на эту машину</td></tr><tr><td>Запись в списке сессий</td><td>+ <code>wing: true</code> у ведомого</td></tr><tr class="chg" data-chg="pa1-con-sel"><td>Селектор пары</td><td><code>wing &amp;&amp; parent === ведущий</code>; запроса <code>session.pair</code> и поля <code>pair</code> в записи нет</td></tr><tr class="chg" data-chg="ba-con-down"><td><code>session.stop</code>, <code>session.start</code>, <code>session.remove</code> ведущего</td><td>идут и на его ведомого; стоп и удаление — сначала ведомый; удаление после хода — тем же путём</td></tr><tr class="chg" data-chg="pa3-con-report"><td>Сообщения ведущему</td><td>владелец — <code>host-fleet</code>: о ведомом — <code>on.open</code> при <code>start === "spawn"</code>, об обрыве хода — <code>on.close</code>, ход не повторяется. <span class="chg" data-chg="bl-c-report">Оба идут запросом <code>message</code> с <code>report: true</code>, как итог хода: отправитель последнего ввода ведущего не меняется. Обрыв — <code>on.close</code> в состоянии <code>busy</code> или <code>waiting</code> у хода, начатого ведущим.</span> В манифесте <code>uses</code> — <code>wing@host-manage</code>. В <code>host-manage</code> нельзя: цикл</td></tr><tr class="chg" data-chg="ba-con-tools"><td>Инструменты флота</td><td><code>open</code> и <code>update</code> + <code>wing</code>; адрес ведомого принимают только <code>send</code>, <code>answer</code>, <code>history</code> и только от его ведущего; новых инструментов нет; ведомому сервер инструментов и добавка флота не выдаются</td></tr><tr class="chg" data-chg="ba-con-words"><td>Слова</td><td><span class="chg" data-chg="un-22"><code>has_wing</code> — у ведущего уже есть ведомый, или его переносят на другую машину; <code>pair_inside</code> — адрес ведомого, закрытый правилом. Ведущего нет на машине — <code>offline</code>; ведомый как ведущий — <code>bad_spec</code>: оба слова уже есть</span></td></tr></tbody>
+  </table></div>
+  <div class="tw"><table>
+    <thead><tr><th>Отказ словом</th><th>Когда</th></tr></thead>
+    <tbody>
+      <tr><td class="n">bad_profile</td><td>два кусочка с одним именем плагина (name манифеста или имя папки): иначе второй скил пропадает молча; манифест без name; кусочек задаёт <code>ANTHROPIC_*</code>, <code>CLAUDE_CODE_USE_*</code>, команду токена, папку памяти или папки входа<span class="chg" data-chg="pc-sets-ring">; набор по кольцу ссылается сам на себя</span></td></tr>
+      <tr><td class="n">no_profile</td><td>папки нет в репозиториях машины</td></tr>
+      <tr class="chg" data-chg="pa1-w-large"><td class="n">too_large</td><td>файл кусочка больше предела <code>profile.file</code></td></tr>
+      <tr class="chg" data-chg="pc-k-w"><td class="n">not_machine</td><td>ключ флота просит не машина</td></tr>
+      <tr class="chg" data-chg="bl-w-user"><td class="n">not_user</td><td><code>fleetkeys.set</code> и <code>fleetkeys.remove</code> не от человека: то же слово, что у настроек</td></tr>
+      <tr class="chg" data-chg="bl-w-nokey"><td class="n">no_key</td><td>ключа флота с таким именем нет; на открытии и смене слота это <code>no_slot</code> со списком слотов машины</td></tr>
+    </tbody>
+  </table></div>
+  <p class="fact chg" data-chg="bl-c-main">Формы запросов берутся из этой таблицы: мок и экраны прототипа приводятся к ней в пункте экранов с договором. Сегодня прототип шлёт <code>profile.file</code> одним полем <code>file</code> и ждёт необязательный <code>cut</code>.</p>
+  <p class="fact chg" data-chg="un-10">Причина появилась в git после открытия: на следующем старте сессия поднимается без кусочков, в её записи <code>state: error</code>, причина в журнале. Система и остальные сессии работают, список можно заменить. Отказ при сборке запуска выключил бы весь модуль профилей в этой сессии, и снять плохой кусочек стало бы нельзя.</p>
+</section>
+<section class="blk chg" data-chg="pc-etalons" id="etalons">
+  <div class="blk-h"><h2>Эталоны</h2><span class="tag"></span></div>
+  <div class="tw"><table>
+    <thead><tr><th class="n">№</th><th>Вход</th><th>Свойство</th><th>Чьё</th></tr></thead>
+    <tbody>
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+    <tr><td class="n">8001</td><td>два кусочка со скилами</td><td>два плагина, оба скила в сессии</td><td>факт</td></tr><tr><td class="n">8002</td><td>две папки <code>ops</code> из разных репозиториев; папка с name манифеста, равным имени другой</td><td>отказ <code>bad_profile</code>, процесс не стартовал</td><td>факт</td></tr><tr><td class="n">8003</td><td>два кусочка с CLAUDE.md и правилами</td><td>всё в контексте сессии и субагента</td><td>факт</td></tr><tr><td class="n">8004</td><td>одна настройка в двух кусочках</td><td>значение нижнего</td><td>слово после «да»</td></tr><tr><td class="n">8005</td><td>кусочек с манифестом: name и description; манифест без name</td><td>префикс скила — name, подпись в списке — description; без name — <code>bad_profile</code></td><td>факт</td></tr><tr><td class="n">8006</td><td>три кусочка, у двух память</td><td>домашняя — нижняя; индекс второй с её путём в промпте</td><td>факт</td></tr><tr><td class="n">8007</td><td>запись в память не домашнего кусочка из другого репозитория</td><td>сведение запускается у его репозитория</td><td>код</td></tr><tr><td class="n">8008</td><td>кусочек с <code>ANTHROPIC_BASE_URL</code> при открытии; он же появился в git и система перезапущена</td><td><span class="chg" data-chg="un-11">отказ <code>bad_profile</code>; во втором случае сессия поднята без кусочков, <code>state: error</code>, причина в журнале, <code>session.profile</code> заменяет список без перезапуска системы; другая сессия работает</span></td><td>слово после «да»</td></tr><tr class="chg" data-chg="pa1-e9"><td class="n">8009</td><td>env и настройка совпали у модуля, ключа флота и кусочка; ключ флота несёт <code>env</code> системы; система перезапущена</td><td>система стартует; в запросе значение модуля, затем ключа флота, затем кусочка; отброшенное названо в журнале; два модуля с одним ключом по-прежнему не дают старта</td><td>слово после «да»; код</td></tr><tr class="chg" data-chg="pc-k-e10"><td class="n">8010</td><td>сессии без модели и с каждым alias на ключе флота, поддельный API, две машины</td><td>во всех запросах модель за alias, окно 200K без беты 1M, Authorization из файла; в Bash ключа нет; ключ заведён один раз</td><td>факт; слово пользователя 5 нояб.: слоты на всех компьютерах</td></tr><tr class="chg" data-chg="pa1-e11"><td class="n">8011</td><td><span class="chg" data-chg="un-12"><code>slot.set</code> и <code>slot.swap</code> с именем ключа флота; <code>fleetkeys.key</code> пропуском человека; модуль ключей флота не ответил при открытии и при смене слота; open без slot на машине с одним слотом и двумя ключами флота</span><span class="chg" data-chg="bl-e11a">; слот машины заведён с именем ключа, на котором идёт сессия</span></td><td><span class="chg" data-chg="un-13"><code>no_account</code>; <code>not_machine</code>; открытие и смена отказывают словом; опросов лимитов у ключа 0; сессия в слоте машины</span><span class="chg" data-chg="bl-e11b">; ссылка слота и папка ключа лежат рядом, сессия остаётся на ключе и после перезапуска</span></td><td>слово после «да»; выбор без slot — код</td></tr><tr><td class="n">8012</td><td>смена слота с Claude на провайдера</td><td>перезапуск, продолжение разговора, чужих подписей 0</td><td>факт</td></tr><tr><td class="n">8013</td><td>штатная остановка системы во время сведения двух репозиториев</td><td>дождалась сведения или лимита, вышла</td><td>код</td></tr><tr class="chg" data-chg="pc-sets-e14"><td class="n">8014</td><td>набор с вложенным набором и повтором; набор правится в git; два набора ссылаются друг на друга</td><td>плоский список, первые вхождения, набор после своего состава; на следующем старте — новый состав; кольцо — <code>bad_profile</code></td><td>слово пользователя 5 нояб.: наборы; порядок — слово после «да»</td></tr><tr class="chg" data-chg="pc-sets-e15"><td class="n">8015</td><td>набор с <code>metadata.use</code> и скилом</td><td>плагин загружен, скил в сессии</td><td>факт</td></tr><tr class="chg" data-chg="pc-repos-e16"><td class="n">8016</td><td>репозиторий добавлен в список, сведение по кнопке</td><td>клон на машине, его кусочки в списке машины</td><td>слово пользователя 5 нояб.: менеджер репозиториев</td></tr><tr class="chg" data-chg="pc-repos-e17"><td class="n">8017</td><td>репозиторий убран из списка, в памяти незакоммиченная правка; то же, push отвергнут</td><td>правка отправлена, клон удалён; при отказе клон остаётся, <code>state: error</code> с причиной</td><td>слово после «да»</td></tr><tr class="chg" data-chg="pc-repos-e18"><td class="n">8018</td><td>репозиторий не доступен приложению GitHub</td><td><code>state: error</code><span class="chg" data-chg="pc-a2-e18"> со словом приложения GitHub; ссылки установки в ответе машины нет</span></td><td>код</td></tr><tr class="chg" data-chg="pc-repos-e19"><td class="n">8019</td><td>настройки флота не ответили на сведении</td><td>сведение пропущено с причиной в журнале, ни один клон не удалён</td><td>слово после «да»</td></tr><tr class="chg" data-chg="pc-a2-e20"><td class="n">8020</td><td>конфликт при сведении; на машине три сессии с кусочками этого репозитория</td><td><code>state: conflict</code>, <code>files</code> и <code>dir</code> в ответе; в запросах трёх сессий задания о конфликте 0</td><td>слово после «да»</td></tr><tr class="chg" data-chg="pc-v-e21"><td class="n">8021</td><td>кусочек со стилем, <code>outputStyle: "кусочек:стиль"</code>; то же коротким именем</td><td>раздел «Output Style» в системном промпте; короткое имя — раздела нет, просмотр называет стиль ненайденным</td><td>факт</td></tr><tr class="chg" data-chg="pc-v-e22"><td class="n">8022</td><td>набор из трёх кусочков: <code>profile.view</code> и запуск</td><td>состав, настройки с источником, скилы, память и промпт в ответе равны тому, что ушло в запуск</td><td>слово пользователя 5 нояб.: просмотр всего в профиле</td></tr><tr class="chg" data-chg="pc-v-e23"><td class="n">8023</td><td>инструмент флота <code>update { profile }</code> живой сессии</td><td>перезапуск, разговор продолжается, новый список в записи</td><td>слово пользователя 5 нояб.: управление из других сессий</td></tr><tr class="chg" data-chg="pa1-e24"><td class="n">8024</td><td>ключа <code>fleet.profiles.repos</code> нет, в клонах три репозитория</td><td>сведение пропущено, причина в журнале, клоны на месте</td><td>код: служба не отдаёт отсутствующий ключ</td></tr><tr class="chg" data-chg="pa1-e25"><td class="n">8025</td><td>три репозитория, две из четырёх машин не отвечают; экран убирает один</td><td>в ключе два оставшихся; клоны этих двух не удалены ни на одной машине</td><td>слепой архитектор, факт: цикл записей читает сам ключ</td></tr><tr class="chg" data-chg="pa1-e26"><td class="n">8026</td><td>перезапуск системы при идущей сессии на ключе флота, модуль ключей флота не отвечает</td><td>attach прошёл, запросов <code>fleetkeys.key</code> 0, сессия работает</td><td>код: как ветка attach у инцидентов</td></tr><tr class="chg" data-chg="pa1-e27"><td class="n">8027</td><td>поддельный API ключа флота отвечает 429 и <code>rate_limit</code></td><td>ошибка в ленте словами; подмен 0, вызовов лимитов аккаунта 0</td><td>слепой архитектор, факт: ветка входов берёт аккаунт слота</td></tr><tr class="chg" data-chg="pa1-e28"><td class="n">8028</td><td><code>profile.view</code> кусочка с 191 файлом памяти; затем <code>profile.file</code> одного файла<span class="chg" data-chg="bl-e28a">; затем <code>fleet.prompt { machine }</code></span></td><td>в первом ответе текстов 0, размеры есть; во втором текст файла<span class="chg" data-chg="bl-e28b">; в третьем текст добавки флота</span></td><td>факт: память кусочка main</td></tr><tr class="chg" data-chg="pa1-e29"><td class="n">8029</td><td>поиск по имени скила, которого нет в названии кусочка</td><td>кусочек найден по <code>names</code>; запросов содержимого 0</td><td>слово пользователя 5 нояб.: просмотр всего в профиле</td></tr><tr class="chg" data-chg="un-14"><td>8030</td><td>в клоне новая папка со стилем и правка агента, сессия их не коммитила</td><td>сведение отправило обе правки</td><td>код: кусочек — любая папка</td></tr><tr class="chg" data-chg="un-15"><td>8031</td><td>перезапуск системы, сессия на ключе флота поднимается, связи нет; потом связь появилась; ключ удалён во флоте</td><td>подъём из папки слота, запросов до готовности 0; после подключения 1 запрос на ключ, папка обновлена; удалённого ключа папки нет, следующий подъём — слово в ленте</td><td>код: подъём идёт до подключения</td></tr><tr class="chg" data-chg="un-16"><td>8032</td><td><code>machine.key_check</code>: рабочий ключ; ключ с ответом 401</td><td><code>ok: true</code> с моделью и временем; <code>ok: false</code> со словом ответа; <span class="chg" data-chg="bl-e32">значения ключа в аргументах и окружении запуска нет</span></td><td>слово пользователя 6 нояб.: «только проверка»</td></tr><tr class="chg" data-chg="un-17"><td>8033</td><td>подъём из точки на другой машине сессии со списком из двух кусочков</td><td>список дошёл до новой сессии целиком</td><td>код: подъём пропускал не-строку</td></tr><tr class="chg" data-chg="un-18"><td>8034</td><td><code>defaults</code> кусочка и ключа флота, порядок модулей в сборке обратный</td><td>значение ключа флота выигрывает при любом порядке модулей</td><td>слово после «да»; код: порядок был бы неявным</td></tr><tr class="chg" data-chg="bl-e35"><td class="n">8035</td><td>инцидент типа, у которого в настройках машины профиль из двух кусочков</td><td>сессия открыта, оба кусочка в её записи</td><td>код: инциденты передают профиль как есть</td></tr><tr class="chg" data-chg="bl-e36"><td class="n">8036</td><td>ключ сменён на пульте: машина с идущей сессией на нём, машина без его папки, машина вне связи; затем сменён адрес; затем ключ удалён</td><td>у первой новый файл токена, следующий запрос сессии с новым значением без перезапуска; у второй запросов ключа 0; третья обновила папку после подключения; новый адрес — на следующем старте сессии; после удаления папки нет</td><td>слово пользователя 5 нояб.: ключ заводится один раз на все машины</td></tr><tr class="chg" data-chg="bl-e37"><td class="n">8037</td><td>конфликт при сведении, ещё два такта, затем репозиторий убран из списка; второй прогон: сессия закоммитила слияние</td><td>на тактах коммитов, pull и push 0, <code>state: conflict</code> держится, клон на месте; после коммита сессии следующий такт отправил слияние, <code>state: ok</code></td><td>факт: <code>git add</code> завершает слияние с метками, повторено на git</td></tr><tr><td class="n">8101</td><td><code>session.open</code> ведомого с <code>wing_of</code>, своим профилем, моделью, усилием и слотом</td><td>две сессии, у ведомого <code>parent</code> — ведущий и <code>wing</code>; настройки и профиль ведомого — свои</td><td>слово пользователя 6 нояб.</td></tr><tr><td class="n">8102</td><td>ведущий на слоте main, ведомый на ключе флота; поддельный API</td><td>запросы ведомого уходят на адрес ключа флота, ведущего — на свой</td><td>слово пользователя 6 нояб.</td></tr><tr><td class="n">8103</td><td>ведущий отправляет задачу <code>send</code></td><td>ведомый получает её первым сообщением хода</td><td>код</td></tr><tr><td class="n">8104</td><td>ход ведомого кончился</td><td>итог пришёл ведущему без отдельного запроса</td><td>код</td></tr><tr><td class="n">8105</td><td>второй <code>wing_of</code> к тому же ведущему</td><td>отказ <code>has_wing</code></td><td>слово после «да»</td></tr><tr><td class="n">8106</td><td>удалить ведущего</td><td>ведомый тоже убран</td><td>слово после «да»</td></tr><tr class="chg" data-chg="ba-e7"><td class="n">8107</td><td>ведомый поднялся у идущей сессии; потом перезапуск ведомого</td><td>ведущему одно сообщение, после перезапуска нового нет; ведущий не перезапускался<span class="chg" data-chg="bl-e107">; отправитель последнего ввода ведущего прежний</span></td><td>слово после «да»</td></tr><tr><td class="n">8108</td><td>список «Работа» с парой</td><td>одна строка пары с двумя лампами, дочерней строки ведомого нет</td><td>слово пользователя 5 нояб.: «снаружи выглядит как одна сессия»</td></tr><tr class="chg" data-chg="pv2-e9"><td class="n">8109</td><td>другая сессия: <code>list</code></td><td>пара — одна сессия, ведомого нет</td><td>слово пользователя 6 нояб.: «пара прозрачна на уровне MCP»</td></tr><tr class="chg" data-chg="pv2-e10"><td class="n">8110</td><td>другая сессия: <code>send</code> на адрес ведомого</td><td>отказ <code>pair_inside</code>, ведомый ничего не получил</td><td>слово пользователя 6 нояб.</td></tr><tr class="chg" data-chg="pv2-e11"><td class="n">8111</td><td>другая сессия: <code>update</code> ведущего с <code>wing { model }</code></td><td>модель ведомого сменилась, ведущего — нет</td><td>слово пользователя 6 нояб.</td></tr><tr class="chg" data-chg="pv2-e12"><td class="n">8112</td><td>ведущий: <code>list</code> и <code>history</code> своего ведомого</td><td>видит ведомого и его ленту</td><td>слово после «да»</td></tr><tr class="chg" data-chg="ba-e13"><td class="n">8113</td><td><code>session.open</code> с <code>wing_of</code>, без имени и папки</td><td>имя <code>audit-wing</code>, папка и машина ведущего</td><td>слово после «да»</td></tr><tr class="chg" data-chg="ba-e14"><td class="n">8114</td><td><code>session.stop</code> ведущего посреди хода ведомого, затем <code>session.start</code></td><td>стоят оба, итог прерванного хода дошёл до ведущего; поднялись оба</td><td>слово пользователя 5 нояб.: «снаружи выглядит как одна сессия»</td></tr><tr class="chg" data-chg="ba-e15"><td class="n">8115</td><td>процесс ведомого умер посреди хода ведущего</td><td>один resume; ведущему слово об обрыве; ход не повторён</td><td>слово после «да»</td></tr><tr class="chg" data-chg="pa1-e16"><td class="n">8116</td><td>запуск ведомого</td><td>сервера инструментов флота нет, добавки флота в системном промпте нет, <code>CLAUDE_CODE_HARBOR_KITE=0</code> в окружении есть; задача приходит, итог уходит</td><td>слово пользователя 6 нояб.: «видна только сессия владельца»</td></tr><tr class="chg" data-chg="ba-e17"><td class="n">8117</td><td>другая сессия и ведущий: <code>update</code>, <code>remove</code>, <code>label</code> на адрес ведомого</td><td>отказ <code>pair_inside</code>, ведомый не изменился</td><td>слово пользователя 6 нояб.</td></tr><tr class="chg" data-chg="un-21"><td>8118</td><td><span class="chg" data-chg="bl-e118a">ведущий с ведомым: проба и подъём из точки на другой машине;</span> копия на другую машину; откат на точку на той же машине</td><td><span class="chg" data-chg="bl-e118b"><code>has_wing</code> уже на пробе, обе сессии идут;</span> копия открыта без ведомого; ведущий с точкой, ведомый поднят без точки</td><td>код: перенос снимает сессию на прежней машине</td></tr></tbody>
+  </table></div>
+</section>
+<section class="blk chg" id="gate" data-chg="un-26"><div class="blk-h"><h2>Гейт</h2><span class="tag"></span></div>
+<div class="inner pad"><pre>Гейт: сверх принятых дизайнов дубликаты ответственности 2 → 0 · состояния 1 → 0 · логики 3 → 0 · смысла 1 → 0 · других 1 → 0 · лишние коммуникации 1 → 0 · циклы 0 → 0
+<span class="chg" data-chg="bl-g-num">Числа: модули +1 Worker (fleetkeys), +1 пакет страницы (таблица участника), модулей системы 0 новых · имена договора 37 → 39 (+tier, +fleetkeys.changed) · инструментов флота 8 → 10 · слов +5 (bad_profile, no_key, not_machine, has_wing, pair_inside) · каналы 0 новых · виды секретов 1 → 2 · копии списка репозиториев 8 → 1 · эталоны 46 → 55 · фич 133, из них только экран 47</span>
+Работа: большая — меняет договор открытия сессии, запись в списке сессий, формат папки, вид аккаунта</pre></div>
+<div class="inner pad chg" data-chg="bl-gate"><pre>Слепой архитектор, один проход по странице, коду и прототипу
+Гейт: дубликаты ответственности 1 → 0 · состояния 1 → 0 · логики 1 → 0 · смысла 3 → 0 · других 2 → 0 · лишние коммуникации 0 → 0 · циклы 0 → 0 · реестров 7, строк 70
+Числа: имена договора 38 → 39 · слов 7 → 5 · поля запроса fleet.prompt 2 → 1 · каналы 0 новых · секреты 2 → 2 · настройки 0 новых · ветки сбоев 0 новых · эталоны 52 → 55
+Работа: большая — меняет договор открытия сессии, запись в списке сессий, формат папки, вид аккаунта
+Сделано:
+  1. Цель задачи · сведение · идущее слияние не трогается, конфликт держится до коммита сессии · без этого «Свести в сессии» живёт минуту, метки уходят в репозиторий; эталон 8037
+  2. Дубликат состояния · папка ключа на машинах · кадр смены ключа тем же путём, что план выпусков · смена доходит до всех машин, а не до одной; +1 кадр, эталон 8036
+  3. Цель задачи · инциденты · профиль типа — список, кода 0 строк · иначе отказ на каждом инциденте с профилем; эталон 8035
+  4. Явное · сообщения ведущему · report: true · вопросы ведущего не уходят ведомому, которому нечем ответить; эталон 8107
+  5. Дубликат смысла · папка слота · своя папка ключа, отметка в записи сессии · имена не сталкиваются, плательщик не меняется молча; эталон 8011
+  6. Дубликат логики · проверка ключа · тот же вклад, что у сессии · ключа нет в окружении, проверяется настоящий путь; эталон 8032
+  7. Простые коммуникации · перенос пары · отказ в плане подъёма · виден на пробе до остановки; эталон 8118
+  8. Less is More · слова и поля · слова not_user и bad_frame вместо своих, fleet.prompt без callsign · слов 7 → 5
+  9. Юнификация · формы ответов · fleetkeys.list с keys, no_key в таблице слов, карта фич приведена к договору · одна форма на запрос
+Развилки пользователю: нет
+Не трогал как редакторское: повторы строк в «Решено пользователем», имена уровней вклада, две строки договора про fleetkeys.set</pre></div>
+<div class="tw"><table>
+    <thead><tr><th>Дубликат в кандидатах</th><th>Свёл</th></tr></thead>
+    <tbody><tr class="chg" data-chg="bl-g-stale"><td>Папка ключа на машине без обновления после смены ключа</td><td>кадр <code>fleetkeys.changed</code>; машина вне связи — после подключения</td></tr><tr class="chg" data-chg="bl-g-push"><td>Отправка после конфликта: сессия в клоне и сведение</td><td>только сведение: токен у него</td></tr><tr class="chg" data-chg="bl-g-dir"><td>Папка слота: ссылка на аккаунт и папка ключа под одним именем</td><td>своя папка ключа рядом с папками слотов</td></tr><tr class="chg" data-chg="bl-g-check"><td>Ключ в окружении разового запуска рядом с папкой и командой токена у сессии</td><td>один путь: вклад сессии</td></tr><tr class="chg" data-chg="bl-g-user"><td><code>not_person</code> рядом с <code>not_user</code> настроек</td><td>одно слово: <code>not_user</code></td></tr><tr class="chg" data-chg="bl-g-json"><td><code>bad_json</code> рядом с <code>bad_frame</code> для поля не того вида</td><td><code>bad_frame</code>; текст JSON проверяет поле формы</td></tr><tr class="chg" data-chg="bl-g-forms"><td>Две формы ответа <code>fleetkeys.list</code> и две формы <code>profile.file</code> в договоре и прототипе</td><td>одна: таблица договора</td></tr><tr class="chg" data-chg="un-34"><td>Чтение профиля записи в двух формах у страницы</td><td>только список</td></tr><tr class="chg" data-chg="un-33"><td>Порядок настроек в ядре и порядок модулей в сборке</td><td>только уровень вклада в ядре</td></tr><tr class="chg" data-chg="un-32"><td>Пробный запуск системы и разовый запуск claude для проверки</td><td>только разовый запуск</td></tr><tr class="chg" data-chg="un-31"><td>Список папок для коммита рядом с «кусочек — любая папка»</td><td>коммитится весь клон</td></tr><tr class="chg" data-chg="un-30"><td>Два пути отказа кусочка на старте: выключение модуля и пропуск вклада</td><td>один: пропуск вклада, <code>state: error</code></td></tr><tr class="chg" data-chg="un-29"><td>Запрос ключа при подъёме и файл ключа на машине</td><td>подъём читает файл; запрос — открытие, смена слота, подключение</td></tr><tr class="chg" data-chg="un-28"><td>Два куска экрана разговора в колонке и признак панели в общем сторе</td><td>один экран разговора; панель — его состояние</td></tr><tr class="chg" data-chg="un-27"><td>Два жеста перетаскивания на странице</td><td>один: жест доски в общем наборе</td></tr>
+      <tr><td>Кто платит: провайдер-кусочек и слот</td><td>только аккаунт; кусочку <code>ANTHROPIC_*</code> и <code>CLAUDE_CODE_USE_*</code> запрещены</td></tr>
+      <tr><td>Собранная папка с копией индексов памяти</td><td>индексы читаются из файлов на старте, копии нет</td></tr>
+      <tr class="chg" data-chg="pc-k-g"><td>Ключ провайдера, заведённый на каждой машине отдельно</td><td>один ключ во флоте; машина получает его на старте сессии</td></tr>
+      <tr class="chg" data-chg="pa-g-env"><td>Адрес и модели ключа флота своими полями и теми же переменными в его <code>env</code>; окно 200K правилом системы рядом с <code>env</code></td><td>только <code>env</code> в родном формате Claude, окно вписывает форма; модуль значений не читает</td></tr>
+      <tr class="chg" data-chg="pa-g-slot"><td>Имя слота: слот машины или ключ флота без правила, и выбор слота по умолчанию, который ключи флота сломали бы</td><td>сначала слоты машины; без <code>slot</code> — только они</td></tr>
+      <tr class="chg" data-chg="pa-g-repos"><td>Управление репозиториями на экране профилей и в настройках: два макета, пункт порядка о профилях</td><td>только настройки; второй макет убран</td></tr>
+      <tr class="chg" data-chg="pa-g-read"><td>Список репозиториев в копии записей флота у системы машины</td><td>чтение на каждом сведении, копии нет</td></tr>
+      <tr class="chg" data-chg="pa-g-plan"><td>Два пункта порядка строят одни экраны с разными «Готово»</td><td>один пункт, одно число снимков</td></tr>
+      <tr class="chg" data-chg="pa1-g-find"><td>Поиск по содержимому: тексты всех кусочков на экран ради строки поиска</td><td>в списке кусочков только имена содержимого; текст — по нажатию</td></tr>
+      <tr class="chg" data-chg="pc-v-g1"><td>Итог набора на странице и в системе</td><td>только система: <code>profile.view</code> тем же кодом, что запуск</td></tr>
+      <tr class="chg" data-chg="pc-v-g2"><td>Состояние репозиториев на экране профилей и в настройках</td><td>только в настройках, рядом с приложением GitHub; профили — только просмотр</td></tr>
+      <tr class="chg" data-chg="pc-v-g3"><td>Свой сборщик системного промпта рядом со штатными стилем и агентом</td><td>только штатные: стиль, агент главной нити, CLAUDE.md</td></tr>
+      <tr class="chg" data-chg="pc-v-g4"><td>Свой каталог для агентов рядом с ответом экрана</td><td>инструмент <code>profile</code> отдаёт тот же ответ, что экран</td></tr>
+      <tr class="chg" data-chg="pa1-g-cycle"><td>Текст добавки флота в ответе просмотра: модуль профилей зовёт инструменты флота, те зовут профили</td><td>текст отдаёт <code>fleet.prompt</code> владелец, экран спрашивает его сам; цикл снят</td></tr>
+      <tr class="chg" data-chg="pa1-g-text"><td>Тексты файлов в ответе просмотра и отдельным запросом</td><td>просмотр без текстов, тексты — <code>profile.file</code></td></tr>
+      <tr class="chg" data-chg="pa1-g-write"><td>Список репозиториев из ключа и объединением ответов машин</td><td>только ключ</td></tr>
+      <tr class="chg" data-chg="pa1-g-order"><td>Правило «кто выигрывает» в ключе флота отдельно от модулей и кусочков</td><td>один порядок: модуль → ключ флота → кусочек, вклад <code>defaults</code></td></tr>
+      <tr class="chg" data-chg="pa1-g-key"><td>Запрос ключа при каждом подъёме рядом с идущим процессом</td><td>attach не спрашивает</td></tr>
+      <tr class="chg" data-chg="pa2-g-check"><td>Счёт «дошёл на N из M» рядом с проверкой ключа через машину</td><td>только проверка через машину</td></tr>
+      <tr class="chg" data-chg="pa2-g-name"><td>Имя <code>accounts</code> у ключей рядом с аккаунтами Claude на машине</td><td><code>fleetkeys</code>: одно имя — один смысл</td></tr>
+      <tr class="chg" data-chg="pa2-g-edit"><td>Правка кусочка с экрана просмотра рядом с сессией в клоне</td><td>экран только для просмотра</td></tr>
+      <tr class="chg" data-chg="pc-repos-g1"><td>Список репозиториев в файле настроек каждой машины: 8 копий одного списка на проде</td><td>один ключ настроек флота; машина читает его на сведении и не хранит</td></tr>
+      <tr class="chg" data-chg="pc-a2-g-fix"><td>Кто доводит конфликт до исполнителя: задание в каждой сессии кусочка на каждом ходе и кнопка «Свести в сессии»</td><td>только кнопка: одна сессия в клоне</td></tr>
+      <tr class="chg" data-chg="pc-a2-g-inst"><td>Ссылка установки приложения GitHub в ответе каждой машины и в ответе самого приложения</td><td>только у приложения GitHub; экран берёт её оттуда</td></tr>
+      <tr class="chg" data-chg="pc-a2-g-env"><td>Профиль сессии в её записи и в переменной окружения процесса, которую никто не читает</td><td>только запись</td></tr>
+      <tr class="chg" data-chg="pc-sets-gate"><td>Список, который хранит сессия, и развёрнутый список при наборах</td><td>сессия хранит список как выбран; развёрнутый считается на каждом старте и нигде не лежит</td></tr>
+      <tr class="chg" data-chg="pc-sets-gate2"><td>Состав набора в своём файле или в зависимостях плагинов</td><td>в <code>metadata</code> манифеста: зависимости Claude ищет в каталоге плагинов, у нас его нет</td></tr>
+      <tr><td>Слияние настроек в системе и на странице: форма открытия показывала бы модель из кусочков</td><td>только в системе; в списке кусочков нет модели и усилия</td></tr>
+      <tr><td>Проверка кусочков и проверка модулей одной ошибкой: данные из git могли бы остановить систему</td><td>ключ модуля выигрывает у данных; проверка двух владельцев — только между модулями</td></tr>
+      <tr><td>Профиль, кусочек, набор</td><td>профиль — список сессии, кусочек — папка</td></tr>
+      <tr><td>Два слова отказа на один смысл «этот список не собрать»</td><td>одно: <code>bad_profile</code></td></tr>
+      <tr><td>Модель и усилие в своём файле рядом с настройками Claude</td><td>только родной <code>settings.json</code></td></tr>
+      <tr><td>Свой файл с подписью рядом с манифестом плагина</td><td>только манифест, разбор своего формата не нужен</td></tr>
+      <tr><td>Чтение инструкций своим кодом рядом со штатной загрузкой</td><td>только штатная дополнительная папка</td></tr>
+      <tr><td>Второй механизм памяти: ссылки, скрытые хранилища</td><td>штатная папка и добавка к промпту</td></tr>
+      <tr><td>Не описанная переменная рядом с описанными для несовместимых полей</td><td>только описанные</td></tr>
+      <tr><td>Опрос каталога моделей у провайдера</td><td>модели названы в аккаунте, запроса нет</td></tr>
+      <tr><td>Второй шаг «завести слот» после добавления провайдера</td><td>слот заводится тем же запросом: в нём всё равно может стоять только он</td></tr>
+    <tr><td>Второй вид сессии «ведомый» со своими полями настроек</td><td>ведомый — обычная сессия; отношение — <code>parent</code> и признак <code>wing</code></td></tr><tr><td>Ссылка на ведомого в записи ведущего и ссылка на ведущего в записи ведомого</td><td>только у ведомого: <code>parent</code></td></tr><tr><td>Отдельное поле <code>wing_of</code> в записи рядом с <code>parent</code></td><td><code>wing_of</code> — только в запросе открытия, в записи — <code>parent</code> и признак</td></tr><tr><td>Свой канал задач и итогов между ведущим и ведомым</td><td><code>send</code>, итог хода родителю, <code>answer</code> — уже есть</td></tr><tr><td>Поля настроек ведомого в <code>session.update</code> ведущего</td><td>запрос Host — по имени ведомого; поле <code>wing</code> есть только у инструмента флота, он сам зовёт запрос ведомого</td></tr><tr><td>Профиль ведомого «как у ведущего» правилом системы</td><td>форма предзаполняет, система не копирует</td></tr><tr class="chg" data-chg="pv2-g-filter"><td>Фильтр «кто видит ведомого» в каждом инструменте флота</td><td>один вид списка и одна проверка адреса в модуле инструментов</td></tr><tr class="chg" data-chg="pv2-g-upd"><td>Настройки ведомого для других сессий отдельным инструментом</td><td>поле <code>wing</code> у <code>update</code> ведущего</td></tr><tr><td>Опрос состояния ведомого ведущим</td><td>итог хода приходит событием</td></tr><tr class="chg" data-chg="ba-g-name"><td>Имя и папка ведомого в форме и в инструменте</td><td>выводит Host из <code>wing_of</code></td></tr><tr class="chg" data-chg="ba-g-stop"><td>Стоп и старт пары каждым клиентом</td><td>одно правило в Host рядом с удалением</td></tr><tr class="chg" data-chg="ba-g-know"><td>Строка промпта и сообщение о ведомом</td><td>одно сообщение при первом подъёме; промпт флота не меняется</td></tr><tr class="chg" data-chg="ba-g-set"><td>Настройки ведомого у ведущего двумя путями и снятие пары двумя путями</td><td>поле <code>wing</code> у <code>update</code>; адрес ведомого для настроек закрыт всем</td></tr><tr class="chg" data-chg="ba-g-mode"><td>Поле <code>mode</code> у <code>wing</code> рядом со сменой режима в карточке</td><td>поля нет: режим меняет человек, как у любой сессии</td></tr><tr class="chg" data-chg="pa1-g-pair"><td>Поле <code>pair</code> в записи и запрос <code>session.pair</code> рядом с <code>parent</code> и <code>wing</code></td><td>сняты: один селектор, открытие — обычное <code>session.open</code></td></tr><tr class="chg" data-chg="pa1-g-append"><td>Добавка флота к промпту ведомого рядом с закрытым сервером инструментов</td><td>не выдаётся: ведомому незачем знать инструменты, которых нет</td></tr><tr class="chg" data-chg="ba-g-out"><td>Ведомый говорит с флотом мимо ведущего</td><td>инструментов флота у ведомого нет</td></tr></tbody>
+  </table></div></section>
+<section class="blk chg" id="order" data-chg="un-35"><div class="blk-h"><h2>Порядок реализации</h2><span class="tag"></span></div>
+<ol class="order">
+<li><b>Экран без договора:</b> 47 строк «только экран» на нынешнем коде: полоса значками, шапка в строку, «Сведения» вкладкой, панель контекста на месте ленты, режим кнопкой, без чисел, прокрутка, форма без прыжков, строка лимита, подтверждение на месте, общий жест.<span>Готово: 47 из 47 строк карты; тесты фронта зелёные; снимки тронутых экранов на 1280 и 390 в обеих темах; источники тестов 5301, 5304–5306 заменены; выложено на тест</span></li>
+<li class="chg" data-chg="bl-o2"><b>Модуль ключей флота:</b> своя база на обоих флотах, запросы list, set, remove, key, кадр смены ключа каждой машине, запись в шести списках модулей.<span>Готово: тесты модуля зелёные; <code>not_machine</code>, <code>not_user</code>, <code>no_key</code> и отказ имени с чужими знаками проверены; модуль на тесте</span></li>
+<li class="chg" data-chg="bl-o3"><b>Список кусочков:</b> уровень вклада в ядре, развёртка наборов, плагины, дополнительные папки, слияние настроек, домашняя память, подъём из точки со списком, профиль инцидента списком.<span>Готово: эталоны 8001–8009, 8013–8015, 8033–8035 зелёные на поддельном SDK, 15 из 15</span></li>
+<li class="chg" data-chg="bl-o4"><b>Репозитории из одного списка:</b> чтение ключа после подключения и на сведении, весь клон, идущее слияние не трогается, удаление клона после последнего push, поля dir и at, без задания о конфликте в сессиях.<span>Готово: эталоны 8016–8020, 8024, 8025, 8030, 8037 зелёные, 9 из 9; разделов репозиториев в файлах настроек машин 0</span></li>
+<li class="chg" data-chg="bl-o5"><b>Слот на ключе флота:</b> своя папка ключа, файл токена, подъём с диска, обновление после подключения и по кадру смены, исключение из опросов, проверка ключа разовым запуском с вкладом сессии.<span>Готово: эталоны 8010–8012, 8026, 8027, 8031, 8032, 8036 зелёные, 8 из 8; окно 200K, смена слота и ответ 429 — настоящий claude с поддельным API</span></li>
+<li><b>Просмотр и управление из сессий:</b> profile.view, profile.file, fleet.prompt, инструменты profile и repos, поле profile у open и update, стиль и агент в промпте.<span>Готово: эталоны 8021–8023, 8028, 8029 зелёные, 5 из 5; инструментов флота 10</span></li>
+<li><b>Пара в системе:</b> wing_of, имя и папка от ведущего, признак wing, стоп, старт и снятие вместе, сообщения ведущему, отказ переноса.<span>Готово: эталоны 8101, 8103–8107, 8113–8115, 8118 зелёные, 10 из 10</span></li>
+<li><b>Пара в инструментах флота:</b> одно правило адреса ведомого, wing у open и update, ведомому сервер и добавка не выдаются.<span>Готово: эталоны 8109–8112, 8116, 8117 зелёные, 6 из 6; новых инструментов для пары 0</span></li>
+<li><b>Экраны с договором:</b> 86 строк карты: таблица участника, профили, ключи, репозитории, форма, строка и карточка пары, телефон, «Вам». Показ пользователю на тестовом флоте с комментариями до выкладки.<span>Готово: 86 из 86 строк карты; эталон 8108; тесты фронта и гейт манифестов зелёные, нарушений 0; снимки 10 экранов на 1280 и 390 в обеих темах; перетаскивание мышью и пальцем; слоёв поверх 0; сдвиг формы при включении пары 0 px</span></li>
+<li><b>Выкатка:</b> сначала ключ <code>fleet.profiles.repos</code> на флоте, затем система машин, затем страницы: договоры сверяются точным равенством версий. Перевод папок и записей делает агент, кодом миграции не занимаемся.<span>Готово: номера подняты, гейт манифестов зелёный; сессий с потерянным профилем 0; файлов profile.yaml 0; записей со строкой 0</span><span class="chg" data-chg="bl-o10">профилей инцидентов строкой в файлах настроек машин 0</span></li>
+<li><b>Живой прогон на Windows и WSL:</b> сессия из 3 кусочков из 2 репозиториев, сессия на поддельном совместимом API, пара: ведущий на слоте машины, ведомый на ключе флота.<span>Готово: 3 плагина, 3 инструкции, 2 индекса памяти; запись во вторую память доехала на вторую машину; запрос к провайдеру с его моделью; эталон 8102; задача ушла и итог вернулся; по 1 прогону на систему</span></li>
+<li><b>Настоящий провайдер OrcaRouter:</b> одна сессия с задачей на чтение и правку файла. Нужен ключ пользователя, вводится на пульте.<span>Готово: ответ модели, 1 вызов инструмента, 1 правка файла на Windows и WSL</span></li>
+</ol></section>
+<section class="blk chg" data-chg="pc-forks" id="forks">
+  <div class="blk-h"><h2>Решено пользователем</h2><span class="tag"></span><p class="muted">Слово пользователя 5 и 6 нояб. Открытых развилок нет.</p></div>
+  <div class="tw chg" data-chg="pc-answers"><table>
+    <thead><tr><th>Вопрос</th><th>Решение</th></tr></thead>
+    <tbody><tr class="chg" data-chg="un-37"><td>Пара</td><td>Включается по желанию; две сессии с особым отношением; у обеих свой профиль и все настройки; для других сессий видна только сессия владельца</td></tr><tr class="chg" data-chg="un-36"><td>Что считается принятым</td><td>Прототип и все фичи в нём; дизайн сверен с нынешним main. Слово пользователя 6 нояб.</td></tr>
+      <tr><td>Где живёт провайдер</td><td>Аккаунт. Остальные env — в кусочках, кроме <code>ANTHROPIC_*</code> и <code>CLAUDE_CODE_USE_*</code></td></tr>
+      <tr><td>Первый провайдер вживую</td><td>OrcaRouter: API в формате Anthropic по адресу <code>https://api.orcarouter.ai</code>, без <code>/v1</code>; модели вида <code>вендор/модель</code>, например <code>orcarouter/auto</code>. Один ключ — модели разных вендоров на alias. Ключ — через stdin</td></tr>
+      <tr><td>Провайдеры только с OpenAI API</td><td>Отдельной работой; здесь — только адрес и токен</td></tr>
+      <tr><td>Наборы кусочков</td><td>Нужны: набор в git, общий для всех машин</td></tr>
+      <tr class="chg" data-chg="pc-k-ans"><td>Слоты на всех компьютерах</td><td>Ключи API — во флоте, один раз; вход Claude по ссылке — на своей машине</td></tr>
+      <tr class="chg" data-chg="pc-v-ans"><td>Экран профилей</td><td>Переосмыслен: только просмотр всего в профиле, без живых данных</td></tr>
+      <tr class="chg" data-chg="pc-p-ans"><td>Системные промпты</td><td>Управляются кусочком: стиль, агент главной нити, CLAUDE.md</td></tr>
+      <tr class="chg" data-chg="pc-m-ans"><td>Управление из других сессий</td><td>Инструменты флота: <code>open</code> и <code>update</code> с профилем, новые <code>profile</code> и <code>repos</code></td></tr>
+      <tr class="chg" data-chg="pa2-ans-name"><td>Имя модуля ключей флота</td><td><code>workers/fleetkeys/</code>: <code>fleetkeys.list</code>, <code>.set</code>, <code>.remove</code>, <code>.key</code>; имени <code>accounts.*</code> нет</td></tr>
+      <tr class="chg" data-chg="pa3-ans-check"><td>Проверка ключа флота</td><td>только проверка ключа: <code>machine.key_check</code>; «дошёл на N из M» снято</td></tr>
+      <tr class="chg" data-chg="pa2-ans-edit"><td>Экран профилей</td><td>«Править в сессии» снято</td></tr>
+      <tr class="chg" data-chg="pa3-ans-repos"><td>Где список репозиториев</td><td>настройки флота — осознанное слово пользователя 6 нояб., несмотря на правило о служебном: список настраивает человек</td></tr>
+    <tr><td>Ведомый</td><td>та же машина и папка, что у ведущего; один на ведущего, второй — <code>has_wing</code></td></tr><tr><td>Режим разрешений ведомого</td><td>в настройках карточки</td></tr><tr><td>Названия ролей в договоре</td><td><code>lead</code> и <code>wing</code>; на экранах слов-ролей нет</td></tr><tr><td>Где список репозиториев</td><td>настройки флота — осознанное слово, несмотря на правило о служебном: список настраивает человек</td></tr><tr><td>Ключи флота</td><td><code>workers/fleetkeys/</code>, <code>fleetkeys.*</code>; только проверка ключа: <code>machine.key_check</code>; «дошёл на N из M» снято</td></tr></tbody>
+  </table></div>
+
+</section>
+</div>
+<script>
+/* ===== Конструктор сессии и таблица запросов ===== */
+(function(){
+  const P = {
+    base: { id:"team/p/base", about:"как я работаю", instr:["CLAUDE.md"], memory:true, settings:{ effortLevel:"high" } },
+    switchboard: { id:"team/p/switchboard", about:"проект: правила и память", instr:["CLAUDE.md","rules"], memory:true, settings:{ model:"opus" } },
+    design: { id:"team/p/design", about:"скилы дизайна и выпуска", skills:["design","deliver"], agents:["architect"] },
+    github: { id:"team/p/github", about:"сервер MCP и хук коммита", mcp:["github"], hooks:["проверка коммита"] },
+    fast: { id:"team/p/fast", about:"быстрая модель, без автосжатия", settings:{ model:"sonnet" }, env:{ DISABLE_AUTO_COMPACT:"1" } },
+    opsA: { id:"alpha/p/ops", about:"серверы команды alpha", folder:"ops", skills:["restart"], memory:true },
+    opsB: { id:"beta/p/ops", about:"серверы команды beta", folder:"ops", skills:["restart"] },
+    dev: { id:"team/p/dev", about:"набор: base, switchboard, design", use:["base","switchboard","design"] },
+    leak: { id:"team/p/kimi-env", about:"адрес провайдера в профиле", env:{ ANTHROPIC_BASE_URL:"https://…" } },
+  };
+  const A = {
+    claude: { label:"Claude · вход по ссылке" },
+    kimi: { label:"kimi · провайдер", url:"https://…/anthropic", models:{ opus:"kimi-k2", sonnet:"kimi-k2", haiku:"kimi-small", fable:"kimi-k2" } },
+    own: { label:"свой адрес · переводчик", url:"http://127.0.0.1:4000", models:{ opus:"gpt-x", sonnet:"gpt-x", haiku:"gpt-x-mini", fable:"gpt-x" } },
+  };
+  const state = { list:["base","switchboard","design"], account:"claude" };
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;" })[c]);
+  const nameOf = k => P[k].folder || k;
+
+  function renderPieces(){
+    $("pieces").innerHTML = Object.keys(P).map(k => `<label class="pc"><input type="checkbox" id="pc-${k}" data-k="${k}" ${state.list.includes(k) ? "checked" : ""}><span><b>${esc(P[k].id)}</b><small>${esc(P[k].about)}</small></span></label>`).join("");
+    $("stack").innerHTML = state.list.length ? state.list.map((k, i) => `<div class="st"><span>${esc(nameOf(k))}</span><button type="button" data-up="${i}" aria-label="выше: ${esc(k)}" ${i ? "" : "disabled"}>▲</button><button type="button" data-down="${i}" aria-label="ниже: ${esc(k)}" ${i < state.list.length - 1 ? "" : "disabled"}>▼</button></div>`).join("") : `<div class="muted" style="font-size:13px">пусто: сессия без профиля</div>`;
+    $("accounts").innerHTML = Object.keys(A).map(k => `<label><input type="radio" name="acc" id="acc-${k}" data-a="${k}" ${state.account === k ? "checked" : ""}>${esc(A[k].label)}</label>`).join("");
+  }
+
+  function render(){
+    renderPieces();
+    /* развёртка наборов: состав, затем сам набор, если в нём что-то есть; повтор — первое вхождение */
+    const ks = []; const go = k => { (P[k].use || []).forEach(go); if ((!P[k].use || P[k].own) && !ks.includes(k)) ks.push(k); }; state.list.forEach(go);
+    const ps = ks.map(k => P[k]);
+    const names = ks.map(nameOf);
+    const dup = names.find((n, i) => names.indexOf(n) !== i);
+    const leak = ks.find(k => Object.keys(P[k].env || {}).some(e => /^ANTHROPIC_/.test(e)));
+    if (dup){ $("word").innerHTML = `<div class="word" role="alert"><b>bad_profile</b>: в списке два профиля с именем «${esc(dup)}», скилы одного пропали бы молча; разведите их полем name манифеста. Сессия не открыта.</div>`; }
+    else if (leak){ $("word").innerHTML = `<div class="word" role="alert"><b>bad_profile</b>: ${esc(P[leak].id)} задаёт адрес провайдера. Провайдер — это аккаунт. Сессия не открыта.</div>`; }
+    else $("word").innerHTML = "";
+    const stop = dup || leak;
+
+    const settings = {}, from = {}, losers = [], env = {};
+    ps.forEach((p, i) => { for (const [k, v] of Object.entries(p.settings || {})){ if (k in settings) losers.push(`${k}=${settings[k]} (${from[k]})`); settings[k] = v; from[k] = nameOf(ks[i]); } Object.assign(env, p.env || {}); });
+    const mems = ks.filter(k => P[k].memory);
+    const home = mems[mems.length - 1], rest = mems.slice(0, -1);
+    const acc = A[state.account];
+    const alias = settings.model || "opus";
+    const real = acc.models ? acc.models[alias] : `Claude ${alias}`;
+    const list = a => a.length ? a.map(esc).join(", ") : `<span class="muted">нет</span>`;
+    const sk = ps.flatMap((p, i) => (p.skills || []).map(s => `${nameOf(ks[i])}:${s}`));
+    const extras = [...ps.flatMap(p => p.agents || []).map(x => `агент ${x}`), ...ps.flatMap(p => p.mcp || []).map(x => `MCP ${x}`), ...ps.flatMap(p => p.hooks || []).map(x => `хук: ${x}`)];
+    $("out").innerHTML = [
+      ["Развёрнуто", list(ks.map(nameOf))],
+      ["Скилы", list(sk)],
+      ["Агенты, MCP, хуки", list(extras)],
+      ["Инструкции", list(ks.filter(k => P[k].instr).map(k => `${nameOf(k)} (${P[k].instr.join(", ")})`))],
+      ["Настройки", (Object.keys(settings).length ? Object.entries(settings).map(([k, v]) => `${esc(k)}=${esc(v)} <span class="muted">из ${esc(from[k])}</span>`).join(", ") : `<span class="muted">нет</span>`) + (losers.length ? `<br>${losers.map(l => `<s>${esc(l)}</s>`).join(", ")}` : "")],
+      ["Домашняя память", home ? esc(nameOf(home)) : `<span class="muted">папка проекта по умолчанию</span>`],
+      ["Ещё память", list(rest.map(nameOf))],
+      ["Модель", `<b>${esc(alias)}</b> → ${esc(real)}`],
+      ["Запросы идут", acc.url ? esc(acc.url) : "api.anthropic.com"],
+    ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("");
+    if (stop){ $("code").textContent = "процесс не запущен"; return; }
+    const opts = {};
+    const dirs = ks.filter(k => P[k].instr).map(k => `<клон>/${nameOf(k)}`);
+    const plug = ks.filter(k => P[k].skills || P[k].agents || P[k].mcp || P[k].hooks).map(k => ({ type:"local", path:`<клон>/${nameOf(k)}` }));
+    if (plug.length) opts.plugins = plug;
+    if (dirs.length) opts.additionalDirectories = dirs;
+    const s = { ...settings };
+    if (home) s.autoMemoryDirectory = `<клон>/${nameOf(home)}/memory`;
+    if (acc.url) s.apiKeyHelper = `cat "<папка аккаунта>/token"`;
+    if (Object.keys(s).length) opts.settings = s;
+    const e = { ...env };
+    if (dirs.length) e.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = "1";
+    if (acc.url){ e.ANTHROPIC_BASE_URL = acc.url; e.CLAUDE_CODE_DISABLE_1M_CONTEXT = "1"; for (const [a, m] of Object.entries(acc.models)) e[`ANTHROPIC_DEFAULT_${a.toUpperCase()}_MODEL`] = m; }
+    if (Object.keys(e).length) opts.env = e;
+    if (rest.length) opts.systemPrompt = { append: rest.map(k => `Память ${nameOf(k)}: <клон>/${nameOf(k)}/memory\n<её MEMORY.md>`).join("\n") };
+    $("code").textContent = JSON.stringify(opts, null, 2);
+  }
+
+  document.addEventListener("change", ev => {
+    const t = ev.target;
+    if (t.dataset.k){ const k = t.dataset.k; state.list = t.checked ? [...state.list, k] : state.list.filter(x => x !== k); render(); }
+    if (t.dataset.a){ state.account = t.dataset.a; render(); }
+  });
+  document.addEventListener("click", ev => {
+    const t = ev.target.closest && ev.target.closest("[data-up],[data-down]");
+    if (!t) return;
+    const i = Number(t.dataset.up ?? t.dataset.down), j = t.dataset.up !== undefined ? i - 1 : i + 1;
+    const l = state.list.slice(); [l[i], l[j]] = [l[j], l[i]]; state.list = l; render();
+  });
+  render();
+
+  /* Снятые запросы: настоящий claude 2.1.311, модель opus → kimi-k2 */
+  const R = [
+    { name:"Только адрес и модель", env:"ANTHROPIC_BASE_URL=…\nANTHROPIC_DEFAULT_OPUS_MODEL=kimi-k2", m:"kimi-k2", b:8, t:"adaptive", e:"high", n:14, c:3, note:"Перед первым запросом ещё обращение /api/hello и запрос заголовка сессии." },
+    { name:"Сессия без модели: окно 1M", env:"модель не выбрана, CLAUDE_CODE_DISABLE_1M_CONTEXT не задан", m:"kimi-k2", b:9, t:"adaptive", e:"high", n:14, c:3, note:"Claude считает окно в 1M и шлёт бету контекста; такого окна у провайдера может не быть. Поэтому у аккаунта провайдера окно 200K по умолчанию: бет 8." },
+    { name:"Alias без своей строки: fable", env:"ANTHROPIC_DEFAULT_FABLE_MODEL не задан", m:"claude-fable-5-1", b:9, t:"adaptive", e:"high", n:14, c:3, note:"Имя модели Claude ушло провайдеру. Со строкой fable в запросе kimi-f. Поэтому аккаунт задаёт все alias из формы открытия." },
+    { name:"Без thinking и effort", env:"CLAUDE_CODE_DISABLE_THINKING=1\nCLAUDE_CODE_EFFORT_LEVEL=auto", m:"kimi-k2", b:7, t:"нет", e:"нет", n:14, c:3, note:"Обе переменные описаны в документации Claude Code. Провайдер, отвергающий thinking, отвечает с первой попытки." },
+    { name:"Thinking выключен опцией сессии", env:"thinking: { type: \"disabled\" }", m:"kimi-k2", b:7, t:"нет", e:"high", n:14, c:3, note:"Опция уже есть при открытии сессии." },
+    { name:"Без кэша", env:"DISABLE_PROMPT_CACHING=1", m:"kimi-k2", b:8, t:"adaptive", e:"high", n:14, c:0, note:"Метки cache_control исчезли." },
+    { name:"Тихо и без бета", env:"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1\nCLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1", m:"kimi-k2", b:3, t:"adaptive", e:"high", n:23, c:3, note:"Первый же запрос — к модели: /api/hello и заголовка нет. Без беты поиска инструментов все схемы уходят сразу: 23 вместо 14." },
+  ];
+  let sel = 0;
+  function drawReq(){
+    $("reqb").innerHTML = R.map((r, i) => `<tr class="rowb${i === sel ? " sel" : ""}" data-r="${i}" tabindex="0" aria-selected="${i === sel}"><td>${esc(r.name)}</td><td class="n">${esc(r.m)}</td><td class="n">${r.b}</td><td class="n">${esc(r.t)}</td><td class="n">${esc(r.e)}</td><td class="n">${r.n}</td><td class="n">${r.c}</td></tr>`).join("");
+    $("reqd").textContent = `${R[sel].env}\n\n${R[sel].note}`;
+  }
+  $("reqb").addEventListener("click", ev => { const tr = ev.target.closest("tr"); if (tr){ sel = Number(tr.dataset.r); drawReq(); } });
+  $("reqb").addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " "){ const tr = ev.target.closest("tr"); if (tr){ ev.preventDefault(); sel = Number(tr.dataset.r); drawReq(); } } });
+  drawReq();
+})();
+</script>
+<script>
+/* ===== Ход задачи по шагам ===== */
+(function(){
+  const S = [
+    [["pv-lead"], "Ведущий получает задачу от человека и решает, что поручить ведомому."],
+    [["pv-lead","pv-e1","pv-wing"], "Ведущий пишет ведомому инструментом флота send. Ведомый — обычная сессия со своим профилем, моделью, усилием и слотом."],
+    [["pv-wing"], "Ведомый работает своим процессом claude: здесь — haiku на ключе флота kimi."],
+    [["pv-wing","pv-e2","pv-lead"], "Ход ведомого кончился: итог приходит ведущему сам, как любой дочери. Вопрос ведомого — тоже ведущему."],
+    [["pv-pult"], "Пульт показывает пару одной строкой и одной карточкой; ведомый открывается из карточки."],
+  ];
+  const all = ["pv-lead","pv-wing","pv-e1","pv-e2","pv-pult"];
+  let i = 0;
+  const $ = id => document.getElementById(id);
+  function draw(){
+    all.forEach(id => $(id).classList.remove("hot"));
+    S[i][0].forEach(id => $(id).classList.add("hot"));
+    $("pv-why").textContent = S[i][1];
+    $("pv-cnt").textContent = `${i + 1} из ${S.length}`;
+    $("pv-prev").disabled = i === 0; $("pv-next").disabled = i === S.length - 1;
+  }
+  $("pv-prev").addEventListener("click", () => { if (i) { i--; draw(); } });
+  $("pv-next").addEventListener("click", () => { if (i < S.length - 1) { i++; draw(); } });
+  draw();
+})();
+</script>
+<script>
+/* ===== Жизнь пары: события и что с кем ===== */
+(function(){
+  const E = [
+    {n:"Стоп пары", lead:["stopped","остановлен","dim"], wing:["stopped","остановлен первым","dim"], edge:["r","итог прерванного хода"], why:"session.stop ведущего: сначала ведомый, его итог успевает к ведущему, затем ведущий. session.start ведущего поднимает обоих."},
+    {n:"Стоп ведомого", lead:["idle","получил слово","acc"], wing:["stopped","стоит до session.start","dim"], edge:["f","send → offline"], why:"Запрос только ведомому: ведущий работает, задача ведомому получает отказ offline. Поднимает человек с пульта."},
+    {n:"Ведомый умер посреди хода", lead:["idle → busy","получил слово об обрыве","acc"], wing:["starting → idle","один resume, ход потерян","you"], edge:["r","ход оборвался"], why:"Итога нет, поэтому родителю слово: иначе пара стоит молча. Ход не повторяется, что делать дальше, решает ведущий."},
+    {n:"Второй сбой ведомого", lead:["idle","решает дальше","acc"], wing:["failed","стоит до session.start","bad"], edge:["f","send → offline"], why:"Второй сбой до готовности — failed. Поднимает человек; ведущий может открыть нового: update wing: null, затем wing { … }, разговор ведомого начнётся заново."},
+    {n:"Ведущий умер", lead:["starting → idle","один resume, ввод ждёт","you"], wing:["busy","доводит ход","ok"], edge:["r","итог ждёт в очереди"], why:"Итог ложится в очередь ввода и приходит после resume. Если ведущий ушёл в failed, итог получает отказ offline и строку журнала; после session.start ведущий читает history."},
+    {n:"Перезапуск Host", lead:["attach","запись на диске","ok"], wing:["attach","запись на диске","ok"], edge:null, why:"Обе сессии поднимаются сами из своих записей, процессы живут у держателей. Ничего своего у пары здесь нет. Остановка ОС — так же: новый Host поднимает обе."},
+    {n:"Удалён ведущий", lead:["убран","","dim"], wing:["убран первым","","dim"], edge:null, why:"Удаление сразу и удаление после хода идут одним путём: сначала ведомый, затем ведущий. Предел — ступени остановки каждой сессии."},
+    {n:"Снята пара", lead:["обычная сессия","","acc"], wing:["убран","","dim"], edge:null, why:"session.remove ведомого или update wing: null. Ведущий работает дальше; send на прежний адрес — offline."},
+  ];
+  const $ = id => document.getElementById(id);
+  const box = (id, s) => { $("lf-" + id).setAttribute("class", "box " + s[2]); $("lf-" + id + "-s").textContent = s[0]; $("lf-" + id + "-n").textContent = s[1]; };
+  const btns = E.map((e, i) => { const b = document.createElement("button"); b.type = "button"; b.textContent = e.n; b.addEventListener("click", () => pick(i)); $("lf-btns").appendChild(b); return b; });
+  function pick(i){
+    const e = E[i];
+    box("lead", e.lead); box("wing", e.wing);
+    const line = $("lf-e"), back = e.edge && e.edge[0] === "r";
+    line.style.display = e.edge ? "" : "none";
+    line.setAttribute("x1", back ? 678 : 322); line.setAttribute("x2", back ? 322 : 678);
+    $("lf-e-t").textContent = e.edge ? e.edge[1] : "";
+    $("lf-why").textContent = e.why;
+    btns.forEach((b, k) => b.setAttribute("aria-pressed", String(k === i)));
+  }
+  pick(0);
+})();
+</script>
+<script>
+/* ===== Карта фич и снимки ===== */
+(function(){
+  const D = [{"t":"Экран «Профили»","r":[{"id":"1.1","name":"Экран только просмотр, без живых данных","sees":"нет машин, сессий, сведения, кнопок записи","deal":"machine.profiles","src":"в ней не нужно живых данных, только просмотр","front":false},{"id":"1.2","name":"Список кусочков по репозиториям","sees":"группы по repo, сверху наборы, метки «набор», «стиль»","deal":"ProfileInfo.kind, about, use","src":"прототип","front":false},{"id":"1.3","name":"Поиск по именам внутри профилей","sees":"строка «Найти профиль» ищет и кусочки, и скилы, агентов, правила, память; находка ведёт на вкладку и элемент","deal":"ProfileInfo.names (kind, name, path)","src":"прототип","front":false},{"id":"1.4","name":"Вкладка «Итог» — дашборд имён","sees":"сверху вниз одной колонкой: разделы, в них только имена-ссылки на вкладки, без описаний и «ещё»","deal":"ProfileView","src":"сводка на уровне имён со ссылками… дашбордом","front":false},{"id":"1.5","name":"«Состав» на итоге — дерево развёртки","sees":"набор разворачивается деревом с номерами кусочков, ссылки на кусочки","deal":"ProfileView.tree, pieces","src":"набор должен показывать во что развёрнут","front":false},{"id":"1.6","name":"Манифест на итоге в YAML","sees":"name, description, metadata.use ссылками; набор без файла — из ответа машины","deal":"files[…plugin.json], ProfileInfo.use","src":"манифест можно презентовать на итоге","front":false},{"id":"1.7","name":"Девять постоянных вкладок","sees":"Итог, Промпт, Инструкции, Скилы, Агенты, Память, Настройки, MCP и хуки, Другие файлы; пустая неактивна; без чисел","deal":"","src":"не пиши цифры в табах в принципе","front":false},{"id":"1.8","name":"Всё закрыто по умолчанию","sees":"строки файлов закрыты; раскрыт только элемент, на который вела ссылка итога","deal":"","src":"комментарий к прототипу","front":true},{"id":"1.9","name":"Свой просмотр у каждого типа содержимого, мёртвых ссылок нет","sees":"каждая ссылка ведёт на свою вкладку и элемент; скил с сопутствующими файлами; текст .md, остальное моноширинно","deal":"profile.file {machine, id, path} → {text}","src":"комментарий к прототипу","front":false},{"id":"1.10","name":"Вкладка «Промпт» собранным видом","sees":"системный промпт и контекст в порядке сборки с размерами: основа (заменена агентом), агент, стиль, добавка системы, инструкции, индекс домашней памяти","deal":"ProfileView.prompt {agent, style{found}}, fleet.prompt → {text}","src":"контролировать системные промпты","front":false},{"id":"1.11","name":"Предупреждение о ненайденном стиле или агенте","sees":"«стиль не найдётся — нужно полное имя», «файла агента нет»","deal":"prompt.style.found","src":"прототип","front":false},{"id":"1.12","name":"Вкладка «Инструкции»","sees":"CLAUDE.md и правила, «когда \u003cpaths>» или «всегда»","deal":"ProfileView.instructions","src":"прототип","front":false},{"id":"1.13","name":"Вкладки «Скилы», «Агенты»","sees":"имена «кусочек:скил», модель, усилие, «главная нить»","deal":"ProfileView.skills, agents.main","src":"прототип","front":false},{"id":"1.14","name":"Вкладка «Память» для тысяч файлов","sees":"домашняя и «рядом», метр индекса против 200 строк и 25 КБ, чипы типов, поиск, порциями по 60, служебные файлы отдельно, MEMORY.md","deal":"ProfileView.memory, files[].meta; тексты памяти отдельным profile.file","src":"файлов памяти будет очень много","front":false},{"id":"1.15","name":"Вкладка «Настройки» итогом слияния","sees":"ключ, значение, источник, проигравшие значения зачёркнуты","deal":"ProfileView.settings {value, from, lost[]}","src":"хорошая развёрнутая инфа","front":false},{"id":"1.16","name":"Вкладка «MCP и хуки»","sees":"серверы и хуки с записью как в кусочке","deal":"ProfileView.mcp {kind, name, detail, config}","src":"прототип","front":false},{"id":"1.17","name":"Вкладка «Другие файлы»","sees":"файлы, которых Claude не подключит","deal":"ProfileView.other","src":"прототип","front":false},{"id":"1.18","name":"Ссылка «Репозитории» из списка","sees":"внизу списка, ведёт в настройки","deal":"settings@pult-settings","src":"прототип","front":true},{"id":"1.19","name":"Выбор кусочка запоминается на странице","sees":"заход на экран возвращает выбранный","deal":"","src":"прототип","front":true},{"id":"1.20","name":"Значок «Layers» в навигации","sees":"","deal":"","src":"прототип","front":true}]},{"t":"Система профиля","r":[{"id":"2.1","name":"Профиль — упорядоченный список кусочков","sees":"профиль в session.open, session.profile, записи сессии — список","deal":"поле profile: [{id, state}] в записи, profile: string[] в запросах","src":"собрать активный профиль из многих кусочков","front":false},{"id":"2.2","name":"Кусочек — папка штатных форматов Claude, части идут штатными путями","sees":"плагин, доп. папки + CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD, settings.json, домашняя память + индексы остальных в добавке","deal":"запуск host-profiles","src":"прототип","front":false},{"id":"2.3","name":"Набор — кусочек с metadata.use","sees":"развёртка, повтор — первое вхождение, кольцо — отказ bad_profile","deal":"machine.profiles.kind/use, отказ bad_profile","src":"прототип","front":false},{"id":"2.4","name":"Слияние настроек с источником и проигравшими","sees":"нижний выигрывает","deal":"ProfileView.settings","src":"прототип","front":false},{"id":"2.5","name":"profile.view тем же кодом, что запуск","sees":"итог по списку id","deal":"profile.view {machine, profile[]} → ProfileView; roster contract","src":"прототип","front":false},{"id":"2.6","name":"profile.file — текст файла","sees":"предел 256 КБ, больше — too_large, выход из папки — отказ","deal":"profile.file","src":"прототип","front":false},{"id":"2.7","name":"fleet.prompt — добавка системы","sees":"текст добавки отдаёт Host","deal":"fleet.prompt у host-fleet","src":"прототип","front":false},{"id":"2.8","name":"Системный промпт кусочком","sees":"outputStyle «плагин:стиль», settings.agent, CLAUDE.md","deal":"settings кусочка","src":"контролировать системные промпты","front":false},{"id":"2.9","name":"Инструменты флота: open, update с profile, новые profile и repos","sees":"другая сессия управляет профилем","deal":"инструменты host-fleet","src":"контролировать через MCP-тулзы","front":false},{"id":"2.10","name":"Провайдер — аккаунт, не кусочек; OrcaRouter первым","sees":"env и settings слота","deal":"ключ флота","src":"других провайдеров","front":false}]},{"t":"Ключи флота","r":[{"id":"3.1","name":"Отдельная вкладка «Ключи флота» на экране аккаунтов, адрес в hash, вкладка запоминается","sees":"вкладки «Аккаунты», «Ключи флота»","deal":"params.tab","src":"комментарий к прототипу","front":false},{"id":"3.2","name":"Список ключей строками","sees":"имя, сколько сессий, адрес, модели вместо alias, свои env и настройки","deal":"fleetkeys.list → {keys: {name: {env, settings?}}}; значения ключа в ответе нет","src":"API-ключи кросс-компьютерные слоты","front":false},{"id":"3.3","name":"Форма на месте списка","sees":"имя, значение (), адрес, модели вместо alias; строки не сдвигаются; новый ключ сразу с CLAUDE_CODE_DISABLE_1M_CONTEXT=1","deal":"fleetkeys.set {name, env, settings?, key?}","src":"прототип","front":false},{"id":"3.4","name":"Свои переменные и JSON мёржа настроек","sees":"«Дополнительно», проверка JSON у поля, отказ словами","deal":"fleetkeys.set; отказ bad_frame","src":"JSON мёржа и кастомные env","front":false},{"id":"3.5","name":"Проверка ключа через машину","sees":"«Проверить ключ»: машина, ответ, модель, мс или причина","deal":"machine.key_check {machine, name} → {ok, word} у host-logins","src":"прототип","front":false},{"id":"3.6","name":"Удаление с подтверждением на месте и списком потерь","sees":"«N сессий потеряют его на следующем старте: …»","deal":"fleetkeys.remove; отказ no_key","src":"прототип","front":false},{"id":"3.7","name":"Worker fleetkeys: база, .key для машин, слот на ключе у каждой машины, файл токена, apiKeyHelper, вне опросов лимитов","sees":"ключ заведён один раз, виден на всех машинах","deal":"workers/fleetkeys, fleetkeys.key; слот с именем ключа в session.open/slot; адрес fleetkeys в build.json","src":"прототип","front":false},{"id":"3.8","name":"Строка лимита в одну строку","sees":"давность рядом с датой сброса, «от …»","deal":"","src":"комментарий к прототипу","front":true},{"id":"3.9","name":"Значок раздела","sees":"","deal":"","src":"прототип","front":true}]},{"t":"Репозитории профилей","r":[{"id":"4.1","name":"Один список флота в настройках","sees":"раздел «Репозитории» в «GitHub и устройство», заменил голый список GitHub","deal":"prefs fleet: ключ fleet.profiles.repos","src":"листок","front":false},{"id":"4.2","name":"Честное состояние по машинам","sees":"сводка «сведён на 3 из 4», «конфликт на 1 из 4», «ждёт сведения»; раскрытие по машинам","deal":"machine.profiles → repos {state: ok/wait/error/conflict, files, error, dir, at}","src":"прототип","front":false},{"id":"4.3","name":"Число профилей и сессий у репозитория","sees":"«5 профилей · 2 сессии»","deal":"","src":"прототип","front":false},{"id":"4.4","name":"«Свести везде»","sees":"каждая машина сводит и отвечает своим состоянием","deal":"machine.profiles {sync: true}","src":"прототип","front":false},{"id":"4.5","name":"«Свести в сессии» при конфликте","sees":"открывает сессию в клоне, слот занятый аккаунтом, имя с номером","deal":"session.open {name, number:true, dir, slot}","src":"прототип","front":false},{"id":"4.6","name":"Подключить репозиторий из видимых приложению GitHub","sees":"кандидаты с кнопкой","deal":"github.app; запись цикла records","src":"прототип","front":false},{"id":"4.7","name":"Убрать с подтверждением и списком потерь","sees":"Confirm","deal":"запись цикла","src":"прототип","front":false},{"id":"4.8","name":"Поиск репозитория","sees":"одно поле","deal":"","src":"прототип","front":false},{"id":"4.9","name":"Сведение читает список; нет ключа — пропуск; клон удаляется после последнего push","sees":"бэкенд","deal":"host-profiles; поля dir, at","src":"листок","front":false},{"id":"4.10","name":"Вкладка настроек запоминается, адрес из hash","sees":"заход возвращает на вкладку","deal":"","src":"прототип","front":true},{"id":"4.11","name":"Отзыв пропуска на Confirm","sees":"единое подтверждение на месте","deal":"","src":"прототип","front":true},{"id":"4.12","name":"Значок раздела","sees":"","deal":"","src":"прототип","front":true},{"id":"4.13","name":"Пропуск числа репозиториев у приложения GitHub","sees":"Pill с числом убран","deal":"","src":"без цифр","front":true}]},{"t":"Новая сессия","r":[{"id":"5.1","name":"Форма без перерисовки файл-пикера","sees":"имя, машины слева, адрес, папки своим списком, ниже таблица; ничего не прыгает","deal":"","src":"не должна перерисовывать файл-пикер","front":true},{"id":"5.2","name":"Без вложенности, окон и селектов","sees":"всё на странице, поиск своей строкой","deal":"","src":"отсутствие вложенности окон и попапов","front":true},{"id":"5.3","name":"Несколько кусочков у сессии, порядок ручкой","sees":"","deal":"session.open.profile[]","src":"прототип","front":false},{"id":"5.4","name":"Переключатель «Пара» над второй колонкой, форма не прыгает","sees":"вторая колонка заполняется как у ведущего, дальше независима","deal":"session.open {wing_of}","src":"opt-in","front":false},{"id":"5.5","name":"«Открыть» шлёт ведущего, ведомого, задачу","sees":"отказ ведомого — тост, ведущий остаётся","deal":"session.open, session.open{wing_of}, session.prompt","src":"прототип","front":false},{"id":"5.6","name":"Слот: «тут» и «флот»","sees":"","deal":"machine.accounts, fleetkeys.list","src":"ввести кросс-компьютерные слоты","front":false},{"id":"5.7","name":"Проверка «нет слотов» учитывает ключи флота","sees":"кнопка заблокирована, только если нет ни слотов, ни ключей","deal":"fleetkeys.list","src":"прототип","front":false},{"id":"5.8","name":"Подпись кнопки по сути","sees":"«Создать и открыть», «Начать», «Открыть»","deal":"","src":"прототип","front":true},{"id":"5.9","name":"«Точки в облаке» переключателем у кнопки","sees":"как модель, без чипа вложенности","deal":"","src":"комментарий к прототипу","front":true},{"id":"5.10","name":"Профиль по папке","sees":"профиль как у сессии этой папки","deal":"","src":"прототип","front":false},{"id":"5.11","name":"Подсказка профилей по популярности у открытых сессий","sees":"до 6 штук, остальное поиском, поиск отдельной строкой","deal":"","src":"комментарий к прототипу","front":false}]},{"t":"Таблица участника","r":[{"id":"6.1","name":"Одна таблица у формы и настроек сессии","sees":"ряды Профиль, Модель, Слот, Усилие, подпись слева, одна или две колонки","deal":"","src":"прототип","front":false},{"id":"6.2","name":"Выбор кусочков","sees":"чипы с ✕, поиск, «+ имя» с меткой набор или стиль","deal":"machine.profiles","src":"профиль из кусочков","front":false},{"id":"6.3","name":"Порядок перетаскиванием","sees":"ручка, мышь и палец одним жестом жест, Esc отменяет, стрелки с клавиатуры, наружу уходит один раз","deal":"","src":"прототип","front":false},{"id":"6.4","name":"Развёртка набора под рядом","sees":"«dev → main › tester › design»","deal":"profile.view.tree","src":"набор должен показывать во что развёрнут","front":false},{"id":"6.5","name":"Слот двумя группами","sees":"«тут» — слоты машины, «флот» — ключи; ждёт сброса со временем","deal":"machine.accounts, fleetkeys.list","src":"комментарий к прототипу","front":false},{"id":"6.6","name":"Подмена модели под слотом","sees":"«opus → anthropic/claude-opus»","deal":"env ключа","src":"прототип","front":false},{"id":"6.7","name":"Модель и усилие кнопками, показ значения из профиля","sees":"ряды кнопок; если не выбрано — значение слияния профиля","deal":"profile.view.settings","src":"усилие кнопками","front":false},{"id":"6.8","name":"Один жест на всю страницу","sees":"таблица участника и доска перетаскивают одним жестом","deal":"","src":"прототип","front":true},{"id":"6.9","name":"Confirm — подтверждение на месте","sees":"текст, кнопка, отмена, без окна","deal":"","src":"прототип","front":true},{"id":"6.10","name":"Tabs с неактивной вкладкой","sees":"третий элемент — off","deal":"","src":"прототип","front":true},{"id":"6.11","name":"Общие слова страницы","sees":"кусочки сессии, подпись «dev +1», кто ведомый — одна функция на все экраны","deal":"поле wing, parent","src":"прототип","front":false}]},{"t":"Пара: система","r":[{"id":"7.1","name":"Пара — две обычные сессии с особой связью, opt-in","sees":"у обеих свои профиль, модель, усилие, слот, режим","deal":"wing: true, parent","src":"opt-in фича","front":false},{"id":"7.2","name":"session.open {wing_of}","sees":"имя \u003cлид>-wing, папка, машина от ведущего; второй — has_wing; ведомый у ведомого — bad_spec","deal":"wing_of; слова has_wing","src":"прототип","front":false},{"id":"7.3","name":"Селектор пары один","sees":"wing && parent === ведущий, отдельной записи нет","deal":"","src":"прототип","front":false},{"id":"7.4","name":"Стоп, старт, снять ведущего идут и на ведомого","sees":"снаружи одна сессия","deal":"session.stop/start/remove","src":"прототип","front":false},{"id":"7.5","name":"Задача и итог путями флота","sees":"задача — send, итог — родителю, origin peer; вопрос — родителю","deal":"origin.kind \"peer\"","src":"прототип","front":false},{"id":"7.6","name":"Сообщения ведущему","sees":"о ведомом — on.open, об обрыве — on.close, владелец host-fleet","deal":"wing@host-manage в uses","src":"прототип","front":false},{"id":"7.7","name":"Прозрачность для MCP","sees":"видна только сессия владельца: list, send, answer, history, label, remove, отказ pair_inside; ведомому нет сервера и добавки","deal":"слово pair_inside; open/update + wing","src":"пара прозрачна на уровне MCP: видна только сессия владельца","front":false},{"id":"7.8","name":"Ведомый поверх слота-ключа","sees":"свой адрес API","deal":"","src":"у обеих свой профиль","front":false},{"id":"7.9","name":"Подготовка к другим моделям","sees":"env провайдера","deal":"ключ флота","src":"гонять другие модели с claude cli","front":false}]},{"t":"Список «Работа»","r":[{"id":"8.1","name":"Пара одной строкой той же высоты и веса","sees":"профиль, модель, слот ведущего ▸ лампа, профиль (если другой), модель, слот ведомого; без дочерней строки","deal":"wing, parent","src":"как отображать парную сессию","front":false},{"id":"8.2","name":"Ведомый не строка","sees":"список фильтрует isWing","deal":"wing","src":"прототип","front":false},{"id":"8.3","name":"Переключатель «Пара» в панели вида","sees":"группа «Строка», wing","deal":"","src":"комментарий к прототипу","front":false},{"id":"8.4","name":"Панель вида сверена","sees":"«Значок» вместо «?» и число; группа «Фильтры» с «Числом» убрана","deal":"","src":"цифры","front":true},{"id":"8.5","name":"Без чисел в фильтрах и бейджах","sees":"fcount снят, count у групп снят, непрочитанное — точка","deal":"","src":"и в навигации","front":true},{"id":"8.6","name":"«Работа» открывает прежнюю или первую сессию","sees":"на широком вид сразу карточка","deal":"store «picked»","src":"комментарий к прототипу","front":true},{"id":"8.7","name":"Отбор «Профиль» по кусочку","sees":"сессия подходит, если в её списке есть кусочек","deal":"profile[]","src":"прототип","front":false},{"id":"8.8","name":"Одна ширина колонки списка","sees":"--sb-master у всех экранов","deal":"","src":"прототип","front":true},{"id":"8.9","name":"Значок раздела","sees":"","deal":"","src":"прототип","front":true},{"id":"8.10","name":"Постоянный ров прокрутки","sees":"scrollbar-gutter:stable","deal":"","src":"комментарий к прототипу","front":true}]},{"t":"Карточка сессии","r":[{"id":"9.1","name":"Шапка в одну строку","sees":"лампа, имя, короткие настройки или участники, вкладки; окон и меню ⋯ нет; настройка ведёт на свою вкладку","deal":"","src":"комментарий к прототипу","front":true},{"id":"9.2","name":"Шапка уступает по ширине самой карточки","sees":"короткие настройки скрываются, вкладки прокручиваются в строке","deal":"","src":"прототип","front":true},{"id":"9.3","name":"Группа «Шапка» в панели вида","sees":"Машина, Владелец, Профиль, Модель, Аккаунт","deal":"","src":"прототип","front":true},{"id":"9.4","name":"Участники в шапке выбирают сторону","sees":"лампа, модель, слот при равных моделях, стрелка — обе; выбор запоминается; без слов ведущий, ведомый","deal":"wing","src":"без слов","front":false},{"id":"9.5","name":"Лента одной сценой","sees":"одна или две колонки, тонкий разделитель, строка стороны с шагом","deal":"","src":"нет никакой вложенности","front":false},{"id":"9.6","name":"Скрытая сторона видна строкой","sees":"нажатие показывает её, живая строка шага","deal":"","src":"комментарий к прототипу","front":false},{"id":"9.7","name":"Адресат — поле в фокусе, поле у каждой стороны; нажатие в ленту ставит курсор","sees":"табов «Ведущему/Ведомому» нет","deal":"","src":"комментарий к прототипу","front":false},{"id":"9.8","name":"Подпись колонки в одну строку","sees":"модель, слот, шаг; остальное в подсказке и «Сведениях»","deal":"","src":"не должно быть в 2 строки","front":false},{"id":"9.9","name":"Вкладка «Сведения» на две стороны","sees":"вместо бокового блока; общие ряды двух колонок: чья сессия, аккаунт, лимиты, дерево, MCP","deal":"","src":"комментарий к прототипу","front":false},{"id":"9.10","name":"Вкладка «Настройки» — таблица участника","sees":"выбор сразу уходит в сессию, «после хода» словом; ниже свои у каждой стороны: быстрый режим, режим разрешений, заголовок","deal":"session.update, session.profile, session.slot, session.call","src":"прототип","front":false},{"id":"9.11","name":"Режим разрешений кнопками, без select","sees":"ряд чипов у каждой стороны","deal":"","src":"комментарий к прототипу","front":true},{"id":"9.12","name":"Включить и снять пару в настройках","sees":"переключатель; снятие с вопросом на месте, снятие только ведомого","deal":"session.open{wing_of}, session.remove","src":"убрать ведомого","front":false},{"id":"9.13","name":"«Журнал», «Точки» и вставки по колонкам","sees":"у каждой стороны своя","deal":"","src":"прототип","front":false},{"id":"9.14","name":"Телефон: одна сторона, переключает шапка","sees":"участники в ряду вкладок, сведения обеих, таблица столбцом","deal":"","src":"прототип","front":false},{"id":"9.15","name":"Настройки телефона — та же таблица","sees":"кнопки модель и усилие заменены таблицей участника","deal":"machine.accounts","src":"прототип","front":false},{"id":"9.16","name":"Подпись адреса карточки короче","sees":"папка из подзаголовка убрана","deal":"","src":"прототип","front":true},{"id":"9.17","name":"Пара при отсутствии ведомого ведёт себя как прежде","sees":"одиночная лента без потерь","deal":"","src":"прототип","front":true},{"id":"9.18","name":"«Панель сведений» снята","sees":"отдельной настройки больше нет","deal":"","src":"прототип","front":true},{"id":"9.19","name":"Спокойнее: роли не показываются, вес строки обычный","sees":"","deal":"","src":"комментарий к прототипу","front":true},{"id":"9.20","name":"Настройки в целом подтянуты под пару","sees":"профиль и слот у каждой стороны","deal":"","src":"комментарий к прототипу","front":false}]},{"t":"Разговор","r":[{"id":"10.1","name":"Над лентой ничего, действия значками в поле ввода","sees":"Контекст, Фокус, Выгрузить .md; полосы chat-bar нет","deal":"","src":"лента как раньше","front":true},{"id":"10.2","name":"Панель контекста на месте ленты","sees":"не всплывает: в своей колонке, значок нажат, повторно закрывает, закрывается со сменой сессии, стороны, вкладки; лента сохраняет прокрутку","deal":"","src":"комментарий к прототипу","front":true},{"id":"10.3","name":"Куски экрана","sees":"part=feed, input, last для колонок пары","deal":"","src":"прототип","front":true},{"id":"10.4","name":"Живая строка last","sees":"текущий шаг или итог","deal":"","src":"прототип","front":true},{"id":"10.5","name":"Режим разрешений кнопкой в поле","sees":"нажатие — следующий режим, без выпадающих списков","deal":"","src":"комментарий к прототипу","front":true},{"id":"10.6","name":"Подпись поля — модель участника","sees":"«Написать opus» у пары","deal":"wing","src":"комментарий к прототипу","front":false},{"id":"10.7","name":"Кнопка копирования внутри своего ответа","sees":"не наезжает на следующее сообщение","deal":"","src":"комментарий к прототипу","front":true},{"id":"10.8","name":"Отрисовка ленты как в main","sees":"рамки шагов возвращены","deal":"","src":"не надо было отрисовку менять","front":true},{"id":"10.9","name":"«@» и «/» остаются подсказками поверх ленты","sees":"в границах колонки, как в main; отдельного решения пользователя нет","deal":"","src":"прототип","front":true}]},{"t":"Оболочка, навигация, прокрутка","r":[{"id":"11.1","name":"Полоса разделов всегда значками","sees":"52 px, без анимации; подпись в подсказке и для чтения с экрана; у экрана поле icon","deal":"","src":"комментарий к прототипу","front":true},{"id":"11.2","name":"Вместо числа в навигации точка","sees":"Badge dot, aria-label «есть новое»","deal":"","src":"и в навигации","front":true},{"id":"11.3","name":"Логотип буквой, поиск значком","sees":"«Перейти · Ctrl K» подсказкой","deal":"","src":"прототип","front":true},{"id":"11.4","name":"Шапка телефона в строку","sees":"заголовок и подзаголовок на одной линии","deal":"","src":"прототип","front":true},{"id":"11.5","name":"Страница стоит, прокрутка только своей области","sees":"html,body{overflow:hidden}, глобального скролла нет","deal":"","src":"комментарий к прототипу","front":true},{"id":"11.6","name":"Единая тонкая полоса прокрутки цветом темы, ров стабилен","sees":"*{scrollbar-width:thin}, scrollbar-gutter:stable у .sb-pad, .sb-page, панели","deal":"","src":"комментарий к прототипу","front":true},{"id":"11.7","name":"Точка раздела телефона своего размера","sees":"не больше подписи раздела","deal":"","src":"прототип","front":true}]},{"t":"«Вам» и прочее","r":[{"id":"12.1","name":"Конец хода ведомого карточки не даёт","sees":"только вопрос и сбой","deal":"wing","src":"прототип","front":false},{"id":"12.2","name":"Карточка ведомого открывает пару","sees":"opens, имя ведущего","deal":"wing, parent","src":"прототип","front":false},{"id":"12.3","name":"Значок раздела","sees":"","deal":"","src":"прототип","front":true},{"id":"12.4","name":"Зависимости экранов объявлены","sees":"новые запросы — у своих владельцев","deal":"см. Д","src":"прототип","front":false}]}];
+  const S = [["open","Новая сессия","Форма не прыгает: выбор папки на месте, ниже таблица участника, «Пара» добавляет вторую колонку."],["pair","Пара","Одна строка в списке, одна сцена: две колонки, у каждой своё поле ввода, адресат — поле в фокусе."],["pair-set","Настройки пары","Та же таблица, что в форме. Выбор сразу уходит в сессию, у каждой стороны свои режимы."],["pair-info","Сведения","Вкладка вместо боковой панели, обе стороны рядом."],["pair-panel","Панель контекста","Встаёт на место ленты своей колонки и ничем не перекрывает страницу."],["profile-set","Профиль: итог","Только просмотр: состав, манифест, промпт, имена-ссылки на вкладки."],["profile-prompt","Профиль: промпт","Что уйдёт в системный промпт и контекст, сверху вниз, с размерами."],["profile-memory","Профиль: память","Тысячи файлов: индекс против предела Claude, типы, поиск, порциями."],["keys","Ключи флота","Один ключ на все машины, адрес, модели вместо alias, свои переменные, JSON настроек."],["repos","Репозитории","Один список на флот, честное состояние по машинам, конфликт сводит одна сессия."]];
+  const bars = document.getElementById("umBars"), list = document.getElementById("umList");
+  const max = Math.max.apply(null, D.map(a => a.r.length));
+  const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+  function open(i, b){
+    const on = b.getAttribute("aria-expanded") === "true";
+    bars.querySelectorAll("button").forEach(x => x.setAttribute("aria-expanded","false"));
+    list.textContent = "";
+    if (on) return;
+    b.setAttribute("aria-expanded","true");
+    list.innerHTML = D[i].r.map(r => '<div class="um-row"><div class="um-n">' + esc(r.name) + '<small>' + (r.front ? "только экран" : "нужен договор") + '</small></div><div>' + esc(r.sees) + '<small>' + esc(r.src) + '</small></div><div>' + (r.deal ? "<code>" + esc(r.deal) + "</code>" : "") + '</div></div>').join("");
+  }
+  D.forEach((a, i) => {
+    const f = a.r.filter(r => r.front).length, d = a.r.length - f;
+    const b = document.createElement("button");
+    b.className = "um-bar"; b.type = "button"; b.setAttribute("aria-expanded","false");
+    b.innerHTML = '<span>' + esc(a.t) + '</span><span class="um-line" style="width:' + (a.r.length / max * 100) + '%"><b style="flex:' + f + ';background:var(--um-f)"></b><b style="flex:' + d + ';background:var(--um-d)"></b></span>';
+    b.onclick = () => open(i, b);
+    bars.appendChild(b);
+  });
+  const tabs = document.getElementById("umTabs"), img = document.getElementById("umImg"), cap = document.getElementById("umCap");
+  function show(i){
+    img.src = "shots/" + S[i][0] + ".png"; img.alt = S[i][1]; cap.textContent = S[i][2];
+    tabs.querySelectorAll("button").forEach((x, j) => x.setAttribute("aria-pressed", j === i));
+  }
+  S.forEach((s, i) => { const b = document.createElement("button"); b.type = "button"; b.innerHTML = "<span>" + esc(s[1]) + "</span>"; b.onclick = () => show(i); tabs.appendChild(b); });
+  show(0);
+})();
+</script>
+<script>
+/* ===== Метки «прочитал» (устав): A — прочитал, Z — снять ===== */
+(function(){
+  let hovered = null, coll = null, ready = false;
+  const queue = [];
+  const blockOf = t => (t && t.closest) ? t.closest("[data-chg]") : null;
+  document.addEventListener("pointerover", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("pointerdown", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("focusin", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  function paint(id, on){ document.querySelectorAll('[data-chg="' + id + '"]').forEach(b => b.classList.toggle("read", on)); }
+  function idsOf(b){ const ids = [b.getAttribute("data-chg")]; b.querySelectorAll("[data-chg]").forEach(n => ids.push(n.getAttribute("data-chg"))); return ids; }
+  async function mark(ids, on){
+    ids.forEach(id => paint(id, on));
+    if (!coll) return;
+    for (const id of ids){
+      try { if (on) await coll.doc(id).set({read:true, at:Date.now()}); else await coll.doc(id).delete(); }
+      catch (_) { banner("Метка не сохранилась — обновите страницу"); }
+    }
+  }
+  function act(on){ if (!hovered) return; const ids = idsOf(hovered); if (ready) mark(ids, on); else queue.push([ids, on]); }
+  const A = new Set(["a","A","а","А"]), Z = new Set(["z","Z","я","Я"]);
+  document.addEventListener("keydown", e => {
+    const t = e.target;
+    if (t && t.matches && t.matches("input:not([type=range]):not([type=checkbox]),textarea,select,[contenteditable],[contenteditable=true]")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (A.has(e.key) || e.code === "KeyA"){ e.preventDefault(); act(true); }
+    else if (Z.has(e.key) || e.code === "KeyZ"){ e.preventDefault(); act(false); }
+  });
+  let bannerEl = null;
+  function banner(text){
+    if (!bannerEl){ bannerEl = document.createElement("div"); bannerEl.className = "mark-banner"; bannerEl.setAttribute("role","status"); document.body.appendChild(bannerEl); }
+    bannerEl.textContent = text;
+  }
+  // localhost: метки хранит локальный сервер страницы
+  if (location.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+    coll = { doc: id => ({
+      set: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:true})}).then(r => { if (!r.ok) throw new Error(); }),
+      delete: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:false})}).then(r => { if (!r.ok) throw new Error(); }),
+    }) };
+    fetch("/api/state").then(r => r.json()).then(d => {
+      document.querySelectorAll("[data-chg]").forEach(b => b.classList.toggle("read", !!d.marks[b.getAttribute("data-chg")]));
+    }).catch(() => banner("Метки не загрузились — сервер страницы недоступен"));
+    ready = true;
+    return;
+  }
+  (async function init(){
+    let db = null;
+    try { db = (window.claude && window.claude.use) ? await window.claude.use("db") : null; } catch (_) { db = null; }
+    if (db){
+      try {
+        coll = db.collection("accepted");
+        coll.onSnapshot(snap => {
+          const on = new Set();
+          snap.docs.forEach(d => { const v = d.data(); if (v && v.read) on.add(d.id); });
+          document.querySelectorAll("[data-chg]").forEach(b => { const id = b.getAttribute("data-chg"); b.classList.toggle("read", on.has(id)); });
+        }, () => banner("Метки не загрузились — хранилище недоступно"));
+      } catch (_) { coll = null; }
+    }
+    ready = true;
+    if (!coll) banner("Метки «прочитал» не сохраняются — хранилище недоступно");
+    while (queue.length){ const [ids, on] = queue.shift(); mark(ids, on); }
+  })();
+})();
+</script>
+</body></html>
