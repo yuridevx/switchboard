@@ -3,11 +3,12 @@ import { Inbox } from "lucide-react";
 import type { ReactNode } from "react";
 import { machineOf } from "@switchboard/protocol";
 import type { AppPart, ScreenProps } from "@switchboard/web-core";
-import { at, Btn, Dot, failText, isLive, lamp, machineLabel, sessionLabel, slotOf, TextBtn, useApp, type App } from "@switchboard/web-ui";
+import { at, Btn, Dot, failText, isLive, isWing, lamp, machineLabel, sessionLabel, slotOf, TextBtn, useApp, type App } from "@switchboard/web-ui";
 import css from "./inbox.css";
 
 type Kind = "q" | "msg" | "fail" | "wait" | "away" | "fire" | "done";
-type Card = { kind: Kind; callsign?: string; machine?: string; dot: string; label: string; text?: string };
+/** opens — чья карточка открывается: ведомый выходит наружу только через своего ведущего. */
+type Card = { kind: Kind; callsign?: string; opens?: string; machine?: string; dot: string; label: string; text?: string };
 
 const GROUPS: Array<[string, Kind[]]> = [["Ждут ответа", ["q", "msg"]], ["Сломалось или ждёт", ["fail", "wait", "away", "fire"]], ["Готово", ["done"]]];
 const TONE: Record<Kind, string> = { q: "you", msg: "you", fail: "bad", wait: "bad", away: "bad", fire: "bad", done: "done" };
@@ -25,7 +26,7 @@ export const createInbox = ((app) => {
   function onRoster(r: NonNullable<ReturnType<App["roster"]>>) {
     for (const s of r.sessions) {
       if (WORKED.includes(s.state as string)) finished.delete(s.callsign);
-      else if (s.state === "idle" && WORKED.includes(states.get(s.callsign) as string) && opened() !== s.callsign) finished.add(s.callsign);
+      else if (s.state === "idle" && !isWing(s) && WORKED.includes(states.get(s.callsign) as string) && opened() !== s.callsign) finished.add(s.callsign);
       states.set(s.callsign, s.state);
     }
   }
@@ -37,22 +38,23 @@ export const createInbox = ((app) => {
 
   function cards(): Card[] {
     const sessions = app.roster()?.sessions ?? [];
-    for (const m of app.roster()?.machines ?? []) seen.set(m.machine, sessions.map((s) => s.callsign).filter((c) => machineOf(c) === m.machine && mine(c)));
+    for (const m of app.roster()?.machines ?? []) seen.set(m.machine, sessions.filter((s) => !isWing(s)).map((s) => s.callsign).filter((c) => machineOf(c) === m.machine && mine(c)));
     const gone = (app.mark("machines.gone") ?? {}) as Readonly<Record<string, number>>;
     const fire = ((app.mark("fire") ?? []) as string[]).filter((m) => !Object.hasOwn(gone, m));
+    const pairOf = (s: (typeof sessions)[number]) => (isWing(s) ? { opens: s.parent as string } : {});
     return [
       ...sessions.flatMap((s): Card[] => {
         const { callsign } = s;
         const unread = app.mark("unread", callsign) as { count: number; text: string } | undefined;
-        if (app.mark("asked", callsign)) return [{ kind: "q", callsign, dot: "wait", label: project(callsign, "спрашивает") }];
-        return unread?.count ? [{ kind: "msg", callsign, dot: "wait", label: project(callsign, "пишет вам"), text: unread.text }] : [];
+        if (app.mark("asked", callsign)) return [{ kind: "q", callsign, ...pairOf(s), dot: "wait", label: project(callsign, "спрашивает") }];
+        return unread?.count && !isWing(s) ? [{ kind: "msg", callsign, dot: "wait", label: project(callsign, "пишет вам"), text: unread.text }] : [];
       }),
       ...sessions.flatMap((s): Card[] => {
         const { callsign } = s;
         const wait = slotOf(s)?.wait;
         if (!mine(callsign)) return [];
-        if (s.state === "failed") return [{ kind: "fail", callsign, dot: "bad", label: project(callsign, "не запустилась"), text: failText(s) }];
-        return wait ? [{ kind: "wait", callsign, dot: "idle", label: project(callsign, "ждёт сброса лимита"), text: `Аккаунты слота ${slotOf(s)!.name} у порога — продолжит после ${at(wait)}` }] : [];
+        if (s.state === "failed") return [{ kind: "fail", callsign, ...pairOf(s), dot: "bad", label: project(callsign, "не запустилась"), text: failText(s) }];
+        return wait ? [{ kind: "wait", callsign, ...pairOf(s), dot: "idle", label: project(callsign, "ждёт сброса лимита"), text: `Аккаунты слота ${slotOf(s)!.name} у порога — продолжит после ${at(wait)}` }] : [];
       }),
       ...Object.entries(gone).flatMap(([machine, t]): Card[] => {
         const here = seen.get(machine) ?? [];
@@ -109,8 +111,9 @@ export const createInbox = ((app) => {
   function Item({ card }: { card: Card }) {
     const shell = useApp();
     const { callsign, machine } = card;
-    const open = (params: Record<string, string> = {}) => shell.open("card", { callsign: callsign!, ...params });
-    const name = shell.use(() => (callsign ? sessionLabel(shell, callsign).text : machine ? machineLabel(shell, machine).text : ""));
+    const shown = card.opens ?? callsign;
+    const open = (params: Record<string, string> = {}) => shell.open("card", { callsign: shown!, ...params });
+    const name = shell.use(() => (shown ? sessionLabel(shell, shown).text : machine ? machineLabel(shell, machine).text : ""));
     const buttons = actions(card, open);
     return (
       <div className={`ib-it ${TONE[card.kind]}`} data-kind={card.kind} data-callsign={callsign} data-machine={machine}>
