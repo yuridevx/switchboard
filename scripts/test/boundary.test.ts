@@ -234,6 +234,7 @@ syncBuiltinESMExports();
   it.each([
     ["3153 · номер не того вида — отказ до загрузки (чьё: код)", ["--upload", "1.1"], {}, /deploy: --upload <номер вида 1\.1\.58>/, 0],
     ["3154 · нет токена или аккаунта Cloudflare (чьё: код)", ["--upload", "1.1.99"], { token: false }, /deploy: нет CLOUDFLARE_API_TOKEN или CLOUDFLARE_ACCOUNT_ID/, 0],
+    ["3154 · есть токен, нет аккаунта Cloudflare (чьё: код)", ["--upload", "1.1.99"], { token: false, files: { "cf-deploy.env": "CLOUDFLARE_API_TOKEN=t" } }, /deploy: нет CLOUDFLARE_API_TOKEN или CLOUDFLARE_ACCOUNT_ID/, 0],
     // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; 300 с — настоящая выкладка 5 нояб.: при 45 с wrangler deploy выложил prefs, но не завершился под нагрузкой, и выкладка оборвалась на полпути
     ["3155 · wrangler не завершился за предел — убит, прогон CI красный", ["--upload", "1.1.99"], { child: { wrangler: "setTimeout(() => {}, 60000)", hang: true } }, /deploy: wrangler versions upload .* — не завершился за 300 с/, 1],
     ["нет секрета — отказ именем секрета", ["push"], {}, /deploy: нет секрета VAPID_PRIVATE/, undefined],
