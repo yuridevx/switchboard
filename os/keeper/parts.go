@@ -37,6 +37,11 @@ func (k *Keeper) apply(e entry) {
 		k.parts[e.Part] = p
 	}
 	same := p.want != nil && p.want.same(e)
+	if p.state == "running" { // запись сверяется с работающим процессом: откат на него его не трогает, версия, которая не встала, пробуется снова
+		if same = p.run.same(e); same {
+			p.err = ""
+		}
+	}
 	p.want = &e
 	k.mu.Unlock()
 	if !e.on() {
