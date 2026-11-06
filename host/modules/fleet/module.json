@@ -11,7 +11,7 @@
     "answer@host-chat": 1,
     "message@host-chat": 1,
     "notify@host-push": 1,
-    "session.open@host-manage": 1,
+    "session.open@host-manage": 2,
     "session.update@host-manage": 1,
     "session.remove@host-manage": 1,
     "parent@host-manage": 1,

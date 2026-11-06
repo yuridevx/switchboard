@@ -157,7 +157,7 @@ describe("эталоны points", () => {
     expect(b.reg.r2puts.length - n1).toBe(blocks);
   });
 
-  it("213 3113 3110 · подъём на pc: блоки GET по ссылкам points.get, файл байт в байт в папке проекта, старая копия в стороне, open с resume и point, пометка, точка подъёма с by, remove на laptop, строка журнала", async () => {
+  it("213 3113 3110 8033 · подъём на pc: блоки GET по ссылкам points.get, файл байт в байт в папке проекта, старая копия в стороне, open с resume и point, пометка, точка подъёма с by, remove на laptop, строка журнала", async () => {
     b = await bench({ home, machine: "pc" });
     const content = conv(50);
     const sub = Buffer.from('{"agent":1}\n');
@@ -166,7 +166,7 @@ describe("эталоны points", () => {
     mkdirSync(old, { recursive: true });
     writeFileSync(join(old, `${SID}.jsonl`), "старая копия\n");
     const dir = join(home, "Projects", "site");
-    const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point", slot: "bot", profile: "team/profiles/ops", from: "pult~owner@example.com" });
+    const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point", slot: "bot", profile: ["team/profiles/ops", "team/profiles/base"], from: "pult~owner@example.com" });
     expect(r.ok).toBe(true);
     expect(b.reg.r2calls.filter((c) => c.method === "GET").map((c) => c.key).sort()).toEqual(row.files.flatMap((f) => f.b).map((h) => `f/${h}`).sort());
     expect(b.reg.r2calls.every((c) => !c.signed)).toBe(true);
@@ -175,7 +175,7 @@ describe("эталоны points", () => {
     expect(readFileSync(join(projectDir(dir), SID, "subagents", "agent-a1.jsonl"))).toEqual(sub);
     expect(existsSync(join(old, `${SID}.jsonl`))).toBe(false);
     expect(readdirSync(old).some((f) => f.startsWith(`${SID}.jsonl.aside-`))).toBe(true);
-    expect(b.manage).toEqual([expect.objectContaining({ type: "session.open", resume: SID, point: 318, dir, name: "site", slot: "bot", profile: "team/profiles/ops" })]);
+    expect(b.manage).toEqual([expect.objectContaining({ type: "session.open", resume: SID, point: 318, dir, name: "site", slot: "bot", profile: ["team/profiles/ops", "team/profiles/base"] })]);
     expect(b.st.query("site@pc").options.resume).toBe(SID);
     expect(b.st.session("host-points", "site@pc")!.info.start).toBe("point");
     const raise = puts("raise");

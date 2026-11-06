@@ -1,21 +1,21 @@
 {
   "name": "host-profiles",
   "type": "sdk",
-  "version": "1.2.2",
+  "version": "2.0.0",
   "into": [
     "host"
   ],
   "provides": {
-    "session.profile": 1,
-    "machine.profiles": 1,
-    "profile": 1
+    "session.profile": 2,
+    "machine.profiles": 2,
+    "profile": 2
   },
   "uses": {
     "host.module@host": 1,
-    "github.token@github": 1
+    "github.token@github": 1,
+    "prefs.get@prefs": 1,
+    "records.format@records": 1
   },
   "calls": [],
-  "config": {
-    "repos": "var"
-  }
+  "config": {}
 }

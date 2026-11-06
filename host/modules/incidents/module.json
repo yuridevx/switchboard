@@ -11,7 +11,7 @@
   },
   "uses": {
     "host.module@host": 1,
-    "session.open@host-manage": 1,
+    "session.open@host-manage": 2,
     "session.prompt@host-chat": 1
   },
   "calls": [],

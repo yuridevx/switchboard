@@ -639,7 +639,7 @@ describe("Новая сессия и карточка с «Работы»", () =
     expect(t.relay.sent("machine.mkdir")).toHaveLength(0);
     await t.click(t.$('[data-act="open"]'));
     expect(t.relay.sent("session.open")).toEqual([
-      expect.objectContaining({ v: 1, machine: "laptop", name: "board", dir: "~/Projects/switchboard", slot: "main", profile: "team/profiles/ops" }),
+      expect.objectContaining({ v: 2, machine: "laptop", name: "board", dir: "~/Projects/switchboard", slot: "main", profile: "team/profiles/ops" }),
     ]);
     expect(location.hash).toBe("#card?callsign=board%40laptop");
     expect(t.$(".cw-cs")!.textContent).toBe("board");

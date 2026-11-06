@@ -52,16 +52,16 @@ for (const slot of (process.env.FLOW_CLEAR ?? "").split(",").filter(Boolean)) {
 check("slot.set s1 → " + A, (await req({ type: "slot.set", machine, slot: "s1", order: [A] })).result?.account === A);
 check("slot.set s2 → " + B, (await req({ type: "slot.set", machine, slot: "s2", order: [B] })).result?.account === B);
 for (const [cs, slot] of [[S1, "s1"], [S2, "s2"]] as const) {
-  const o = await req({ type: "session.open", machine, name: cs.split("@")[0], dir: "~", model: "claude-haiku-4-5", slot });
+  const o = await req({ type: "session.open", v: 2, machine, name: cs.split("@")[0], dir: "~", model: "claude-haiku-4-5", slot });
   check(`session.open ${cs} в слоте ${slot}`, o.ok, o.ok ? undefined : o.error);
 }
 await Promise.all([idle(S1), idle(S2)]);
 
 // правило слота при открытии: слотов два и больше — выбор явный, отказ называет слоты машины, сессии нет
-const need = await req({ type: "session.open", machine, name: "sd", dir: "~", model: "claude-haiku-4-5" });
+const need = await req({ type: "session.open", v: 2, machine, name: "sd", dir: "~", model: "claude-haiku-4-5" });
 check("session.open без слота при двух слотах — отказ slot_required со слотами машины", !need.ok && need.error === "slot_required" && /s1/.test(need.why ?? "") && /s2/.test(need.why ?? ""), need.ok ? need.result : [need.error, need.why]);
 check("после отказа сессии sd нет", !rec(`sd@${machine}`), rec(`sd@${machine}`));
-const none = await req({ type: "session.open", machine, name: "sd", dir: "~", slot: "нет-такого" });
+const none = await req({ type: "session.open", v: 2, machine, name: "sd", dir: "~", slot: "нет-такого" });
 check("session.open с несуществующим слотом — отказ no_slot", !none.ok && none.error === "no_slot", none.ok ? none.result : none.error);
 
 check("roster: сессии на разных аккаунтах", rec(S1)?.account === A && rec(S2)?.account === B, { [S1]: rec(S1)?.account, [S2]: rec(S2)?.account });
@@ -104,7 +104,7 @@ const sh = await req({ type: "slot.set", machine, slot: "s4", order: [A] });
 check("slot.set s4 с аккаунтом, уже стоящим в s1, — встаёт и в s4", sh.ok && sh.result?.account === A, sh.error ?? sh.result);
 const inSlots = ((await req({ type: "machine.accounts", machine })).result?.slots ?? {}) as Record<string, { account: string | null }>;
 check(`accounts: ${A} стоит в слотах s1 и s4`, inSlots.s1?.account === A && inSlots.s4?.account === A, inSlots);
-const o3 = await req({ type: "session.open", machine, name: "sc", dir: "~", model: "claude-haiku-4-5", slot: "s4" });
+const o3 = await req({ type: "session.open", v: 2, machine, name: "sc", dir: "~", model: "claude-haiku-4-5", slot: "s4" });
 check(`session.open ${S3} в слоте s4`, o3.ok, o3.ok ? undefined : o3.error);
 await idle(S3);
 check(`ход в s4 на общем аккаунте ${A}`, /ок/i.test(await turn(S3, "Ответь: ок.")) && rec(S3)?.account === A, rec(S3)?.account);

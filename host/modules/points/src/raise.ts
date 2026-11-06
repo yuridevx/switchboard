@@ -106,7 +106,7 @@ async function launch(host: Host, req: Frame, p: Plan, source: string): Promise<
     must(await host.request("session.start", { callsign: p.previous.info.callsign, point: p.point }));
     return p.previous.info.callsign;
   }
-  const pick = Object.fromEntries((["slot", "profile"] as const).flatMap((k) => (typeof req[k] === "string" ? [[k, req[k]]] : [])));
+  const pick = { ...(typeof req.slot === "string" ? { slot: req.slot } : {}), ...(req.profile !== undefined ? { profile: req.profile } : {}) };
   const name = typeof req.name === "string" ? req.name : basename(p.dir);
   const r = await host.request("session.open", { machine: host.machine, name, dir: req.dir, mkdir: true, resume: source, point: p.point, ...(p.copy ? { fork: true } : {}), ...pick });
   if (!r.ok && !p.copy && p.owner !== host.machine && p.row.callsign) await host.request("session.start", { callsign: p.row.callsign });

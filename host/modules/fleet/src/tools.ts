@@ -107,7 +107,7 @@ export function toolsOf(me: string, env: () => Env) {
         dir: z.string().describe("папка: от ~ или полный путь"),
         text: z.string().describe("задача — первое сообщение сессии"),
         machine: z.string().optional().describe("машина; по умолчанию — твоя"),
-        profile: z.string().optional().describe("профиль сессии"),
+        profile: z.array(z.string()).optional().describe("кусочки профиля сессии по порядку: нижний выигрывает"),
         model: z.string().optional(),
         effort: z.string().optional(),
         slot: z.string().optional().describe("имя слота машины"),

@@ -138,7 +138,7 @@ describe("контракт: пакеты и вклад в query()", () => {
           dir: "папка: от ~ или полный путь",
           text: "задача — первое сообщение сессии",
           machine: "машина; по умолчанию — твоя",
-          profile: "профиль сессии",
+          profile: "кусочки профиля сессии по порядку: нижний выигрывает",
           model: null,
           effort: null,
           slot: "имя слота машины",
@@ -162,7 +162,7 @@ describe("session.open", () => {
     // источник: принятый дизайн: значение «до старта» едет запросом открытия; чьё: код — профиль и слот у своих владельцев
     const { st, w, home, req } = await bench();
     const dir = mkdtempSync(join(home, "d-"));
-    const r = await req({ type: "session.open", machine: "laptop", name: "board", dir, profile: "team/profiles/ops", slot: "main" });
+    const r = await req({ type: "session.open", v: 2, machine: "laptop", name: "board", dir, profile: "team/profiles/ops", slot: "main" });
     expect(r).toMatchObject({ ok: true, result: { callsign: "board@laptop", slot: "main" } });
     expect(w.seen.map((x) => x[0]).sort()).toEqual(["profile", "slot"]);
     expect(w.seen[0][1]).toMatchObject({ name: "board", profile: "team/profiles/ops", slot: "main", from: OWNER });
@@ -176,7 +176,7 @@ describe("session.open", () => {
   it("87 · от ~: ответ после initialize; spec — папка от ~ и заголовок из файла разговора; родитель в roster; слот в ответе null", async () => {
     const { st, home, req, field } = await bench();
     mkdirSync(join(home, "Projects", "switchboard"), { recursive: true });
-    const r = await req({ type: "session.open", machine: "laptop", name: "board", dir: "~/Projects/switchboard" });
+    const r = await req({ type: "session.open", v: 2, machine: "laptop", name: "board", dir: "~/Projects/switchboard" });
     expect(r).toMatchObject({ ok: true, result: { callsign: "board@laptop", slot: null } });
     expect(st.query("board@laptop").options).toMatchObject({ cwd: join(home, "Projects", "switchboard"), title: "board", enableFileCheckpointing: true });
     expect(st.relay.frames("ledger.add")).toEqual([expect.objectContaining({ text: "board@laptop создана · ~/Projects/switchboard" })]);
@@ -208,7 +208,7 @@ describe("session.open", () => {
     const { st, home, req } = await bench();
     mkdirSync(join(home, "p"));
     await st.open("site@laptop");
-    expect(await req({ type: "session.open", machine: "laptop", ...f })).toMatchObject({ ok: false, error: word, why });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", ...f })).toMatchObject({ ok: false, error: word, why });
     expect([...st.kernel.sessions.keys()]).toEqual(["site@laptop"]);
     expect(st.journal().find((l) => l.ev === "request" && l.word === word)?.why).toContain(why);
   });
@@ -216,7 +216,7 @@ describe("session.open", () => {
   it("незнакомое поле — не ошибка; модель и флаги — в query() и разделе; повторный старт без заголовка (3034)", async () => {
     const { st, home, req } = await bench();
     mkdirSync(join(home, "p"));
-    expect(await req({ type: "session.open", machine: "laptop", name: "site", dir: "~/p", color: "red", model: "m", effort: "high", fast: true, style: "s", thinking: true })).toMatchObject({ ok: true });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "site", dir: "~/p", color: "red", model: "m", effort: "high", fast: true, style: "s", thinking: true })).toMatchObject({ ok: true });
     const first = st.query("site@laptop").options as Record<string, any>;
     expect(first).toMatchObject({ model: "m", effort: "high", enableFileCheckpointing: true, title: "site", settings: { fastMode: true, outputStyle: "s", alwaysThinkingEnabled: true } });
     expect(first.settings.effortLevel).toBeUndefined();
@@ -233,16 +233,16 @@ describe("session.open", () => {
   it("6203 · 6204 · mkdir строит весь путь; без просьбы папки нет; занятое и неверное имя пути не создают; на месте файл — bad_dir, модуль жив; существующая папка и полный путь — как есть (3118)", async () => {
     const { st, home, req } = await bench();
     await st.open("site@laptop");
-    expect(await req({ type: "session.open", machine: "laptop", name: "a", dir: "~/new/deep/path" })).toMatchObject({ ok: false, error: "bad_dir" });
-    expect(await req({ type: "session.open", machine: "laptop", name: "site", dir: "~/new/deep/path", mkdir: true })).toMatchObject({ ok: false, error: "name_taken" });
-    expect(await req({ type: "session.open", machine: "laptop", name: "a b", dir: "~/new/deep/path", mkdir: true })).toMatchObject({ ok: false, error: "bad_name" });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "a", dir: "~/new/deep/path" })).toMatchObject({ ok: false, error: "bad_dir" });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "site", dir: "~/new/deep/path", mkdir: true })).toMatchObject({ ok: false, error: "name_taken" });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "a b", dir: "~/new/deep/path", mkdir: true })).toMatchObject({ ok: false, error: "bad_name" });
     expect(existsSync(join(home, "new"))).toBe(false);
-    expect(await req({ type: "session.open", machine: "laptop", name: "a", dir: "~/new/deep/path", mkdir: true })).toMatchObject({ ok: true, result: { callsign: "a@laptop" } });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "a", dir: "~/new/deep/path", mkdir: true })).toMatchObject({ ok: true, result: { callsign: "a@laptop" } });
     expect(st.query("a@laptop").options.cwd).toBe(join(home, "new", "deep", "path"));
     writeFileSync(join(home, "file"), "x");
-    expect(await req({ type: "session.open", machine: "laptop", name: "b", dir: "~/file/sub", mkdir: true })).toMatchObject({ ok: false, error: "bad_dir" });
-    expect(await req({ type: "session.open", machine: "laptop", name: "b", dir: "~/new", mkdir: true })).toMatchObject({ ok: true });
-    expect(await req({ type: "session.open", machine: "laptop", name: "y", dir: join(home, "new") })).toMatchObject({ ok: true });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "b", dir: "~/file/sub", mkdir: true })).toMatchObject({ ok: false, error: "bad_dir" });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "b", dir: "~/new", mkdir: true })).toMatchObject({ ok: true });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "y", dir: join(home, "new") })).toMatchObject({ ok: true });
     expect(st.query("y@laptop").options.cwd).toBe(join(home, "new"));
   });
 
@@ -250,14 +250,14 @@ describe("session.open", () => {
     const { st, home, req } = await bench();
     mkdirSync(join(home, "p"));
     st.holders.failInitNext = 1;
-    const pr = req({ type: "session.open", machine: "laptop", name: "x", dir: "~/p" });
+    const pr = req({ type: "session.open", v: 2, machine: "laptop", name: "x", dir: "~/p" });
     await until(() => st.holders.procs.get("x@laptop"));
     st.proc("x@laptop").exit(1, "нет входа");
     expect(await pr).toMatchObject({ ok: false, error: "open_failed", why: expect.stringMatching(/^x@laptop: /) });
     expect(st.journal().some((l) => l.ev === "request" && l.word === "open_failed" && String(l.why).includes("x@laptop"))).toBe(true);
     expect(st.kernel.sessions.has("x@laptop")).toBe(true);
     expect(st.relay.frames("ledger.add").filter((f) => f.ev === "session.opened")).toHaveLength(0);
-    expect(await req({ type: "session.open", machine: "laptop", name: "x", dir: "~/p" })).toMatchObject({ ok: false, error: "name_taken" });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "x", dir: "~/p" })).toMatchObject({ ok: false, error: "name_taken" });
   });
 
   it("320 · отказ владельца при открытии (нет профиля): слово и причина наружу, сессии, процесса и новой папки нет; без профиля имя свободно", async () => {
@@ -266,17 +266,17 @@ describe("session.open", () => {
       if (f.profile) throw refuse("no_profile", `нет профиля ${String(f.profile)}`);
     } });
     const { st, req } = await bench({ w });
-    expect(await req({ type: "session.open", machine: "laptop", name: "board", dir: "~", profile: "you/profiles/missing" })).toMatchObject({ ok: false, error: "no_profile", why: "нет профиля you/profiles/missing" });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "board", dir: "~", profile: "you/profiles/missing" })).toMatchObject({ ok: false, error: "no_profile", why: "нет профиля you/profiles/missing" });
     expect(st.journal().some((l) => l.ev === "request" && l.word === "no_profile")).toBe(true);
     expect(st.kernel.sessions.has("board@laptop")).toBe(false);
-    expect(await req({ type: "session.open", machine: "laptop", name: "board", dir: "~" })).toMatchObject({ ok: true, result: { callsign: "board@laptop", slot: null } });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "board", dir: "~" })).toMatchObject({ ok: true, result: { callsign: "board@laptop", slot: null } });
   });
 
   it("number: первый свободный номер; два сразу — разные; убранный номер снова свободен; заголовок с номером", async () => {
     const { st, home, req } = await bench();
     const dir = join(home, "ops");
     mkdirSync(dir);
-    const open = () => req({ type: "session.open", machine: "laptop", name: "disk-full", number: true, dir });
+    const open = () => req({ type: "session.open", v: 2, machine: "laptop", name: "disk-full", number: true, dir });
     expect(await open()).toMatchObject({ ok: true, result: { callsign: "disk-full-1@laptop" } });
     expect(await open()).toMatchObject({ ok: true, result: { callsign: "disk-full-2@laptop" } });
     const both = await Promise.all([open(), open()]);
@@ -289,11 +289,11 @@ describe("session.open", () => {
   it("3028 · resume — session_id прежний, старт resume; fork — новый разговор от прежнего", async () => {
     const { st, req } = await bench();
     const sid = "11111111-2222-4333-8444-555555555555";
-    const r = await req({ type: "session.open", machine: "laptop", name: "r", dir: "~", resume: sid });
+    const r = await req({ type: "session.open", v: 2, machine: "laptop", name: "r", dir: "~", resume: sid });
     expect(r).toMatchObject({ ok: true, result: { callsign: "r@laptop", session_id: sid } });
     expect(st.session("host-manage", "r@laptop")!.info.start).toBe("resume");
     expect(st.query("r@laptop").options.resume).toBe(sid);
-    const f = await req({ type: "session.open", machine: "laptop", name: "f", dir: "~", resume: sid, fork: true });
+    const f = await req({ type: "session.open", v: 2, machine: "laptop", name: "f", dir: "~", resume: sid, fork: true });
     expect((f.result as { session_id: string }).session_id).not.toBe(sid);
     expect(st.query("f@laptop").options).toMatchObject({ resume: sid, forkSession: true });
   });
@@ -302,7 +302,7 @@ describe("session.open", () => {
     // источник: устав — прямой запрос к Worker'у не прошёл — отказ словом; заметка без очереди — чьё: код (клиент флота onLost)
     const { st, req } = await bench();
     st.relay.workersDown = true;
-    expect(await req({ type: "session.open", machine: "laptop", name: "board", dir: "~" })).toMatchObject({ ok: true, result: { callsign: "board@laptop" } });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "board", dir: "~" })).toMatchObject({ ok: true, result: { callsign: "board@laptop" } });
     expect(await req({ type: "session.remove", callsign: "board@laptop" })).toMatchObject({ ok: true });
     expect(st.kernel.sessions.has("board@laptop")).toBe(false);
     const notes = await until(() => {
@@ -806,7 +806,7 @@ describe("fleet: сессия ведёт другие сессии", () => {
     await st.open("lead@win");
     const pending = call("lead@win", "open", { name: "fix-auth", machine: "wsl", dir: "~/app", text: "Почини вход: токен истекает через минуту" });
     const o = await replyTo(st, "session.open", { ok: true, result: { callsign: "fix-auth@wsl", session_id: "s1" } });
-    expect(o).toMatchObject({ type: "session.open", v: 1, machine: "wsl", name: "fix-auth", dir: "~/app", from: "lead@win" });
+    expect(o).toMatchObject({ type: "session.open", v: 2, machine: "wsl", name: "fix-auth", dir: "~/app", from: "lead@win" });
     const m = await replyTo(st, "message", { ok: true });
     expect(m).toMatchObject({ type: "message", v: 1, to: "fix-auth@wsl", text: "Почини вход: токен истекает через минуту", from: "lead@win" });
     expect(text(await pending)).toBe("открыта: fix-auth@wsl; задача во вводе, итог хода придёт сам");
@@ -1568,7 +1568,7 @@ describe("формат раздела и поля manage", () => {
   it("раздел: режим лежит только не по умолчанию; remove_after_turn — кто просил; поле model — выбор, иначе модель из init; spec — только выбор", async () => {
     const { st, home, req } = await bench();
     mkdirSync(join(home, "p"));
-    await req({ type: "session.open", machine: "laptop", name: "a", dir: "~/p", model: "m", effort: "high", fast: false, style: "s", thinking: false });
+    await req({ type: "session.open", v: 2, machine: "laptop", name: "a", dir: "~/p", model: "m", effort: "high", fast: false, style: "s", thinking: false });
     const s = st.session("host-manage", "a@laptop")!;
     const base = { model: "m", effort: "high", fast: false, style: "s", thinking: false, parent: OWNER };
     expect(s.store().get()).toEqual(base);
@@ -1650,14 +1650,14 @@ describe("входы manage: остальные формы", () => {
   it("session.open: заголовок при любом открытии; fork без resume и пустой resume — обычный старт; point — старт point; второй старт из точки — без заголовка", async () => {
     const { st, req } = await bench();
     const sid = "11111111-2222-4333-8444-555555555555";
-    await req({ type: "session.open", machine: "laptop", name: "r", dir: "~", resume: sid });
+    await req({ type: "session.open", v: 2, machine: "laptop", name: "r", dir: "~", resume: sid });
     expect(st.query("r@laptop").options.title).toBe("r");
-    await req({ type: "session.open", machine: "laptop", name: "pp", dir: "~", point: 3, resume: sid });
+    await req({ type: "session.open", v: 2, machine: "laptop", name: "pp", dir: "~", point: 3, resume: sid });
     expect(st.query("pp@laptop").options).toMatchObject({ title: "pp", resume: sid });
     expect(st.session("host-manage", "pp@laptop")!.info).toMatchObject({ start: "point", point: 3 });
-    await req({ type: "session.open", machine: "laptop", name: "f", dir: "~", fork: true });
+    await req({ type: "session.open", v: 2, machine: "laptop", name: "f", dir: "~", fork: true });
     expect(st.session("host-manage", "f@laptop")!.info.start).toBe("spawn");
-    await req({ type: "session.open", machine: "laptop", name: "e", dir: "~", resume: "" });
+    await req({ type: "session.open", v: 2, machine: "laptop", name: "e", dir: "~", resume: "" });
     expect(st.session("host-manage", "e@laptop")!.info.start).toBe("spawn");
     const s = st.session("host-manage", "r@laptop")!;
     await s.stop();
@@ -1696,8 +1696,8 @@ describe("спорные места: найдено при сверке", () => 
 
   it("имя сессии начинается с буквы или цифры: точка в начале — системное имя адреса", async () => {
     const { st, req } = await bench();
-    for (const name of [".keeper", "-x", "_x", "ю"]) expect(await req({ type: "session.open", machine: "laptop", name, dir: "~" }), name).toMatchObject({ ok: false, error: "bad_name" });
-    expect(await req({ type: "session.open", machine: "laptop", name: "a.b_c-1", dir: "~" })).toMatchObject({ ok: true });
+    for (const name of [".keeper", "-x", "_x", "ю"]) expect(await req({ type: "session.open", v: 2, machine: "laptop", name, dir: "~" }), name).toMatchObject({ ok: false, error: "bad_name" });
+    expect(await req({ type: "session.open", v: 2, machine: "laptop", name: "a.b_c-1", dir: "~" })).toMatchObject({ ok: true });
     expect(st.kernel.sessions.size).toBe(1);
   });
 });
@@ -1711,7 +1711,7 @@ describe("fleet: остальные формы", () => {
     expect(schema.send).toMatchObject({ required: ["to", "text"], properties: { to: { type: "string" }, text: { type: "string" } } });
     expect(schema.answer).toMatchObject({ required: ["to", "question", "answers"], properties: { answers: { type: "object", additionalProperties: { type: "string" } } } });
     expect(schema.open.required).toEqual(["name", "dir", "text"]);
-    expect(new Set(Object.values(types("open")))).toEqual(new Set(["string"]));
+    expect(new Set(Object.values(types("open")))).toEqual(new Set(["string", "array"]));
     expect(schema.history).toMatchObject({ required: ["callsign"], properties: { limit: { type: "integer", minimum: 1 } } });
     expect(schema.update.required).toEqual(["callsign"]);
     expect(new Set(Object.values(types("update")))).toEqual(new Set(["string"]));

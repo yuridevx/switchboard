@@ -1,5 +1,5 @@
 // Контракт модуля Host manage v1: сессии по запросу.
-//   session.open { machine, name, number?, dir, mkdir?, profile?, slot?, model?, effort?, fast?, style?, thinking?, resume?, fork?, point? }
+//   session.open v2 { machine, name, number?, dir, mkdir?, profile?: [id], slot?, model?, effort?, fast?, style?, thinking?, resume?, fork?, point? }
 //     → { callsign, session_id, slot }; number: true — к имени первый свободный номер на машине (disk-full-1);
 //     родитель — отправитель запроса (поле parent); профиль и слот — их владельцам до старта;
 //     dir — папка; mkdir: true — создать весь путь, если его нет (только по просьбе, после проверки имени)

@@ -251,7 +251,9 @@ export class Kernel {
         (hooks[event] ??= []).push(...matchers!.map((x) => ({ ...x, hooks: x.hooks.map(wrap) })));
       }
     }
-    return { ...mergeParts(taken.map(([m, part]) => [m.name, part])), hooks };
+    const { merged, conflicts, dropped } = mergeParts(taken.map(([m, part]) => [m.name, part]));
+    if (dropped.length) this.log({ ev: "session.defaults", callsign: s.callsign, why: dropped.join("; ") });
+    return { merged, conflicts, hooks };
   }
 
   private env(extra?: Record<string, string>): Record<string, string | undefined> {

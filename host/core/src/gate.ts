@@ -1,8 +1,10 @@
 // Правила набора на старте Host и склейка вкладов модулей в query(): у имени один владелец.
 import { check, nameOf, ownerOf } from "@switchboard/manifest-gate";
-import type { Manifest, QueryPart } from "../contract.ts";
+import type { Manifest, QueryDefaults, QueryPart } from "../contract.ts";
 import type { ModuleEntry } from "./release.ts";
 
+/** Уровни данных вклада в порядке силы. */
+const TIERS: Array<QueryDefaults["tier"]> = ["account", "profile"];
 /** Поля записи сессии, которые держит ядро. */
 const CORE_FIELDS = new Set(["callsign", "state", "failed", "sdk", "dir", "by"]);
 /** Методы query, которыми ядро ведёт процесс: close завершает его, ввод — очередь ядра, серверы MCP — вклады. */
@@ -68,10 +70,11 @@ export const coreOption = (part: QueryPart): string | undefined => Object.keys(p
 
 export type Merged = { env: Record<string, string>; mcpServers: NonNullable<QueryPart["mcpServers"]>; settings: Record<string, unknown>; options: Record<string, unknown>; append: string[] };
 
-/** Вклады по порядку списка; второй владелец ключа — причина. Хуки ядро оборачивает само. */
-export function mergeParts(parts: Array<[string, QueryPart]>): { merged: Merged; conflicts: string[] } {
+/** Вклады по порядку списка; второй владелец ключа — причина; данные defaults ложатся под ключи модулей по уровням, в конфликт не идут. Хуки ядро оборачивает само. */
+export function mergeParts(parts: Array<[string, QueryPart]>): { merged: Merged; conflicts: string[]; dropped: string[] } {
   const merged: Merged = { env: {}, mcpServers: {}, settings: {}, options: {}, append: [] };
   const conflicts: string[] = [];
+  const dropped: string[] = [];
   const holders = new Map<string, string>();
   const claim = (word: string, target: Record<string, unknown>, from: Record<string, unknown> | undefined, who: string) => {
     for (const [k, v] of Object.entries(from ?? {})) {
@@ -81,12 +84,30 @@ export function mergeParts(parts: Array<[string, QueryPart]>): { merged: Merged;
       target[k] = v;
     }
   };
-  for (const [who, { env, mcpServers, settings, append, hooks: _hooks, ...options }] of parts) {
+  const under = (word: string, target: Record<string, unknown>, from: Record<string, unknown> | undefined, who: string) => {
+    for (const [k, v] of Object.entries(from ?? {})) {
+      const first = holders.get(`${word} ${k}`);
+      if (first) dropped.push(`${word} ${k}: значение ${who} уступило ${first}`);
+      else {
+        holders.set(`${word} ${k}`, who);
+        target[k] = v;
+      }
+    }
+  };
+  const data: Array<[string, QueryDefaults]> = [];
+  for (const [who, { env, mcpServers, settings, append, hooks: _hooks, defaults, ...options }] of parts) {
+    if (defaults) data.push([who, defaults]);
     claim("env", merged.env, env, who);
     claim("MCP-сервер", merged.mcpServers, mcpServers, who);
     claim("settings", merged.settings, settings, who);
     claim("опция", merged.options, options, who);
     if (append) merged.append.push(append);
   }
-  return { merged, conflicts };
+  for (const tier of TIERS) {
+    for (const [who, d] of data.filter(([, x]) => x.tier === tier)) {
+      under("env", merged.env, d.env, who);
+      under("settings", merged.settings, d.settings, who);
+    }
+  }
+  return { merged, conflicts, dropped };
 }
