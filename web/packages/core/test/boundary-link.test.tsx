@@ -296,6 +296,59 @@ describe("уход с экрана", () => {
     expect(log.filter((x) => x.startsWith("roster"))[0]).toBe("roster 2");
   });
 
+  it("вернулись, ушли и снова вернулись, пока уход ждёт запрос: одно новое соединение, один on.show", async () => {
+    // источник: чьё: код — второе соединение осиротело бы: уход закрывает только последнее, прежнее живёт и переподключается
+    let shows = 0;
+    const relay = new FakeRelay(oneMachine());
+    relay.handlers.ask = () => undefined as never;
+    const m = mod({ on: { show: () => void shows++ } }, {}, { "ask@x": 1 });
+    await stand([m.part], { relay });
+    void m.box.app.request("ask", { callsign: "site@laptop" });
+    await flush();
+    try {
+      visible("hidden");
+      visible("visible");
+      visible("hidden");
+      visible("visible");
+      await flush();
+      relay.reply(relay.sent("ask")[0].id as string, { ok: true });
+      await flush(10);
+      expect(shows).toBe(1);
+      expect(relay.hellos).toHaveLength(2);
+      expect(relay.open).toHaveLength(1);
+    } finally {
+      visible("visible");
+    }
+  });
+
+  it("возвращение на экран: пока связь собирается — без красной лампы и старых данных; модуль в on.show видит connecting", async () => {
+    // источник: слово пользователя 3 нояб. о мигании при возвращении на вкладку; чьё: код — уход ставил connecting
+    const links: string[] = [];
+    const s = sample([], { on: { show: () => void links.push(s.box.app.link()) } });
+    const relay = new FakeRelay(oneMachine());
+    let held = false;
+    let go = () => {};
+    const fetchHeld = (async (url: string, init?: RequestInit) => {
+      if (held) await new Promise<void>((r) => (go = r));
+      return relay.fetch(url, init);
+    }) as typeof fetch;
+    const t = await stand([s.part], { relay, options: { fetch: fetchHeld } });
+    await flush(10);
+    const pill = () => t.$(".sb-bar .sb-pill")!.textContent;
+    expect(pill()).toBe("на связи");
+    await t.run.hide();
+    held = true;
+    await t.run.show();
+    await flush();
+    expect(links).toEqual(["connecting"]);
+    expect(pill()).not.toBe("нет связи");
+    expect(t.$(".sb-bt")!.textContent).not.toContain("данные на");
+    held = false;
+    go();
+    await flush(10);
+    expect(pill()).toBe("на связи");
+  });
+
   it("4029 · после отказа relay возвращение на экран не подключает", async () => {
     const relay = new FakeRelay(oneMachine());
     relay.refuse = ["revoked"];
