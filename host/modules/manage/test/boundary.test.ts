@@ -139,7 +139,7 @@ describe("контракт: пакеты и вклад в query()", () => {
         'Сообщения флота приходят во ввод тегом <fleet-message from="…">; вопрос другой сессии — тегом <fleet-question>, ответ на него — fleet.answer. ' +
         "Если тебя открыла другая сессия, итог твоего хода, начатого ею, уйдёт ей сам — отвечать ей отдельно не нужно. " +
           'Человек из Telegram приходит тегом с from="telegram~почта" или, из группы, from="имя~почта" и автором в начале текста; ответ — fleet.send на этот адрес, твой обычный ответ он не увидит. ' +
-          "На вопрос AskUserQuestion человек из Telegram отвечает кнопкой или текстом; один вопрос с вариантами приходит кнопками. " +
+          "На вопрос AskUserQuestion человек из Telegram отвечает кнопкой или текстом; один вопрос с вариантами приходит кнопками. Восстановить переписку с людьми — fleet.history с people. " +
           "Привязать чат: keys.invite с именем telegram для лички или другим именем для группы, приглашение человек отправляет боту, в группе — /start@бот <приглашение>.",
     );
     const tools = makeFleet().tools("me@pc") as Array<{ name: string; description: string; inputSchema: Record<string, { description?: string }> }>;
@@ -164,7 +164,7 @@ describe("контракт: пакеты и вклад в query()", () => {
           wing: "настройки ведомого: профиль, модель, усилие, слот",
         },
       ],
-      ["history", "Что делала сессия: последние записи разговора — ввод, ответы, вызванные инструменты.", { callsign: null, limit: "сколько записей; по умолчанию 20" }],
+      ["history", "Что делала сессия: последние записи разговора — ввод, ответы, вызванные инструменты. С people — только переписка с людьми: их сообщения, fleet.send им, вопросы и ответы; живёт и после сжатия контекста.", { callsign: "сессия; по умолчанию — своя", limit: "сколько записей; по умолчанию 20, с people — 50 строк", people: "только переписка с людьми" }],
       [
         "update",
         "Сменить сессии слот, профиль, модель, усилие, заголовок разговора или проект. Живой сессии модель и усилие — сразу, слот и профиль — перезапуском между ходами, разговор продолжается. Слот меняется первым, профиль вторым: отказ не меняет остального. wing — настройки ведомого этой сессии: нет его — откроет; null — снимет.",
@@ -1839,7 +1839,8 @@ describe("fleet: остальные формы", () => {
     expect(schema.answer).toMatchObject({ required: ["to", "question", "answers"], properties: { answers: { type: "object", additionalProperties: { type: "string" } } } });
     expect(schema.open.required).toEqual(["name", "dir", "text"]);
     expect(new Set(Object.values(types("open")))).toEqual(new Set(["string", "array", "object"]));
-    expect(schema.history).toMatchObject({ required: ["callsign"], properties: { limit: { type: "integer", minimum: 1 } } });
+    expect(schema.history).toMatchObject({ properties: { limit: { type: "integer", minimum: 1 }, people: { type: "boolean" } } });
+    expect(schema.history).not.toHaveProperty("required");
     expect(schema.update.required).toEqual(["callsign"]);
     expect(new Set(Object.values(types("update")))).toEqual(new Set(["string", "array", undefined]));
     expect(schema.label.required).toEqual(["to", "text"]);
@@ -1882,6 +1883,80 @@ describe("fleet: остальные формы", () => {
     st.relay.deliver({ type: "reply", id: p.id as string, from: "push", ok: true } as never);
     await sent;
     expect(p.push).toMatchObject({ to: "~a@b.c", notify: { title: "lead@win", body: "x".repeat(5000), tag: expect.any(String) } });
+  });
+
+  describe("history с people", () => {
+    const TG = "telegram~ann@x.y";
+    const t = "2026-11-06T17:40:12.000Z";
+    const tag = (from: string, text: string) => `<fleet-message from="${from}">\n${text}\n</fleet-message>`;
+    const said = (from: string, text: string, uuid = "u") => ({ type: "user", uuid, timestamp: t, origin: { kind: "peer", from }, message: { content: tag(from, text) } });
+    const used = (name: string, input: unknown, id = "t1") => ({ type: "assistant", uuid: "a", timestamp: t, message: { content: [{ type: "tool_use", id, name, input }] } });
+    const result = (id: string, content: string) => ({ type: "user", uuid: "r", timestamp: t, message: { content: [{ type: "tool_result", tool_use_id: id, content }] } });
+    const read = async (messages: unknown[], o: Record<string, unknown> = { people: true }) => {
+      const { st, call } = await bench({ machine: "win" });
+      await st.open("lead@win");
+      const h = call("lead@win", "history", { callsign: "x@wsl", ...o });
+      await replyTo(st, "session.history", { ok: true, result: { messages } });
+      return text(await h);
+    };
+
+    it("1 · ответы людей и send людям по порядку, с временем и адресом", async () => {
+      // источник: слово пользователя — восстановить контекст
+      expect(await read([used("mcp__fleet__send", { to: TG, text: "Тесты прошли" }), said(TG, "да, без миграции"), said("team~ann@x.y", "Bob: выдал")])).toBe(
+        `2026-11-06 17:40 → ${TG}: Тесты прошли\n2026-11-06 17:40 ← ${TG}: да, без миграции\n2026-11-06 17:40 ← team~ann@x.y: Bob: выдал`,
+      );
+    });
+
+    it("2 · сообщения сессий, обычный ввод и прочие инструменты не попадают", async () => {
+      // источник: слово пользователя — диалог, а не весь разговор
+      const messages = [said("docs@pc", "от сессии"), used("mcp__fleet__send", { to: "docs@pc", text: "сессии" }), used("Bash", { command: "ls" }), { type: "user", uuid: "h", timestamp: t, origin: { kind: "human" }, message: { content: "ввод из пульта" } }, { type: "assistant", uuid: "b", timestamp: t, message: { content: "ответ модели" } }];
+      expect(await read(messages)).toBe("переписки с людьми нет");
+    });
+
+    it("3 · записи до и после сжатия читаются одинаково", async () => {
+      // источник: факт — /compact на живой сессии: записей 195 → 199, сообщений людей 13 → 13
+      const compact = [{ type: "system", uuid: "c", timestamp: t }, { type: "user", uuid: "s", timestamp: t, message: { content: "This session is being continued from a previous conversation" } }];
+      expect(await read([said(TG, "до"), ...compact, said(TG, "после")])).toBe(`2026-11-06 17:40 ← ${TG}: до\n2026-11-06 17:40 ← ${TG}: после`);
+    });
+
+    it("4 · вопрос виден вместе с ответом: выбор кнопкой больше нигде не записан", async () => {
+      // источник: факт — ответ кнопкой не проходит тегом сообщения
+      const answer = 'Your questions have been answered: "Куда?"="тест".';
+      expect(await read([used("AskUserQuestion", { questions: [{ question: "Куда?" }] }, "q1"), result("q1", answer), result("чужой", "вывод Bash")])).toBe(`2026-11-06 17:40 ? Куда?\n2026-11-06 17:40 ← ${answer}`);
+    });
+
+    it("5 · limit — последние строки: страницы с конца, пока строк не хватит, с пределом", async () => {
+      // источник: устав — у всех операций лимит
+      const { st, call } = await bench({ machine: "win" });
+      await st.open("lead@win");
+      const h = call("lead@win", "history", { callsign: "x@wsl", people: true, limit: 2 });
+      const first = await replyTo(st, "session.history", { ok: true, result: { messages: [said(TG, "три", "u3")], more: true } });
+      expect(first).toMatchObject({ limit: 500, before: null, from: "lead@win" });
+      const second = await replyTo(st, "session.history", { ok: true, result: { messages: [said(TG, "один", "u1"), said(TG, "два", "u2")], more: true } }, 1);
+      expect(second).toMatchObject({ before: "u3" });
+      expect(text(await h)).toBe(`2026-11-06 17:40 ← ${TG}: два\n2026-11-06 17:40 ← ${TG}: три`);
+      expect(st.relay.frames("session.history")).toHaveLength(2);
+    });
+
+    it("вопрос и ответ на разных страницах остаются парой", async () => {
+      const { st, call } = await bench({ machine: "win" });
+      await st.open("lead@win");
+      const h = call("lead@win", "history", { callsign: "x@wsl", people: true, limit: 5 });
+      await replyTo(st, "session.history", { ok: true, result: { messages: [{ ...result("q1", "выбрано"), uuid: "r1" }], more: true } });
+      await replyTo(st, "session.history", { ok: true, result: { messages: [{ ...used("AskUserQuestion", { questions: [{ question: "Куда?" }] }, "q1"), uuid: "a1" }], more: false } }, 1);
+      expect(text(await h)).toBe("2026-11-06 17:40 ? Куда?\n2026-11-06 17:40 ← выбрано");
+    });
+
+    it("6 · без callsign — своя сессия, читается на месте; отказ чтения — словом", async () => {
+      // чьё: код
+      const { st, call } = await bench({ machine: "win" });
+      await st.open("lead@win");
+      expect(text(await call("lead@win", "history", { people: true }))).toBe("переписки с людьми нет");
+      expect(st.relay.frames("session.history")).toEqual([]);
+      const h = call("lead@win", "history", { callsign: "x@wsl", people: true });
+      await replyTo(st, "session.history", { ok: false, error: "offline" });
+      expect(text(await h)).toBe("Не доставлено: x@wsl не на связи (offline)");
+    });
   });
 
   it("history: только текст и вызовы инструментов, каждый блок строкой; итог хода, thinking, картинки и ответы инструментов пропущены", async () => {

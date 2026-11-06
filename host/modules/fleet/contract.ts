@@ -2,6 +2,7 @@
 // Модели каждой сессии — инструменты MCP fleet (mcp__fleet__*): list, send, answer, open, history, update, label, remove, profile, repos;
 //   fleet.prompt { machine } → { text } — текст добавки к промпту для просмотра профиля;
 //   open, update, remove — запросы manage, slot — вход, send и answer сессии, history — chat; проекты и имена — записи области флота у службы настроек.
+//   history с people — переписка с людьми из разговора сессии: своего хранилища нет, читается session.history страницами.
 //   Кадр message клиенту { from, to, text } — без ответа; текст пуша и чатов Telegram — запросом notify модулю push, его undelivered модель видит в ответе send.
 // Итог хода: ход кончился, отправитель последнего ввода — родитель сессии (поле parent от manage этой машины) и это сессия —
 //   текст result родителю запросом message с report: true: кто дал задачу родителю, не меняется.

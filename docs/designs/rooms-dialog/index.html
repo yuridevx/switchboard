@@ -1,0 +1,374 @@
+<title>Чтение диалога</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@500;600&display=swap">
+<style>
+/* Раскладка: колонка 1040px, сверху вся система, ниже детали; цвета и шрифты — как у других дизайнов Switchboard. */
+:root{
+  --bg:#F2F4F8; --surface:#FFFFFF; --surface2:#E8ECF2; --ink:#131A25; --muted:#576377; --line:#D2D9E3; --line2:#E3E8EF;
+  --accent:#1E4ED0; --accent-weak:#E2E9FB; --on-accent:#FFFFFF;
+  --ok:#1C7548; --ok-weak:#DBF0E4; --wait:#955700; --wait-weak:#FAEACD; --bad:#B0222E; --bad-weak:#F7DDE0;
+  --violet:#6B3FC4; --violet-weak:#EAE3FA;
+  --chg-bg:#FFF5C2; --chg-edge:#D9B400;
+  --disp:"Unbounded","Golos Text",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --violet:#B9A0F5; --violet-weak:#2A2145;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --violet:#B9A0F5; --violet-weak:#2A2145;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:400 15.5px/1.55 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px;overflow-wrap:break-word}
+.wrap{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:22px;min-width:0}
+h1,h2,h3{text-wrap:balance;margin:0}
+h1{font:600 clamp(26px,4.6vw,40px)/1.12 var(--disp);letter-spacing:-.01em}
+h2{font:600 19px/1.25 var(--disp)}
+p{margin:0;max-width:72ch}
+code,.mono{font-family:var(--mono);font-size:.88em;overflow-wrap:anywhere}
+button{font:500 13.5px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,[data-note]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.top{display:flex;flex-direction:column;gap:14px;padding-block:8px 6px}
+.lede{font-size:17.5px;max-width:72ch}
+.howto{font-size:13px;color:var(--muted)}
+.howto kbd{font:600 12px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:var(--surface);color:var(--ink)}
+.blk{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.chg{background:var(--chg-bg);border-color:var(--chg-edge)}
+.chg.read{background:var(--surface);border-color:var(--line)}
+.blk-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.tag{font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border-radius:999px;padding:4px 8px;background:var(--chg-edge);color:#1E1A00}
+.tag::after{content:"новое"}
+.chg.read .tag{background:var(--ok-weak);color:var(--ok)}
+.chg.read .tag::after{content:"прочитано ✓"}
+.inner{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
+.chg.read .inner{background:var(--surface2);border-color:var(--line2)}
+.pad{padding:14px;display:flex;flex-direction:column;gap:10px}
+.seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.scroll{overflow-x:auto}
+
+/* диаграмма */
+svg{display:block;width:100%;height:auto;min-width:720px}
+svg text{font-family:var(--body);fill:var(--ink)}
+svg .small{font-size:11.5px;fill:var(--muted)}
+svg .code{font-family:var(--mono);font-size:11.5px}
+.zone{fill:var(--surface2);stroke:var(--line);stroke-width:1}
+.zone-l{font-size:12px;font-weight:600;fill:var(--muted)}
+.n rect{fill:var(--surface);stroke:var(--line);stroke-width:1.4;rx:9}
+.n text{font-size:13px;font-weight:500}
+.n,.e{cursor:pointer}
+.n:hover rect{stroke:var(--accent)}
+.e path{fill:none;stroke-width:2}
+.e .hit{stroke:transparent;stroke-width:15}
+.e text{font-family:var(--mono);font-size:11px;paint-order:stroke;stroke:var(--surface2);stroke-width:4px}
+.p-say path:not(.hit){stroke:var(--accent)} .p-say text{fill:var(--accent)}
+.p-reply path:not(.hit){stroke:var(--ok)} .p-reply text{fill:var(--ok)}
+.p-token path:not(.hit){stroke:var(--violet)} .p-token text{fill:var(--violet)}
+.p-data path:not(.hit){stroke:var(--muted)} .p-data text{fill:var(--muted)}
+.dimmed .n:not(.lit),.dimmed .e:not(.lit){opacity:.18}
+.sel rect,.sel.n rect{stroke:var(--accent);stroke-width:2.4}
+.e.sel path:not(.hit){stroke-width:3.4}
+.note{border:1px dashed var(--line);border-radius:10px;padding:12px 14px;min-height:62px;font-size:14px;display:flex;flex-direction:column;gap:8px}
+.note b{font-weight:600}
+.note pre{margin:0;font:400 12.5px/1.5 var(--mono);background:var(--surface2);border-radius:8px;padding:10px;overflow-x:auto;white-space:pre}
+
+/* Telegram */
+.chats{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.chat{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface);min-width:0}
+.chat-h{padding:9px 12px;font-weight:600;font-size:13.5px;background:var(--surface2);display:flex;justify-content:space-between;gap:8px}
+.topics{display:flex;gap:6px;padding:8px 10px;overflow-x:auto;border-bottom:1px solid var(--line2)}
+.topic{font:500 12px var(--mono);border:1px solid var(--line);border-radius:999px;padding:3px 9px;white-space:nowrap;background:var(--surface)}
+.topic.on{background:var(--accent-weak);border-color:var(--accent);color:var(--accent)}
+.msgs{display:flex;flex-direction:column;gap:7px;padding:10px;min-height:190px}
+.m{max-width:86%;padding:6px 10px;border-radius:10px;font-size:13.5px;background:var(--surface2);align-self:flex-start;position:relative}
+.m.me{align-self:flex-end;background:var(--accent-weak)}
+.m small{display:block;font-size:11px;color:var(--muted)}
+.m .re{position:absolute;right:-5px;bottom:-9px;font-size:12px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:0 5px}
+.m{cursor:pointer}
+
+/* звук */
+.who{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.w{border:1px solid var(--line);border-radius:10px;padding:8px 10px;text-align:center;font-size:13px;background:var(--surface);cursor:pointer}
+.w b{display:block;font-size:14px}
+.w.loud{background:var(--accent-weak);border-color:var(--accent)}
+.w.none{opacity:.45}
+
+/* конвейер и шаги */
+.strip{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-block:4px}
+.st{flex:1 0 118px;border:1.4px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px;background:var(--surface);cursor:pointer;display:flex;flex-direction:column;gap:2px;justify-content:center}
+.st:hover{border-color:var(--accent)}
+.st code{font-size:11px;color:var(--muted)}
+.st.pass{background:var(--ok-weak);border-color:var(--ok)}
+.st.stop{background:var(--bad-weak);border-color:var(--bad)}
+.st.sel{outline:2px solid var(--accent)}
+.ar{flex:0 0 26px;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer;font-size:16px}
+.ar:hover{color:var(--accent)}
+.out{font-size:14px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:12.5px;border-radius:999px;padding:4px 10px;background:var(--ok-weak);color:var(--ok);font-weight:500}
+.chip.warn{background:var(--wait-weak);color:var(--wait)}
+
+/* инструменты */
+.tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.tool{display:flex;flex-direction:column;gap:6px;min-width:0}
+.tool pre{margin:0;font:400 12.5px/1.5 var(--mono);background:var(--surface2);border-radius:8px;padding:10px;overflow-x:auto;white-space:pre}
+.words{display:flex;gap:6px;flex-wrap:wrap}
+.word{font:500 12px var(--mono);border-radius:6px;padding:2px 7px;background:var(--bad-weak);color:var(--bad);cursor:pointer}
+
+/* сравнение */
+.map{display:grid;grid-template-columns:minmax(70px,.7fr) 1fr 1fr;gap:6px;font-size:13.5px}
+.map>div{padding:7px 10px;border-radius:8px;background:var(--surface2);min-width:0}
+.map .h{background:none;font-weight:600;padding-block:2px}
+.map .soon{background:var(--wait-weak);color:var(--wait)}
+.map .good{background:var(--ok-weak);color:var(--ok)}
+
+/* эталоны */
+.et{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px}
+.e-c{border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:13.5px;display:flex;flex-direction:column;gap:3px;background:var(--surface)}
+.e-c span{font-size:12px;color:var(--muted)}
+.e-c i{font-style:normal;font:600 11px var(--mono);color:var(--accent)}
+
+/* порядок */
+.steps{display:flex;flex-direction:column;gap:8px}
+.s{display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)}
+.s>b{font:600 15px var(--disp);color:var(--accent)}
+.s div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.s span{font-size:13px;color:var(--muted)}
+.gate{font:400 13.5px/1.7 var(--mono);display:flex;flex-direction:column;gap:6px}
+.gate b{font-weight:600}
+.num{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.num div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface);font-size:12.5px;color:var(--muted)}
+.num b{display:block;font:600 16px var(--mono);color:var(--ink)}
+.fork{border:1px solid var(--wait);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
+.mark-banner{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom,0px));right:max(16px,env(safe-area-inset-right,0px));background:var(--ink);color:var(--bg);padding:8px 12px;border-radius:8px;font-size:13px}
+@media (max-width:520px){.blk{padding:14px}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Чтение диалога</h1>
+    <p class="lede">Сессия восстанавливает переписку с людьми из своего же разговора. Своего хранилища нет.</p>
+    <p class="howto">Клик по шагу или стрелке — пояснение. <kbd>A</kbd> — прочитал блок, <kbd>Z</kbd> — снять.</p>
+  </header>
+
+  <section class="blk chg" data-chg="flow">
+    <div class="blk-h"><span class="tag"></span><h2>Как это работает</h2></div>
+    <div class="strip">
+      <div class="st" data-note="s-session"><b>Сессия</b><code>site@laptop</code></div><div class="ar" data-note="a-call">→</div>
+      <div class="st" data-note="s-tool"><b>fleet.history</b><code>people: true</code></div><div class="ar" data-note="a-read">→</div>
+      <div class="st" data-note="s-chat"><b>host-chat</b><code>session.history</code></div><div class="ar" data-note="a-file">→</div>
+      <div class="st" data-note="s-file"><b>Файл разговора</b><code>Claude Code</code></div>
+    </div>
+    <div class="note" data-panel><b>Весь путь уже есть.</b> Новое — один фильтр в инструменте, который выбирает из разговора только людей.</div>
+  </section>
+
+  <section class="blk chg" data-chg="example">
+    <div class="blk-h"><span class="tag"></span><h2>Что видит модель</h2></div>
+    <div class="tools">
+      <div class="inner pad tool">
+        <b>Вызов</b>
+<pre>mcp__fleet__history
+{ "people": true, "limit": 50 }</pre>
+      </div>
+      <div class="inner pad tool">
+        <b>Ответ</b>
+<pre>17:40 → telegram~ann@x.y: Тесты прошли. Выкладываю?
+17:41 ← telegram~ann@x.y: да, только без миграции
+17:42 ? telegram~ann@x.y: Куда выкладывать?
+17:42 ← telegram~ann@x.y: тест
+17:50 ← team~ann@x.y: Bob: выдал доступ, пробуй</pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="blk chg" data-chg="scope">
+    <div class="blk-h"><span class="tag"></span><h2>Что видно</h2></div>
+    <div class="chips">
+      <span class="chip" data-note="c-people">ответы людей</span>
+      <span class="chip" data-note="c-own">свои сообщения людям</span>
+      <span class="chip" data-note="c-ask">вопросы и ответы кнопками</span>
+      <span class="chip" data-note="c-compact">после сжатия контекста</span>
+      <span class="chip" data-note="c-restart">после перезапуска сессии</span>
+      <span class="chip warn" data-note="c-lost">сообщения, не дошедшие до сессии</span>
+      <span class="chip warn" data-note="c-removed">разговор удалённой сессии</span>
+      <span class="chip warn" data-note="c-general">General и чужие темы</span>
+    </div>
+    <div class="note" data-panel><b>Сессия читает то, что прошло через неё.</b> Жёлтое недоступно: это цена работы без своего хранилища.</div>
+  </section>
+
+  <section class="blk chg" data-chg="options">
+    <div class="blk-h"><span class="tag"></span><h2>Почему так</h2></div>
+    <div class="map">
+      <div class="h"></div><div class="h">Своё хранение</div><div class="h">Сообщения сессии</div>
+      <div class="good">Разговор сессии</div><div class="good">нет</div><div class="good">видны целиком</div>
+      <div>Таблица в D1</div><div class="soon">есть</div><div>видны целиком</div>
+      <div>Бот по MTProto</div><div class="soon">ключ сессии, access_hash</div><div class="soon">клиент не читает</div>
+      <div>Bot API</div><div>нет</div><div class="soon">метода чтения нет</div>
+    </div>
+    <div class="chips">
+      <span class="chip" data-note="f-compact">сжатие: 13 из 13 сообщений людей на месте</span>
+      <span class="chip" data-note="f-history">getHistory боту запрещён</span>
+      <span class="chip" data-note="f-mtproto">по номерам: 91 сообщение, с текстом 52</span>
+      <span class="chip" data-note="f-api">Bot API 10.3: метода нет</span>
+    </div>
+    <div class="note" data-panel><b>Таблицу исключило ваше слово: без нашего хранения.</b> Клик по факту — откуда число.</div>
+  </section>
+
+  <section class="blk chg" data-chg="etalons">
+    <div class="blk-h"><span class="tag"></span><h2>Эталоны</h2></div>
+    <p class="howto">Стенд Host с поддельным SDK: настоящий модуль fleet читает записанный разговор.</p>
+    <div class="et">
+      <div class="e-c"><i>1</i>Ответы людей и send людям идут по порядку, с временем<span>слово пользователя: восстановить контекст</span></div>
+      <div class="e-c"><i>2</i>Сообщения сессий, обычный ввод и прочие инструменты не попадают<span>слово пользователя: диалог, а не весь разговор</span></div>
+      <div class="e-c"><i>3</i>Записи после сжатия и до него видны одинаково<span>факт: 13 из 13 на живой сессии</span></div>
+      <div class="e-c"><i>4</i>Вопрос AskUserQuestion виден вместе с ответом<span>факт: выбор кнопкой нигде больше не записан</span></div>
+      <div class="e-c"><i>5</i>limit — последние N строк, поиск идёт страницами с пределом<span>устав: у всех операций лимит</span></div>
+      <div class="e-c"><i>6</i>Без callsign — своя сессия; закрытая чужая — тот же отказ, что у history<span>чьё: код</span></div>
+    </div>
+  </section>
+
+  <section class="blk chg" data-chg="gate-block">
+    <div class="blk-h"><span class="tag"></span><h2>Гейт</h2></div>
+    <div class="gate">
+      <div><b>Работа:</b> маленькая — поле у существующего инструмента, контракт кадров тот же</div>
+      <div><b>Гейт:</b> дубликаты ответственности 0 → 0 · состояния 1 → 0 · логики 0 → 0 · смысла 0 → 0 · других 1 → 0 · лишние коммуникации 0 → 0 · циклы 0 → 0</div>
+      <div>состояние · таблица сообщений рядом с файлом разговора → убрана, читается файл</div>
+      <div>другое · второй инструмент чтения рядом с history → поле people у history</div>
+    </div>
+    <div class="num">
+      <div><b>0</b>новых модулей и Worker'ов</div>
+      <div><b>0</b>новых таблиц и секретов</div>
+      <div><b>0</b>новых кадров</div>
+      <div><b>0</b>правок страниц</div>
+      <div><b>+1</b>поле инструмента</div>
+      <div><b>1 шт</b>модуль: host-fleet</div>
+    </div>
+  </section>
+
+  <section class="blk chg" data-chg="order">
+    <div class="blk-h"><span class="tag"></span><h2>Порядок реализации</h2></div>
+    <div class="steps">
+      <div class="s"><b>1</b><div>Поле people у fleet.history, строка в подсказке<span>Готово: эталоны 1–6 зелёные, 6 из 6, правок других модулей 0</span></div></div>
+      <div class="s"><b>2</b><div>Выкладка Host на тест<span>Готово: живая сессия после /compact читает диалог, сообщений людей совпало N из N</span></div></div>
+      <div class="s"><b>3</b><div>Прод<span>Готово: то же на Linux и Windows, 2 из 2</span></div></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  const NOTES = {
+    "s-session":{t:"Сессия",d:"Сжала контекст, перезапустилась или просто хочет вспомнить, о чём договорились с человеком."},
+    "s-tool":{t:"fleet.history",d:"Инструмент уже есть у каждой сессии. Поле people оставляет только разговор с людьми. Без callsign читается своя сессия."},
+    "s-chat":{t:"host-chat",d:"Запрос session.history уже отдаёт записи разговора страницами. Правок нет."},
+    "s-file":{t:"Файл разговора",d:"Его ведёт сам Claude Code на машине сессии. Это не наше хранилище: он существует независимо от этой функции."},
+    "a-call":{t:"Вызов",d:"Обычный инструмент MCP внутри Host.",j:'{ "people": true, "limit": 50 }'},
+    "a-read":{t:"Страницы",d:"Записи читаются с конца по 500, пока не наберётся limit строк. Предел — 40 страниц: операция не бесконечна."},
+    "a-file":{t:"Чтение",d:"Метод SDK getSessionMessages, которым пользуется чат в пульте."},
+    "c-people":{t:"Ответы людей",d:"Всё, что пришло тегом fleet-message от адреса человека или его устройства."},
+    "c-own":{t:"Свои сообщения",d:"Вызовы fleet.send на адрес человека. Сегодня history показывает только имя инструмента, без текста: это главная правка."},
+    "c-ask":{t:"Вопросы",d:"AskUserQuestion вместе с ответом: выбор кнопкой больше нигде не записан."},
+    "c-compact":{t:"После сжатия",d:"Файл разговора не укорачивается: сжатие меняет только то, что отправляется модели."},
+    "c-restart":{t:"После перезапуска",d:"Сессия продолжает тот же файл разговора."},
+    "c-lost":{t:"Не дошедшие",d:"Машина выключена или сессия остановлена. Человек это видит: 🤷 или ответ в теме, и может написать снова."},
+    "c-removed":{t:"Удалённая сессия",d:"Новая сессия с тем же именем начинает новый разговор. Тема в Telegram остаётся, человек видит её целиком."},
+    "c-general":{t:"General и чужие темы",d:"Сессии они не передаются, поэтому в её разговоре их нет."},
+    "f-compact":{t:"Опыт: сжатие",d:"flow@win, /compact на тестовом флоте. Записей 195 → 199, тегов людей 13 → 13. В журнале «Compacted» и запись о продолжении разговора."},
+    "f-history":{t:"Опыт: getHistory",d:"Вход токеном бота через MTProto, свой access_hash: BOT_METHOD_INVALID."},
+    "f-mtproto":{t:"Опыт: по номерам",d:"Номера 1–100: 91 сообщение и 8 служебных, текст есть у 52. Сообщения sendRichMessage клиент слоя 198 видит как неподдерживаемые, то есть сообщения самих сессий не читаются. Плюс Worker должен держать ключ сессии и access_hash."},
+    "f-api":{t:"Bot API",d:"32 метода get. getUserPersonalChatMessages читает личный канал из профиля человека, а не диалог с ботом."}
+  };
+  function fill(panel,id){
+    const n=NOTES[id]; if(!n||!panel) return;
+    panel.replaceChildren();
+    const b=document.createElement("b"); b.textContent=n.t;
+    const p=document.createElement("span"); p.textContent=n.d;
+    panel.append(b,p);
+    if(n.j){const pre=document.createElement("pre"); pre.textContent=n.j; panel.append(pre);}
+  }
+  document.querySelectorAll("[data-note]").forEach(el=>{
+    el.tabIndex=0;
+    const go=()=>{const blk=el.closest(".blk");blk.querySelectorAll(".sel").forEach(x=>x.classList.remove("sel"));el.classList.add("sel");fill(blk.querySelector("[data-panel]"),el.dataset.note);};
+    el.addEventListener("click",go);
+    el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}});
+  });
+})();
+</script>
+
+<script>
+/* ===== Метки «прочитал» (устав): A — прочитал, Z — снять ===== */
+(function(){
+  let hovered = null, coll = null, ready = false;
+  const queue = [];
+  const blockOf = t => (t && t.closest) ? t.closest("[data-chg]") : null;
+  document.addEventListener("pointerover", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("pointerdown", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("focusin", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  function paint(id, on){ document.querySelectorAll('[data-chg="' + id + '"]').forEach(b => b.classList.toggle("read", on)); }
+  function idsOf(b){ const ids = [b.getAttribute("data-chg")]; b.querySelectorAll("[data-chg]").forEach(n => ids.push(n.getAttribute("data-chg"))); return ids; }
+  async function mark(ids, on){
+    ids.forEach(id => paint(id, on));
+    if (!coll) return;
+    for (const id of ids){
+      try { if (on) await coll.doc(id).set({read:true, at:Date.now()}); else await coll.doc(id).delete(); }
+      catch (_) { banner("Метка не сохранилась — обновите страницу"); }
+    }
+  }
+  function act(on){ if (!hovered) return; const ids = idsOf(hovered); if (ready) mark(ids, on); else queue.push([ids, on]); }
+  const A = new Set(["a","A","а","А"]), Z = new Set(["z","Z","я","Я"]);
+  document.addEventListener("keydown", e => {
+    const t = e.target;
+    if (t && t.matches && t.matches("input:not([type=range]):not([type=checkbox]),textarea,select,[contenteditable],[contenteditable=true]")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (A.has(e.key) || e.code === "KeyA"){ e.preventDefault(); act(true); }
+    else if (Z.has(e.key) || e.code === "KeyZ"){ e.preventDefault(); act(false); }
+  });
+  let bannerEl = null;
+  function banner(text){
+    if (!bannerEl){ bannerEl = document.createElement("div"); bannerEl.className = "mark-banner"; bannerEl.setAttribute("role","status"); document.body.appendChild(bannerEl); }
+    bannerEl.textContent = text;
+  }
+  // localhost: метки хранит локальный сервер страницы
+  if (location.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+    coll = { doc: id => ({
+      set: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:true})}).then(r => { if (!r.ok) throw new Error(); }),
+      delete: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:false})}).then(r => { if (!r.ok) throw new Error(); }),
+    }) };
+    fetch("/api/state").then(r => r.json()).then(d => {
+      document.querySelectorAll("[data-chg]").forEach(b => b.classList.toggle("read", !!d.marks[b.getAttribute("data-chg")]));
+    }).catch(() => banner("Метки не загрузились — сервер страницы недоступен"));
+    ready = true;
+    return;
+  }
+  (async function init(){
+    let db = null;
+    try { db = (window.claude && window.claude.use) ? await window.claude.use("db") : null; } catch (_) { db = null; }
+    if (db){
+      try {
+        coll = db.collection("accepted");
+        coll.onSnapshot(snap => {
+          const on = new Set();
+          snap.docs.forEach(d => { const v = d.data(); if (v && v.read) on.add(d.id); });
+          document.querySelectorAll("[data-chg]").forEach(b => { const id = b.getAttribute("data-chg"); b.classList.toggle("read", on.has(id)); });
+        }, () => banner("Метки не загрузились — хранилище недоступно"));
+      } catch (_) { coll = null; }
+    }
+    ready = true;
+    if (!coll) banner("Метки «прочитал» не сохраняются — хранилище недоступно");
+    while (queue.length){ const [ids, on] = queue.shift(); mark(ids, on); }
+  })();
+})();
+</script>

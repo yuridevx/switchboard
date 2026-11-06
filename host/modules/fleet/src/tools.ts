@@ -8,8 +8,8 @@ import { z } from "zod";
 
 type Env = { host: Host; records: Settings };
 type Refused = Extract<Result, { ok: false }>;
-type Block = { type?: string; text?: string; name?: string };
-type Record_ = { type?: string; message?: { content?: string | Block[] } };
+type Block = { type?: string; text?: string; name?: string; id?: string; tool_use_id?: string; content?: unknown; input?: { to?: string; text?: string; questions?: Array<{ question?: string }> } };
+type Record_ = { type?: string; uuid?: string; timestamp?: string; origin?: { from?: string }; message?: { content?: string | Block[] } };
 type Row = NonNullable<ReturnType<Host["roster"]>>["sessions"][number];
 
 const say = (text: string, isError = false) => ({ content: [{ type: "text" as const, text }], ...(isError ? { isError: true } : {}) });
@@ -78,6 +78,60 @@ function historyLines(messages: Record_[]): string {
     return blocks.flatMap((b) => (b.type === "text" && b.text ? [`${type}: ${b.text}`] : b.type === "tool_use" && b.name ? [`tool: ${b.name}`] : []));
   });
   return lines.join("\n") || "записей нет";
+}
+
+const SEND = "mcp__fleet__send";
+const ASK = "AskUserQuestion";
+/** Переписка читается страницами с конца; предел: разговор может быть любой длины. */
+const PAGE = 500;
+const PAGES = 40;
+
+const person = (a: unknown) => kindOf(a) === "user" || kindOf(a) === "device";
+const blocksOf = ({ message }: Record_): Block[] => {
+  const content = message?.content ?? [];
+  return typeof content === "string" ? [{ type: "text", text: content }] : content;
+};
+/** Время записи: дата и минуты, UTC. */
+const when = (r: Record_) => (r.timestamp ?? "").slice(0, 16).replace("T", " ");
+/** Текст внутри тега сообщения флота; тег ставит chat. */
+const inside = (text: string) => text.replace(/^<fleet-message[^>]*>\n/, "").replace(/\n<\/fleet-message>$/, "");
+
+/** Разговор с людьми строками: ← от человека, → человеку, ? вопрос; ответ на вопрос — отдельной строкой ←. */
+function peopleLines(records: Record_[]): string[] {
+  const questions = new Set<string>();
+  return records.flatMap((r) => {
+    if (r.type !== "user" && r.type !== "assistant") return [];
+    const from = r.origin?.from;
+    return blocksOf(r).flatMap((b) => {
+      if (b.type === "text" && b.text && person(from)) return [`${when(r)} ← ${from}: ${inside(b.text)}`];
+      if (b.type === "tool_use" && b.name === SEND && person(b.input?.to)) return [`${when(r)} → ${b.input?.to}: ${b.input?.text}`];
+      if (b.type === "tool_use" && b.name === ASK) {
+        questions.add(b.id ?? "");
+        return [`${when(r)} ? ${(b.input?.questions ?? []).map((q) => q.question).join(" · ")}`];
+      }
+      if (b.type === "tool_result" && questions.has(b.tool_use_id ?? "")) return [`${when(r)} ← ${typeof b.content === "string" ? b.content : JSON.stringify(b.content)}`];
+      return [];
+    });
+  });
+}
+
+/** Последние limit строк переписки: страницы с конца, пока строк не хватит. Записи копятся целиком: вопрос и ответ бывают на разных страницах. */
+async function dialog(host: Host, me: string, callsign: string, limit: number) {
+  let records: Record_[] = [];
+  let before: string | null = null;
+  let more = false;
+  for (let page = 0; page < PAGES; page++) {
+    const r = await host.request("session.history", { callsign, limit: PAGE, before, from: me });
+    if (!r.ok) return fail(refusal(callsign, r));
+    const got = r.result as { messages: Record_[]; more?: boolean };
+    records = [...got.messages, ...records];
+    more = !!got.more;
+    before = got.messages[0]?.uuid ?? null;
+    if (!more || before === null || peopleLines(records).length >= limit) break;
+  }
+  const lines = peopleLines(records);
+  if (!lines.length) return say(more ? `переписки с людьми нет в последних ${records.length} записях` : "переписки с людьми нет");
+  return say([...(more && lines.length < limit ? [`старше не читалось: ${records.length} записей`] : []), ...lines.slice(-limit)].join("\n"));
 }
 
 /** Поставить сессию в конец проекта: нет такого имени — создать; пустое имя — без проекта. null или слово отказа. */
@@ -252,12 +306,17 @@ export function toolsOf(me: string, env: () => Env) {
 
     tool(
       "history",
-      "Что делала сессия: последние записи разговора — ввод, ответы, вызванные инструменты.",
-      { callsign: z.string(), limit: z.number().int().min(1).optional().describe("сколько записей; по умолчанию 20") },
-      async ({ callsign, limit }) => {
+      "Что делала сессия: последние записи разговора — ввод, ответы, вызванные инструменты. С people — только переписка с людьми: их сообщения, fleet.send им, вопросы и ответы; живёт и после сжатия контекста.",
+      {
+        callsign: z.string().optional().describe("сессия; по умолчанию — своя"),
+        limit: z.number().int().min(1).optional().describe("сколько записей; по умолчанию 20, с people — 50 строк"),
+        people: z.boolean().optional().describe("только переписка с людьми"),
+      },
+      async ({ callsign = me, limit, people }) => {
         const { host } = env();
         const shut = closed(host, me, callsign, true);
         if (shut) return fail(shut);
+        if (people) return dialog(host, me, callsign, limit ?? 50);
         const r = await host.request("session.history", { callsign, limit: limit ?? 20, before: null, from: me });
         return r.ok ? say(historyLines((r.result as { messages: Record_[] }).messages)) : fail(refusal(callsign, r));
       },
