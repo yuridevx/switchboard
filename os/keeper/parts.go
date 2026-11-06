@@ -46,7 +46,7 @@ func (k *Keeper) apply(e entry) {
 	k.mu.Unlock()
 	if !e.on() {
 		if k.stop(p, e.Force) == nil {
-			k.locked(func() { p.state, p.err, p.version = "stopped", "", e.Version })
+			k.locked(func() { p.state, p.err, p.version, p.restarts = "stopped", "", e.Version, 0 })
 		}
 		return
 	}
