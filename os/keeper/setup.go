@@ -32,7 +32,7 @@ func (w workerFlags) String() string { return "" }
 
 func (w workerFlags) Set(s string) error {
 	name, url, ok := strings.Cut(s, "=")
-	if !ok || name == "" || !strings.HasPrefix(url, "http") {
+	if !ok || name == "" || !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
 		return fmt.Errorf("--worker <имя>=<https://…>, а не %q", s)
 	}
 	w[name] = url
