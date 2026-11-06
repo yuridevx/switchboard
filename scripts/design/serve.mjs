@@ -154,6 +154,7 @@ const server = http.createServer(async (req, res) => {
       if (m[2] === "bundle.js") return a.bundle ? send(res, 200, "text/javascript", a.bundle) : json(res, 500, { error: "build", errors: [a.error ?? "сборка идёт"] });
       if (m[2] === "events") {
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
+        res.flushHeaders(); // подписчик открыт сразу, а не с первым кадром
         a.events.add(res);
         return void req.on("close", () => a.events.delete(res));
       }
