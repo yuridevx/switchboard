@@ -1,101 +1,145 @@
-// Связь страницы с флотом. Соединения, ping и паузы — у клиента флота из контракта relay; здесь — одно состояние на весь флот:
-// флот открывается, когда ответили все машины; дальше open, пока открыта хоть одна; возврат одной машины — отдельное событие.
-import { fleet, type FleetClient, type Roster, type WsCtor } from "@switchboard/relay";
-import type { Frame, Reply } from "@switchboard/protocol";
+// Связь страницы: клиент флота relay; из состояний машин — одно состояние для экрана, roster — когда ответили все машины.
+import { fleet, type FleetClient, type Frame, type Roster, type WsCtor } from "@switchboard/relay";
+import type { Reply } from "@switchboard/protocol";
+import { plural } from "@switchboard/web-ui";
+import type { Modules } from "./modules.ts";
+import type { Page } from "./page.ts";
+import type { Route } from "./route.ts";
 import type { ConnState } from "./types.ts";
 
-export type LinkOptions = {
-  workers: Record<string, string>;
-  key: string;
-  fetch?: typeof fetch;
-  WebSocket?: unknown;
-  pauseMs?: number;
-  on: {
-    /** состояние флота сменилось; open — вместе с собранным roster */
-    state(state: ConnState, why?: string, roster?: Roster, address?: string | null): void;
-    /** соединение оборвалось, снова — в retryAt */
-    retry(retryAt: number, why: string): void;
-    /** roster открытого флота; machines — вернувшиеся, пришедшие и перезапустившиеся машины */
-    roster(r: Roster, machines: string[]): void;
-    frame(f: Frame): void;
-  };
-};
+const welcome = ({ machines, sessions: { length: n } }: Roster) => `Вы во флоте: ${machines.map((m) => m.machine).join(" и ") || "машин нет"} на связи, ${n} ${plural(n, "сессия", "сессии", "сессий")}.`;
 
-export type FleetLink = {
-  request(f: Frame, read?: boolean): Promise<Reply>;
-  send(f: Frame): void;
-  close(reason: string): void;
-};
+export type Link = ReturnType<typeof createLink>;
 
-const sinceOf = (r: Roster) => new Map(r.machines.map((m) => [m.machine, m.since]));
-
-export function connect(o: LinkOptions): FleetLink {
-  let closed = false;
-  let state: ConnState = "connecting";
-  /** флот собран и roster отдан */
-  let gathered = false;
-  /** список машин у gate: пуст или не получен */
-  let list: "wait" | "empty" | "failed" = "wait";
+export function createLink(page: Page, mods: Modules, route: Route, stop: (word: string) => void, toast: (text: string, tone: "ok") => void) {
+  const { o } = page;
+  let client: FleetClient | null = null;
+  /** gate ответил: машин нет */
+  let empty = false;
+  /** since машин в последнем roster: сравнение — только здесь */
   let known = new Map<string, number>();
+  /** запросы, которые ещё ждут ответа: уход их доводит */
+  const pending = new Set<Promise<unknown>>();
 
-  const whole = (): ConnState => {
-    const all = [...client.links().values()].map((l) => l.state);
-    if (!all.length) return list === "empty" ? "open" : list === "failed" ? "closed" : "connecting";
-    if (gathered ? all.includes("open") : !all.includes("connecting") && all.includes("open")) return "open";
-    return all.includes("connecting") ? "connecting" : "closed";
+  function setLink(next: ConnState) {
+    if (page.link === next) return;
+    page.link = next;
+    if (next === "open") page.down = null;
+    page.changed();
+    mods.each("связи", (d) => d.on?.link?.(next));
+  }
+
+  function take(c: FleetClient) {
+    const merged = c.roster;
+    page.roster = o.seam?.roster(merged) ?? merged;
+    page.dataAt = Date.now();
+    page.address = c.addr ?? page.address;
+    known = new Map(page.roster.machines.map((m) => [m.machine, m.since]));
+  }
+
+  const spread = () => {
+    page.changed();
+    mods.each("roster", (d) => d.on?.roster?.(page.roster!));
   };
 
-  /** Сверить состояние флота: собрался — open с roster; разошёлся — новый сбор. */
-  function settle() {
-    const now = whole();
-    if (now !== "open") gathered = false;
-    if (now === "open" && !gathered) {
-      gathered = true;
-      const r = client.roster;
-      known = sinceOf(r);
-      state = now;
-      return o.on.state(now, undefined, r, client.addr);
-    }
-    if (now !== state) o.on.state((state = now));
-  }
-
-  function onRoster() {
-    if (!gathered) return settle();
-    const r = client.roster;
+  /** roster открытого флота; вернувшаяся, новая и перезапущенная машина — on.link с её именем. */
+  function publish(c: FleetClient) {
     const was = known;
-    known = sinceOf(r);
-    o.on.roster(r, r.machines.map((m) => m.machine).filter((m) => was.get(m) !== known.get(m)));
+    take(c);
+    spread();
+    for (const [machine, since] of known) if (was.get(machine) !== since) mods.each("связи", (d) => d.on?.link?.("open", machine));
   }
 
-  const client: FleetClient = fleet({
-    workers: o.workers,
-    key: o.key,
-    fetch: o.fetch,
-    WebSocket: o.WebSocket as WsCtor | undefined,
-    pauseMs: o.pauseMs,
-    onFrame(f) {
-      if (closed) return;
-      if (f.type === "roster") onRoster();
-      else o.on.frame(f);
-    },
-    onState(machine, s, why, retryAt) {
-      if (closed) return;
-      if (s === "stopped") return o.on.state((state = "stopped"), why);
-      // открытие соединения: следом придёт его roster
-      if (s === "open" && machine) return;
-      if (!machine) list = s === "open" ? "empty" : "failed";
-      if (s === "closed") known.delete(machine);
-      settle();
-      if (s === "closed") o.on.retry(retryAt!, why ?? "");
-    },
-  });
+  /** Сводка машин: собран, когда не ждём ни одной; собранный держится, пока жива хоть одна. */
+  function settle(c: FleetClient) {
+    const states = [...c.links().values()].map((l) => l.state);
+    const waiting = states.includes("connecting");
+    const open = states.includes("open") || (empty && !states.length);
+    if (page.link === "open" && open) return;
+    if (!open || waiting) return setLink(waiting ? (page.down ? "connecting" : page.link) : "closed");
+    const first = !page.roster;
+    take(c);
+    setLink("open");
+    spread();
+    if (first) route.follow();
+    if (first && page.saved) toast(welcome(page.roster!), "ok");
+  }
+
+  function deliver(f: Frame, open = false) {
+    const owner = mods.frames.get(f.type);
+    if (owner) mods.call(owner.mod, `кадре ${f.type}`, () => owner.def(f, { open }));
+    else if (f.id && f.type !== "reply") client?.send({ type: "reply", id: f.id, ok: false, error: "unknown_request", to: f.from });
+    else if (f.type !== "reply") console.warn(`switchboard: кадр ${f.type} — владельца в приложении нет`);
+  }
+
+  function connect() {
+    empty = false;
+    const c: FleetClient = fleet({
+      workers: o.workers,
+      key: page.key!,
+      fetch: o.fetch,
+      WebSocket: o.WebSocket as WsCtor | undefined,
+      pauseMs: o.pauseMs,
+      onFrame(f) {
+        if (c !== client) return;
+        if (f.type !== "roster") deliver(f);
+        else if (page.link === "open") publish(c);
+        else settle(c);
+      },
+      onState(machine, state, why, retryAt) {
+        if (c !== client) return;
+        if (state === "stopped") return stop(why ?? "");
+        if (state === "open" && machine) return;
+        if (!machine) empty = state === "open";
+        if (state === "closed") {
+          known.delete(machine);
+          console.warn(`switchboard: связь с relay оборвалась (${why}) · снова через ${Math.round((retryAt! - Date.now()) / 1000)} с`);
+        }
+        if (state === "closed" && (!machine || !c.links().size)) setLink("closed");
+        else settle(c);
+        if (state === "closed" && page.link !== "open") page.down = { retryAt: retryAt! };
+        page.changed();
+      },
+    });
+    client = c;
+  }
+
+  /** Закрыть всё: это не обрыв, старый клиент больше не слышен. */
+  function close(reason: string) {
+    const c = client;
+    client = null;
+    c?.close(1000, reason);
+  }
+
+  /** Подключиться: промежуточного «connecting» модули не слышат. */
+  function open() {
+    page.link = "connecting";
+    connect();
+  }
 
   return {
-    request: (f, read) => client.request(f, read),
-    send: (f) => void client.send(f),
-    close(reason) {
-      closed = true;
-      client.close(1000, reason);
+    deliver,
+    open,
+    close(reason: string, next: ConnState = "closed") {
+      close(reason);
+      setLink(next);
+    },
+    /** «Сейчас»: новое соединение без паузы. */
+    now() {
+      close("now");
+      open();
+    },
+    /** Запрос; связи нет — отказ сразу. */
+    request(f: Frame, read: boolean): Promise<Reply> {
+      const real = (x: Frame) => client?.request(x, read) ?? Promise.resolve({ type: "reply", id: x.id ?? "", ok: false, error: "disconnected" } as Reply);
+      const r = o.seam ? o.seam.request(f, read, real) : real(f);
+      pending.add(r);
+      void r.finally(() => pending.delete(r));
+      return r;
+    },
+    /** Дождаться начатых запросов, в том числе начатых за это время. */
+    async drain() {
+      while (pending.size) await Promise.allSettled([...pending]);
     },
   };
 }

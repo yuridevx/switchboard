@@ -1,12 +1,13 @@
-// Worker gate, две двери: привязка Gate внутри аккаунта и POST кадра по адресу.
+// gate: привязка Gate внутри аккаунта и POST по адресу gate; пропуска — база D1 (passes.ts).
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { BAD_FRAME, TOO_LARGE, accepts, fail, ok, parseFrame, type Frame, type Reply } from "@switchboard/protocol";
+import { accepts, BAD_FRAME, fail, ok, type Frame } from "@switchboard/protocol";
 import { CONTRACT, type GateApi, type Pass } from "../contract.ts";
-import { json } from "./entrance.ts";
+import { answer, door, refuseFrame } from "./entrance.ts";
 import { invite, list, redeem, revoke, revoked, verify } from "./passes.ts";
 
 type Env = { DB: D1Database };
 
+/** Предел тела: дверь открыта без пропуска, запросы её — короткие поля. */
 const MAX_BODY = 16 * 1024;
 
 export class Gate extends WorkerEntrypoint<Env> implements GateApi {
@@ -24,43 +25,35 @@ export class Gate extends WorkerEntrypoint<Env> implements GateApi {
   }
 }
 
-async function serve(db: D1Database, f: Frame & { id: string }): Promise<Reply> {
-  const refused = accepts(f, CONTRACT);
-  if (refused) {
-    console.log(`${refused.word} ${refused.why}`);
-    return fail(f.id, refused.word);
-  }
-  if (f.type === "gate.redeem") {
-    const key = await redeem(db, f.invite);
-    return key ? ok(f.id, { key }) : fail(f.id, "bad_invite");
-  }
+/** Значение запроса или отказ словом: поле error. */
+async function work(f: Frame, db: D1Database): Promise<object> {
+  if (f.type === "gate.redeem") return redeem(db, f.invite);
   const who = await verify(db, f.key);
-  if ("error" in who) return fail(f.id, who.error);
-  const refuse = (word: string, why: string) => {
-    console.log(`${word} ${f.type} от ${who.addr} · ${why}`);
-    return fail(f.id, word);
-  };
-  if (f.type === "keys.invite") {
-    const r = await invite(db, who.addr, f);
-    return "error" in r ? refuse(r.error, r.why) : ok(f.id, r);
-  }
+  if ("error" in who) return who;
+  if (f.type === "keys.invite") return invite(db, f, who.addr);
   const role = f.role as Pass["role"] | undefined;
-  if (role !== undefined && role !== "host" && role !== "client") return refuse("bad_request", "role — host или client");
-  return ok(f.id, { passes: await list(db, role), you: who.addr });
+  if (![undefined, "host", "client"].includes(role)) {
+    console.log(`bad_request keys.list от ${who.addr} · role — host или client`);
+    return { error: "bad_request" };
+  }
+  return { passes: await list(db, role), you: who.addr };
 }
 
-export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
-    if (req.method !== "POST") return new Response(null, { status: 404 });
-    const text = await req.text();
-    if (text.length > MAX_BODY) return json(fail("", TOO_LARGE), 413);
-    const f = parseFrame(text);
-    if (!f?.id) return json(fail("", BAD_FRAME));
-    try {
-      return json(await serve(env.DB, f as Frame & { id: string }));
-    } catch (e) {
-      console.log(`gate_unavailable ${(e as Error).message}`);
-      return json(fail(f.id, "gate_unavailable"), 503);
-    }
-  },
-};
+async function serve(f: Frame, db: D1Database): Promise<Response> {
+  const { id } = f;
+  if (id === undefined) return refuseFrame(BAD_FRAME, 400);
+  const no = accepts(f, CONTRACT);
+  if (no) {
+    console.log(`${no.word} ${no.why}`);
+    return answer(id, fail(id, no.word));
+  }
+  try {
+    const r = await work(f, db);
+    return answer(id, "error" in r ? fail(id, r.error as string) : ok(id, r));
+  } catch (e) {
+    console.log(`gate_unavailable ${(e as Error).message}`);
+    return answer(id, fail(id, "gate_unavailable"), 503);
+  }
+}
+
+export default { fetch: (req: Request, env: Env) => door(req, MAX_BODY, (f) => serve(f, env.DB)) };

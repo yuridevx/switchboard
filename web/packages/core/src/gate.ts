@@ -1,37 +1,33 @@
-// Гейт набора модулей страницы: определения модулей против манифестов, затем общий гейт манифестов.
+// Гейт набора: определения модулей против манифестов; связи манифестов проверяет общий гейт.
 import { check, nameOf, ownerOf } from "@switchboard/manifest-gate";
 import core from "../module.json" with { type: "json" };
 import type { AppModule, DefinedPart, Manifest } from "./types.ts";
 
-/** Раздел ядра: пропуск. */
-const CORE_SECTION = "key";
-
-/** Что нарушает определение одного модуля. */
 function definitionErrors(m: Manifest, d: AppModule): string[] {
-  const provided = (name: string) => Object.hasOwn(m.provides, name);
   const used = new Set(Object.keys(m.uses).map(nameOf));
-  const who = `модуль ${m.name}:`;
-  return [
-    ...Object.entries(d.screens ?? {}).flatMap(([name, s]) => [
-      ...(provided(name) ? [] : [`${who} экрана ${name} нет в provides`]),
-      ...(s.mark && !Object.hasOwn(d.marks ?? {}, s.mark) ? [`${who} экран ${name} — метки ${s.mark} нет в marks`] : []),
-      ...(s.place && !used.has(s.place) ? [`${who} экран ${name} — места ${s.place} нет в uses`] : []),
-    ]),
-    ...Object.keys(d.frames ?? {}).flatMap((name) => (used.has(name) ? [] : [`${who} кадр ${name} нет в uses`])),
-    ...Object.entries(d.commands ?? {}).flatMap(([name, c]) => [
-      ...(provided(name) ? [] : [`${who} команды ${name} нет в provides`]),
-      ...(c.place && !used.has(c.place) ? [`${who} команда ${name} — места ${c.place} нет в uses`] : []),
-    ]),
-    ...Object.keys(d.marks ?? {}).flatMap((name) => (provided(name) ? [] : [`${who} метки ${name} нет в provides`])),
-    ...(d.on?.roster && !m.uses["roster@relay"] ? [`${who} on.roster без roster@relay в uses`] : []),
-  ];
+  const provided = (name: string) => Object.hasOwn(m.provides, name);
+  const errors: string[] = [];
+  const bad = (when: unknown, text: string) => void (when && errors.push(`модуль ${m.name}: ${text}`));
+  for (const [name, s] of Object.entries(d.screens ?? {})) {
+    bad(!provided(name), `экрана ${name} нет в provides`);
+    bad(s.mark && !Object.hasOwn(d.marks ?? {}, s.mark), `экран ${name} — метки ${s.mark} нет в marks`);
+    bad(s.place && !used.has(s.place), `экран ${name} — места ${s.place} нет в uses`);
+  }
+  for (const name of Object.keys(d.frames ?? {})) bad(!used.has(name), `кадр ${name} нет в uses`);
+  for (const [name, c] of Object.entries(d.commands ?? {})) {
+    bad(!provided(name), `команды ${name} нет в provides`);
+    bad(c.place && !used.has(c.place), `команда ${name} — места ${c.place} нет в uses`);
+  }
+  for (const name of Object.keys(d.marks ?? {})) bad(!provided(name), `метки ${name} нет в provides`);
+  bad(d.on?.roster && !m.uses["roster@relay"], "on.roster без roster@relay в uses");
+  return errors;
 }
 
-/** У кадра и раздела хранилища — один модуль. */
-function secondOwners(parts: DefinedPart[], namesOf: (d: AppModule) => string[], first: Array<[string, string]> = []): string[] {
-  const owners = new Map(first);
+/** У кадра и раздела хранилища — один модуль; key — раздел ядра. */
+function secondOwners(parts: DefinedPart[]): string[] {
+  const owners = new Map([["store.key", core.name]]);
   return parts.flatMap(({ manifest: m, module: d }) =>
-    namesOf(d).flatMap((name) => {
+    [...Object.keys(d.frames ?? {}), ...(d.store ?? []).map((s) => `store.${s}`)].flatMap((name) => {
       const was = owners.get(name);
       if (!was) owners.set(name, m.name);
       return was && was !== m.name ? [`имя ${name}: два владельца — ${was} и ${m.name}`] : [];
@@ -44,10 +40,5 @@ export function appGate(parts: DefinedPart[]): string[] {
   const inSet = new Set([core.name, ...parts.map((p) => p.manifest.name)]);
   // владельца вне набора гейт не знает: это Host и Worker-модули, их сверяет получатель
   const manifests = [{ ...core, uses: {} }, ...parts.map((p) => p.manifest)].map(({ name, type, version, provides, uses, config }) => ({ name, type, version, provides, config: config ?? {}, uses: Object.fromEntries(Object.entries(uses).filter(([ref]) => inSet.has(ownerOf(ref)))) }));
-  return [
-    ...parts.flatMap((p) => definitionErrors(p.manifest, p.module)),
-    ...secondOwners(parts, (d) => Object.keys(d.frames ?? {})),
-    ...secondOwners(parts, (d) => (d.store ?? []).map((s) => `store.${s}`), [[`store.${CORE_SECTION}`, core.name]]),
-    ...check(manifests as Parameters<typeof check>[0]),
-  ];
+  return [...parts.flatMap((p) => definitionErrors(p.manifest, p.module)), ...secondOwners(parts), ...check(manifests as Parameters<typeof check>[0])];
 }
