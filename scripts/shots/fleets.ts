@@ -1,5 +1,5 @@
 // Флоты стенда снимков: малый — для экранов, большой — там, где важна длина. Образцы данных: снимки сравниваются с ними.
-export type S = { cs: string; dir: string; state: string; prof: string | null; model: string; effort: string; who: string; parent?: string; q?: string; fail?: string; unread?: string; inc?: string };
+export type S = { cs: string; dir: string; state: string; prof: string | null; model: string; effort: string; who: string; parent?: string; wing?: boolean; slot?: string; q?: string; fail?: string; unread?: string; inc?: string };
 export type Prof = { about: string; model: string; effort: string; on: Record<string, string>; files?: string[] };
 export type Fleet = { ms: string[]; prof: Record<string, Prof>; ss: S[] };
 
@@ -21,6 +21,8 @@ export const SMALL: Fleet = {
     { cs: "bot@win11-2", dir: "C:/work/pfarm", state: "stopped", prof: "bots", model: "haiku", effort: "low", who: "me" },
     { cs: "docs@wsl", dir: "~/projects/pfarm", state: "idle", prof: "front", model: "sonnet", effort: "medium", who: "anna" },
     { cs: "home@win", dir: "~", state: "idle", prof: null, model: "sonnet", effort: "medium", who: "me" },
+    { cs: "audit@win", dir: "~/Projects/switchboard", state: "busy", prof: "ops", model: "opus", effort: "high", who: "me" },
+    { cs: "audit-wing@win", dir: "~/Projects/switchboard", state: "busy", prof: "front", model: "haiku", effort: "low", who: "me", parent: "audit@win", wing: true, slot: "kimi" },
   ],
 };
 

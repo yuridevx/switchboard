@@ -20,6 +20,8 @@ const row = click(".bd-row");
 const place = click(".pj-add");
 const path_ = (p) => p.fill('[data-f="addr"]', "~/projects/new/deep");
 
+const PAIR = `#card?callsign=${encodeURIComponent("audit@win")}`;
+
 /** Снимок: имя, адрес, что сделать; only — только на этом флоте. */
 const OPEN = [
   ["new", "#sessions", steps(click("[data-new]"))],
@@ -49,6 +51,11 @@ const PULT_SCREENS = [
   ["card-settings", "#sessions", steps(row, click('[data-tab="set"]')), "small"],
   ["card-log", "#sessions", steps(row, click('[data-tab="log"]')), "small"],
   ["card-info", "#sessions", steps(row, click('[data-tab="info"]')), "small"],
+  ["pair", PAIR, null, "small"],
+  ["pair-one", PAIR, steps(click('[data-show="lead"]')), "small"],
+  ["pair-panel", PAIR, steps(click('.cw-lane[data-feed="wing"] [aria-label="Контекст"]')), "small"],
+  ["pair-log", PAIR, steps(click('[data-tab="log"]')), "small"],
+  ["pair-info", PAIR, steps(click('[data-tab="info"]')), "small"],
   ["inbox", "#inbox", null, "small"],
   ["incidents", "#incidents", null, "small"],
   ["journal", "#journal", null, "small"],
@@ -66,6 +73,9 @@ const PHONE_SCREENS = [
   ...ACCOUNTS("fleet-"),
   ["card", "#sessions", steps(row), "small"],
   ["card-more", "#sessions", steps(row, click('[data-tab="info"]')), "small"],
+  ["pair", PAIR, null, "small"],
+  ["pair-wing", PAIR, steps(click('[data-show="wing"]')), "small"],
+  ["pair-more", PAIR, steps(click('[data-tab="info"]')), "small"],
   ["ask", `#ask?callsign=${encodeURIComponent("migrate@win")}`, null, "small"],
   ["names", "#sessions", steps(row, click('[data-tab="info"]'), click('[data-act="names"]')), "small"],
   ["inbox", "#inbox", null, "small"],
