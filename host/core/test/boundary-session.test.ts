@@ -1201,4 +1201,21 @@ describe("раунд lost: сверка со старым кодом", () => {
     expect(seen).toEqual(["b@laptop"]);
     expect(st.states("b@laptop").at(-1)?.failed).toBeUndefined();
   });
+
+  it("отказ в журнале: кто и какой запрос; причина есть и у отказа без слов", async () => {
+    // источник: устав «отвечаешь по фактам из журнала», принцип «ошибка словом, причина в журнале»; чьё: код — id, from и why у строки refuse
+    const no = module("host-no", {
+      requests: {
+        "no.x": () => {
+          throw refuse("nope");
+        },
+      },
+    });
+    const st = await stand({ modules: [no] });
+    expect(await st.relay.request({ id: "r1", type: "no.x", v: 1 })).toMatchObject({ ok: false, error: "nope" });
+    expect(await st.relay.request({ id: "r2", type: "absent.x", v: 1 })).toMatchObject({ ok: false, error: "unknown_request" });
+    const from = "panel-desk~owner@example.com";
+    expect(lines(st, "request").find((l) => l.word === "nope")).toMatchObject({ id: "r1", from, why: "no.x: nope", who: "host-no" });
+    expect(lines(st, "request").find((l) => l.word === "unknown_request")).toMatchObject({ id: "r2", from });
+  });
 });
