@@ -308,6 +308,15 @@ describe("поиск", () => {
     expect(t.$(".sb-palw")!.hidden).toBe(true);
   });
 
+  it("порядок поиска — порядок разделов оболочки, а не список модулей сборки", async () => {
+    // источник: находка снимков 5 нояб. — на настоящей сборке первая строка пульта была «Журнал», телефона — «Настройки»
+    const t = await sections(true, { sections: ["access", "work", "machines"] });
+    ctrlK();
+    await flush();
+    expect(t.$(".sb-palit.first .l")!.textContent).toBe("Аккаунты");
+    expect(texts(".sb-palit .l")).toEqual(["Аккаунты", "Работа", "refactor@win", "api@wsl", "Машины"]);
+  });
+
   it("строка ведёт на свой экран или экран из uses; подпись раздела — группа или «раздел»; первый отмечен", async () => {
     const t = await stand(found(), { wide: true });
     ctrlK();

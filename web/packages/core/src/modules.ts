@@ -21,8 +21,10 @@ export function createModules(page: Page) {
   const frames = new Map<string, Owned<NonNullable<AppModule["frames"]>[string]>>();
   const sections: Section[] = [];
 
+  /** Модуль выключен до перезапуска приложения: первая причина остаётся. */
   const fail = (mod: Mod, text: string) => {
-    page.failed[mod.name] ??= text;
+    if (page.failed[mod.name] !== undefined) return;
+    page.failed[mod.name] = text;
     console.error(`switchboard: ${text}`);
     page.changed();
   };
