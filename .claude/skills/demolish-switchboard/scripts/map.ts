@@ -4,8 +4,8 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CODE, TEST, tokensOf } from "../../../../tools/demolish/measure.ts";
-import { loadRepo, ownerOf } from "../../../../tools/manifest-gate/contract.ts";
+import { CODE, tokensOf } from "../../../../tools/demolish/measure.ts";
+import { loadRepo, ownerOf, TEST } from "../../../../tools/manifest-gate/contract.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 });
