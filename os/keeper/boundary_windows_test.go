@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
@@ -40,8 +41,9 @@ func killPid(t *testing.T, pid int) {
 	windows.TerminateProcess(h, 3)
 }
 
-// 5524 · Служба или задача своего имени уже стоит — install отказывает словом; uninstall --name снимает только свою
-// (дизайн «Любой агент», этап 0). Настоящие задачи планировщика: их может ставить не администратор.
+// 5524 · 5566 · Служба или задача своего имени уже стоит — install отказывает словом; uninstall --name снимает только свою; uninstall имени,
+// которого нет, — код 1, причина словом (дизайн «Любой агент», этап 0; устав «система ловит»). Настоящие задачи планировщика: их может ставить
+// не администратор.
 func TestEtNameOwnTaskOnly(t *testing.T) {
 	a, b := fmt.Sprintf("t%da", os.Getpid()), fmt.Sprintf("t%db", os.Getpid())
 	task := func(n string) string { return "switchboard-keeper-" + n }
@@ -61,24 +63,32 @@ func TestEtNameOwnTaskOnly(t *testing.T) {
 	if exec.Command("schtasks", "/Query", "/TN", task(a)).Run() == nil {
 		t.Fatal("своя задача не снята")
 	}
+	if code, _, e := runKeeper(t, home, "", "uninstall", "--name", fmt.Sprintf("t%dx", os.Getpid())); code != 1 || !strings.Contains(e, "uninstall") {
+		t.Fatalf("uninstall неизвестного: код %d, %q", code, e)
+	}
 	if exec.Command("schtasks", "/Query", "/TN", task(b)).Run() != nil {
 		t.Fatal("чужая задача снята")
 	}
 }
 
-// 5566 · uninstall имени, которого нет: код 1, причина словом; задача другого имени на месте (устав «система ловит»; дизайн этапа 0).
-func TestEtNameUninstallUnknownTask(t *testing.T) {
-	other := fmt.Sprintf("switchboard-keeper-t%do", os.Getpid())
-	if out, err := exec.Command("schtasks", "/Create", "/TN", other, "/TR", "cmd /c exit", "/SC", "ONCE", "/ST", "23:59", "/F").CombinedOutput(); err != nil {
-		t.Fatalf("schtasks: %v: %s", err, out)
+// Задача при входе: запуск при регистрации и при входе, повтор раз в минуту, второго экземпляра нет — так ОС поднимает keeper после подмены себя; файл —
+// UTF-16 с меткой порядка байт (замер 1 нояб.; живой прогон 1 нояб., win: только у входа повтор не шёл до первого входа). Текст, а не настоящая задача:
+// она запустила бы keeper в настоящем профиле пользователя.
+func TestEtLogonTaskText(t *testing.T) {
+	b := logonTask(`C:\k&v\keeper.exe`, []string{"run", "--name", "x", "--hide"})
+	if b[0] != 0xff || b[1] != 0xfe {
+		t.Fatal("нет метки порядка байт")
 	}
-	t.Cleanup(func() { exec.Command("schtasks", "/Delete", "/TN", other, "/F").Run() })
-	code, _, e := runKeeper(t, t.TempDir(), "", "uninstall", "--name", fmt.Sprintf("t%dx", os.Getpid()))
-	if code != 1 || !strings.Contains(e, "uninstall:") {
-		t.Fatalf("код %d, %q", code, e)
+	u := make([]uint16, (len(b)-2)/2)
+	for i := range u {
+		u[i] = uint16(b[2+2*i]) | uint16(b[3+2*i])<<8
 	}
-	if exec.Command("schtasks", "/Query", "/TN", other).Run() != nil {
-		t.Fatal("задача другого имени снята")
+	text := string(utf16.Decode(u))
+	for _, want := range []string{"<RegistrationTrigger><Repetition><Interval>PT1M</Interval>", "<LogonTrigger><Repetition><Interval>PT1M</Interval>", "<MultipleInstancesPolicy>IgnoreNew",
+		"<ExecutionTimeLimit>PT0S", `<Command>C:\k&amp;v\keeper.exe</Command>`, "<Arguments>run --name x --hide</Arguments>"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("нет %s в %s", want, text)
+		}
 	}
 }
 
@@ -117,14 +127,8 @@ func TestEtServiceStop(t *testing.T) {
 		case <-deadline:
 			t.Fatal("служба не остановилась")
 		}
-		var last string
-		for _, l := range strings.Split(journalText(home), "\n") {
-			if strings.Contains(l, `"who":"keeper"`) {
-				last = l
-			}
-		}
-		if !strings.Contains(last, "keeper_exit") {
-			t.Fatalf("последняя строка keeper: %s", last)
+		if l := lastKeeperLine(home); l["ev"] != "keeper_exit" {
+			t.Fatalf("последняя строка keeper: %v", l)
 		}
 	}
 }
