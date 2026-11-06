@@ -101,9 +101,9 @@ export function make() {
     tool(
       "log",
       "Журнал части на машине; по умолчанию — последний час и 50 строк. Host машины мёртв — причину даёт list (keeper.state).",
-      { machine: z.string(), part: z.string(), since: z.string().optional(), limit: z.number().optional() },
+      { machine: z.string(), part: z.string().optional(), since: z.string().optional(), limit: z.number().optional() },
       guarded(async ({ machine, part, since, limit = LOG_LINES }) =>
-        answer("machine.journal", await host.request("machine.journal", { v: 2, machine, part, since: since ?? new Date(Date.now() - HOUR_MS).toISOString(), limit })),
+        answer("machine.journal", await host.request("machine.journal", { v: 2, machine, ...(part && { part }), since: since ?? new Date(Date.now() - HOUR_MS).toISOString(), limit })),
       ),
     ),
   ];

@@ -860,4 +860,12 @@ describe("сверка со старым кодом", () => {
     writeFileSync(join(d, "dist", "main.js"), "1");
     expect(files(packModule(d).tgz).map((e) => e.path)).toEqual(["module.json", "app.json"]);
   });
+
+  it("log без part — весь журнал машины: part в контракте machine.journal необязателен (чьё: код)", async () => {
+    const t = make().tools("/").find((x) => x.name === "log")!;
+    expect((t.inputSchema as unknown as { part: { safeParse(v: unknown): { success: boolean } } }).part.safeParse(undefined).success).toBe(true);
+    const { st, call } = await bench((f) => (f.type === "machine.journal" ? { ok: true, result: { records: [], more: false } } : undefined));
+    await call("log", { machine: "win" });
+    expect(st.relay.frames("machine.journal").at(-1)).not.toHaveProperty("part");
+  });
 });
