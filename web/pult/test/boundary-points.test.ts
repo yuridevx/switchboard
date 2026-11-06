@@ -345,6 +345,15 @@ describe("«пожар»", () => {
     expect(relay.sent("points.raise").filter((f) => !f.dryRun)).toEqual([]);
   });
 
+  it("окно «пожара» с готовыми пробами стоит: страница не перерисовывается без конца", async () => {
+    // чьё: код — прежнее окно клало итог пробы один раз; React пишет о таком цикле в console.error
+    const t = await points();
+    await t.click(t.btn(null, "Перенести на другую машину…"));
+    await flush(80);
+    expect(t.btn(t.$('[data-dlg="fire"]'), /^Перенести 2 из 2/)!.disabled).toBe(false);
+    expect(vi.mocked(console.error).mock.calls.filter(([m]) => String(m).includes("Maximum update depth"))).toEqual([]);
+  });
+
   it("4168 · сессию уже подняли — «уже подняли на другой машине», следующая всё равно идёт; «Закрыть»", async () => {
     const relay = fireRelay();
     relay.handlers["points.raise"] = (f) => (f.dryRun ? { ok: true, result: { folder: "same" } } : f.sid === "s1" ? { ok: false, error: "not_owner" } : { ok: true, result: { callsign: "two@laptop" } });
