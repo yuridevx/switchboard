@@ -140,7 +140,7 @@ function Feed({ cs, view, focus }: { cs: string; view: View; focus: boolean }) {
         <div className="chat-col">
           {noFeed ? <div className="chat-note">{`${machineOf(cs)} не отдаёт ленту — только переписка и ввод`}</div> : null}
           {more ? (
-            <button
+            <Btn
               type="button"
               className="chat-older"
               onClick={() => {
@@ -151,7 +151,7 @@ function Feed({ cs, view, focus }: { cs: string; view: View; focus: boolean }) {
               }}
             >
               Раньше
-            </button>
+            </Btn>
           ) : null}
           {items.map((it) => (
             <ItemView key={it.key} it={it} />

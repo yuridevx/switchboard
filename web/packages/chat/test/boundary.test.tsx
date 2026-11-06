@@ -2823,4 +2823,11 @@ describe("сверка строк, второй проход", () => {
     const f = await feed([sys("model_refusal_fallback", { original_model: "claude-fable-5-1", fallback_model: "claude-opus-5-5" })]);
     expect(f.q(".chat-ban.wait svg.lucide-shield-off")).not.toBeNull();
   });
+
+  it("«Раньше» — кнопка набора: высота касания на телефоне", async () => {
+    const relay = relayFor();
+    relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [user("u", "x")], more: true } });
+    const t = await chat(IDLE, { relay });
+    expect(t.$("button.sb-b.chat-older")).not.toBeNull();
+  });
 });
