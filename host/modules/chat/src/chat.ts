@@ -129,6 +129,8 @@ export function make(): Module {
         b.events.push(msg);
       },
       frame(f) {
+        // ядро зовёт сюда на всё имя из uses, а такой кадр может прислать любой участник: зрителей снимает только roster
+        if (f.type !== "roster") return;
         const here = new Set((f.clients ?? []) as string[]);
         for (const set of viewers.values()) for (const v of set) if (!here.has(v)) set.delete(v);
       },

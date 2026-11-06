@@ -408,6 +408,19 @@ describe("живая лента", () => {
     expect(fr.to).toEqual(want);
   });
 
+  it("зрителей снимает только roster: кадр участника с именем из uses модуля их не трогает", async () => {
+    // relay доставляет любой кадр, кроме hello и roster, а ядро зовёт on.frame на всё имя из uses: это вход от участника
+    const { st, seen } = await bench();
+    await st.open(CS);
+    await watch(st, PANEL);
+    st.relay.deliver({ type: "notify", from: PHONE, to: "@laptop" });
+    await later();
+    turn(st.proc(CS));
+    await until(() => seen.length === 4);
+    const fr = await until(() => events(st)[0]);
+    expect(fr.to).toEqual([PANEL]);
+  });
+
   it("80 · ушли все зрители посреди пачки — кадра нет; сессия идёт дальше", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { st, seen } = await bench();
