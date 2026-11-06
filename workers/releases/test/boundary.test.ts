@@ -1107,6 +1107,25 @@ describe("сверка со старым кодом", () => {
       expect.objectContaining({ t: expect.any(String), part: "releases", kind: "note", ev: "reply", from: "~y" }),
     ]);
   });
+
+  it("план не собрался после записи — выкладка состоялась, ответ ok, причина строкой (чьё: код)", async () => {
+    await fakeCf(NONE);
+    await inR2("host", "1.1.82");
+    await hosts("win");
+    let reads = 0;
+    const BUCKET = {
+      list: (o?: R2ListOptions) => E.BUCKET.list(o),
+      get: async (k: string, o?: R2GetOptions) => {
+        if (k.endsWith(".sha256") && ++reads > 1) throw new Error("R2 молчит");
+        return E.BUCKET.get(k, o as never);
+      },
+    };
+    const broken = new Proxy(E, { get: (t, k) => (k === "BUCKET" ? BUCKET : Reflect.get(t, k)) }) as Env;
+    const log = journal();
+    const [r] = await frame(broken, { type: "releases.deploy", v: 1, id: "r", to: ".releases", from: "~x", part: "host" });
+    expect(r).toMatchObject({ ok: true, result: { parts: { host: { from: null, to: "1.1.82" } } } });
+    expect(log).toContainEqual(expect.objectContaining({ kind: "refuse", ev: "releases.plan", word: "offline", why: expect.stringContaining("R2 молчит") }));
+  });
 });
 
 describe("releases.fetch", () => {
