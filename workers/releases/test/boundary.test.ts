@@ -1017,6 +1017,14 @@ describe("сверка со старым кодом", () => {
     expect((await set(s, { part: "capture", pin: null }))[0]).toMatchObject({ ok: false, error: "no_release", why: "у capture нет stable — закрепи версию" });
     expect((await result(req(s, ".keeper@win", "releases.plan"))).parts.map((x: any) => [x.part, x.version])).toEqual([["capture", "1.4.0"]]);
   });
+
+  it("модуль в приложение, которого нет в каталоге, — no_build словом (чьё: код)", async () => {
+    const s = fresh();
+    cloudflare({}, { any: true });
+    await put("web-y", "1.0.0", { type: "web", into: ["ghost"] }, [["module.js", "x"]]);
+    expect((await req(s, "~x", "releases.deploy", { part: "web-y" }))[0]).toMatchObject({ ok: false, error: "no_build" });
+    expect((await req(s, "~x", "releases.deploy", { part: "web-y", latest: true }))[0]).toMatchObject({ ok: false, error: "no_build" });
+  });
 });
 
 describe("releases.fetch", () => {
