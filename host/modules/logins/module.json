@@ -14,11 +14,14 @@
     "slot.set": 1,
     "slot.swap": 1,
     "slot": 1,
-    "account": 2
+    "account": 2,
+    "machine.key_check": 1
   },
   "uses": {
     "host.module@host": 1,
-    "ledger.add@ledger": 1
+    "ledger.add@ledger": 1,
+    "fleetkeys.key@fleetkeys": 1,
+    "fleetkeys.changed@fleetkeys": 1
   },
   "calls": [
     "claudeAuthenticate",

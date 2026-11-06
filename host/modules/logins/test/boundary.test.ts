@@ -149,6 +149,14 @@ async function bench(
     });
     return q as never;
   };
+  // ключей флота в этих эталонах нет: имя вне слотов машины — no_key у модуля
+  const recv = st.relay.receive.bind(st.relay);
+  st.relay.receive = (ws, text) => {
+    recv(ws, text);
+    if (text === "ping") return;
+    const f = JSON.parse(text) as Frame;
+    if (f.type === "fleetkeys.key") queueMicrotask(() => st!.relay.deliver({ type: "reply", id: f.id as string, from: "fleetkeys", ok: false, error: "no_key" } as Frame));
+  };
   st.sdk.cli = async (args, env) => {
     cli.push({ args, env });
     return (await o.status?.(env)) ?? statusOf(env);
