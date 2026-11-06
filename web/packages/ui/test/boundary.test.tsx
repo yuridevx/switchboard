@@ -415,7 +415,7 @@ describe("подписи и форматы", () => {
     const all = ["busy", "waiting", "idle", "starting", "stopping", "stopped", "failed"];
     expect(all.map((s) => stateLabel(s).text)).toEqual(["работает", "ждёт вас", "свободна", "запускается", "останавливается", "остановлена", "не запустилась"]);
     expect(all.map((s) => stateLabel(s).dot)).toEqual(["busy", "wait", "idle", "busy", "stop", "stop", "bad"]);
-    expect(["busy", "waiting", "idle", "failed"].map((s) => stateLabel(s).tone)).toEqual(["busy", "wait", "ok", "bad"]);
+    expect(all.map((s) => stateLabel(s).tone)).toEqual(["busy", "wait", "ok", "busy", "", "", "bad"]);
     expect(stateLabel("x")).toEqual({ text: "x", tone: "", dot: "" });
     expect(stateLabel(undefined)).toEqual({ text: "—", tone: "", dot: "" });
     expect(lamp({ state: "failed" } as never)).toBe("bad");
@@ -440,7 +440,10 @@ describe("подписи и форматы", () => {
     expect(ago(Date.now() - 125 * 60000)).toBe("2 ч 5 мин назад");
     expect(ago(new Date(2026, 10, 1, 12).getTime())).toMatch(/^1 нояб/);
     expect([18_000, 134_000, 11 * 60000 + 5000, 33 * 60000, 2 * 60000, 90 * 60000, 120 * 60000].map(duration)).toEqual(["18 с", "2 мин 14 с", "11 мин 5 с", "33 мин", "2 мин", "1 ч 30 мин", "2 ч"]);
-    expect([1, 4, 11, 21].map((n) => plural(n, "сессия", "сессии", "сессий"))).toEqual(["сессия", "сессии", "сессий", "сессия"]);
+    expect([0, 1, 2, 4, 5, 11, 14, 21, 22].map((n) => plural(n, "сессия", "сессии", "сессий"))).toEqual(["сессий", "сессия", "сессии", "сессии", "сессий", "сессий", "сессий", "сессия", "сессии"]);
+    expect(ago(Date.now() - 60 * 60000)).toBe("1 ч 0 мин назад");
+    expect(ago(Date.now() - 24 * 60 * 60000)).toMatch(/^2 нояб/);
+    expect([60_000, 3_600_000].map(duration)).toEqual(["1 мин", "1 ч"]);
     expect(ui.hhmm()).toBe("12:00");
     expect(ui.hhmm(new Date(2026, 10, 3, 9, 5))).toBe("09:05");
     expect(ui.day(new Date(2026, 10, 3).getTime())).toMatch(/^3 нояб/);
@@ -487,7 +490,7 @@ describe("подписи и форматы", () => {
 
   it("модели, усилия и профиль", () => {
     expect(ui.MODELS).toEqual(["opus", "sonnet", "haiku", "fable"]);
-    expect(ui.EFFORTS.map(([, n]) => n)).toEqual(["низкое", "среднее", "высокое", "очень высокое", "макс."]);
+    expect(ui.EFFORTS).toEqual([["low", "низкое"], ["medium", "среднее"], ["high", "высокое"], ["xhigh", "очень высокое"], ["max", "макс."]]);
     expect(ui.effortName("xhigh")).toBe("очень высокое");
     expect(ui.effortName("x")).toBe("x");
     expect(ui.effortName(undefined)).toBe("");
@@ -558,7 +561,7 @@ describe("подписи и форматы", () => {
   });
 
   it("разрешения: режимы и места", () => {
-    expect(ui.PERM_MODES.map(([, n]) => n)).toEqual(["Без вопросов", "Спрашивать", "Правки сами", "План", "Авто"]);
+    expect(ui.PERM_MODES).toEqual([["bypassPermissions", "Без вопросов"], ["default", "Спрашивать"], ["acceptEdits", "Правки сами"], ["plan", "План"], ["auto", "Авто"]]);
     expect(ui.permModeName("plan")).toBe("План");
     expect(ui.permModeName("x")).toBeUndefined();
     expect(ui.PERM_PLACES).toEqual({ localSettings: "локально", projectSettings: "проект", userSettings: "пользователь", policySettings: "организация", flagSettings: "запуск", cliArg: "запуск", command: "команда", session: "сессия" });
