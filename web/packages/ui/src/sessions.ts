@@ -50,6 +50,7 @@ export function folderOf(dir: unknown) {
   return (dir.split(/[\\/]/).filter(Boolean).pop() ?? "").toLowerCase();
 }
 
+/** Какой слот отмечен: выбранный, если он есть на машине; иначе первый (слово пользователя 4 нояб.). Меньше двух — решает машина. */
 export function slotChoice(names: string[], chosen?: string) {
   if (names.length < 2) return "";
   return chosen && names.includes(chosen) ? chosen : names[0];
