@@ -56,7 +56,12 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
   /** открытия запросом: ядро ещё не внесло имя в список, заголовок ставится только им */
   const opening = new Set<string>();
 
-  const sessionOf = (f: Frame) => host.session(f.callsign as string)!;
+  /** callsign, которого нет на машине, отказывает ядро; кадр без него доходит сюда. */
+  const sessionOf = (f: Frame) => {
+    const s = host.session(f.callsign as string);
+    if (!s) throw refuse("bad_spec", `${f.type}: нет callsign`);
+    return s;
+  };
   const isTaken = (callsign: string) => opening.has(callsign) || !!host.session(callsign);
   const ledger = (ev: string, callsign: string, text: string, by: unknown) => host.emit({ type: "ledger.add", to: ".ledger", ev, machine: host.machine, callsign, text, by });
 
