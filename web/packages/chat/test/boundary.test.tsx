@@ -2818,4 +2818,9 @@ describe("сверка строк, второй проход", () => {
     expect(f.q('[data-tool="Read"] .tb-pre')!.textContent).toContain("ячейка");
     expect(f.qq('[data-tool="Read"] .tb-img')).toHaveLength(1);
   });
+
+  it("отказ с заменой модели — щитом", async () => {
+    const f = await feed([sys("model_refusal_fallback", { original_model: "claude-fable-5-1", fallback_model: "claude-opus-5-5" })]);
+    expect(f.q(".chat-ban.wait svg.lucide-shield-off")).not.toBeNull();
+  });
 });

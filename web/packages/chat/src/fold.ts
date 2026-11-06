@@ -266,7 +266,7 @@ function compactStats(m: Msg) {
 
 function refusalFallback(v: View, m: Msg) {
   const now = modelName(m.fallback_model);
-  ban(v, "wait", `${modelName(m.original_model)} отказалась — ответ переписан моделью ${now}`, [m.scope === "local" ? "Только этот ответ: модель сессии прежняя." : `Дальше сессия идёт на ${now}.`, sentence(area(m.api_refusal_category), m.api_refusal_explanation)].filter(Boolean).join(" "));
+  ban(v, "wait", `${modelName(m.original_model)} отказалась — ответ переписан моделью ${now}`, [m.scope === "local" ? "Только этот ответ: модель сессии прежняя." : `Дальше сессия идёт на ${now}.`, sentence(area(m.api_refusal_category), m.api_refusal_explanation)].filter(Boolean).join(" "), "shield-off");
 }
 
 function refusalEnd(v: View, m: Msg) {
