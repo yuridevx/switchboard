@@ -110,7 +110,10 @@ export function make(): Module {
       const next = (chains.get(queue) ?? Promise.resolve())
         .then(async () => {
           const a = appeals().find((x) => x.id === id);
-          if (a && !stopping && !waits(a)) await deliver(a);
+          if (!a || waits(a)) return;
+          // остановка: очередь дальше не идёт, но у каждого обращения в ней — отказ; один проход мог поставить его дважды
+          if (stopping) return a.refused?.word === "shutting_down" ? undefined : refused(a, "доставка", { error: "shutting_down", why: "Host останавливается" });
+          await deliver(a);
         })
         .catch((e: unknown) => host.log({ kind: "stop", ev: "incident", word: "module_error", id, why: `доставка: ${String(e)}` }));
       chains.set(queue, next);

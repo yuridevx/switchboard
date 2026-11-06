@@ -582,6 +582,28 @@ describe("инцидент: доставка хотя бы раз", () => {
     expect(q.inputs[0].uuid).toBe(r.body.id);
   });
 
+  it("остановка застала очередь ключа: у каждого обращения в очереди — отказ shutting_down в журнале, по одному; все на диске", async () => {
+    // контракт: отказ доставки — строка журнала ev incident с id
+    const k = new FakeHolders();
+    keepers.push(k);
+    const { st, post, disk } = await bench({ holders: k });
+    k.failInitNext = 1;
+    const first = await post({ type: "disk-full", key: "C:", text: "первое" });
+    const p = await until(() => k.procs.get("disk-full-1@win"));
+    await until(() => p.initializes === 1);
+    const second = await post({ type: "disk-full", key: "C:", text: "второе" });
+    const down = st.close();
+    stands.splice(stands.indexOf(st), 1);
+    await pause();
+    const w = p as unknown as { failInit: boolean; write: (x: unknown) => void };
+    w.failInit = false;
+    w.write({ $: "initialized" });
+    await down;
+    const refusals = st.journal().filter((l) => l.ev === "incident" && l.word === "shutting_down");
+    expect(refusals.map((l) => l.id).sort()).toEqual([first.body.id, second.body.id].sort());
+    expect(disk()).toHaveLength(2);
+  });
+
   it("обращение без сессии: следующее обращение пробует и его — оба во вводе по порядку", async () => {
     const { st, post, disk, work } = await bench();
     const a = await post({ type: "nodir", text: "первое" });
