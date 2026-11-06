@@ -156,15 +156,16 @@ func (k *Keeper) setup(dir string, cmd []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), k.o.Stop)
 	defer cancel()
 	c := k.resolve(cmd, dir)
-	x := exec.CommandContext(ctx, c[0], c[1:]...)
+	x := exec.Command(c[0], c[1:]...)
 	var out bytes.Buffer
 	x.Dir, x.WaitDelay, x.Stdout, x.Stderr = dir, waitDelay, &out, &out
 	t := newTree(x, false)
-	x.Cancel = func() error { t.kill(); return nil }
 	err := x.Start()
 	if err == nil {
 		t.adopt(x.Process)
+		stop := context.AfterFunc(ctx, t.kill) // снятие — только после adopt: дерево уже известно
 		err = x.Wait()
+		stop()
 	}
 	t.reap()
 	if ctx.Err() == context.DeadlineExceeded {
