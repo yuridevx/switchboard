@@ -290,10 +290,13 @@ describe("процесс Host", () => {
       'const s = net.createServer((c) => { c.on("error", () => {}); c.on("data", (d) => fs.appendFileSync("bytes", d.toString("latin1"), "latin1")); });',
       's.listen(0, "127.0.0.1", () => { console.log(JSON.stringify({ port: s.address().port, key: "k", pid: process.pid })); setTimeout(() => process.exit(0), 20000); });',
     ].join("\n"));
-    const code = 'setTimeout(() => { throw new Error("импорт упал"); }, 4000);\nexport default {};\n';
+    // Host падает, как только держатель получил initialize: таймер заведён при импорте, ошибка ничья
+    const code = 'import { existsSync, readFileSync } from "node:fs";\nconst t = setInterval(() => { if (!existsSync("bytes") || !readFileSync("bytes", "latin1").includes("initialize")) return; clearInterval(t); throw new Error("импорт упал"); }, 20);\nexport default {};\n';
     const main = release(["host-early"], { "host-early": { provides: {}, code } });
     const p = spawn(process.execPath, [main], { cwd: h, env: { ...process.env, SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h, SWITCHBOARD_HOLDER: process.execPath }, windowsHide: true });
+    const limit = setTimeout(() => p.kill(), 60_000);
     expect(await new Promise((r) => p.on("close", (c) => r(c)))).toBe(1);
+    clearTimeout(limit);
     await new Promise((r) => setTimeout(r, 300));
     const bytes = readFileSync(join(h, "bytes"), "latin1");
     expect(bytes).toContain("initialize");
