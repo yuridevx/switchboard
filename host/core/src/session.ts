@@ -237,8 +237,11 @@ export class Session {
     const ready = await Promise.race([run.q.initializationResult().then(() => true, () => false), run.done.then(() => false)]);
     k.clock.clearTimeout(late);
     if (!ready) {
+      // initialize отказан, а процесс жив: claude ждёт дальше сам. Ввод открыт после выхода: иначе его заберёт уходящий процесс
+      void hold.then((h) => h.destroy());
+      const x = await within<Exit>(k.clock, run.done, STEP_MS, () => ({ code: null, signal: null, stderr: `процесс не вышел за ${STEP_MS / 1000} с после kill` }));
       open();
-      throw new Error(`${this.callsign}: процесс вышел до initialize — ${words(await run.done)}`);
+      throw new Error(`${this.callsign}: процесс вышел до initialize — ${words(x)}`);
     }
     if (run.closing || this.run !== run) return;
     run.ready = true;

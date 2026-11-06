@@ -492,6 +492,23 @@ describe("сбой процесса", () => {
     expect(st.sdk.of("site@laptop")).toHaveLength(2);
   });
 
+  it("initialize отказан, процесс жив — kill; дальше ветка «умер»: отказ открытия с причиной, один resume", async () => {
+    // источник: устав «процесс claude умер — один resume», слово пользователя 2 нояб. «у всех операций должен быть лимит»;
+    // опыт: claude отвечает на негодный initialize отказом и ждёт следующего запроса (в файле claude: lt(q,"initialize: …");continue), сам не выходит
+    const st = await stand({ modules: [] });
+    const query = st.sdk.query;
+    let refused = 1;
+    st.sdk.query = ((p: never) => {
+      const q = query(p) as unknown as { initializationResult(): Promise<unknown> };
+      if (refused-- > 0) q.initializationResult = () => Promise.reject(new Error("initialize: отказ"));
+      return q as never;
+    }) as never;
+    await expect(st.open(CS)).rejects.toThrow("процесс вышел до initialize");
+    expect(st.holders.ops.filter((o) => o.op === "kill")).toHaveLength(1);
+    await until(() => st.kernel.sessions.get(CS)!.state === "idle");
+    expect(st.sdk.of(CS)).toHaveLength(2);
+  });
+
   it("restart модуля без ожидания: процесс не поднялся — сессия ведёт свой сбой, Host не падает", async () => {
     let s0: Parameters<NonNullable<Module["session"]>>[0] | null = null;
     const st = await stand({ modules: [module("host-prof", { session: (s) => void (s0 ??= s) })] });
