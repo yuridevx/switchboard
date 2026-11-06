@@ -213,7 +213,7 @@ function user(v: View, m: Msg) {
   for (const b of blocks) if (b.type === "tool_result") toolOf(v, b.tool_use_id).result = { ...resultParts(b.content), error: !!b.is_error };
   const body = blocks.filter((b) => b.type === "text").map((b) => String(b.text)).join("\n");
   const pics = picsOf(blocks);
-  if (m.parent_tool_use_id || (!body.trim() && !pics.length)) return;
+  if (m.parent_tool_use_id || (!body.trim() && !pics.length && !m.files?.length)) return;
   v.hint = "";
   if (m.isCompactSummary) return summary(v, body);
   const peer = TAGGED.exec(body);

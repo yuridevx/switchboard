@@ -103,10 +103,8 @@ function Rewind({ id }: { id: string }) {
 function Me({ r }: { r: Extract<Row, { k: "me" }> }) {
   const env = useEnv();
   const s = r.uuid ? env.sends[r.uuid] : undefined;
-  const echoed = !!s && r.key !== `send:${s.uuid}`;
-  const pics = [...r.pics, ...(s?.files ?? []).filter((f) => f.media_type.startsWith("image/")).map((f) => `data:${f.media_type};base64,${f.data}`)];
   const files = (s?.files ?? []).filter((f) => !f.media_type.startsWith("image/"));
-  const state = s && (echoed ? "echo" : s.state);
+  const state = s?.state;
   const lost = state === "lost";
   const stamp = () => {
     if (!s) return "";
@@ -117,9 +115,9 @@ function Me({ r }: { r: Extract<Row, { k: "me" }> }) {
   return (
     <>
       <div className={lost ? "chat-me pend" : "chat-me"} data-state={state === "echo" ? "ok" : state}>
-        {pics.length ? (
+        {r.pics.length ? (
           <div className="chat-pics">
-            {pics.map((src, i) => (
+            {r.pics.map((src, i) => (
               <a key={i} href={src} target="_blank" rel="noopener noreferrer">
                 <img src={src} alt={`картинка ${i + 1}`} />
               </a>

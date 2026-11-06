@@ -5,8 +5,8 @@ import type { Msg } from "./fold.ts";
 import { sayWord } from "./words.ts";
 
 export type Att = { name: string; media_type: string; data: string };
-/** Своё сообщение: в пути, принято, обрыв до ответа; эхо — запись с тем же uuid в сообщениях. */
-export type Send = { uuid: string; text: string; files: Att[]; at: number; state: "sending" | "ok" | "lost"; queued: boolean };
+/** Своё сообщение: в пути, принято, эхо из ленты или истории, обрыв до ответа. */
+export type Send = { uuid: string; text: string; files: Att[]; at: number; state: "sending" | "ok" | "echo" | "lost"; queued: boolean };
 export type Side = { id: number; q: string; state: "wait" | "done" | "bad"; a: string };
 export type Rewind = { id: string; state: "probe" | "ask" | "bad" | "ok"; text: string };
 export type Cmd = { name: string; description?: string };
@@ -36,7 +36,7 @@ export const machineOf = (cs: string) => cs.slice(cs.lastIndexOf("@") + 1);
 function merge(cur: readonly Msg[], page: readonly Msg[], more: boolean): Msg[] {
   const log = cur.filter((m) => m.type !== "stream_event");
   const at = new Map(log.flatMap((m, i) => (typeof m.uuid === "string" ? [[m.uuid, i] as const] : [])));
-  if (more && page.length && !page.some((p) => at.has(p.uuid))) return [...page, ...log.filter((m) => String(m.uuid).startsWith("x:"))];
+  if (more && page.length && !page.some((p) => at.has(p.uuid))) return [...page, ...log.filter((m) => m.own || String(m.uuid).startsWith("x:"))];
   const out: Msg[] = [];
   let waiting: Msg[] = [];
   let i = 0;
@@ -61,6 +61,18 @@ function addEvent(list: Msg[], m: Msg): void {
   if (prev && key && prev.event?.delta?.type === d.type && prev.parent_tool_use_id === m.parent_tool_use_id) prev.event.delta[key] += d[key];
   else if (prev && (m.subtype === "thinking_tokens" ? prev.subtype === m.subtype : m.type === "tool_progress" && prev.tool_use_id === m.tool_use_id && prev.type === m.type)) list[list.length - 1] = m;
   else list.push(m);
+}
+
+/** Своё сообщение — в ленте сразу, как будет записано в разговоре: живой поток своих сообщений не возвращает, запись приходит только с историей. */
+function ownEntry(s: Send): Msg {
+  const isImage = (f: Att) => f.media_type.startsWith("image/");
+  const blocks = s.files.filter(isImage).map((f) => ({ type: "image", source: { type: "base64", media_type: f.media_type, data: f.data } }));
+  return { type: "user", uuid: s.uuid, own: true, files: s.files.filter((f) => !isImage(f)).map((f) => f.name), timestamp: new Date(s.at).toISOString(), message: { content: blocks.length ? [...blocks, ...(s.text ? [{ type: "text", text: s.text }] : [])] : s.text } };
+}
+
+/** Запись своего сообщения пришла: оно в разговоре. */
+function echoed(t: Talk, msgs: readonly Msg[]) {
+  for (const s of t.sends) if (msgs.some((m) => m.uuid === s.uuid)) s.state = "echo";
 }
 
 export function createTalks(app: App) {
@@ -90,6 +102,7 @@ export function createTalks(app: App) {
     edit(cs, (t) => {
       t.loaded = true;
       if (!r.ok) return void (t.refused ||= `session.history: ${r.error}`);
+      echoed(t, r.result.messages);
       t.msgs = merge(t.msgs, r.result.messages, r.result.more);
       t.more = r.result.more;
     });
@@ -126,6 +139,7 @@ export function createTalks(app: App) {
     const empty = !get(cs).draft;
     edit(cs, (t) => {
       t.sends = t.sends.filter((x) => x.uuid !== s.uuid);
+      t.msgs = t.msgs.filter((m) => m.uuid !== s.uuid);
       if (empty) t.draft = s.text;
       if (open) t.files.push(...s.files);
     });
@@ -144,7 +158,7 @@ export function createTalks(app: App) {
     if (!r.ok && !NOT_CONFIRMED.has(r.error)) return giveBack(cs, s, r.error);
     edit(cs, (t) => {
       const x = t.sends.find((y) => y.uuid === s.uuid);
-      if (x) x.state = r.ok ? "ok" : "lost";
+      if (x && x.state !== "echo") x.state = r.ok ? "ok" : "lost";
     });
   }
 
@@ -184,7 +198,7 @@ export function createTalks(app: App) {
       void saveDrafts();
     },
     async older(cs: string) {
-      const first = get(cs).msgs.find((m) => typeof m.uuid === "string" && !m.uuid.startsWith("x:"));
+      const first = get(cs).msgs.find((m) => typeof m.uuid === "string" && !m.uuid.startsWith("x:") && !m.own);
       const r = await app.request<{ messages: Msg[]; more: boolean }>("session.history", { callsign: cs, before: first?.uuid ?? null, limit: HISTORY });
       if (!r.ok) {
         app.toast(`${cs}: session.history — ${r.error}`);
@@ -207,6 +221,7 @@ export function createTalks(app: App) {
       const s: Send = { uuid: crypto.randomUUID(), text, files, at: Date.now(), state: "sending", queued: state === "busy" || state === "waiting" };
       edit(cs, (t) => {
         t.sends.push(s);
+        t.msgs.push(ownEntry(s));
         t.draft = "";
         t.files = [];
       });
@@ -275,7 +290,9 @@ export function createTalks(app: App) {
         const was = get(cs).seq;
         const at = Date.now();
         edit(cs, (t) => {
-          for (const m of (f.events ?? []) as Msg[]) addEvent(t.msgs, { ...m, _at: at });
+          const events = (f.events ?? []) as Msg[];
+          echoed(t, events);
+          for (const m of events) if (!t.sends.some((s) => s.uuid === m.uuid)) addEvent(t.msgs, { ...m, _at: at });
           if (seq !== undefined) t.seq = seq;
         });
         if (seq !== undefined && was !== undefined && seq !== was + 1) void history(cs);

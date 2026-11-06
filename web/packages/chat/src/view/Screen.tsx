@@ -82,7 +82,7 @@ function Bar({ cs, view, focus }: { cs: string; view: View; focus: boolean }) {
   );
 }
 
-function Feed({ cs, view, pending, focus }: { cs: string; view: View; pending: Item[]; focus: boolean }) {
+function Feed({ cs, view, focus }: { cs: string; view: View; focus: boolean }) {
   const app = useApp();
   const talks = useModule<Talks>();
   const more = app.use(() => talks.get(cs).more);
@@ -102,7 +102,7 @@ function Feed({ cs, view, pending, focus }: { cs: string; view: View; pending: I
     if (heightBefore.current !== null) el.scrollTop += el.scrollHeight - heightBefore.current;
     else if (atEnd.current) el.scrollTop = el.scrollHeight;
     heightBefore.current = null;
-  }, [items, pending.length]);
+  }, [items]);
 
   // лента у низа остаётся у низа, что бы ни выросло: поток текста, поле ввода, док над ним
   useEffect(() => {
@@ -156,14 +156,11 @@ function Feed({ cs, view, pending, focus }: { cs: string; view: View; pending: I
           {items.map((it) => (
             <ItemView key={it.key} it={it} />
           ))}
-          {pending.map((it) => (
-            <ItemView key={it.key} it={it} />
-          ))}
           {refused ? (
             <div className="chat-note" role="alert">
               {refused}
             </div>
-          ) : loaded && !noFeed && !view.rows.length && !pending.length ? (
+          ) : loaded && !noFeed && !view.rows.length ? (
             <div className="chat-note">Сообщений пока нет</div>
           ) : null}
           <Work cs={cs} view={view} />
@@ -196,10 +193,6 @@ export function ChatScreen({ params }: { params: Params }) {
 
   const view = useMemo(() => fold(msgs), [msgs]);
   const sends = useMemo(() => Object.fromEntries(sendList.map((s) => [s.uuid, s])), [sendList]);
-  const pending = useMemo<Item[]>(() => {
-    const echoed = new Set(view.rows.flatMap((r) => (r.k === "me" && r.uuid ? [r.uuid] : [])));
-    return sendList.filter((s) => !echoed.has(s.uuid)).map((s) => ({ k: "me", key: `send:${s.uuid}`, uuid: s.uuid, text: s.text, pics: [] }));
-  }, [view, sendList]);
   const env: Env = {
     cs,
     wide: app.wide,
@@ -221,7 +214,7 @@ export function ChatScreen({ params }: { params: Params }) {
     <EnvCtx.Provider value={env}>
       <div className={app.wide ? "chat wide" : "chat"}>
         {app.wide ? <Bar cs={cs} view={view} focus={focus} /> : null}
-        <Feed cs={cs} view={view} pending={pending} focus={focus} />
+        <Feed cs={cs} view={view} focus={focus} />
         <Dock />
         <Composer key={cs} />
       </div>

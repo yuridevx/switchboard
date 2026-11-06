@@ -2740,3 +2740,50 @@ describe("видимое из сверки строк", () => {
     expect(relay.sent("answer")[0]).not.toHaveProperty("label");
   });
 });
+
+// Сверка со старым кодом, второй проход: что потерялось на основном пути и в ожидаемых ветках. Чьё: код до сноса.
+describe("сверка строк, второй проход", () => {
+  const ordered = (t: Ui) => t.$$(".chat-me, .chat-reply").map((x) => (x.className.includes("chat-me") ? "я" : "claude"));
+  const sent = async (t: Ui, body: string) => {
+    await t.type(body);
+    await t.click(t.$(".chat-send"));
+  };
+
+  it("своя отправка гасит подсказку", async () => {
+    const t = await chat(IDLE, { wide: true });
+    await t.events(IDLE, [{ type: "prompt_suggestion", uuid: "h", suggestion: "дальше" }], 1);
+    expect(t.$(".chat-hint")).not.toBeNull();
+    await sent(t, "Катим");
+    expect(t.$(".chat-hint")).toBeNull();
+  });
+
+  it("своё сообщение стоит там, где отправлено: SDK эха не шлёт, ответ — под ним, в выгрузке есть", async () => {
+    const t = await chat(IDLE, { wide: true });
+    await sent(t, "Катим");
+    await t.events(IDLE, [asst("a1", [{ type: "text", text: "Ответ" }])], 1);
+    expect(ordered(t)).toEqual(["я", "claude"]);
+    const link = t.$$<HTMLAnchorElement>(".chat-bar a")[0];
+    link.addEventListener("click", (e) => e.preventDefault());
+    await t.click(link);
+    expect(decodeURIComponent(link.getAttribute("href")!)).toContain("## Вы\n\nКатим");
+  });
+
+  it("своя слэш-команда: строка команды сменяет пузырь и на живой ленте", async () => {
+    const t = await chat(IDLE, { wide: true });
+    await sent(t, "/compact");
+    expect(t.$(".chat-me")).not.toBeNull();
+    await t.events(IDLE, [user("c1", "<command-name>/compact</command-name>")], 1);
+    expect(t.$(".chat-me")).toBeNull();
+    expect(t.$$(".chat-cmd")).toHaveLength(1);
+  });
+
+  it("своя картинка не задваивается, когда запись пришла из разговора", async () => {
+    const t = await chat(IDLE, { wide: true });
+    await t.pick(txt("a.png", "image/png"));
+    await sent(t, "Смотри");
+    const p = t.relay.sent("session.prompt")[0];
+    const { data } = (p.attachments as Array<{ data: string }>)[0];
+    await t.events(IDLE, [{ type: "user", uuid: p.uuid, message: { content: [{ type: "image", source: { type: "base64", media_type: "image/png", data } }, { type: "text", text: "Смотри" }] } }], 1);
+    expect(t.$$(".chat-me .chat-pics img")).toHaveLength(1);
+  });
+});
