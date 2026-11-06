@@ -22,15 +22,13 @@ function HeadGroup() {
   const s = useModule<CardState>();
   const head = app.use(() => s.device.get().head);
   return (
-    <div data-v-head="1">
-      <Choices title="Шапка">
-        {UNITS.map(([key, label, full]) => (
-          <Chip key={key} data-v={key} aria-label={full} on={head[key]} onClick={() => s.setHead({ ...head, [key]: !head[key] })}>
-            {label}
-          </Chip>
-        ))}
-      </Choices>
-    </div>
+    <Choices title="Шапка">
+      {UNITS.map(([key, label, full]) => (
+        <Chip key={key} data-v={key} aria-label={full} on={head[key]} onClick={() => s.setHead({ ...head, [key]: !head[key] })}>
+          {label}
+        </Chip>
+      ))}
+    </Choices>
   );
 }
 

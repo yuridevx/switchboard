@@ -47,7 +47,11 @@ export function ViewPanel({ v, close }: { v: View; close(): void }) {
             ))}
           </Choices>
         ))}
-        {app.wide && <app.Slot screen="card.view" />}
+        {app.wide && (
+          <div>
+            <app.Slot screen="card.view" />
+          </div>
+        )}
       </div>
     </div>
   );
