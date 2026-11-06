@@ -180,4 +180,15 @@ describe("прямой вход", () => {
     expect(await rows()).toHaveLength(1);
     expect((await worker.fetch(new Request("https://ledger.example/"))).status).toBe(404);
   });
+
+  it("база не ответила: прямой запрос — отказ словом failed, а не отказ формы", async () => {
+    // устав: прямой запрос к Worker'у не прошёл — отказ словом
+    await DB.exec("ALTER TABLE events RENAME TO events_x");
+    try {
+      const r = await post({ type: "ledger.read", v: 1, id: "r", key: "client.panel.k2.s", limit: 5 });
+      expect([r.status, await r.json()]).toEqual([500, expect.objectContaining({ ok: false, error: "failed" })]);
+    } finally {
+      await DB.exec("ALTER TABLE events_x RENAME TO events");
+    }
+  });
 });
