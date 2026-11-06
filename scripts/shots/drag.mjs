@@ -18,6 +18,8 @@ const rowsOf = (p, id) => p.evaluate((x) => [...document.querySelectorAll(`.pjs[
 const hash = (p) => p.evaluate(() => location.hash);
 const selected = (p) => p.evaluate(() => document.querySelector('.fc[aria-selected="true"]').dataset.fid);
 const scrollTop = (p, y) => p.evaluate((v) => document.querySelector(".bd-body").scrollTo(0, v), y);
+/** Сдвиг копии стилем: [x, y]; масштаб подъёма его не трогает. */
+const lifted = (p, sel) => p.evaluate((s) => document.querySelector(s).style.translate.split(" "), sel);
 const shot = (p, name) => p.screenshot({ path: path.join(OUT, `${name}.png`) });
 
 const b = await launch();
@@ -52,6 +54,12 @@ await scene("pult", "big", WIDE, ".lst > .pjs", async (p) => {
   await p.waitForTimeout(30);
   const card = await rect(p, ".dnd-card .pj-t");
   check("карточка — где схватили, от сдвига пальца", !!card && Math.abs(card.y - (hdr0.y + 7)) < 1, card ? `${(card.y - hdr0.y).toFixed(1)} px при сдвиге 7` : "нет");
+  const along = await lifted(p, ".dnd-card");
+  await p.mouse.move(g.x + 91, g.y + 21);
+  await p.waitForTimeout(30);
+  const aside = await lifted(p, ".dnd-card");
+  check("палец ушёл вбок: карточка идёт только вдоль ряда", aside[0] === along[0], `${along[0]} → ${aside[0]}`);
+  await p.mouse.move(g.x + 11, g.y + 21);
   check("класс перестановки на корне", await p.evaluate(() => document.querySelector(".bd-list").classList.contains("reordering")));
   // перерисовка roster не ломает жест
   const lst0 = await p.evaluateHandle(() => document.querySelector(".lst"));
@@ -136,6 +144,12 @@ await scene("pult", "small", WIDE, ".bd-row", async (p) => {
   const top = await rect(p, `[data-callsign="${before[0]}"]`);
   await dragRow(before[2], top.y + 4, async () => {
     check("строка поднята, линия показывает место", !!(await p.$(".dnd-row-card")) && !!(await p.$(".dnd-row-line")));
+    const along = await lifted(p, ".dnd-row-card");
+    await p.mouse.move(top.x + 140, top.y + 4);
+    await p.waitForTimeout(30);
+    const aside = await lifted(p, ".dnd-row-card");
+    check("палец ушёл вбок: строка идёт только вдоль списка", aside[0] === along[0], `${along[0]} → ${aside[0]}`);
+    await p.mouse.move(top.x + 60, top.y + 4);
     await shot(p, "row-move");
   });
   const r0 = await rowsOf(p, "pfarm");
@@ -222,6 +236,12 @@ await scene("pult", "big", WIDE, ".fscroll .fc", async (p) => {
   await p.mouse.move(c.x + c.w / 2 - 10, c.y + c.h / 2, { steps: 2 });
   await p.waitForTimeout(40);
   check("призрак поднят от пальца", !!(await p.$(".fc-ghost")));
+  const along = await lifted(p, ".fc-ghost");
+  await p.mouse.move(c.x + c.w / 2 - 10, c.y + c.h / 2 + 120);
+  await p.waitForTimeout(30);
+  const aside = await lifted(p, ".fc-ghost");
+  check("палец ушёл вниз: призрак идёт только вдоль ряда", aside[1] === along[1], `${along[1]} → ${aside[1]}`);
+  await p.mouse.move(c.x + c.w / 2 - 10, c.y + c.h / 2);
   await p.mouse.move(m.x + 8, c.y + c.h / 2, { steps: 8 });
   await p.waitForTimeout(240);
   await shot(p, "chip-drag");
