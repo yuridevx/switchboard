@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Btn, Check, CommitIn, H4, In, M, Note, OptsLabel, Opts, remoteOf, Row, Sec, sessionOf, slotChoice, slotOf, useApp } from "@switchboard/web-ui";
 import type { ListedPoint } from "@switchboard/points";
 import { CheckLine } from "./Overview.tsx";
-import { joinProject, Machines, nearOf, Slot, useProbe, useTarget } from "./target.tsx";
+import { joinProject, Machines, nearOf, Slot, useProbe, useTarget, type Target } from "./target.tsx";
 import { blocked, refused } from "./words.ts";
 
 export type Kind = "move" | "copy" | "dir" | "rb";
@@ -142,6 +142,43 @@ const PhaseLine = ({ phase }: { phase: Phase }) => (
 
 const defaults = (kind: Kind, name: string, dir: string) => (kind === "copy" ? { name: `${name}-copy`, dir: `${dir}-copy` } : kind === "dir" ? { name: `${name}-v2`, dir: `${dir}-v2` } : { name: `${name}-v2`, dir });
 
+const labelOf = (kind: Kind, machine: string, point: number) => ({ move: `Перенести на ${machine}`, copy: `Скопировать на ${machine}`, dir: "Скопировать и забыть", rb: `Откатить к №${point}` })[kind];
+
+const Where = ({ t, point, now }: { t: Target; point: ListedPoint | null; now(): void }) => (
+  <>
+    <Machines t={t} />
+    <FromRow point={point} now={now} />
+    <Slot t={t} label={`Слот на ${t.machine}`} />
+  </>
+);
+
+function CutBox({ kind, cut, set }: { kind: Kind; cut: boolean; set(on: boolean): void }) {
+  if (kind === "copy") return null;
+  return (
+    <OptsLabel>
+      <Check checked={cut} onChange={(e) => set(e.currentTarget.checked)} />
+      {kind === "rb" ? "прервать идущий ответ и откатить сразу (иначе — после конца ответа)" : "прервать ответ и сделать сразу"}
+    </OptsLabel>
+  );
+}
+
+const DirRow = ({ label, dir, set }: { label: string; dir: string; set(d: string): void }) => (
+  <Row label={label}>
+    <CommitIn mono data-f="dir" value={dir} onCommit={set} />
+  </Row>
+);
+
+const Buttons = ({ done, can, label, run, close }: { done: boolean; can: boolean; label: string; run(): void; close(): void }) => (
+  <Opts>
+    <Btn onClick={close}>{done ? "Закрыть" : "Отмена"}</Btn>
+    {done ? null : (
+      <Btn pri data-act="run" disabled={!can} onClick={run}>
+        {label}
+      </Btn>
+    )}
+  </Opts>
+);
+
 export function Dialog(p: Props) {
   const { kind, callsign, sid, head, from, close } = p;
   const app = useApp();
@@ -156,43 +193,22 @@ export function Dialog(p: Props) {
   const [point, setPoint] = useState(from);
   const [back, setBack] = useState<"keep" | "point">("keep");
   const [cut, setCut] = useState(false);
-  const files = moving ? "point" : kind === "dir" ? "keep" : back;
-  const { phase, run } = useSteps(p, { machine, slot: t.slot, dir, name: newName, point, files, cut });
-  const check = useProbe(machine, moving && t.slots && !t.problem ? { sid, point: (point ?? head).id, dir, files: "point" } : null);
+  const shown = point ?? head;
+  const { phase, run } = useSteps(p, { machine, slot: t.slot, dir, name: newName, point, files: moving ? "point" : kind === "dir" ? "keep" : back, cut });
+  const check = useProbe(machine, moving && t.slots && !t.problem ? { sid, point: shown.id, dir, files: "point" } : null);
   const problem = moving ? t.problem : "";
-  const done = phase?.kind === "done";
-  const label = { move: `Перенести на ${machine}`, copy: `Скопировать на ${machine}`, dir: "Скопировать и забыть", rb: `Откатить к №${(point ?? head).id}` }[kind];
+  const can = phase?.kind !== "run" && !problem && (!moving || !blocked(check));
   return (
     <Sec dlg data-dlg={kind}>
-      <H4>{TITLES[kind](callsign, (point ?? head).id)}</H4>
-      {moving ? <Machines t={t} /> : <SameMachine here={here} />}
-      {moving ? <FromRow point={point} now={() => setPoint(null)} /> : null}
-      {moving ? <Slot t={t} label={`Слот на ${machine}`} /> : null}
-      {kind === "rb" ? (
-        <RollbackFolder dir={dir} files={back} set={setBack} />
-      ) : (
-        <Row label={kind === "dir" ? "Новая папка" : `Папка на ${machine}`}>
-          <CommitIn mono data-f="dir" value={dir} onCommit={setDir} />
-        </Row>
-      )}
+      <H4>{TITLES[kind](callsign, shown.id)}</H4>
+      {moving ? <Where t={t} point={point} now={() => setPoint(null)} /> : <SameMachine here={here} />}
+      {kind === "rb" ? <RollbackFolder dir={dir} files={back} set={setBack} /> : <DirRow label={kind === "dir" ? "Новая папка" : `Папка на ${machine}`} dir={dir} set={setDir} />}
       {kind === "copy" || kind === "dir" ? <NameRow label={kind === "copy" ? "Имя копии" : "Имя"} value={newName} at={machine} set={setName} /> : null}
       <CheckLine check={problem ? { key: "error", text: problem, tone: "bad" } : check} />
       {kind === "rb" && remoteOf(session) ? <RemoteWarning /> : null}
-      {kind === "copy" ? null : (
-        <OptsLabel>
-          <Check checked={cut} onChange={(e) => setCut(e.currentTarget.checked)} />
-          {kind === "rb" ? "прервать идущий ответ и откатить сразу (иначе — после конца ответа)" : "прервать ответ и сделать сразу"}
-        </OptsLabel>
-      )}
+      <CutBox kind={kind} cut={cut} set={setCut} />
       {phase ? <PhaseLine phase={phase} /> : null}
-      <Opts>
-        <Btn onClick={close}>{done ? "Закрыть" : "Отмена"}</Btn>
-        {done ? null : (
-          <Btn pri data-act="run" disabled={phase?.kind === "run" || !!problem || (moving && blocked(check))} onClick={() => void run()}>
-            {label}
-          </Btn>
-        )}
-      </Opts>
+      <Buttons done={phase?.kind === "done"} can={can} label={labelOf(kind, machine, shown.id)} run={() => void run()} close={close} />
     </Sec>
   );
 }

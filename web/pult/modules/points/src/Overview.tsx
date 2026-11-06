@@ -55,10 +55,10 @@ function RaiseWindow({ s, fleet, close }: { s: Listed; fleet: Fleet; close(): vo
     <Sec dlg data-dlg="raise">
       <b>{`Поднять ${name} из точки №${s.head.id}`}</b>
       <Machines t={t} />
+      <Slot t={t} label="Слот" />
       <Row label="Папка">
         <M>{dirOf(s)}</M>
       </Row>
-      <Slot t={t} label="Слот" />
       <CheckLine check={t.problem ? { key: "error", text: t.problem, tone: "bad" } : check} />
       <Outcome note={note} />
       <Opts>
@@ -144,18 +144,23 @@ function Only({ sessions, fleet }: { sessions: Listed[]; fleet: Fleet }) {
   );
 }
 
-function FireRow({ s, t, line, report }: { s: Listed; t: Target; line?: string; report(sid: string, c: Check | null): void }) {
+function FireRow({ s, t, going, line, report }: { s: Listed; t: Target; going: boolean; line?: string; report(sid: string, c: Check | null): void }) {
   const check = useProbe(t.machine, t.slots && !t.problem ? probeOf(s) : null);
   useEffect(() => report(s.sid, check), [check, s.sid]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Sec data-row={nameOf(s)}>
       <b>{nameOf(s)}</b>
       <Note>{`точка ${at(s.head.at)} · №${s.head.id}`}</Note>
-      {line ? <Note>{line}</Note> : null}
-      <Opts>
-        <M>{dirOf(s)}</M>
-      </Opts>
-      <Note>{t.problem || check?.text || "проверяю папку…"}</Note>
+      {going ? (
+        <Note>{line}</Note>
+      ) : (
+        <>
+          <Opts>
+            <M>{dirOf(s)}</M>
+          </Opts>
+          <Note>{t.problem || check?.text || "проверяю папку…"}</Note>
+        </>
+      )}
     </Sec>
   );
 }
@@ -199,16 +204,19 @@ function FireWindow({ machine, sessions, fleet, close }: { machine: string; sess
   return (
     <Sec dlg data-dlg="fire">
       <H4>{`Перенести сессии ${machine} на другую машину`}</H4>
-      <Machines t={t} label="Куда" />
-      <Slot t={t} label={`Слот на ${t.machine}`} />
-      {sessions.map((s) => (
-        <FireRow key={s.sid} s={s} t={t} line={lines[s.sid]} report={(sid, c) => setChecks((x) => ({ ...x, [sid]: c }))} />
-      ))}
       {run ? (
         <Sec role="status" tone={run.over && run.done === n ? "ok" : "wait"} data-progress={`${run.done}/${n}`}>
           <b>{progress}</b>
         </Sec>
-      ) : null}
+      ) : (
+        <>
+          <Machines t={t} label="Куда" />
+          <Slot t={t} label={`Слот на ${t.machine}`} />
+        </>
+      )}
+      {sessions.map((s) => (
+        <FireRow key={s.sid} s={s} t={t} going={!!run} line={lines[s.sid]} report={(sid, c) => setChecks((x) => ({ ...x, [sid]: c }))} />
+      ))}
       <Opts>
         <Btn
           onClick={() => {

@@ -143,7 +143,7 @@ function Marked({ callsign, note, say }: Noted) {
             </>
           ) : null}
         </PageHead>
-        {failed ? <Note tone="bad">{`последняя точка не удалась: ${failed}`}</Note> : null}
+        {failed ? <Note tone="bad">{`последняя точка не удалась: ${refused(failed)}`}</Note> : null}
         {words.error ? <Note tone="bad">{`points.get: ${words.error}`}</Note> : null}
         <Outcome data-note="" note={note} />
       </Sec>

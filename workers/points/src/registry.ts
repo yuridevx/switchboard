@@ -77,6 +77,19 @@ async function blocksOf(env: Env, hashes: string[]) {
   return { missing: heads.filter((x) => !x.object).map((x) => x.hash), fresh: heads.flatMap((x) => (x.object ? [{ hash: x.hash, size: x.object.size }] : [])) };
 }
 
+function checkOwner(session: SessionRow, owner: unknown) {
+  if (owner !== session.owner) throw new Refusal("not_owner", `хозяин сессии — ${session.owner}`, { owner: session.owner });
+}
+
+/** Строка журнала флота о точке: копия, перенос, откат; прочие точки событий не дают. */
+function eventOf(f: Frame, machine: string, session: SessionRow | null, from: Row | null) {
+  const shown = f.callsign ?? shortName(f.sid as string);
+  if (!session && from) return { ev: "session.copied", text: `${shortName(from.callsign ?? from.sid)} → ${shown} · из точки ${f.base}` };
+  if (!session || f.why !== "raise") return null;
+  if (session.owner !== machine) return { ev: "session.moved", text: `${shortName(shown)}: ${session.owner} → ${machine} · из точки ${f.base}` };
+  return f.base === session.head ? null : { ev: "session.rolled_back", text: `${shown} откатана к точке ${f.base}` };
+}
+
 const REQUESTS: Record<keyof typeof CONTRACT, (env: Env, f: Frame) => Promise<unknown>> = {
   async "points.put"(env, f) {
     const { machine, sid, why, files, base } = checkPut(f);
@@ -85,8 +98,7 @@ const REQUESTS: Record<keyof typeof CONTRACT, (env: Env, f: Frame) => Promise<un
     const from = base === undefined ? null : await pointOf(db, base);
     if (base !== undefined && !from) throw new Refusal("no_point", `точки ${base} нет`, { ids: [base] });
     if (from && from.sid !== sid && (session || f.expect !== undefined)) throw new Refusal("bad_frame", `точка ${base} — другой сессии`);
-    const owner = why === "raise" ? f.expect : why === "yield" ? session?.owner : machine;
-    if (session && owner !== session.owner) throw new Refusal("not_owner", `хозяин ${sid} — ${session.owner}`, { owner: session.owner });
+    if (session) checkOwner(session, why === "raise" ? f.expect : why === "yield" ? session.owner : machine);
 
     // от чего идёт точка: отдающая сессию машина — от своей последней, остальные — от головы
     const yielding = why === "yield" && !!session;
@@ -108,11 +120,8 @@ const REQUESTS: Record<keyof typeof CONTRACT, (env: Env, f: Frame) => Promise<un
       ...(yielding ? [] : [db.prepare("INSERT INTO sessions (sid, owner, head) VALUES (?, ?, (SELECT MAX(id) FROM points)) ON CONFLICT (sid) DO UPDATE SET owner = excluded.owner, head = excluded.head").bind(sid, machine)]),
     ]);
 
-    const shown = f.callsign ?? shortName(sid);
-    const event = { machine, callsign: f.callsign, by: f.by };
-    if (!session && from) await ledger(env, { ...event, ev: "session.copied", text: `${shortName(from.callsign ?? from.sid)} → ${shown} · из точки ${base}` });
-    else if (session && why === "raise" && session.owner !== machine) await ledger(env, { ...event, ev: "session.moved", text: `${shortName(shown)}: ${session.owner} → ${machine} · из точки ${base}` });
-    else if (session && why === "raise" && base !== session.head) await ledger(env, { ...event, ev: "session.rolled_back", text: `${shown} откатана к точке ${base}` });
+    const line = eventOf(f, machine, session, from);
+    if (line) await ledger(env, { ...line, machine, callsign: f.callsign, by: f.by });
     return { id: inserted.results[0].id };
   },
 
@@ -137,7 +146,7 @@ const REQUESTS: Record<keyof typeof CONTRACT, (env: Env, f: Frame) => Promise<un
     const session = await sessionOf(env.DB, sid);
     if (!session) return { points: 0, blocks: 0, bytes: 0 };
     const machine = machineOf(from as string);
-    if (kindOf(from) === "machine" && machine !== session.owner) throw new Refusal("not_owner", `хозяин ${sid} — ${session.owner}`, { owner: session.owner });
+    if (kindOf(from) === "machine") checkOwner(session, machine);
     const head = await pointOf(env.DB, session.head);
     const [, gone] = await env.DB.batch([
       env.DB.prepare("DELETE FROM refs WHERE point IN (SELECT id FROM points WHERE sid = ?)").bind(sid),

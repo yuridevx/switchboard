@@ -16,6 +16,7 @@ export function refused(word: string, o: { who?: string; target?: string; from?:
     no_slot: `Такого слота нет на ${o.target}`,
     not_logged_in: "В слоте нет вошедшего аккаунта",
     offline: "Машина не на связи",
+    failed: "причина в журнале машины",
   };
   return texts[word] ?? word;
 }

@@ -669,6 +669,9 @@ describe("вкладка «Точки» сессии", () => {
     const relay = pointsRelay((r) => Object.assign(r.sessions[2], { r2: { error: "r2_unavailable" } }));
     const t = await sessionTab(relay);
     expect(t.$('[data-r2="on"]')!.textContent).toContain("последняя точка не удалась: r2_unavailable");
+    // сбой без слова контракта — словами, а не голым именем
+    const bare = await sessionTab(pointsRelay((r) => Object.assign(r.sessions[2], { r2: { error: "failed" } })));
+    expect(bare.$('[data-r2="on"]')!.textContent).toContain("последняя точка не удалась: причина в журнале машины");
   });
 
   it("4177 5124 · «Точки» — экран pult-points в месте card.tab, только у машины с session.r2: вкладка между «Разговором» и «Настройками»", async () => {
