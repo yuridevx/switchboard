@@ -169,12 +169,12 @@ export class Session {
 
   // ───────────────────────── запуск ─────────────────────────
 
-  /** Как начать разговор: resume — только если файл уже есть; до первого хода его нет, тогда тот же id заново или снова копия. */
+  /** Как начать разговор: resume — только если файл уже есть; до первого хода его нет, тогда тот же id заново или снова копия. Файл ищется без папки: resume claude находит его и в папке другого проекта. */
   private async plan(kind: Launch): Promise<{ start: Launch; options: Record<string, unknown> }> {
-    const { session_id: id, cwd, fork } = this.rec;
+    const { session_id: id, fork } = this.rec;
     if (kind === "spawn") return { start: kind, options: { sessionId: id } };
     if (kind === "fork") return { start: kind, options: { resume: fork, forkSession: true, sessionId: id } };
-    if (kind === "attach" || (await within(this.k.clock, this.k.sdk.functions.getSessionInfo(id, { dir: cwd }), STEP_MS, () => ({})))) return { start: kind, options: { resume: id } };
+    if (kind === "attach" || (await within(this.k.clock, this.k.sdk.functions.getSessionInfo(id), STEP_MS, () => ({})))) return { start: kind, options: { resume: id } };
     return this.plan(fork ? "fork" : "spawn");
   }
 
@@ -237,8 +237,11 @@ export class Session {
     const ready = await Promise.race([run.q.initializationResult().then(() => true, () => false), run.done.then(() => false)]);
     k.clock.clearTimeout(late);
     if (!ready) {
+      // initialize отказан, а процесс жив: claude ждёт дальше сам. Ввод открыт после выхода: иначе его заберёт уходящий процесс
+      void hold.then((h) => h.destroy());
+      const x = await within<Exit>(k.clock, run.done, STEP_MS, () => ({ code: null, signal: null, stderr: `процесс не вышел за ${STEP_MS / 1000} с после kill` }));
       open();
-      throw new Error(`${this.callsign}: процесс вышел до initialize — ${words(await run.done)}`);
+      throw new Error(`${this.callsign}: процесс вышел до initialize — ${words(x)}`);
     }
     if (run.closing || this.run !== run) return;
     run.ready = true;

@@ -1,6 +1,9 @@
 // Юниты выпуска: то, что на стенде подделано. Команда claude из пакета SDK.
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { claudeCli } from "../src/release.ts";
+import { claudeCli, loadRelease } from "../src/release.ts";
 
 describe("команда claude", () => {
   it("737 · claude нет в пакете SDK — code null со словами", async () => {
@@ -22,4 +25,26 @@ describe("команда claude", () => {
     expect(r.code).toBeNull();
     expect(r.out).toContain("claude не ответил за 0.3 с");
   }, 20_000);
+
+  it("зависшая команда, потомок держит вывод: ответ в предел, а не с выходом потомка", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; опыт на Linux: close приходит, когда вывод закрыл и потомок. На Windows close приходит сразу
+    const code = `require("node:child_process").spawn(process.execPath, ["-e", "setTimeout(() => {}, 5000)"], { stdio: "inherit" }); setInterval(() => {}, 1000);`;
+    const started = Date.now();
+    const r = await claudeCli(process.execPath, 500)(["-e", code], process.env);
+    expect(r).toEqual({ code: null, out: "claude не ответил за 0.5 с" });
+    expect(Date.now() - started).toBeLessThan(3000);
+  }, 20_000);
+});
+
+describe("выпуск на диске", () => {
+  it("у модуля нет package.json: выключен он, выпуск и остальные модули живут", async () => {
+    // источник: устав «ошибка модуля — модуль выключен»; упаковка каталога package.json не требует, keeper host --check не зовёт
+    const root = mkdtempSync(join(tmpdir(), "switchboard-release-"));
+    const dir = join(root, "modules", "host-bad");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "module.json"), JSON.stringify({ name: "host-bad", type: "sdk", version: "1.0.0", provides: {}, uses: {}, config: {} }));
+    writeFileSync(join(root, "build.json"), JSON.stringify({ app: "host", version: "1.0.0", fleet: "test", modules: [{ name: "host-bad", version: "1.0.0" }], workers: {} }));
+    const release = await loadRelease(root, join(import.meta.dirname, ".."));
+    expect(release.modules[0].failed).toContain("host-bad: импорт");
+  });
 });
