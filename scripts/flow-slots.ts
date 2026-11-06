@@ -1,6 +1,6 @@
 // Живые флоу с несколькими аккаунтами на одной машине. env: FLOW_CLIENT_KEY, FLOW_MACHINE,
 // FLOW_A (аккаунт с запасом), FLOW_B (второй аккаунт с запасом), FLOW_SPENT (аккаунт с исчерпанным лимитом).
-import { nameOf } from "@switchboard/protocol";
+import { machineOf, nameOf } from "@switchboard/protocol";
 import { type Roster } from "@switchboard/relay";
 import { client } from "./client.ts";
 
@@ -45,7 +45,7 @@ const S2 = `sb@${machine}`;
 for (const cs of [S1, S2]) await req({ type: "session.remove", callsign: cs });
 // освободить аккаунты от слотов прошлых прогонов (FLOW_CLEAR — слоты через запятую): их сессии и сами слоты
 for (const slot of (process.env.FLOW_CLEAR ?? "").split(",").filter(Boolean)) {
-  for (const s of (l.roster as Roster | null)?.sessions ?? []) if (s.callsign.endsWith("@" + machine) && (s as Record<string, any>).slot?.name === slot) await req({ type: "session.remove", callsign: s.callsign });
+  for (const s of (l.roster as Roster | null)?.sessions ?? []) if (machineOf(s.callsign) === machine && (s as Record<string, any>).slot?.name === slot) await req({ type: "session.remove", callsign: s.callsign });
   await req({ type: "slot.set", machine, slot, order: [] });
 }
 
