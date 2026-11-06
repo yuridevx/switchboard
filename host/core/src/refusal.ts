@@ -3,11 +3,12 @@ export const REFUSAL = Symbol.for("switchboard.refusal");
 
 export class Refusal extends Error {
   readonly [REFUSAL] = true;
-  constructor(
-    readonly word: string,
-    readonly why?: string,
-  ) {
+  readonly word: string;
+  readonly why?: string;
+  constructor(word: string, why?: string) {
     super(why ? `${word}: ${why}` : word);
+    this.word = word;
+    this.why = why;
   }
 }
 
