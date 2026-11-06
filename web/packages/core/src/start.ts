@@ -67,7 +67,8 @@ export function startApp(o: StartOptions): Running {
       await core.link.drain();
     };
     await withLimit(farewell(), STEP_MS, late("прощание модулей не успело"));
-    core.link.close("hidden");
+    // уход — не обрыв: вернёмся и подключимся, красной лампы и «данные на…» на возвращении нет
+    core.link.close("hidden", "connecting");
   }
 
   const hide = () => (leaving ??= leave());
