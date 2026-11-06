@@ -48,7 +48,7 @@ export function named(root: string) {
   const dir = join(root, ".claude/slopik/named");
   if (!existsSync(dir)) return [];
   return readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => {
-    const houses = /^дом:\s*(.+)$/m.exec(readFileSync(join(dir, f), "utf8"))?.[1] ?? "";
+    const houses = /^дом:[ \t]*(.*)$/m.exec(readFileSync(join(dir, f), "utf8"))?.[1] ?? "";
     return { name: f.slice(0, -3), houses: houses.split(",").map((h) => unquote(h.trim())).filter(Boolean) };
   });
 }

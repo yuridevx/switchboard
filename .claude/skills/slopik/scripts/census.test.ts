@@ -68,6 +68,12 @@ it("след понятия вне владельца будит владель�
   assert.match(hit!.detail, /workers\/b\/src\/index\.ts/);
 });
 
+it("именной без дома не забирает следующую строку файла", () => {
+  put(".claude/slopik/named/летописец.md", "# Л\n\nдом:\n\n## Дело\n");
+  commit();
+  assert.deepEqual(census(root).orphaned, []);
+});
+
 it("именной: не рождается и не снимается переписью, его дом помечается, исчезнувший дом — вопрос человеку", () => {
   put(".claude/slopik/named/страж.md", "# Страж"+String.fromCharCode(10)+String.fromCharCode(10)+"дом: `b`, `lost`"+String.fromCharCode(10));
   commit();
