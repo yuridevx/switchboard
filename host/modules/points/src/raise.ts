@@ -102,7 +102,7 @@ export async function raise(req: Frame, { host, from }: Ctx, rule: Rule): Promis
   const name = (row.callsign ?? sid).split("@")[0];
   const moved = !copy && got.owner !== host.machine;
   const before = `${name}@${got.owner}`;
-  const callsign = previous && !copy ? await restart(host, previous.callsign, point) : await open(host, req, { from, dir, sid, point, copy, name, moved, before });
+  const callsign = previous && !copy ? await restart(host, previous.callsign, point) : await open(host, req, { dir, sid, point, copy, moved, before });
   if (copy && !own) {
     rmSync(join(target, `${sid}.jsonl`), { force: true });
     rmSync(join(target, sid), { recursive: true, force: true });
@@ -115,10 +115,9 @@ export async function raise(req: Frame, { host, from }: Ctx, rule: Rule): Promis
   if (copy) return { callsign, point: null, folder, branch };
 
   const put = await rule.save(s, "raise", { base: point, expect: got.owner, ...(from ? { by: from } : {}) }).catch(async (e) => {
-    if (e.word === "not_owner") {
-      rule.drop(callsign);
-      must(await host.request("session.remove", { callsign }));
-    }
+    // точки нет — поднятая здесь лишняя: реестр её не знает
+    rule.drop(callsign);
+    await host.request("session.remove", { callsign });
     throw e;
   });
   if (moved) {
@@ -133,13 +132,13 @@ async function restart(host: Host, callsign: string, point: number): Promise<str
   return callsign;
 }
 
-type Opening = { from?: string; dir: string; sid: string; point: number; copy: boolean; name: string; moved: boolean; before: string };
+type Opening = { dir: string; sid: string; point: number; copy: boolean; moved: boolean; before: string };
 
 /** Новая сессия через manage; не открылась при переносе — прежняя снова идёт на своей машине. */
 async function open(host: Host, req: Frame, o: Opening): Promise<string> {
   const pick = Object.fromEntries((["slot", "profile"] as const).flatMap((k) => (typeof req[k] === "string" ? [[k, req[k]]] : [])));
-  const name = typeof req.name === "string" ? req.name : o.copy ? basename(o.dir) : o.name;
-  const r = await host.request("session.open", { machine: host.machine, name, dir: o.dir, mkdir: true, resume: o.sid, point: o.point, ...(o.copy ? { fork: true } : {}), ...pick, ...(o.from ? { from: o.from } : {}) });
+  const name = typeof req.name === "string" ? req.name : basename(o.dir);
+  const r = await host.request("session.open", { machine: host.machine, name, dir: o.dir, mkdir: true, resume: o.sid, point: o.point, ...(o.copy ? { fork: true } : {}), ...pick });
   if (!r.ok && o.moved) await host.request("session.start", { callsign: o.before });
   return (must(r) as { callsign: string }).callsign;
 }
