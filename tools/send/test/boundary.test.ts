@@ -167,8 +167,8 @@ describe("импорт", () => {
     expect(imported("offline", OPTS).result).toEqual({ ok: 0, error: "offline" });
   });
 
-  it("2081 · ответа нет за свой срок: один итог словом, сокет закрыт", () => {
-    const r = imported("silent", { ...OPTS, timeoutMs: 100 });
+  it("2081 · ответа нет за свой срок: один итог словом, сокет закрыт, поздний roster запроса не шлёт", () => {
+    const r = imported("late", { ...OPTS, timeoutMs: 100 });
     expect(r.result).toEqual({ ok: 0, error: "нет ответа за 100 мс" });
     expect(r.frames.at(-1)).toEqual({ close: 1000 });
     expect(r.frames.filter((f) => "close" in f)).toHaveLength(1);
