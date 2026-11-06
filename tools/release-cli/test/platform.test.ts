@@ -37,3 +37,24 @@ it("файл пакета с правом исполнения остаётся 
   const modes = Object.fromEntries(entries(packModule(d).tgz).map((e) => [e.path, e.mode]));
   expect(modes).toEqual({ "module.json": 0o644, "app.json": 0o644, "run.sh": 0o755 });
 });
+
+it("предел снял сборку, потомок держит её вывод — CLI выходит с отказом и не ждёт потомка (чьё: код; опыт: npm на Windows живёт под оболочкой, снимается только оболочка)", async () => {
+  const bin = tmp();
+  const sleeper = `"${process.execPath}" -e "setTimeout(() => {}, 30000)"`;
+  writeFileSync(join(bin, "npm.cmd"), `@${sleeper}\r\n`);
+  writeFileSync(join(bin, "npm"), `#!/bin/sh\n${sleeper} &\nwait\n`, { mode: 0o755 });
+  // предел CLI — 10 минут: в опыте короче
+  const shorter = join(bin, "shorter.mjs");
+  writeFileSync(shorter, "const real = globalThis.setTimeout;\nglobalThis.setTimeout = (fn, ms, ...rest) => real(fn, ms === 600000 ? 300 : ms, ...rest);\n");
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toLowerCase() !== "path"));
+  const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
+  const c = spawn(process.execPath, ["--import", pathToFileURL(shorter).href, cli, "release", "core", "--dry-run"], { env: { ...env, PATH: `${bin}${delimiter}${process.env.PATH ?? process.env.Path}` }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  let err = "";
+  c.stderr.on("data", (d) => (err += d));
+  const code = await new Promise<number | null>((done) => {
+    const late = setTimeout(() => (c.kill(), done(-1)), 15_000);
+    c.on("exit", (n) => (clearTimeout(late), done(n)));
+  });
+  expect(err).toContain("не завершился за");
+  expect(code).toBe(1);
+}, 25_000);

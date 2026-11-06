@@ -107,11 +107,12 @@ export async function main(argv: string[], env: Record<string, string | undefine
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  // выход не ждёт потомка: снятый по пределу процесс мог оставить его с нашими трубами вывода
   main(process.argv.slice(2), process.env).then(
-    (code) => (process.exitCode = code),
+    (code) => process.exit(code),
     (e: Error) => {
       console.error(e.message);
-      process.exitCode = 1;
+      process.exit(1);
     },
   );
 }
