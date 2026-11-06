@@ -15,7 +15,8 @@
 .chat-reply{position:relative}
 /* «копировать» не держит место в ленте: с мышью появляется в зазоре под ответом, на пальце стоит строкой */
 .chat-acts{display:flex}
-@media (hover:hover){.chat-acts{position:absolute;left:0;top:100%;z-index:1;opacity:0}.chat-reply:hover>.chat-acts,.chat-acts:focus-within{opacity:1}}
+/* кнопка внутри своего ответа: следующее сообщение не закрывает */
+@media (hover:hover){.chat-acts{position:absolute;right:0;bottom:0;z-index:1;opacity:0;padding:0 4px;border-radius:6px;background:var(--bg)}.chat-reply:hover>.chat-acts,.chat-acts:focus-within{opacity:1}}
 
 /* размышление */
 .chat-think{font-size:13px;color:var(--muted)}
@@ -159,9 +160,9 @@
 .chat-mini[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .chat-mini.bad{color:var(--bad);border-color:var(--bad);background:var(--surface)}
 
-/* полоса над лентой и панель контекста */
-.chat-bar{flex:none;display:flex;gap:6px;justify-content:flex-end;padding:6px 14px 0}
-.chat-panel{position:absolute;top:38px;right:14px;z-index:6;width:min(100% - 28px,360px);padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);font-size:13px;max-height:min(70vh,calc(100% - 46px));overflow-y:auto}
+/* панель контекста стоит на месте ленты: размер и положение задаёт колонка, лента под ней сохраняет прокрутку */
+.chat-panel{position:absolute;inset:0;z-index:6;box-sizing:border-box;overflow-y:auto;scrollbar-gutter:stable;padding:14px max(18px,calc((100% - var(--col))/2));display:flex;flex-direction:column;gap:10px;background:var(--bg)}
+.chat-panel>*{flex:none}
 .chat-panel .chat-mini{align-self:flex-start}
 .chat-pn-h{display:flex;align-items:center;gap:6px}
 .chat-pn-h em{margin-left:auto;font:600 12px var(--mono);font-style:normal;color:var(--muted)}
@@ -239,9 +240,9 @@
 .chat-inp{display:block;width:100%;border:0;background:none;padding:3px 6px;font:15px/1.4 var(--body);color:var(--ink);resize:none;max-height:40vh;outline:none!important}
 .chat-tools{display:flex;align-items:center;gap:2px}
 .chat-grow{flex:1}
-.chat-mode{field-sizing:content;height:30px;max-width:130px;border:0;border-radius:8px;background:none;color:var(--muted);font:500 12.5px var(--body);padding:0 2px;cursor:pointer}
-.chat-mode:not([data-mode="bypassPermissions"]){color:var(--wait)}
+.chat-mode{flex:none;border:0;background:none;color:var(--muted);border-radius:8px;padding:4px 8px;font:500 12.5px var(--body);white-space:nowrap;cursor:pointer}
 @media (hover:hover){.chat-mode:hover{background:var(--surface2);color:var(--ink)}}
+.chat-mode:not([data-mode="bypassPermissions"]){color:var(--wait)}
 .chat-tb{width:30px;height:30px;display:grid;place-items:center;padding:0;border:0;border-radius:8px;background:none;color:var(--muted)}
 @media (hover:hover){.chat-tb:hover{background:var(--surface2);color:var(--ink)}}
 .chat-stop{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;margin-right:4px;border:1px solid var(--bad);background:none;color:var(--bad);border-radius:8px;font:600 12.5px var(--body)}
@@ -264,3 +265,4 @@
   .chat-sugi{flex-wrap:wrap;min-height:36px;align-items:center}
   .chat-sugi span{white-space:normal;overflow:visible}
 }
+.chat-tb[aria-pressed="true"]{color:var(--ink);background:var(--surface2)}

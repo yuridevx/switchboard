@@ -1,15 +1,19 @@
 /* Вид ядра: разделы, шапка, поиск, полоса связи, экраны входа и отказа. */
 .sb-app{height:100dvh;display:flex;min-width:0}
 .sb-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100%;position:relative}
-.sb-navcol{flex:none;width:212px;border-right:1px solid var(--line2);background:var(--surface2);display:flex;flex-direction:column;gap:2px;padding:12px 10px;overflow-y:auto}
+/* полоса разделов: только значки, подпись — в подсказке браузера и для чтения с экрана */
+.sb-navcol{flex:none;width:52px;box-sizing:border-box;border-right:1px solid var(--line2);background:var(--surface2);display:flex;flex-direction:column;align-items:center;gap:2px;padding:12px 8px;overflow-y:auto;scrollbar-width:none}
+.sb-navcol .sb-nv,.sb-navcol .sb-goto{flex:none;position:relative;box-sizing:border-box;width:36px;height:36px;justify-content:center;padding:0;margin:0}
+.sb-navcol .sb-nv>span:not(.sb-badge),.sb-navcol .sb-goto>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.sb-navcol .sb-badge{position:absolute;right:3px;top:3px}
+.sb-ni{flex:none}
 .sb-nv{display:flex;justify-content:space-between;align-items:center;gap:8px;border:0;background:transparent;border-radius:8px;padding:7px 9px;font:500 14px var(--body);text-align:left;color:var(--ink)}
 @media (hover:hover){.sb-nv:hover{background:var(--accent-weak)}}
 .sb-navcol .sb-nv[aria-current="page"]{background:var(--surface);box-shadow:0 0 0 1px var(--line);font-weight:600}
-.sb-grp{font:600 11.5px var(--body);color:var(--muted);padding:12px 9px 4px}
+.sb-grp{font-size:0;align-self:stretch;height:1px;margin:8px 6px;background:var(--line2)}
 .sb-find{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;padding:0}
 .sb-find.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-size:20px;line-height:1}
-.sb-goto{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:8px;padding:6px 10px;margin:2px 0 8px;font:500 13px var(--body)}
-.sb-goto kbd{font:600 11px var(--mono);border:1px solid var(--line);border-radius:4px;padding:0 5px;background:var(--surface2)}
+.sb-goto{display:flex;align-items:center;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:8px;font:500 13px var(--body)}
 .sb-navrow{flex:none;display:flex;gap:6px;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line2);overflow-x:auto;scrollbar-width:none}
 .sb-navrow .sb-nv{flex:none;border:1px solid var(--line2);border-radius:999px;padding:4px 11px;font-size:13px;background:var(--surface2)}
 .sb-navrow .sb-nv[aria-current="page"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
@@ -17,6 +21,7 @@
 .sb-tabs .sb-nv{flex-direction:column;justify-content:center;gap:2px;min-height:48px;font-size:12.5px;color:var(--muted);position:relative}
 .sb-tabs .sb-nv[aria-current="page"]{color:var(--ink);font-weight:600}
 .sb-tabs .sb-badge{position:absolute;top:2px;left:calc(50% + 8px);min-width:18px;height:18px;font-size:10.5px;line-height:18px;padding:0 5px}
+.sb-tabs .sb-badge.dot{top:8px;min-width:0;width:10px;height:10px;padding:0}
 /* поиск Ctrl K */
 .sb-palw{position:fixed;inset:0;z-index:20}
 .sb-palveil{position:absolute;inset:0;background:rgba(10,15,12,.38)}
@@ -32,18 +37,19 @@
 
 /* широкий вид: колонка разделов, список слева от экрана сессии */
 .sb-app.wide .sb-bar{display:none}
-.sb-brand{display:flex;align-items:center;gap:8px;padding:2px 6px 8px;font:700 15px var(--body)}
-.sb-brand b{flex:1}
+.sb-brand{flex:none;position:relative;padding:2px 0 8px}
 .sb-brand .sb-logo{width:26px;height:26px;border-radius:8px;font-size:13px}
-.sb-brand .sb-pill{padding:4px}
+.sb-brand .sb-pill{position:absolute;left:19px;top:-3px;padding:3px}
 .sb-navcol .sb-brand{order:-2}
-.sb-split{flex:1;min-height:0;display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr)}
+/* ширина колонки списка — одна: и у разделённого экрана, и у экрана со своей колонкой */
+:root{--sb-master:minmax(260px,320px)}
+.sb-split{flex:1;min-height:0;display:grid;grid-template-columns:var(--sb-master) minmax(0,1fr)}
 .sb-master{border-right:1px solid var(--line2);background:var(--surface);display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
 .sb-detail{display:flex;flex-direction:column;min-height:0;min-width:0}
 @media (max-width:760px){
   .sb-app.wide{flex-direction:column}
   .sb-app.wide .sb-navcol{width:auto;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:6px 8px}
-  .sb-app.wide .sb-brand b,.sb-app.wide .sb-grp,.sb-app.wide .sb-goto{display:none}
+  .sb-app.wide .sb-grp,.sb-app.wide .sb-goto{display:none}
   .sb-app.wide .sb-brand{padding:0 4px}
   .sb-split{grid-template-columns:minmax(0,1fr)}
   .sb-split .sb-master{display:none}
@@ -53,10 +59,10 @@
 .sb-bar{flex:none;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top,0px)) 14px 10px;background:var(--surface);border-bottom:1px solid var(--line2)}
 .sb-logo{width:32px;height:32px;border-radius:9px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font:700 16px/1 var(--disp);flex:none}
 .sb-logo.xl{width:72px;height:72px;border-radius:19px;font-size:34px}
-.sb-bt{display:flex;flex-direction:column;min-width:0;flex:1}
-.sb-bt b{font:600 17px/1.2 var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-bt{display:flex;align-items:baseline;gap:8px;min-width:0;flex:1}
+.sb-bt b{flex:0 1 auto;min-width:0;font:600 17px/1.2 var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sb-bt b.m{font:600 15px/1.25 var(--mono)}
-.sb-bt span{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-bt span{flex:0 1000 auto;min-width:0;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sb-back{font:500 30px/1 var(--body);color:var(--accent);background:none;border:0;padding:0 6px 4px 0;flex:none}
 @media (pointer:coarse){.sb-back{margin:0 -5px 0 -9px}}
 

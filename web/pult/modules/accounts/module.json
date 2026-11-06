@@ -1,7 +1,7 @@
 {
   "name": "pult-accounts",
   "type": "web",
-  "version": "4.0.1",
+  "version": "4.0.2",
   "into": [
     "pult",
     "phone"
@@ -24,7 +24,11 @@
     "machine.parts@pult-machines": 1,
     "machines.rows@pult-machines": 1,
     "keeper.open@pult-settings": 1,
-    "keeper.close@pult-settings": 1
+    "keeper.close@pult-settings": 1,
+    "fleetkeys.list@fleetkeys": 1,
+    "fleetkeys.set@fleetkeys": 1,
+    "fleetkeys.remove@fleetkeys": 1,
+    "machine.key_check@host-logins": 1
   },
   "config": {}
 }

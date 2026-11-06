@@ -29,9 +29,9 @@ export function fleetRoster(over: Partial<Roster> = {}): Roster {
     sessions: [
       { callsign: "profiles@laptop", dir: "~/Projects/switchboard", by: "panel-desk~owner@example.com", state: "waiting", model: "sonnet", effort: "high", slot: { name: "main", wait: null }, account: "infirex", profile: null, remote: { url: "https://claude.ai/code/session_01Pf" } },
       { callsign: "api@pc", dir: "~/Projects/switchboard", by: "panel-desk~owner@example.com", state: "failed", model: "sonnet", effort: "medium", slot: { name: "main", wait: null }, account: "y0902", failed: { core: "второй сбой до initialize" } },
-      { callsign: "site@laptop", dir: "~/Projects/switchboard", by: "panel-desk~owner@example.com", state: "busy", model: "opus", effort: "high", slot: { name: "main", wait: null }, account: "infirex", profile: { id: "team/profiles/ops", state: "ok" }, remote: { url: "https://claude.ai/code/session_01Pf" } },
+      { callsign: "site@laptop", dir: "~/Projects/switchboard", by: "panel-desk~owner@example.com", state: "busy", model: "opus", effort: "high", slot: { name: "main", wait: null }, account: "infirex", profile: [{ id: "team/profiles/ops", state: "ok" }], remote: { url: "https://claude.ai/code/session_01Pf" } },
       { callsign: "poe-bot@pc", dir: "~/Projects/poe", by: "panel-desk~owner@example.com", state: "busy", model: "sonnet", effort: "medium", slot: { name: "main", wait: null }, account: "y0902" },
-      { callsign: "wiki@laptop", dir: "~/Projects/switchboard", by: "panel-desk~owner@example.com", state: "idle", model: "haiku", effort: "low", slot: { name: "bot", wait: null }, account: "work3", profile: { id: "team/profiles/writer", state: "ok" } },
+      { callsign: "wiki@laptop", dir: "~/Projects/switchboard", by: "panel-desk~owner@example.com", state: "idle", model: "haiku", effort: "low", slot: { name: "bot", wait: null }, account: "work3", profile: [{ id: "team/profiles/writer", state: "ok" }] },
       { callsign: "docs@pc", dir: "~/Projects/switchboard", by: "panel-desk~owner@example.com", state: "stopped", model: "sonnet", slot: { name: "main", wait: null }, account: "y0902" },
     ],
     clients: ["phone~owner@example.com", "panel-desk~owner@example.com"],

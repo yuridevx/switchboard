@@ -60,8 +60,8 @@ async function browser(list: BuildList, relay = fleetRelay()) {
 
 describe("состав приложения", () => {
   it.each([
-    ["pult", pultParts, 17],
-    ["phone", phoneParts, 13],
+    ["pult", pultParts, 18],
+    ["phone", phoneParts, 14],
   ])("5138 5139 · модули стенда %s — те же, что в его into; набор проходит гейт ядра", (name, parts, count) => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
     const want = loadRepo(root).filter((m) => m.into?.includes(name) && !["web-core", ...(name === "phone" ? ["web-view", "web-ui"] : [])].includes(m.name));
@@ -110,7 +110,7 @@ describe("оболочка страницы", () => {
       return { boot: (o: object) => boot({ ...o, load } as never) };
     });
     await import("../src/main.ts");
-    await vi.waitFor(() => expect(document.querySelector(".sb-brand b")?.textContent, document.body.textContent ?? "").toBe("Пульт"), { timeout: 15_000 });
+    await vi.waitFor(() => expect(document.querySelector(".sb-brand")?.getAttribute("title"), document.body.textContent ?? "").toBe("Пульт"), { timeout: 15_000 });
     await flush();
     expect(asked[0]).toEqual(["./build.json", { cache: "no-store" }]);
     expect(urls.length).toBeGreaterThan(0);
@@ -155,7 +155,8 @@ describe("оболочка страницы", () => {
     expect(t.$(".sb-navcol .sb-nv.sub")).toBeNull();
     expect(t.$(".sb-goto")).not.toBeNull();
     expect(t.$(".sb-nm, .sb-me")).toBeNull();
-    expect(t.$(".sb-brand b")!.textContent).toBe("Пульт");
+    expect(t.$(".sb-brand")!.getAttribute("title")).toBe("Пульт");
+    expect(t.$(".sb-brand .sb-logo")!.textContent).toBe("П");
   });
 
   it.each([
@@ -339,7 +340,7 @@ describe("статика и архив", () => {
       workers: { ...FakeRelay.WORKERS, relay: "https://relay.from-build/" },
     };
     const files = webBuild(shell.tgz, packed, list);
-    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(18);
+    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(19);
 
     // сборка на диске; m/<модуль>.<версия>.js — пакетом @switchboard/<модуль>, как import map страницы
     const dir = mkdtempSync(join(tmpdir(), "switchboard-pult-build-"));
@@ -380,7 +381,7 @@ describe("статика и архив", () => {
     await flush();
     expect(run.stopped).toBeNull();
     expect(run.failed).toEqual({});
-    expect(document.querySelector(".sb-brand b")!.textContent).toBe("Пульт");
+    expect(document.querySelector(".sb-brand")!.getAttribute("title")).toBe("Пульт");
     expect(urls.length).toBeGreaterThan(0);
     expect(urls.every((u) => u.startsWith("wss://relay.from-build/m/"))).toBe(true);
     // поиск на порядке настоящей сборки: модули идут по order(), первым с разделом — Журнал; строки — в порядке оболочки

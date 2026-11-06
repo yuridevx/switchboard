@@ -57,15 +57,15 @@ const WINDOWS = [
   ["plan", "tests@wsl", async (p) => ask(p, PLAN)],
   ["plan-screen", "tests@wsl", async (p) => { await ask(p, PLAN); await toScreen(p); }],
   ["plan-return", "tests@wsl", async (p) => { await ask(p, PLAN); await toScreen(p); await p.click('.ask .ask-decline:has-text("Вернуть")'); await pause(p); await p.fill(".ask textarea", "Добавь регрессионный тест"); await pause(p); }],
-  ["mode", "tests@wsl", async (p) => { await p.selectOption(".chat-mode", "plan"); await pause(p, 350); }],
+  ["mode", "tests@wsl", async (p) => { await p.click(".chat-mode"); await pause(p, 350); }],
   ["scrolled-up", "tests@wsl", async (p) => { await p.evaluate(() => { const f = document.querySelector(".chat-feed"); f.scrollTop = 0; f.dispatchEvent(new Event("scroll")); }); await pause(p); }],
 ];
 const WIDE_ONLY = [
-  ["context", "tests@wsl", async (p) => { await p.click('.chat-bar .chat-mini:has-text("контекст")'); await pause(p, 350); }],
-  ["rules", "tests@wsl", async (p) => { await p.click('.chat-bar .chat-mini:has-text("контекст")'); await pause(p, 350); await p.evaluate(() => document.querySelector('[data-sec="rules"]').scrollIntoView()); await pause(p); }],
-  ["focus", "tests@wsl", async (p) => { await p.click('.chat-bar .chat-mini:has-text("фокус")'); await pause(p); }],
-  ["focus-steps", "tests@wsl", async (p) => { await p.click('.chat-bar .chat-mini:has-text("фокус")'); await pause(p); await p.click(".chat-steps .dis-h"); await pause(p); }],
-  ["mcp", "tests@wsl", async (p) => { await p.evaluate(() => (location.hash = "#card?callsign=tests%40wsl")); await pause(p, 400); await p.click('[data-pop="menu"]'); await pause(p); await p.click('.cw-pop [data-act="info"]'); await pause(p, 400); await p.click('[data-mcp-login="linear"]'); await pause(p, 300); }],
+  ["context", "tests@wsl", async (p) => { await p.click('.chat-tb[aria-label="Контекст"]'); await pause(p, 350); }],
+  ["rules", "tests@wsl", async (p) => { await p.click('.chat-tb[aria-label="Контекст"]'); await pause(p, 350); await p.evaluate(() => document.querySelector('[data-sec="rules"]').scrollIntoView()); await pause(p); }],
+  ["focus", "tests@wsl", async (p) => { await p.click('.chat-tb[aria-label="Фокус"]'); await pause(p); }],
+  ["focus-steps", "tests@wsl", async (p) => { await p.click('.chat-tb[aria-label="Фокус"]'); await pause(p); await p.click(".chat-steps .dis-h"); await pause(p); }],
+  ["mcp", "tests@wsl", async (p) => { await p.evaluate(() => (location.hash = "#card?callsign=tests%40wsl")); await pause(p, 400); await p.click('[data-tab="info"]'); await pause(p, 400); await p.click('[data-mcp-login="linear"]'); await pause(p, 300); }],
   ["rewind", "tests@wsl", async (p) => { await p.click(".chat-rw"); await pause(p, 350); }],
 ];
 

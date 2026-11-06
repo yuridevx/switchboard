@@ -1,10 +1,12 @@
-// Разделы: колонка широкого вида, вкладки и лента группы узкого.
+// Разделы: полоса значков широкого вида, вкладки и лента группы узкого.
 import { useEffect, useRef, type ComponentProps } from "react";
+import { Search } from "lucide-react";
 import { Badge, RowBtn, TextBtn } from "@switchboard/web-ui";
 import { ConnPill } from "./bar.tsx";
 import { useCore } from "./place.tsx";
+import type { Screen } from "../types.ts";
 
-type Item = { name: string; label: string; group?: string; narrow?: string; count: number };
+type Item = { name: string; label: string; icon?: Screen["icon"]; group?: string; narrow?: string; count: number };
 
 /** Разделы со счётчиками и открытый раздел; до первого экрана и после остановки — ничего. */
 function useSections() {
@@ -13,7 +15,7 @@ function useSections() {
     if (!page.current || page.stop) return null;
     const items = mods.sections.map((s) => {
       const n = s.def.mark ? mods.mark(s.def.mark, []) : 0;
-      return { name: s.name, label: s.label, group: s.def.group, narrow: s.def.narrowGroup ?? s.def.group, count: typeof n === "number" ? n : 0 };
+      return { name: s.name, label: s.label, icon: s.def.icon, group: s.def.group, narrow: s.def.narrowGroup ?? s.def.group, count: typeof n === "number" ? n : 0 };
     });
     return { items, on: page.current.master ?? page.current.screen };
   });
@@ -26,16 +28,17 @@ function grouped(items: Item[], of: (x: Item) => string | undefined) {
   return { alone: items.filter((x) => !of(x)), groups: [...groups] };
 }
 
-const Count = ({ n }: { n: number }) => (n > 0 ? <Badge wait>{n}</Badge> : null);
+const Count = ({ n }: { n: number }) => (n > 0 ? <Badge wait className="dot" aria-label="есть новое" /> : null);
 
-function Section({ x, on }: { x: Item; on: boolean }) {
+function Section({ x, on, rail }: { x: Item; on: boolean; rail?: boolean }) {
   const { route } = useCore();
   const self = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (on) self.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [on]);
   return (
-    <RowBtn ref={self} className="sb-nv" data-screen={x.name} aria-current={on ? "page" : undefined} onClick={() => route.open(x.name)}>
+    <RowBtn ref={self} className="sb-nv" title={rail ? x.label : undefined} data-screen={x.name} aria-current={on ? "page" : undefined} onClick={() => route.open(x.name)}>
+      {rail && x.icon ? <x.icon className="sb-ni" size={18} aria-hidden="true" /> : null}
       <span>{x.label}</span>
       <Count n={x.count} />
     </RowBtn>
@@ -47,24 +50,25 @@ export function Column() {
   const v = useSections();
   if (!page.wide || !v) return <nav className="sb-navcol" hidden />;
   const { alone, groups } = grouped(v.items, (x) => x.group);
+  const brand = page.o.brand ?? "Switchboard";
   return (
     <nav className="sb-navcol">
-      <div className="sb-brand">
-        <b>{page.o.brand ?? "Switchboard"}</b>
+      <div className="sb-brand" title={brand}>
+        <span className="sb-logo">{brand[0]}</span>
         <ConnPill bare />
       </div>
-      <TextBtn className="sb-goto" onClick={page.toggleSearch}>
+      <TextBtn className="sb-goto" title="Перейти · Ctrl K" onClick={page.toggleSearch}>
+        <Search className="sb-ni" size={18} aria-hidden="true" />
         <span>Перейти…</span>
-        <kbd>Ctrl K</kbd>
       </TextBtn>
       {alone.map((x) => (
-        <Section key={x.name} x={x} on={x.name === v.on} />
+        <Section key={x.name} x={x} on={x.name === v.on} rail />
       ))}
       {groups.flatMap(([group, members]) => [
         <div key={group} className="sb-grp">
           {group}
         </div>,
-        ...members.map((x) => <Section key={x.name} x={x} on={x.name === v.on} />),
+        ...members.map((x) => <Section key={x.name} x={x} on={x.name === v.on} rail />),
       ])}
     </nav>
   );

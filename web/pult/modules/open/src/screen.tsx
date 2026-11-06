@@ -1,12 +1,15 @@
-// Экран новой сессии: имя, машина и адрес, профиль и модель в окнах, задача. «Открыть» — один запрос: решает машина.
+// Экран новой сессии: имя, машина и адрес, таблица участников, задача. «Открыть» — запрос на участника: решает машина.
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
-import { Area, Btn, Chip, Chips, DisclosureBtn, EFFORTS, effortName, IconBtn, In, machineLabel, machinesWith, MODELS, profileName, RowBtn, slotChoice, SlotPick, slotWait, Switch, useApp, useMachineLoad, useModule, type AccountsAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
+import { Area, Btn, Chip, Chips, DisclosureBtn, IconBtn, In, machineLabel, machinesWith, RowBtn, slotChoice, Switch, useApp, useLoad, useMachineLoad, useModule, type AccountsAnswer, type FleetKeysAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
+import { PartyTable, type PartySide, type PartyValue } from "@switchboard/web-party";
 import { byLoad, dirOf, profileHere, pushRecent, refusal, shownDirs, splitAddress, startPlace, type Place } from "./form.ts";
 import type { OpenState } from "./module.tsx";
 
 const cx = (...names: unknown[]) => names.filter(Boolean).join(" ");
-type Pop = "prof" | "model" | null;
+/** Выбор участника: list — null, пока не тронут: как у этой папки. */
+type Pick = Omit<PartyValue, "list"> & { list: string[] | null };
+const EMPTY: Pick = { list: null, model: "", effort: "", slot: "" };
 
 export function OpenScreen({ params }: ScreenProps) {
   const app = useApp();
@@ -21,13 +24,10 @@ export function OpenScreen({ params }: ScreenProps) {
   const [addr, setAddr] = useState(params.dir ?? "");
   const [name, setName] = useState("");
   const [text, setText] = useState("");
-  const [pop, setPop] = useState<Pop>(null);
   const [picking, setPicking] = useState(false);
-  const [chosenProfile, setChosenProfile] = useState<string | null>(null);
-  const [pq, setPq] = useState("");
-  const [model, setModel] = useState("");
-  const [effort, setEffort] = useState("");
-  const [slot, setSlot] = useState("");
+  const [lead, setLead] = useState<Pick>(EMPTY);
+  const [wing, setWing] = useState<Pick>(EMPTY);
+  const [paired, setPaired] = useState(false);
   const [r2, setR2] = useState(false);
   const [busy, setBusy] = useState(false);
   const [nameErr, setNameErr] = useState("");
@@ -52,17 +52,17 @@ export function OpenScreen({ params }: ScreenProps) {
   const dirs = useMachineLoad<{ dirs: string[] }>(machine, "machine.dirs", { machine, path: parent }, here);
   const accounts = useMachineLoad<AccountsAnswer>(machine, "machine.accounts", { machine }, here);
   const profiles = useMachineLoad<ProfilesAnswer>(machine, "machine.profiles", { machine }, here);
+  const fleet = useLoad<FleetKeysAnswer>(() => app.read<FleetKeysAnswer>("fleetkeys.list", {}), []);
+  const keys = fleet.data?.keys ?? {};
+  const keyNames = Object.keys(keys);
   const slots = accounts.stale ? undefined : accounts.data?.slots;
   const profileList = profiles.stale ? undefined : profiles.data?.profiles;
   const slotNames = Object.keys(slots ?? {});
-  const noSlots = !!slots && !slotNames.length;
-  const slotNow = slotChoice(slotNames, slot) || slotNames[0] || "";
+  const noSlots = !!slots && !slotNames.length && !keyNames.length;
+  /** Слот участника: ключ флота — только названный; иначе правило слотов машины. */
+  const slotNow = (p: Pick) => (keyNames.includes(p.slot) ? p.slot : slotChoice(slotNames, p.slot) || slotNames[0] || "");
   const dir = dirOf(address);
-  const profile = chosenProfile ?? profileHere(sessions, machine, dir);
-  const profileOk = profile && profileList?.[profile] ? profile : "";
-  const info = profileOk ? profileList![profileOk] : undefined;
-  const modelShown = model || info?.model || "";
-  const effortShown = effort || info?.effort || "";
+  const listOf = (p: Pick) => (p.list ?? profileHere(sessions, machine, dir)).filter((id) => profileList?.[id]);
   const canR2 = canR2Of.includes(machine);
   const list = dirs.stale ? [] : shownDirs(dirs.data?.dirs ?? [], tail);
   const dirWord = dirs.stale ? "" : dirs.error;
@@ -73,8 +73,8 @@ export function OpenScreen({ params }: ScreenProps) {
     setMachine(m);
     setAddr("~");
     setPicking(false);
-    setSlot("");
-    setChosenProfile(null);
+    setLead(EMPTY);
+    setWing(EMPTY);
     setErr("");
   }
   function enter(sub: string) {
@@ -86,6 +86,17 @@ export function OpenScreen({ params }: ScreenProps) {
       e.preventDefault();
       enter(list[0]);
     }
+  }
+
+  /** Что уходит в запрос от участника: только выбранное; слот — если выбирать есть из чего. */
+  const sideBody = (p: Pick) => {
+    const slot = keyNames.includes(p.slot) ? p.slot : slotChoice(slotNames, p.slot);
+    return { ...(slot ? { slot } : {}), ...(listOf(p).length ? { profile: listOf(p) } : {}), ...(p.model ? { model: p.model } : {}), ...(p.effort ? { effort: p.effort } : {}) };
+  };
+  /** Включить пару: ведомый начинает со значений ведущего, дальше они независимы. */
+  function togglePair() {
+    if (!paired) setWing({ ...lead, list: listOf(lead), slot: slotNow(lead) });
+    setPaired(!paired);
   }
 
   async function open() {
@@ -100,26 +111,24 @@ export function OpenScreen({ params }: ScreenProps) {
       name: clean,
       dir,
       mkdir: true,
-      ...(slotChoice(slotNames, slot) ? { slot: slotChoice(slotNames, slot) } : {}),
-      ...(profileOk ? { profile: profileOk } : {}),
-      ...(model ? { model } : {}),
-      ...(effort ? { effort } : {}),
+      ...sideBody(lead),
     });
     if (!asked.ok) {
       setBusy(false);
       const r = refusal(asked.error, asked.why, machine, clean);
       if (r.field === "name") setNameErr(r.text);
       else setErr(r.text);
-      if (r.field === "slot") {
-        accounts.reload();
-        setPop("model");
-      }
+      if (r.field === "slot") accounts.reload();
       return;
     }
     const callsign = asked.result.callsign;
+    if (paired) {
+      const r = await app.request("session.open", { machine, wing_of: callsign, ...sideBody(wing) });
+      if (!r.ok) app.toast(`${callsign}: ведомый не открылся — ${r.error}`);
+    }
     recent.edit<Place[]>("recent", (old) => pushRecent(old, { m: machine, dir }));
     for (const p of app.placed("open.after", { ...params, callsign })) app.run(p.name, { ...params, callsign });
-    if (r2) {
+    if (r2 && canR2) {
       const r = await app.request("session.r2", { callsign, on: true });
       if (!r.ok) app.toast(`${callsign}: «в R2» не включилось — ${r.error}`);
     }
@@ -191,19 +200,14 @@ export function OpenScreen({ params }: ScreenProps) {
       </div>
     </div>
   );
-  const shade = !wide && pop ? <div className="op-shade" onClick={() => setPop(null)} /> : null;
-  const done = !wide ? (
-    <Btn pri className="op-done" onClick={() => setPop(null)}>
-      Готово
-    </Btn>
-  ) : null;
-  const needle = pq.trim().toLowerCase();
-  const profileRows = Object.entries(profileList ?? {}).filter(([id, p]) => `${profileName(id)} ${p.about ?? ""}`.toLowerCase().includes(needle));
-  const pickProfile = (id: string) => {
-    setChosenProfile(id);
-    setPop(null);
-  };
-  const slotLine = slotWait(slots) || slotNow;
+  const sideOf = (p: Pick, set: (p: Pick) => void): PartySide => ({ value: { ...p, list: listOf(p), slot: slotNow(p) }, set: (change) => set({ ...p, ...change }) });
+  const settings = (
+    <PartyTable lead={sideOf(lead, setLead)} wing={sideOf(wing, setWing)} paired={paired} togglePair={togglePair} data={{ machine, ready: here, profiles: profileList, slots, keys }}>
+      {profiles.error && !profiles.stale ? <div className="op-err all" role="alert">{`machine.profiles: ${profiles.error}`}</div> : null}
+      {accounts.error && !accounts.stale ? <div className="op-err all" role="alert">{`machine.accounts: ${accounts.error}`}</div> : null}
+      {noSlots ? <div className="op-err all" role="alert" data-no-slots="">{`На ${machine} нет слотов: войдите в аккаунт на этой машине`}</div> : null}
+    </PartyTable>
+  );
 
   return (
     <div className={wide ? "op wide" : "op"}>
@@ -233,78 +237,20 @@ export function OpenScreen({ params }: ScreenProps) {
         ) : (
           <div className="op-brw one">{browser}</div>
         )}
+        {here ? settings : null}
       </div>
       <div className="op-cmp">
-        {shade}
-        {pop === "prof" ? (
-          <div className="op-pop" role="dialog" aria-label="Выбор">
-            <div className="lb">{`Профиль · ${machineLabel(app, machine).text} · ${Object.keys(profileList ?? {}).length}`}</div>
-            {profiles.error && !profiles.stale ? <div className="op-err" role="alert">{`machine.profiles: ${profiles.error}`}</div> : null}
-            <In className="op-flt" data-f="pq" aria-label="Найти профиль" placeholder="Найти профиль" autoComplete="off" value={pq} onChange={() => {}} onInput={(e) => setPq(e.currentTarget.value)} />
-            {profileRows.map(([id, p]) => (
-              <RowBtn key={id} className="op-pr" role="radio" aria-checked={profileOk === id} data-profile={id} onClick={() => pickProfile(id)}>
-                <span className="r1">
-                  <b>{profileName(id)}</b>
-                  {p.model ? <span className="sp">{[p.model, p.effort ? effortName(p.effort) : ""].filter(Boolean).join(" · ")}</span> : null}
-                </span>
-                {p.about ? <span className="r2">{p.about}</span> : null}
-              </RowBtn>
-            ))}
-            <RowBtn className="op-pr" role="radio" aria-checked={!profileOk} data-profile="" onClick={() => pickProfile("")}>
-              <span className="r1">
-                <b>без профиля</b>
-              </span>
-            </RowBtn>
-            {done}
-          </div>
-        ) : null}
-        {pop === "model" ? (
-          <div className="op-pop" role="dialog" aria-label="Выбор">
-            <div className="lb">Модель</div>
-            <Chips className="op-opts">
-              {MODELS.map((m) => (
-                <Chip key={m} on={modelShown === m} data-model={m} onClick={() => setModel(m)}>
-                  {m}
-                </Chip>
-              ))}
-            </Chips>
-            <div className="lb">Усилие</div>
-            <Chips className="op-opts">
-              {EFFORTS.map(([k, label]) => (
-                <Chip key={k} on={effortShown === k} data-effort={k} onClick={() => setEffort(k)}>
-                  {label}
-                </Chip>
-              ))}
-            </Chips>
-            {accounts.error && !accounts.stale ? <div className="op-err" role="alert">{`machine.accounts: ${accounts.error}`}</div> : null}
-            <SlotPick slots={slots ?? {}} value={slotNow} on={setSlot} />
-            {noSlots ? <div className="op-err" role="alert" data-no-slots="">{`На ${machine} нет слотов: войдите в аккаунт на этой машине`}</div> : null}
-            {canR2 ? (
-              <div className="op-sw">
-                <span>Точки в R2</span>
-                <Switch on={r2} data-r2="1" aria-label="Точки в R2" onClick={() => setR2(!r2)} />
-              </div>
-            ) : null}
-            {done}
-          </div>
-        ) : null}
-        <div className="op-ctx">
-          <Btn className="op-cx" data-pop="prof" disabled={!here} aria-expanded={pop === "prof"} onClick={() => setPop(pop === "prof" ? null : "prof")}>
-            {profileOk ? <span className="k">Профиль</span> : null}
-            <b>{profileOk ? profileName(profileOk) : "без профиля"}</b>
-          </Btn>
-          <Btn className="op-cx" data-pop="model" aria-expanded={pop === "model"} onClick={() => setPop(pop === "model" ? null : "model")}>
-            {modelShown ? <b>{modelShown}</b> : null}
-            <span className="k">{[modelShown ? "" : "Модель", effortShown ? effortName(effortShown) : "", slotLine, r2 ? "R2" : ""].filter(Boolean).join(" · ")}</span>
-          </Btn>
-        </div>
-        <Area data-f="text" aria-label="Задача" placeholder="Что сделать?" rows={3} value={text} onChange={() => {}} onInput={(e) => setText(e.currentTarget.value)} onKeyDown={keyRun} />
+        <Area data-f="text" aria-label="Задача" placeholder="Что сделать?" rows={2} value={text} onChange={() => {}} onInput={(e) => setText(e.currentTarget.value)} onKeyDown={keyRun} />
         {err ? (
           <span className="op-err" role="alert">
             {err}
           </span>
         ) : null}
         <div className="op-foot">
+          <span className="op-sw">
+            <span>Точки в R2</span>
+            <Switch on={r2} data-r2="1" aria-label="Точки в R2" disabled={!canR2} onClick={() => setR2(!r2)} />
+          </span>
           <Btn pri data-act="open" disabled={busy || !here || noSlots} onClick={() => void open()}>
             {isNew ? "Создать и открыть" : text.trim() ? "Начать" : "Открыть"}
           </Btn>

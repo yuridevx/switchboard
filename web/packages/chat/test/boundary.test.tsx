@@ -848,7 +848,7 @@ describe("лента", () => {
     expect(location.hash).not.toContain("chat");
     await t.expand();
     const row = t.$(`[data-callsign="${IDLE}"]`)!;
-    expect(row.querySelector(".sb-badge")!.textContent).toBe("2");
+    expect(row.querySelector(".sb-badge.dot")!.textContent).toBe("");
     expect(row.textContent).toContain("из пуша");
     await t.click(row);
     expect(t.$$(".chat-in")).toHaveLength(2);
@@ -879,7 +879,7 @@ describe("лента", () => {
 
   it("6696 индикатор работы: занятая, размышляет, сжатие, простой; панели на узком нет", async () => {
     const narrow = await chat(BUSY);
-    expect(narrow.$(".chat-bar")).toBeNull();
+    expect(narrow.$('[aria-label="Контекст"]')).toBeNull();
     expect(narrow.$(".chat-work i")).not.toBeNull();
     await narrow.events(BUSY, [{ type: "system", subtype: "thinking_tokens", uuid: "s1", estimated_tokens: 1500 }], 1);
     expect(narrow.$(".chat-work")!.textContent).toBe("размышляет · 1.5 К");
@@ -915,7 +915,7 @@ describe("лента", () => {
   it("6213 6697 фокус: на виду ошибка и прерывание; сводка шагов; вопрос и итоговый текст на виду; снят — всё по-прежнему", async () => {
     const relay = relayFor(roster(), [user("u1", "Почини"), asst("a1", [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "x" } }]), { type: "assistant", uuid: "a2", error: "overloaded", message: { id: "a2", content: [{ type: "text", text: "промежуточный" }, { type: "tool_use", id: "t2", name: "Read", input: {} }] } }, user("i1", "[Request interrupted by user]")]);
     const t = await chat(IDLE, { relay, wide: true });
-    const focus = t.btn(".chat-bar", "фокус")!;
+    const focus = t.$('.chat-tb[aria-label="Фокус"]')!;
     await t.click(focus);
     expect(t.$(".chat-col .chat-ban.bad")).not.toBeNull();
     expect(t.$(".chat-col > .chat-sys.wait")!.textContent).toContain("прервано");
@@ -928,7 +928,7 @@ describe("лента", () => {
 
     const b = relayFor(roster(), [user("u1", "Почини"), asst("a1", [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "x" } }]), asst("a3", [{ type: "tool_use", id: "t3", name: "AskUserQuestion", input: {} }]), asst("a4", [{ type: "text", text: "Готово" }]), { type: "result", uuid: "z1", subtype: "success" }]);
     const u = await chat(IDLE, { relay: b, wide: true });
-    await u.click(u.btn(".chat-bar", "фокус"));
+    await u.click(u.$('.chat-tb[aria-label="Фокус"]'));
     expect(u.$(".chat-steps")!.textContent).toContain("Команда");
     expect(u.$('.chat-col [data-tool="AskUserQuestion"]')).not.toBeNull();
     expect(u.$(".chat-txt")!.textContent).toBe("Готово");
@@ -940,7 +940,7 @@ describe("лента", () => {
     const t = await chat(IDLE, { relay, wide: true });
     relay.push({ type: "message", from: IDLE, to: "phone", text: "Готово" });
     await flush();
-    const a = t.$<HTMLAnchorElement>(".chat-bar a")!;
+    const a = t.$<HTMLAnchorElement>("a.chat-tb")!;
     a.addEventListener("click", (e) => e.preventDefault());
     a.dispatchEvent(new MouseEvent("click", { cancelable: true, bubbles: true }));
     expect(a.getAttribute("download")).toBe("poe-bot-pc.md");
@@ -1765,7 +1765,7 @@ describe("панель контекста", () => {
     const relay = relayFor();
     answerWith(relay, table);
     const t = await chat(IDLE, { relay, wide: true });
-    await t.click(t.btn(".chat-bar", "контекст"));
+    await t.click(t.$('.chat-tb[aria-label="Контекст"]'));
     await flush(10);
     return { t, relay };
   };
@@ -1797,18 +1797,18 @@ describe("панель контекста", () => {
 
   it("6692 кадр ленты панель не спрашивает; новое открытие спрашивает снова", async () => {
     const { t, relay } = await panel(full);
-    await t.click(t.btn(".chat-bar", "контекст"));
+    await t.click(t.$('.chat-tb[aria-label="Контекст"]'));
     const before = relay.sent("session.call").length;
     await t.events(IDLE, [asst("a1", [{ type: "text", text: "ход" }])], 1);
     expect(relay.sent("session.call").length).toBe(before);
-    await t.click(t.btn(".chat-bar", "контекст"));
+    await t.click(t.$('.chat-tb[aria-label="Контекст"]'));
     await flush(10);
     expect(relay.sent("session.call").length).toBe(before + 6);
   });
 
   it("6693 неживая — кнопки нет; отказ — слово в панели, панель открыта, тоста нет (7216)", async () => {
     const stopped = await chat(STOPPED, { wide: true });
-    expect(stopped.btn(".chat-bar", "контекст")).toBeNull();
+    expect(stopped.$('.chat-tb[aria-label="Контекст"]')).toBeNull();
     const { t, relay } = await panel({ getContextUsage: () => ({ ok: false, error: "stopped" }), supportedAgents: () => ({ ok: false, error: "stopped" }) });
     expect(t.$(".chat-panel > .bad")!.textContent).toBe("сессия остановлена");
     expect(t.$(".chat-panel")).not.toBeNull();
@@ -1838,7 +1838,7 @@ describe("панель контекста", () => {
     await t.type("/");
     expect(calls(relay, "supportedCommands")).toHaveLength(1);
     await t.type("");
-    await t.click(t.btn(".chat-bar", "контекст"));
+    await t.click(t.$('.chat-tb[aria-label="Контекст"]'));
     await flush();
     await t.click(t.btn(".chat-panel", "Перечитать плагины"));
     expect(calls(relay, "reloadPlugins")).toHaveLength(1);
@@ -1864,54 +1864,50 @@ describe("режим разрешений", () => {
     };
     return { relay, asked };
   };
-  const select = (t: Ui) => t.$<HTMLSelectElement>('select[aria-label="Режим разрешений"]');
-  const labels = (el: HTMLSelectElement) => [...el.options].map((o) => o.textContent);
-  const pick = async (el: HTMLSelectElement, value: string) => {
-    el.value = value;
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-    await flush();
-  };
+  const select = (t: Ui) => t.$<HTMLButtonElement>("button.chat-mode");
+  const modes = (el: HTMLButtonElement) => el.dataset.modes!.split(" ");
 
   it("7151 7155 режим из поля roster: четыре режима, нынешний выбран; на узком тоже", async () => {
     const t = await chat(BUSY, { relay: bench("default").relay, wide: true });
     const el = select(t)!;
-    expect(el.value).toBe("default");
-    expect(labels(el)).toEqual(["Без вопросов", "Спрашивать", "Правки сами", "План"]);
-    expect([...el.options].map((o) => o.value)).toEqual(["bypassPermissions", "default", "acceptEdits", "plan"]);
+    expect(el.dataset.mode).toBe("default");
+    expect(el.textContent).toBe("Спрашивать");
+    expect(modes(el)).toEqual(["bypassPermissions", "default", "acceptEdits", "plan"]);
     const u = await chat(BUSY, { relay: bench("acceptEdits").relay });
-    expect(u.$(".chat-bar")).toBeNull();
-    expect(select(u)!.value).toBe("acceptEdits");
+    expect(u.$('[aria-label="Контекст"]')).toBeNull();
+    expect(select(u)!.dataset.mode).toBe("acceptEdits");
   });
 
   it("7152 «Авто» — только если модель сессии умеет", async () => {
     const a = bench("default", { supportedModels: [{ value: "haiku" }, { value: "opus", supportsAutoMode: true }] });
     const t = await chat(BUSY, { relay: a.relay, wide: true });
     await t.events(BUSY, [{ type: "system", subtype: "init", model: "claude-opus-5-5", permissionMode: "default", uuid: "i1" }]);
-    expect(labels(select(t)!)).toContain("Авто");
+    expect(modes(select(t)!)).toContain("auto");
     const b = bench("default", { supportedModels: [{ value: "opus", supportsAutoMode: true }] });
     const u = await chat(BUSY, { relay: b.relay, wide: true });
     await u.events(BUSY, [{ type: "system", subtype: "init", model: "claude-haiku-5-5", permissionMode: "default", uuid: "i1" }]);
-    expect(labels(select(u)!)).not.toContain("Авто");
+    expect(modes(select(u)!)).not.toContain("auto");
   });
 
   it("7153 смена — setPermissionMode; значение меняет поле roster, а не клик и не кадр ленты", async () => {
     const { relay, asked } = bench("bypassPermissions");
     const t = await chat(BUSY, { relay, wide: true });
-    await pick(select(t)!, "plan");
-    expect(asked.filter((c) => c.method === "setPermissionMode")).toEqual([expect.objectContaining({ callsign: BUSY, args: ["plan"] })]);
-    expect(select(t)!.value).toBe("bypassPermissions");
-    await t.events(BUSY, [{ type: "system", subtype: "status", status: null, permissionMode: "plan", uuid: "s1" }]);
-    expect(select(t)!.value).toBe("bypassPermissions");
+    await t.click(select(t));
+    expect(asked.filter((c) => c.method === "setPermissionMode")).toEqual([expect.objectContaining({ callsign: BUSY, args: ["default"] })]);
+    expect(select(t)!.dataset.mode).toBe("bypassPermissions");
+    await t.events(BUSY, [{ type: "system", subtype: "status", status: null, permissionMode: "default", uuid: "s1" }]);
+    expect(select(t)!.dataset.mode).toBe("bypassPermissions");
     relay.setRoster(rosterOf({ mode: "plan" }));
     await flush();
-    expect(select(t)!.value).toBe("plan");
+    expect(select(t)!.dataset.mode).toBe("plan");
+    expect(select(t)!.dataset.next).toBe("bypassPermissions");
   });
 
   it("7154 отказ — тост словом, режим прежний", async () => {
     const t = await chat(BUSY, { relay: bench("bypassPermissions", { setPermissionMode: "refuse" }).relay, wide: true });
-    await pick(select(t)!, "plan");
+    await t.click(select(t));
     expect(t.$(".sb-toast")!.textContent).toContain("Claude отказал");
-    expect(select(t)!.value).toBe("bypassPermissions");
+    expect(select(t)!.dataset.mode).toBe("bypassPermissions");
   });
 
   it("7156 Host не знает режима — выбора нет; session.spec чат не спрашивает", async () => {
@@ -1938,8 +1934,9 @@ describe("режим разрешений", () => {
     await chat(BUSY, { relay: bad.relay, wide: true });
     expect(asked(bad.asked)).toBe(1);
     await away();
+    const seen = asked(bad.asked); // вход на список открывает сессию, и она спрашивает заново
     await back();
-    expect(asked(bad.asked)).toBe(2);
+    expect(asked(bad.asked)).toBe(seen + 1);
   });
 });
 
@@ -2168,7 +2165,7 @@ describe("вопрос сессии: связь и ждущие у Host", () => 
       expect(r.sent("question.list").filter((x) => x.callsign === ASKING)).toHaveLength(1);
       expect(r.sent("question.list").find((x) => x.callsign === ASKING)).toMatchObject({ v: 1 });
       await u.expand();
-      expect(rowOf(u, ASKING).textContent).toContain("База?");
+      if (!wide) expect(rowOf(u, ASKING).textContent).toContain("База?"); // широкий вход открывает сессию, колонки списка на этом стенде нет
     }
   });
 
@@ -2652,7 +2649,7 @@ describe("правила из комментариев старого кода",
     relay.handlers["session.call"] = (f) => (f.method === "supportedModels" ? ({ ok: true, result: [{ value: "opus" }, { value: "default", supportsAutoMode: true }] } as never) : ({ ok: true, result: [] } as never));
     const t = await chat(BUSY, { relay, wide: true });
     await t.events(BUSY, [{ type: "system", subtype: "init", model: "claude-haiku-5-5", uuid: "i1" }]);
-    expect([...t.$<HTMLSelectElement>(".chat-mode")!.options].map((o) => o.value)).toContain("auto");
+    expect(t.$<HTMLButtonElement>(".chat-mode")!.dataset.modes).toContain("auto");
   });
 
   it("ход прервал человек: строка ошибки не показывается и через служебную строку", async () => {
@@ -2703,8 +2700,7 @@ describe("видимое из сверки строк", () => {
     await flush();
     expect(t.$(".chat-jump")!.getAttribute("aria-label")).toBe("К последнему");
     expect(t.$(".chat-jump")!.classList.contains("sb-ic")).toBe(true);
-    expect(t.$$(".chat-bar > *").map((x) => x.textContent)).toEqual(["контекст", "фокус", "выгрузить .md"]);
-    expect(t.$$(".chat-tools [aria-label]").map((x) => x.getAttribute("aria-label"))).toEqual(["Вложить файл", "Файл папки", "Команда", "Режим разрешений", "Отправить"]);
+    expect(t.$$(".chat-tools [aria-label]").map((x) => x.getAttribute("aria-label"))).toEqual(["Вложить файл", "Файл папки", "Команда", "Контекст", "Фокус", "Выгрузить .md", "Отправить"]);
     expect(t.$(".chat-stop")!.textContent).toBe("Прервать");
     expect(t.$(".chat-rw")!.textContent).toBe("откатить файлы");
     expect(t.$(".chat-inp")!.getAttribute("placeholder")).toMatch(/^В очередь /);
@@ -2762,7 +2758,7 @@ describe("сверка строк, второй проход", () => {
     await sent(t, "Катим");
     await t.events(IDLE, [asst("a1", [{ type: "text", text: "Ответ" }])], 1);
     expect(ordered(t)).toEqual(["я", "claude"]);
-    const link = t.$$<HTMLAnchorElement>(".chat-bar a")[0];
+    const link = t.$$<HTMLAnchorElement>("a.chat-tb")[0];
     link.addEventListener("click", (e) => e.preventDefault());
     await t.click(link);
     expect(decodeURIComponent(link.getAttribute("href")!)).toContain("## Вы\n\nКатим");
@@ -2793,7 +2789,7 @@ describe("сверка строк, второй проход", () => {
     const t = await chat(IDLE, { relay, wide: true });
     await t.pick(txt("a.txt"));
     await t.type("черновик");
-    await t.click(t.btn(".chat-bar", "контекст"));
+    await t.click(t.$('.chat-tb[aria-label="Контекст"]'));
     await flush(10);
     await t.click(t.btn(".chat-panel", "Сжать контекст"));
     expect(relay.sent("session.prompt")[0]).toMatchObject({ text: "/compact" });

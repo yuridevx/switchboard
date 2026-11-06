@@ -3,7 +3,7 @@
 .op-h b{flex:1;font:600 19px/1.2 var(--body)}
 .op-x{border:0;background:transparent;color:var(--muted);font-size:15px;border-radius:8px;padding:4px 9px}
 @media (hover:hover){.op-x:hover{background:var(--accent-weak)}}
-.op-body{flex:1;min-height:0;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:6px}
+.op-body{flex:1;min-height:0;overflow-y:auto;scrollbar-gutter:stable;padding:12px 16px;display:flex;flex-direction:column;gap:6px}
 .op-none{font-size:12.5px;color:var(--muted);padding:8px 4px}
 .op-brw{flex:1;min-height:0;display:grid;grid-template-columns:minmax(150px,220px) minmax(0,1fr);gap:10px}
 .op-brw.one{display:block;flex:none}
@@ -27,42 +27,30 @@
 .op-nm input{border:0;outline:0;padding:7px 0;font:600 15px var(--mono);background:transparent;color:var(--ink);flex:1;min-width:0}
 .op-nm:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .op-nm.bad{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad)}
-.op-ctx{display:flex;flex-wrap:wrap;gap:6px}
-.op-cx{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surface2);color:var(--ink);border-radius:999px;padding:4px 10px;font:500 12.5px var(--body)}
-.op-cx .k{color:var(--muted)}
-.op-cx b{font-weight:600}
-.op-cx[aria-expanded="true"]{border-color:var(--accent)}
-.op-cx:disabled{opacity:.45;cursor:default}
 .op-cmp textarea{resize:none;font:400 14px/1.45 var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;box-sizing:border-box;width:100%}
-.op-foot{display:flex;justify-content:flex-end;gap:8px}
-.op-pop{position:absolute;left:12px;bottom:calc(100% + 6px);width:min(380px,calc(100% - 24px));max-height:380px;overflow-y:auto;z-index:6;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.18);padding:8px;display:flex;flex-direction:column;gap:4px}
-.op-pop .lb{font:600 11.5px var(--body);color:var(--muted);padding:4px 8px 0}
-.op-pop [data-slot-pick]{display:block}
-.op-pop [data-slot-pick]>span:first-child{display:block;font:600 11.5px var(--body);color:var(--muted);padding:4px 8px 0}
-.op-pop [data-slot-pick]>.sb-chips{padding:2px 8px}
-.op-pop [data-slot-wait]{padding:4px 8px 0}
-.op-pr{display:flex;flex-direction:column;gap:2px;text-align:left;width:100%;border:1px solid transparent;background:transparent;border-radius:9px;padding:8px 10px;color:var(--ink);flex:none}
-@media (hover:hover){.op-pr:hover{background:var(--surface2)}}
-.op-pr[aria-checked="true"]{background:var(--accent-weak);border-color:var(--line)}
-.op-pr .r1{display:flex;justify-content:space-between;gap:10px;font-size:13px}
-.op-pr .sp{font-size:12px;color:var(--muted);white-space:nowrap}
-.op-pr .r2{font-size:12px;color:var(--muted)}
-.op-opts{padding:2px 8px}
-.op-sw{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 8px;font-size:13px}
-.op-sw button{width:34px;height:20px;border-radius:999px;background:var(--line);border:0;padding:0;position:relative;flex:none}
-.op-sw button::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--surface);transition:left .15s}
-.op-sw button[aria-checked="true"]{background:var(--ok)}
-.op-sw button[aria-checked="true"]::after{left:16px}
-.op:not(.wide) .op-pop{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;max-height:70%;border-radius:18px 18px 0 0;border-width:1px 0 0;z-index:20;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
-.op-shade{position:fixed;inset:0;z-index:19;background:rgba(10,15,12,.38)}
+.op-foot{display:flex;justify-content:flex-end;align-items:center;gap:14px}
 .op:not(.wide) .op-brw.one .op-bf{padding:10px}
 .op:not(.wide) .op-dl{flex:none;overflow:visible}
-/* подвал шторки непрозрачен: список уходит под него и не торчит снизу */
-.op-done{position:sticky;bottom:8px;margin:8px;justify-content:center;box-shadow:0 0 0 8px var(--surface),0 calc(18px + env(safe-area-inset-bottom,0px)) 0 8px var(--surface)}
 .op-nm{flex:none}
 .op-rec{flex:none}
 .op-rec .sb-chip{font:500 12.5px var(--mono);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .op-new{flex:none;font:500 12.5px var(--body);color:var(--muted)}
 .op:not(.wide) .op-rec{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
 .op:not(.wide) .op-rec button{flex:none}
-.op-flt{flex:none;font:400 14px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%;box-sizing:border-box;min-width:0}
+
+.op.wide .op-brw{grid-template-columns:150px minmax(0,1fr);min-height:150px}
+.op.wide .op-bl button{padding:4px 8px}
+.op-body{background:var(--surface)}
+.op .pt-grid{padding-top:6px;border-top:1px solid var(--line2);margin-top:4px}
+.op-sw{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.op-sw button{width:34px;height:20px;border-radius:999px;background:var(--line);border:0;padding:0;position:relative;flex:none}
+.op-sw button::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--surface);transition:left .15s}
+.op-sw button[aria-checked="true"]{background:var(--ok)}
+.op-sw button[aria-checked="true"]::after{left:16px}
+.op-sw button:disabled{opacity:.45}
+/* телефон: задача и кнопка одной полосой */
+.op:not(.wide) .op-cmp{flex-direction:row;flex-wrap:wrap;align-items:flex-end;gap:8px}
+.op:not(.wide) .op-cmp textarea{flex:1 1 0;width:auto;min-width:0}
+.op:not(.wide) .op-cmp .op-err{flex-basis:100%;order:-1}
+.op:not(.wide) .op-foot{flex:none}
+.op:not(.wide) .op-dl{max-height:112px;overflow-y:auto}

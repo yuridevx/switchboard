@@ -1,10 +1,12 @@
 // Настройки флота: вкладки «Выпуски», «Пропуска», «GitHub и устройство»; на телефоне — только устройство.
+import { Settings } from "lucide-react";
 import type { AppPart, ScreenProps } from "@switchboard/web-core";
-import { Page, PageHead, Tabs, useApp } from "@switchboard/web-ui";
+import { useEffect } from "react";
+import { Page, PageHead, Tabs, useApp, useModule } from "@switchboard/web-ui";
 import { GeneralTab, githubCode } from "./general.tsx";
 import { PassesTab } from "./passes.tsx";
 import { ReleasesTab } from "./releases.tsx";
-import { createState } from "./state.ts";
+import { createState, type SettingsState } from "./state.ts";
 import css from "./settings.css";
 
 const TABS = [["releases", "Выпуски"], ["passes", "Пропуска"], ["general", "GitHub и устройство"]] as const;
@@ -12,6 +14,11 @@ type Tab = (typeof TABS)[number][0];
 
 function SettingsScreen({ params }: ScreenProps) {
   const app = useApp();
+  const state = useModule<SettingsState>();
+  const asked = TABS.some(([k]) => k === params.tab) ? (params.tab as Tab) : undefined;
+  useEffect(() => {
+    if (asked) state.local.set((l) => void (l.tab = asked));
+  }, [asked, state]);
   if (!app.wide) {
     return (
       <Page>
@@ -19,7 +26,7 @@ function SettingsScreen({ params }: ScreenProps) {
       </Page>
     );
   }
-  const tab: Tab = TABS.some(([k]) => k === params.tab) ? (params.tab as Tab) : "releases";
+  const tab = asked ?? (state.local.get().tab as Tab);
   return (
     <Page>
       <PageHead title="Настройки">
@@ -37,14 +44,21 @@ export const createSettings = ((app) => {
   return {
     css,
     state,
-    on: { link: (s, machine) => state.answers.onLink(s, machine) },
+    on: {
+      link(s, machine) {
+        state.answers.onLink(s, machine);
+        state.repos.onLink(s, machine);
+        return state.fleet.onLink(s, machine);
+      },
+    },
+    stop: state.fleet.stop,
     // GitHub вернул человека на корень страницы: экран знает свой адрес сам
     start() {
       if (githubCode() && !location.hash) history.replaceState(null, "", `${location.pathname}${location.search}#settings?tab=general`);
     },
     screens: {
       settings: {
-        nav: "Настройки",
+        nav: "Настройки", icon: Settings,
         group: "Флот",
         label: "Настройки",
         view: SettingsScreen,

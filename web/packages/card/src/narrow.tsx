@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
 import type { ScreenProps } from "@switchboard/web-core";
-import { BadCard, Btn, EFFORTS, failText, isLive, MODELS, Opts, Pad, profileIdOf, sessionOf, slotOf, Tabs, useApp, type Result } from "@switchboard/web-ui";
+import { BadCard, Btn, failText, isLive, Pad, profileIdsOf, sessionOf, slotOf, Tabs, useApp, useMachineLoad, type AccountsAnswer, type Result } from "@switchboard/web-ui";
+import { PairSet } from "./settings.tsx";
 
 /** Какая кнопка у сессии: запуск или стоп; машина не умеет — кнопки нет. */
 export function useControl(callsign: string) {
@@ -47,34 +48,18 @@ function Info({ callsign }: { callsign: string }) {
   const machine = machineOf(callsign)!;
   const s = app.use(() => sessionOf(app, callsign));
   const update = app.use(() => app.can(machine, "session.update") === true);
+  const accounts = useMachineLoad<AccountsAnswer>(machine, "machine.accounts", undefined, update);
   const placed = app.use(() => app.placed("card.menu", { callsign }));
   const control = useControl(callsign);
   const { busy, word, act } = useAct(callsign);
   const [names, setNames] = useState(false);
-  const facts: Array<[string, unknown]> = [["адрес", callsign], ["папка", s?.dir], ["слот", slotOf(s)?.name], ["аккаунт", s?.account], ["профиль", profileIdOf(s)], ["сбой", s && failText(s)]];
+  const facts: Array<[string, unknown]> = [["адрес", callsign], ["папка", s?.dir], ["слот", slotOf(s)?.name], ["аккаунт", s?.account], ["профиль", profileIdsOf(s).join(", ")], ["сбой", s && failText(s)]];
   return (
     <Pad>
       <dl className="card-info">
         {facts.filter(([, v]) => v).flatMap(([k, v]) => [<dt key={k}>{k}</dt>, <dd key={`${k}=`}>{String(v)}</dd>])}
       </dl>
-      {s && update && (
-        <div className="card-pick">
-          <Opts data-pick="model">
-            {MODELS.map((m) => (
-              <Btn key={m} aria-pressed={m === s.model} disabled={!!busy} onClick={() => void act("session.update", { model: m })}>
-                {m}
-              </Btn>
-            ))}
-          </Opts>
-          <Opts data-pick="effort">
-            {EFFORTS.map(([e, name]) => (
-              <Btn key={e} aria-pressed={e === s.effort} disabled={!!busy} onClick={() => void act("session.update", { effort: e })}>
-                {name}
-              </Btn>
-            ))}
-          </Opts>
-        </div>
-      )}
+      {s && update && <PairSet callsign={callsign} accounts={accounts} />}
       {placed.map((p) => (
         <Btn key={p.name} className="card-act" data-screen={p.name} onClick={() => app.run(p.name, { callsign })}>
           {p.label}

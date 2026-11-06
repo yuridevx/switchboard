@@ -63,7 +63,7 @@ describe("аккаунты", () => {
     const t = await accountsScreen(relay, "/#accounts");
     const open = relay.sent("machine.accounts").length;
     expect(open).toBeGreaterThan(0);
-    await t.go("#sessions");
+    await t.go("#inbox");
     const r = fleetRoster();
     r.sessions[0].account = "yurianrun";
     relay.setRoster(r);
@@ -110,66 +110,6 @@ describe("аккаунты", () => {
 
 });
 
-describe("профили", () => {
-  const answer = (conflict: string[] | null) => ({ ok: true as const, result: { profiles: { "team/profiles/ops": { model: "opus" }, "team/profiles/writer": { model: "haiku" } }, repos: { "team/profiles": conflict ? { state: "conflict", files: conflict } : { state: "ok" } } } });
-  const shown = (t: P) => t.$$("[data-profile]").map((x) => x.dataset.profile);
-
-  it("6941 · фильтр «конфликты» вычисляется: конфликты ушли — снят; появились — вернулся", async () => {
-    // источник: чьё: код
-    const relay = fleetRelay();
-    relay.handlers["machine.profiles"] = () => answer(["ops/memory/a.md"]);
-    const t = await screen(relay, "/#profiles");
-    await t.click(t.$('[data-act="conflicts"]'));
-    expect(shown(t)).toEqual(["team/profiles/ops"]);
-    relay.handlers["machine.profiles"] = () => answer(null);
-    await t.click(t.$('[data-act="sync"]'));
-    await flush(5);
-    expect(t.$('[data-act="conflicts"]')).toBeNull();
-    expect(shown(t)).toHaveLength(2);
-    relay.handlers["machine.profiles"] = () => answer(["ops/memory/a.md"]);
-    await t.click(t.$('[data-act="sync"]'));
-    await flush(5);
-    expect(t.$('[data-act="conflicts"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(shown(t)).toEqual(["team/profiles/ops"]);
-  });
-
-  it("6952 · одна машина отказала: строка со словом; профили второй на месте", async () => {
-    // источник: устав — отказ словом
-    const relay = fleetRelay();
-    relay.handlers["machine.profiles"] = (f) => (f.machine === "pc" ? { ok: false, error: "no_app" } : answer(null));
-    const t = await screen(relay, "/#profiles");
-    expect(t.$(".pf-e")!.textContent).toBe("@pc: machine.profiles: no_app");
-    expect(shown(t)).toHaveLength(2);
-  });
-
-  it("6953 · чей конфликт: файлы под папкой профиля — только у него; ни под чьей — у всех профилей репозитория", async () => {
-    // источник: факт — правило в profiles/store.ts
-    const relay = fleetRelay();
-    relay.handlers["machine.profiles"] = () => answer(["ops/memory/a.md"]);
-    const t = await screen(relay, "/#profiles");
-    expect(t.$('[data-act="conflicts"]')!.textContent).toBe("конфликты 1");
-    relay.handlers["machine.profiles"] = () => answer(["README.md"]);
-    const t2 = await screen(relay, "/#profiles");
-    expect(t2.$('[data-act="conflicts"]')!.textContent).toBe("конфликты 2");
-  });
-
-  it("6958 · синхронизация: на время «Свожу…»; без конфликта — «Сведено»", async () => {
-    // источник: чьё: код
-    const relay = fleetRelay();
-    relay.handlers["machine.profiles"] = () => answer(null);
-    const t = await screen(relay, "/#profiles");
-    relay.handlers["machine.profiles"] = () => undefined;
-    await t.click(t.$('[data-act="sync"]'));
-    expect(t.$('[data-act="sync"]')!.textContent).toBe("Свожу…");
-    for (const f of relay.sent("machine.profiles").filter((x) => x.sync === true)) relay.reply(f.id!, answer(null));
-    await flush(5);
-    expect(t.$(".sb-toast")!.textContent).toBe("Сведено");
-    expect(t.$('[data-act="sync"]')!.textContent).toBe("Синхронизировать");
-  });
-});
-
-
-
 describe("связь вернулась", () => {
   it("6954 · аккаунты: запрос оборвался — слово disconnected; снова hello — спрошено заново, слово снято", async () => {
     // источник: устав — соединение оборвалось, клиенты переподключаются
@@ -188,22 +128,6 @@ describe("связь вернулась", () => {
     expect(t.text()).not.toContain("machine.accounts: disconnected");
   });
 
-  it("6955 6870 · профили: запрос оборвался — слово; снова hello — спрошено заново, слово снято, ответ на экране", async () => {
-    // источник: устав — соединение оборвалось, клиенты переподключаются
-    const relay = fleetRelay();
-    relay.handlers["machine.profiles"] = () => undefined;
-    const t = await screen(relay, "/#profiles");
-    const before = relay.sent("machine.profiles").length;
-    relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": { model: "opus", effort: "high", about: "дежурство" } }, repos: {} } });
-    relay.drop();
-    await flush(1);
-    expect(t.text()).toContain("machine.profiles: disconnected");
-    await new Promise((r) => setTimeout(r, 30));
-    await flush(10);
-    expect(relay.sent("machine.profiles").length).toBeGreaterThan(before);
-    expect(t.text()).not.toContain("machine.profiles: disconnected");
-    expect(t.$('[data-profile="team/profiles/ops"]')).not.toBeNull();
-  });
 });
 
 function profilesRelay() {
@@ -225,141 +149,6 @@ async function profilesScreen(x = profilesRelay()) {
   await flush(10);
   return t;
 }
-
-describe("профили", () => {
-  it("5600 · профиль — одна строка по всем машинам: описание, модель, число машин и сессий; с конфликтом — сверху; repos в шапке", async () => {
-    const t = await profilesScreen();
-    expect(t.relay.sent("machine.profiles").map((f) => f.machine).sort()).toEqual(["laptop", "pc"]);
-    expect(t.$$("[data-profile]").map((x) => x.dataset.profile)).toEqual(["team/profiles/ops", "team/profiles/writer"]);
-    const ops = t.$('[data-profile="team/profiles/ops"]')!;
-    expect(ops.textContent).toContain("дежурство");
-    expect(ops.textContent).toContain("opus · высокое");
-    expect(ops.textContent).toContain("2/2 машин · 1 сессия");
-    expect(ops.textContent).toContain("конфликт @pc");
-    expect(t.$(".pf-repo")!.textContent).toBe("team/profiles");
-  });
-
-  it("5601 · строка раскрывается: машины, сессии, файлы конфликта; нажатие сессии — карточка", async () => {
-    const t = await profilesScreen();
-    await t.click(t.$('[data-profile="team/profiles/ops"] .pf-r'));
-    const ops = t.$('[data-profile="team/profiles/ops"]')!;
-    expect(ops.querySelector(".pf-cf")!.textContent).toContain("ops/memory/testing.md");
-    await t.click(ops.querySelector('[data-callsign="site@laptop"]'));
-    expect(location.hash).toBe("#card?callsign=site%40laptop");
-  });
-
-  it("5602 · поиск по имени и описанию; «конфликты N» отбирает; фокус поля остаётся", async () => {
-    const t = await profilesScreen();
-    const q = t.$<HTMLInputElement>('[data-f="q"]')!;
-    q.focus();
-    q.value = "writ";
-    q.dispatchEvent(new Event("input", { bubbles: true }));
-    await flush();
-    expect(t.$$("[data-profile]").map((x) => x.dataset.profile)).toEqual(["team/profiles/writer"]);
-    expect(document.activeElement).toBe(t.$('[data-f="q"]'));
-    q.value = "";
-    t.$<HTMLInputElement>('[data-f="q"]')!.value = "";
-    t.$('[data-f="q"]')!.dispatchEvent(new Event("input", { bubbles: true }));
-    await flush();
-    await t.click(t.$('[data-act="conflicts"]'));
-    expect(t.$$("[data-profile]").map((x) => x.dataset.profile)).toEqual(["team/profiles/ops"]);
-  });
-
-  it("5603 · «Синхронизировать» — machine.profiles { sync } по всем машинам, одна кнопка; итог — тост с конфликтом; отказ машины — словом", async () => {
-    const x = profilesRelay();
-    const t = await profilesScreen(x);
-    await t.click(t.$('[data-act="sync"]'));
-    await flush(5);
-    expect(x.sent("machine.profiles").filter((f) => f.sync === true).map((f) => f.machine).sort()).toEqual(["laptop", "pc"]);
-    expect(t.$(".sb-toast")!.textContent).toBe("Сведено. Конфликт: ops @pc");
-    x.handlers["machine.profiles"] = () => ({ ok: false, error: "no_app" });
-    await t.click(t.$('[data-act="sync"]'));
-    await flush(5);
-    expect(t.$(".pf-e")!.textContent).toBe("@laptop: machine.profiles: no_app");
-  });
-
-  it("E19 · синхронизация профилей: git отвечает 30 с — ответ приходит, timeout нет; обычное чтение профилей отказывает на 10 с", async () => {
-    // источник: чьё: код — синхронизация это git pull и push; предел чтения её не касается
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
-    try {
-      const x = profilesRelay();
-      const plain = x.handlers["machine.profiles"];
-      const t = await profilesScreen(x);
-      x.handlers["machine.profiles"] = (f) => (f.sync === true ? (undefined as never) : plain(f));
-      await t.click(t.$('[data-act="sync"]'));
-      await flush(5);
-      await vi.advanceTimersByTimeAsync(30_000);
-      await flush();
-      expect(t.$(".pf-e")?.textContent ?? "").not.toContain("timeout");
-      for (const f of x.sent("machine.profiles").filter((q) => q.sync === true)) x.reply(f.id as string, { ok: true, result: { profiles: {}, repos: {} } });
-      await flush(10);
-      expect(t.$(".sb-toast")!.textContent).toBe("Сведено");
-      expect(t.$(".pf-e")?.textContent ?? "").not.toContain("timeout");
-      // то же имя без синхронизации — чтение: экран открылся заново, машина молчит
-      x.handlers["machine.profiles"] = () => undefined as never;
-      const t2 = await profilesScreen(x);
-      await vi.advanceTimersByTimeAsync(10_500);
-      await flush();
-      expect(t2.$(".pf-e")!.textContent).toContain("machine.profiles: timeout");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("5604 · профилей нет на «Машинах» и в «Настройках»: synchronizing — только здесь", async () => {
-    const t = await pult({ relay: profilesRelay(), url: "/#accounts" });
-    await flush(10);
-    expect(t.btn(null, "Синхронизировать профили")).toBeNull();
-    expect(t.relay.sent("machine.profiles")).toHaveLength(0);
-    await t.go("#profiles");
-    await flush(10);
-    expect(t.$('[data-act="sync"]')!.textContent).toBe("Синхронизировать");
-  });
-});
-
-describe("видимое: профили", () => {
-  const twoRepos = () => {
-    const x = profilesRelay();
-    x.handlers["machine.profiles"] = (f) => ({
-      ok: true,
-      result: { profiles: { "team/profiles/ops": { model: "opus", effort: "high", about: "дежурство" } }, repos: { "team/profiles": f.machine === "pc" ? { state: "error", op: "git push", error: "rejected" } : { state: "ok" } } },
-    });
-    return x;
-  };
-
-  it("шапка, поиск, строка и раскрытие: машины, сессии, ошибка репозитория; раздел зовётся «Профили»", async () => {
-    const t = await profilesScreen(twoRepos());
-    expect(t.$(".pf-h b")!.textContent).toBe("Профили");
-    expect(t.$(".pf-b .pf-t")).not.toBeNull();
-    const q = t.$<HTMLInputElement>('.pf-t [data-f="q"]')!;
-    expect(q.placeholder).toBe("Найти профиль · 1");
-    expect(q.getAttribute("aria-label")).toBe("Найти профиль");
-    expect(t.$(".pf-l .pf-w.cf .pf-n b")!.textContent).toBe("ops");
-    expect(t.$(".pf-n span")!.textContent).toBe("дежурство");
-    expect(t.$(".pf-m .c")!.textContent).toBe("2/2 машин · 1 сессия");
-    expect(t.$(".pf-m .pf-p.bad")!.textContent).toBe("конфликт @pc");
-    await t.click(t.$(".pf-r"));
-    expect(t.$(".pf-d .pf-ms")!.textContent).toBe("@laptop@pc конфликт");
-    expect(t.$(".pf-ms .pf-p.ok")!.textContent).toBe("@laptop");
-    const s = t.$('.pf-ss [data-callsign="site@laptop"]')!;
-    expect(s.querySelector(".nm")!.textContent).toBe("site");
-    expect(s.querySelector(".k")!.textContent).toBe("@laptop · switchboard");
-    const cf = t.$(".pf-cf")!;
-    expect(cf.querySelector("b")!.textContent).toBe("@pc: ошибка");
-    expect(cf.textContent).toContain("rejected");
-    expect(t.$('.sb-navcol button[data-screen="profiles"]')!.textContent).toBe("Профили");
-  });
-
-  it("профилей нет — строка; поиск без совпадений — та же строка", async () => {
-    const x = fleetRelay();
-    x.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: {} } });
-    const t = await profilesScreen(x);
-    expect(t.$(".pf-none")!.textContent).toBe("профилей нет");
-    const t2 = await profilesScreen();
-    await t2.type(t2.$('[data-f="q"]'), "нет такого");
-    expect(t2.$(".pf-none")!.textContent).toBe("профилей нет");
-  });
-});
 
 describe("страница «Аккаунты»: эталоны дизайна", () => {
   const now = () => Math.floor(Date.now() / 1000);

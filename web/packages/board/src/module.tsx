@@ -1,4 +1,5 @@
 // Модуль «Работа»: экран, команды закрепления и постановки в проект, метки.
+import { ListChecks } from "lucide-react";
 import type { AppPart } from "@switchboard/web-core";
 import { BoardScreen } from "./list.tsx";
 import { createState } from "./state.ts";
@@ -10,14 +11,14 @@ export const createBoard = ((app) => {
   return {
     css,
     state: s,
-    store: ["flt", "collapsed", "view"],
+    store: ["flt", "collapsed", "view", "picked"],
     start: s.load,
     stop: s.stop,
     on: { link: s.link, current: s.current, show: s.load },
     marks: s.marks as Record<string, (...args: string[]) => unknown>,
     screens: {
       board: {
-        nav: "Работа",
+        nav: "Работа", icon: ListChecks,
         path: "sessions",
         view: BoardScreen,
         find: s.find,

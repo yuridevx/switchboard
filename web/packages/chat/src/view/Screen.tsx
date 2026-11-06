@@ -1,5 +1,5 @@
-// Экран разговора: полоса (широко), лента или фокус, док над вводом и ввод.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+// Экран разговора: лента или фокус, панель контекста на её месте, док над вводом и ввод со значками.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { machineOf } from "@switchboard/protocol";
 import { Btn, IconBtn, Pad, sessionLabel, sessionOf, useApp, useModule, type Params } from "@switchboard/web-ui";
 import { exportMd, focused, type Item } from "../focus.ts";
@@ -48,42 +48,38 @@ function Work({ cs, view }: { cs: string; view: View }) {
   );
 }
 
-function Bar({ cs, view, focus }: { cs: string; view: View; focus: boolean }) {
+/** Значки разговора в поле ввода: над лентой ничего нет. */
+function Tools({ cs, view, focus, panel, setPanel }: { cs: string; view: View; focus: boolean; panel: boolean; setPanel(on: boolean): void }) {
   const talks = useModule<Talks>();
   const app = useApp();
   const canAct = app.use(() => talks.canAct(cs));
-  const [panel, setPanel] = useState(false);
   return (
     <>
-      <div className="chat-bar">
-        {canAct ? (
-          <Btn type="button" className="chat-mini" aria-pressed={panel} onClick={() => setPanel(!panel)}>
-            <Icon name="gauge" />
-            контекст
-          </Btn>
-        ) : null}
-        <Btn type="button" className="chat-mini" aria-pressed={focus} onClick={() => talks.edit(cs, (t) => void (t.focus = !t.focus))}>
-          <Icon name="focus" />
-          фокус
-        </Btn>
-        <a
-          className="chat-mini"
-          download={`${cs.replace("@", "-")}.md`}
-          href="#"
-          onClick={(e) => {
-            e.currentTarget.href = `data:text/markdown;charset=utf-8,${encodeURIComponent(exportMd(cs, view))}`;
-          }}
-        >
-          <Icon name="download" />
-          выгрузить .md
-        </a>
-      </div>
-      {panel && canAct ? <Panel cs={cs} close={() => setPanel(false)} /> : null}
+      {canAct ? (
+        <IconBtn className="chat-tb" aria-label="Контекст" title="Контекст" aria-pressed={panel} onClick={() => setPanel(!panel)}>
+          <Icon name="gauge" size={16} />
+        </IconBtn>
+      ) : null}
+      <IconBtn className="chat-tb" aria-label="Фокус" title="Фокус" aria-pressed={focus} onClick={() => talks.edit(cs, (t) => void (t.focus = !t.focus))}>
+        <Icon name="focus" size={16} />
+      </IconBtn>
+      <a
+        className="chat-tb"
+        aria-label="Выгрузить .md"
+        title="Выгрузить .md"
+        download={`${cs.replace("@", "-")}.md`}
+        href="#"
+        onClick={(e) => {
+          e.currentTarget.href = `data:text/markdown;charset=utf-8,${encodeURIComponent(exportMd(cs, view))}`;
+        }}
+      >
+        <Icon name="download" size={16} />
+      </a>
     </>
   );
 }
 
-function Feed({ cs, view, focus }: { cs: string; view: View; focus: boolean }) {
+function Feed({ cs, view, focus, over }: { cs: string; view: View; focus: boolean; over?: ReactNode }) {
   const app = useApp();
   const talks = useModule<Talks>();
   const more = app.use(() => talks.get(cs).more);
@@ -172,6 +168,7 @@ function Feed({ cs, view, focus }: { cs: string; view: View; focus: boolean }) {
           <Icon name="arrow-down" size={16} />
         </IconBtn>
       ) : null}
+      {over}
     </div>
   );
 }
@@ -186,9 +183,11 @@ export function ChatScreen({ params }: { params: Params }) {
   const canAct = app.use(() => talks.canAct(cs));
   const label = app.use(() => sessionLabel(app, cs).text);
   const focus = app.use(() => app.wide && talks.get(cs).focus);
+  const [panel, setPanel] = useState(false);
 
   useEffect(() => {
     talks.open(cs);
+    setPanel(false);
     return () => talks.close(cs);
   }, [cs]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -214,10 +213,9 @@ export function ChatScreen({ params }: { params: Params }) {
   return (
     <EnvCtx.Provider value={env}>
       <div className={app.wide ? "chat wide" : "chat"}>
-        {app.wide ? <Bar cs={cs} view={view} focus={focus} /> : null}
-        <Feed cs={cs} view={view} focus={focus} />
+        <Feed cs={cs} view={view} focus={focus} over={panel && canAct ? <Panel cs={cs} close={() => setPanel(false)} /> : null} />
         <Dock />
-        <Composer key={cs} />
+        <Composer key={cs} tools={app.wide ? <Tools cs={cs} view={view} focus={focus} panel={panel} setPanel={setPanel} /> : null} />
       </div>
     </EnvCtx.Provider>
   );

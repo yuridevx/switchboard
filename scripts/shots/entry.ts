@@ -32,7 +32,7 @@ const session = (s: S): SessionRecord => ({
   account: "dev@mail.ru",
   mode: "bypassPermissions",
   ...(s.cs === "refactor@win" ? { r2: {} } : {}),
-  ...(s.prof ? { profile: { id: `team/profiles/${s.prof}`, state: "ok" } } : {}),
+  ...(s.prof ? { profile: [{ id: `team/profiles/${s.prof}`, state: "ok" }] } : {}),
   ...(s.fail ? { failed: { start: s.fail } } : {}),
   ...(s.inc ? { incident: { type: s.inc, key: "switchboard#main" } } : {}),
 });
@@ -50,6 +50,7 @@ answerRequests(relay, F, roster, app, ME);
 const names = [...new Set(F.ss.map(project))].filter((id) => id !== "~").sort();
 const order = big ? ["switchboard", "pfarm", ...names.filter((id) => id !== "switchboard" && id !== "pfarm")] : names;
 relay.scoped.global = {
+  "fleet.profiles.repos": ["team/profiles"],
   "fleet.projects": order.map((id) => ({ id, name: id, sessions: F.ss.filter((s) => project(s) === id).map((s) => s.cs).sort() })),
   "fleet.labels": big ? {} : { machines: { win: "Домашний ПК", wsl: "Ubuntu дома" }, sessions: { "refactor@win": "Переделка списка" } },
 };

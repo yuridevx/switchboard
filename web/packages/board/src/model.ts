@@ -2,7 +2,7 @@
 import type { SessionRecord } from "@switchboard/web-core";
 import { kindOf, machineOf, userOf } from "@switchboard/protocol";
 import { NONE } from "@switchboard/records";
-import { plural, profileNameOf } from "@switchboard/web-ui";
+import { plural, profileIdsOf, profileName } from "@switchboard/web-ui";
 
 export type Filter = { id: string; name: string; who?: string[]; projects?: string[]; machines?: string[]; profiles?: string[]; states?: string[] };
 export type FilterField = "who" | "projects" | "machines" | "profiles" | "states";
@@ -15,7 +15,7 @@ export const BUILT_IN: Array<Pick<Filter, "id" | "name">> = [
   { id: "mine", name: "Моё" },
   { id: "all", name: "Всё" },
 ];
-export const VIEW = { projects: true, group: false, tree: true, dense: false, lamp: true, at: true, owner: true, pin: true, inc: true, badge: true, q: true, unread: true, fail: true, prof: true, model: true, pjlamps: true, grip: true, add: true, fcount: true };
+export const VIEW = { projects: true, group: false, tree: true, dense: false, lamp: true, at: true, owner: true, pin: true, inc: true, badge: true, q: true, unread: true, fail: true, prof: true, model: true, pjlamps: true, grip: true, add: true };
 
 const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" || s.state === "starting" ? 1 : 2);
 /** Сначала ждущие вас и упавшие, потом занятые, остальные; внутри — по адресу. */
@@ -64,7 +64,7 @@ export function matches(f: Partial<Filter>, s: SessionRecord, facts: Facts): boo
     fits(f.who, (w) => (w === "mine" ? facts.mine(callsign) : facts.owner(callsign) === w)) &&
     fits(f.projects, (p) => facts.project(callsign) === p) &&
     fits(f.machines, (m) => machineOf(callsign) === m) &&
-    fits(f.profiles, (p) => profileNameOf(s) === p) &&
+    fits(f.profiles, (p) => profileIdsOf(s).some((id) => profileName(id) === p)) &&
     fits(f.states, (x) => s.state === x)
   );
 }

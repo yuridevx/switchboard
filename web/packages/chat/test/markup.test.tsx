@@ -47,11 +47,10 @@ describe("ввод", () => {
     expect(t.$("textarea.sb-in.chat-inp")).not.toBeNull();
     expect(t.$('button.sb-ic.chat-send[type="submit"]')).not.toBeNull();
     for (const label of ["Вложить файл", "Файл папки", "Команда"]) expect(t.$(`button.sb-ic.chat-tb[title="${label}"]`), label).not.toBeNull();
-    expect(t.$('select.sb-in.chat-mode[title="Режим разрешений"]')).not.toBeNull();
+    expect(t.$('button.sb-b.chat-mode[title="Режим разрешений: нажатие — следующий"]')).not.toBeNull();
     expect(t.$("button.sb-b.bad.chat-stop")).not.toBeNull();
     icon(t.$(".chat-stop"), "square", 11);
-    for (const [b, name] of [["контекст", "gauge"], ["фокус", "focus"]]) icon(t.btn(".chat-bar", b), name, 13);
-    expect(t.$(".chat-bar a")!.textContent).toBe("выгрузить .md");
+    for (const [b, name] of [["Контекст", "gauge"], ["Фокус", "focus"], ["Выгрузить .md", "download"]]) icon(t.$(`[aria-label="${b}"]`), name, 16);
   });
 
   it("режима нет у неживой; модель — только из ленты: «Авто» без сведений не предлагается", async () => {
@@ -61,7 +60,7 @@ describe("ввод", () => {
     relay.handlers["session.call"] = (f) => (f.method === "supportedModels" ? ({ ok: true, result: [{ value: "sonnet", supportsAutoMode: true }] } as never) : ({ ok: true, result: [] } as never));
     const t = await chat(IDLE, { relay, wide: true });
     await flush(5);
-    expect([...t.$<HTMLSelectElement>(".chat-mode")!.options].map((o) => o.value)).not.toContain("auto");
+    expect(t.$<HTMLButtonElement>(".chat-mode")!.dataset.modes).not.toContain("auto");
   });
 
   it("подсказки и вложения: вид списка, строка набора, значок файла", async () => {
@@ -232,7 +231,7 @@ describe("панель и док", () => {
       return (String(f.method) in table ? { ok: true, result: table[String(f.method)] } : { ok: false, error: "unknown_method" }) as never;
     };
     const t = await chat(IDLE, { relay, wide: true });
-    await t.click(t.btn(".chat-bar", "контекст"));
+    await t.click(t.$('.chat-tb[aria-label="Контекст"]'));
     await flush(5);
     const p = t.$('section.chat-panel[aria-label="Контекст"]')!;
     icon(p.querySelector(".chat-pn-h"), "gauge", 14);

@@ -1,7 +1,8 @@
 // Вкладки широкой карточки: «Настройки» и «Журнал». Раздел настроек виден, если машина умеет его запрос.
 import { useEffect, useRef, useState } from "react";
-import { Btn, CommitIn, midnight, Note, Outcome, profileIdOf, profileName, sessionOf, slotOf, useApp, useMachineLoad, useOutcome, type AccountsAnswer, type JournalAnswer, type JournalRecord, type ProfilesAnswer } from "@switchboard/web-ui";
+import { Btn, Chip, Chips, CommitIn, Confirm, isLive, midnight, Outcome, permModeName, permModesOf, sessionOf, Switch, useApp, useMachineLoad, useOutcome, wingOf, type AccountsAnswer, type JournalAnswer, type JournalRecord, type ModelInfo } from "@switchboard/web-ui";
 import { Control, useAct, useControl } from "./narrow.tsx";
+import { PairSet, Refused } from "./settings.tsx";
 
 type Load<T> = { data?: T; error: string };
 
@@ -22,35 +23,31 @@ function useChange(callsign: string) {
 /** Чтение не удалось и данных нет: слово на их месте. */
 const refusal = (answer: Load<unknown>, cur: string) => (answer.error && !answer.data ? [cur, answer.error].filter(Boolean).join(" · ") : "");
 
-function Refused({ what, text }: { what: string; text: string }) {
-  return (
-    <Note tone="bad" data-refused={what}>
-      {text}
-    </Note>
-  );
-}
-
-function ProfileSec({ callsign, machine }: { callsign: string; machine: string }) {
+/** Режим разрешений рядом с настройками: кнопки, как модель и усилие. */
+function ModeSec({ callsign, sdk }: { callsign: string; sdk: boolean }) {
   const app = useApp();
   const [notes, change] = useChange(callsign);
-  const profiles = useMachineLoad<ProfilesAnswer>(machine, "machine.profiles");
-  const cur = app.use(() => profileIdOf(sessionOf(app, callsign)) ?? "");
-  const word = refusal(profiles, cur && profileName(cur));
+  const s = app.use(() => sessionOf(app, callsign));
+  const mode = s?.mode as string | undefined;
+  const models = app.use(() => app.mark("models", callsign) as ModelInfo[] | null | undefined);
+  // «Авто» — если модель умеет: список моделей у разговора
+  useEffect(() => {
+    if (sdk) app.run("models.load", { callsign });
+  }, [app, callsign, sdk]);
+  if (mode === undefined || !isLive(s?.state)) return null;
+  const modes = permModesOf(mode, String(s?.model ?? ""), models);
   return (
-    <div className="cw-fs" data-sec="profile">
-      <span className="lb">Профиль</span>
-      {word ? (
-        <Refused what="profile" text={word} />
-      ) : (
-        <div className="cw-opts flat">
-          {[...Object.keys(profiles.data?.profiles ?? {}), ""].map((id) => (
-            <Btn key={id} data-profile={id} aria-pressed={id === cur} onClick={() => void (id !== cur && change("profile", "session.profile", { profile: id || null }))}>
-              {id ? profileName(id) : "без профиля"}
-            </Btn>
-          ))}
-        </div>
-      )}
-      <Outcome className="cw-note" note={notes.profile} />
+    <div className="cw-fs" data-sec="mode">
+      <span className="lb">Режим разрешений</span>
+      <Chips className="pt-seg cw-modes" aria-label="Режим разрешений" data-mode={mode}>
+        {modes.some(([value]) => value === mode) ? null : <Chip on>{permModeName(mode) ?? mode}</Chip>}
+        {modes.map(([value, label]) => (
+          <Chip key={value} on={value === mode} data-perm={value} onClick={() => void (value !== mode && change("mode", "session.call", { method: "setPermissionMode", args: [value] }))}>
+            {label}
+          </Chip>
+        ))}
+      </Chips>
+      <Outcome className="cw-note" note={notes.mode} />
     </div>
   );
 }
@@ -63,12 +60,12 @@ function FastSec({ callsign }: { callsign: string }) {
     if (!r.ok) app.toast(`${callsign}: быстрый режим — ${r.error}`);
   }
   return (
-    <label className="cw-sw" data-sec="fast">
-      <span>Быстрый режим</span>
-      <Btn role="switch" aria-checked={on} aria-pressed={on} onClick={() => void set()}>
-        {on ? "вкл" : "выкл"}
-      </Btn>
-    </label>
+    <div className="cw-fastrow" data-sec="fast">
+      <span className="pt-sw">
+        <Switch on={on} aria-label="Быстрый режим" onClick={() => void set()} />
+        <span>Быстрый режим</span>
+      </span>
+    </div>
   );
 }
 
@@ -88,30 +85,6 @@ function TitleSec({ callsign, machine }: { callsign: string; machine: string }) 
   );
 }
 
-function SlotSec({ callsign, accounts }: { callsign: string; accounts: Load<AccountsAnswer> }) {
-  const app = useApp();
-  const [notes, change] = useChange(callsign);
-  const cur = app.use(() => slotOf(sessionOf(app, callsign))?.name ?? "");
-  const word = refusal(accounts, cur);
-  return (
-    <div className="cw-fs" data-sec="slot">
-      <span className="lb">Слот</span>
-      {word ? (
-        <Refused what="slot" text={word} />
-      ) : (
-        <div className="cw-opts flat">
-          {Object.keys(accounts.data?.slots ?? {}).map((name) => (
-            <Btn key={name} data-slot={name} aria-pressed={name === cur} onClick={() => void (name !== cur && change("slot", "session.slot", { slot: name }))}>
-              {name}
-            </Btn>
-          ))}
-        </div>
-      )}
-      <Outcome className="cw-note" note={notes.slot} />
-    </div>
-  );
-}
-
 function ControlSec({ callsign, removable }: { callsign: string; removable: boolean }) {
   const app = useApp();
   const control = useControl(callsign);
@@ -127,17 +100,7 @@ function ControlSec({ callsign, removable }: { callsign: string; removable: bool
         <Control kind={control} busy={busy} act={act} />
         {removable && !confirm && <Btn bad onClick={() => setConfirm(true)}>Убрать…</Btn>}
       </div>
-      {confirm && (
-        <div className="cw-confirm">
-          <span>{`${callsign} остановится и уйдёт из списка. Точки в R2 останутся.`}</span>
-          <div className="cw-opts flat">
-            <Btn bad disabled={!!busy} onClick={() => void remove()}>
-              Убрать
-            </Btn>
-            <Btn onClick={() => setConfirm(false)}>Отмена</Btn>
-          </div>
-        </div>
-      )}
+      {confirm && <Confirm text={`${callsign} остановится и уйдёт из списка. Точки в R2 останутся.`} act="Убрать" run={() => void remove()} cancel={() => setConfirm(false)} />}
       {word && (
         <span className="cw-note bad" role="alert">
           {word}
@@ -147,16 +110,29 @@ function ControlSec({ callsign, removable }: { callsign: string; removable: bool
   );
 }
 
+/** Своё у каждой стороны вне таблицы: быстрый режим, режим разрешений, заголовок. */
+function Side({ callsign, machine, can }: { callsign: string; machine: string; can: Record<string, boolean> }) {
+  return (
+    <div className="cw-side" data-callsign={callsign}>
+      {can["session.update"] && <FastSec callsign={callsign} />}
+      {can["session.call"] && <ModeSec callsign={callsign} sdk={can["session.call"]} />}
+      {can["session.spec"] && <TitleSec callsign={callsign} machine={machine} />}
+    </div>
+  );
+}
+
 export function SetTab({ callsign, machine, accounts }: { callsign: string; machine: string; accounts: Load<AccountsAnswer> }) {
   const app = useApp();
-  const can = app.use(() => Object.fromEntries(["session.update", "session.spec", "session.profile", "session.slot", "session.remove"].map((n) => [n, app.can(machine, n) === true])));
+  const can = app.use(() => Object.fromEntries(["session.update", "session.spec", "session.remove", "session.call"].map((n) => [n, app.can(machine, n) === true])));
   const present = app.use(() => !!sessionOf(app, callsign));
+  const wing = app.use(() => wingOf(app.roster()?.sessions ?? [], callsign)?.callsign);
   return (
     <div className="cw-set">
-      {can["session.profile"] && <ProfileSec callsign={callsign} machine={machine} />}
-      {can["session.update"] && <FastSec callsign={callsign} />}
-      {can["session.spec"] && <TitleSec callsign={callsign} machine={machine} />}
-      {can["session.slot"] && <SlotSec callsign={callsign} accounts={accounts} />}
+      {present && can["session.update"] && <PairSet callsign={callsign} accounts={accounts} />}
+      <div className={wing ? "cw-sides two" : "cw-sides"}>
+        <Side callsign={callsign} machine={machine} can={can} />
+        {wing && <Side callsign={wing} machine={machine} can={can} />}
+      </div>
       <ControlSec callsign={callsign} removable={present && can["session.remove"]} />
     </div>
   );

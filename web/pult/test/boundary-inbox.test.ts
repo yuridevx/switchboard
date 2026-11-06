@@ -223,12 +223,12 @@ describe("Вам: виды карточек", () => {
     it("6963 · «Прочитано»: метка «Вам» меньше на одну; новый roster с той же idle карточку не возвращает", async () => {
       // источник: чьё: код
       const t = await withRelay({ roster: fleet(), wide: true, url: "/#inbox" });
-      const nav = () => t.$('.sb-navcol .sb-nv[data-screen="inbox"]')!.textContent;
+      const nav = () => t.$('.sb-navcol .sb-nv[data-screen="inbox"] .sb-badge.dot') !== null;
       t.relay.setRoster(fleet((r) => idle(r)));
       await flush();
-      expect(nav()).toBe("Вам1");
+      expect(nav()).toBe(true);
       await t.click(t.button("Прочитано"));
-      expect(nav()).toBe("Вам");
+      expect(nav()).toBe(false);
       t.relay.setRoster(fleet((r) => idle(r)));
       await flush();
       expect(kinds(t)).not.toContain("done:site@laptop");

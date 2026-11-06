@@ -1,8 +1,10 @@
 // Страница «Аккаунты»: наверху лимиты каждого аккаунта, ниже машины строками, в строке очередь её аккаунтов. Всё, что нажато, открывается в этой строке.
 import { useEffect, useState } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { ago, at, type AccountsAnswer, Btn, day, Dot, hhmm, In, LIMIT_BAD, LIMIT_WARN, machineLabel, Meter, Note, okOf, Outcome, type OutcomeNote, Page, type SlotInfo, useApp, useOutcome, wordOf } from "@switchboard/web-ui";
+import type { ScreenProps } from "@switchboard/web-core";
+import { ago, at, type AccountsAnswer, Btn, day, Dot, hhmm, In, LIMIT_BAD, LIMIT_WARN, machineLabel, Meter, Note, okOf, Outcome, type OutcomeNote, Page, PageHead, type SlotInfo, Tabs, useApp, useOutcome, wordOf } from "@switchboard/web-ui";
 import type { MachineRowInfo } from "../../machines/contract.ts";
+import { FleetKeys } from "./fleetkeys.tsx";
 import { type Merged, merged, order, resetText, shortName, type Win } from "./merge.ts";
 import { refusal, useAccounts } from "./state.ts";
 
@@ -23,8 +25,16 @@ function WindowLine({ w }: { w: Win }) {
       <span>{w.name}</span>
       <Meter value={Math.min(percent, 100)} warn={tone(percent) === "warn"} bad={tone(percent) === "over"} />
       <b>{`${percent} %`}</b>
-      <time>{w.resets ? resetText(w.resets) : ""}</time>
-      {w.at && nowS() - w.at > OLD_S ? <small data-age="">{`данные ${ago(w.at * 1000)}`}</small> : null}
+      <time title={w.at && nowS() - w.at > OLD_S ? `данные ${ago(w.at * 1000)}` : undefined}>
+        {w.resets ? resetText(w.resets) : ""}
+        {w.at && nowS() - w.at > OLD_S ? (
+          <small data-age="">
+            {" · "}
+            <span className="w">от </span>
+            {ago(w.at * 1000)}
+          </small>
+        ) : null}
+      </time>
     </div>
   );
 }
@@ -283,7 +293,10 @@ function MachineLine({ row, all, panel, setPanel, marked }: { row: MachineRowInf
   );
 }
 
-export function AccountsScreen() {
+const TABS = [["logins", "Аккаунты"], ["keys", "Ключи флота"]] as const;
+type Tab = (typeof TABS)[number][0];
+
+export function AccountsScreen({ params }: ScreenProps) {
   const app = useApp();
   const state = useAccounts();
   const [panel, setPanel] = useState<Panel>(null);
@@ -300,23 +313,31 @@ export function AccountsScreen() {
     // экран открыт — ответы свежие; app один на модуль
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
+  const tab: Tab = TABS.some(([k]) => k === params.tab) ? (params.tab as Tab) : (state.seen.tab as Tab);
+  state.seen.tab = tab;
   const all = merged(answers, nowS());
   const columns = [...new Set(all.flatMap((a) => a.windows.map((w) => w.key)))].sort(order);
   return (
     <Page>
+      <PageHead>
+        <Tabs className="ac-tabs" tabs={TABS} cur={tab} pick={(k) => app.open("accounts", { tab: k })} />
+      </PageHead>
       <div className="ac-page">
-        {all.length ? (
+        {tab === "keys" ? <FleetKeys /> : null}
+        {tab === "logins" && all.length ? (
           <div className="ac-list" style={{ "--ac-cols": Math.max(columns.length, 1) } as React.CSSProperties}>
             {all.map((a) => (
               <AccountLine key={a.email} a={a} columns={columns} marked={marked === a.email} mark={() => setMarked(marked === a.email ? "" : a.email)} panel={panel} setPanel={setPanel} />
             ))}
           </div>
         ) : null}
-        <div className="ac-machines">
-          {rows.map((row) => (
-            <MachineLine key={row.machine} row={row} all={all} panel={panel} setPanel={setPanel} marked={marked} />
-          ))}
-        </div>
+        {tab === "logins" ? (
+          <div className="ac-machines">
+            {rows.map((row) => (
+              <MachineLine key={row.machine} row={row} all={all} panel={panel} setPanel={setPanel} marked={marked} />
+            ))}
+          </div>
+        ) : null}
       </div>
     </Page>
   );

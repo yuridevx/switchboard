@@ -495,9 +495,11 @@ describe("подписи и форматы", () => {
     expect(ui.effortName("x")).toBe("x");
     expect(ui.effortName(undefined)).toBe("");
     expect(ui.profileName("team/profiles/ops")).toBe("ops");
-    expect(ui.profileIdOf({ profile: { id: "team/ops" } } as never)).toBe("team/ops");
-    expect(ui.profileIdOf(undefined)).toBeUndefined();
-    expect(ui.profileNameOf({ profile: { id: "team/ops" } } as never)).toBe("ops");
+    expect(ui.profileRepo("team/profiles/ops")).toBe("team/profiles");
+    expect(ui.profileIdsOf({ profile: [{ id: "team/ops" }, { id: "team/dev" }] } as never)).toEqual(["team/ops", "team/dev"]);
+    expect(ui.profileIdsOf(undefined)).toEqual([]);
+    expect(ui.profileNameOf({ profile: [{ id: "team/ops" }] } as never)).toBe("ops");
+    expect(ui.profileNameOf({ profile: [{ id: "team/ops" }, { id: "team/dev" }] } as never)).toBe("ops +1");
     expect(ui.profileNameOf({} as never)).toBeUndefined();
   });
 

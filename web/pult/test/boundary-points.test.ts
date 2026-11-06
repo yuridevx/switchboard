@@ -699,6 +699,7 @@ describe("вкладка «Точки» сессии", () => {
       ["session.points", "Точки"],
       ["set", "Настройки"],
       ["log", "Журнал"],
+      ["info", "Сведения"],
     ]);
     await t.click(t.$('.cw-tabs [data-tab="session.points"]'));
     expect(t.$('.cw-place [data-r2="on"]')).not.toBeNull();
@@ -1108,8 +1109,8 @@ describe("окна копии, смены папки и отката", () => {
     Object.assign(r.sessions[2], { r2: {}, remote: { url: "https://claude.ai/code/session_02Qx" } });
     relay.setRoster(r);
     await flush();
-    await t.click(t.$('[data-pop="menu"]'));
-    expect(t.$<HTMLAnchorElement>('.cw-pop a[href^="https://claude.ai/"]')!.getAttribute("href")).toBe("https://claude.ai/code/session_02Qx");
+    await t.click(t.$('.cw-tabs [data-tab="info"]'));
+    expect(t.$<HTMLAnchorElement>('.cw-info a[href^="https://claude.ai/"]')!.getAttribute("href")).toBe("https://claude.ai/code/session_02Qx");
     expect(relay.got.some((f) => f.type.startsWith("remote"))).toBe(false);
   });
 

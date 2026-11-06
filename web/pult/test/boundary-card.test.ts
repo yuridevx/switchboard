@@ -58,10 +58,10 @@ describe("Карточка: телефон", () => {
       await t.click(t.button("Ещё"));
       expect(t.relay.sent("session.unwatch")).toHaveLength(1);
       expect(t.$(".card-info")!.textContent).toBe("адресsite@laptopпапка~/Projects/switchboardслотmainаккаунтy0902");
-      // прототип «Пульт и телефон»: модель и усилие меняются из сессии и на телефоне
+      // слово пользователя 6 нояб.: на телефоне та же таблица участника
       t.relay.handlers["session.update"] = () => ({ ok: true });
-      expect(t.$('[data-pick="model"] [aria-pressed="true"]')!.textContent).toBe("opus");
-      await t.click(t.$('[data-pick="effort"] button'));
+      expect(t.$('[data-model][aria-pressed="true"]')!.textContent).toBe("opus");
+      await t.click(t.$('[data-effort="low"]'));
       expect(t.relay.sent("session.update")[0]).toMatchObject({ callsign: "site@laptop", effort: "low" });
       await t.click(t.button("Остановить"));
       expect(t.relay.sent("session.stop")[0]).toMatchObject({ v: 1, callsign: "site@laptop" });
@@ -168,16 +168,16 @@ describe("Карточка: настройки", () => {
       expect(t.$('[data-sec="title"]')!.textContent).toContain("Не вышло: bad_spec");
     });
 
-    it("6997 · нажат текущий профиль и текущий слот: запроса нет", async () => {
+    it("6997 · нажат текущий слот: запроса нет; текущий профиль в списке добавления не стоит", async () => {
       // источник: чьё: код
-      const r = roster([], (x) => void Object.assign(x.sessions.find((s) => s.callsign === "poe-bot@pc")!, { profile: { id: "team/profiles/ops", state: "ok" }, slot: { name: "main", wait: null } }));
+      const r = roster([], (x) => void Object.assign(x.sessions.find((s) => s.callsign === "poe-bot@pc")!, { profile: [{ id: "team/profiles/ops", state: "ok" }], slot: { name: "main", wait: null } }));
       const relay = relayFor(r);
       relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": {} } } });
       relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: {}, slots: { main: { account: "a", order: ["a"] } } } });
       const t = await wideCard(r, relay);
       await t.tab("set");
-      await t.click(t.$('[data-profile="team/profiles/ops"]'));
-      await t.click(t.$('[data-sec="slot"] [data-slot="main"]'));
+      expect(t.$('[data-profile="team/profiles/ops"]')).toBeNull();
+      await t.click(t.$('[data-side="Ведущий"] [data-slot="main"]'));
       expect(relay.sent("session.profile")).toHaveLength(0);
       expect(relay.sent("session.slot")).toHaveLength(0);
     });
@@ -219,16 +219,19 @@ describe("Карточка: настройки", () => {
       // источник: чьё: код
       const r = roster();
       const relay = relayFor(r);
-      relay.handlers["session.remove"] = () => ({ ok: true });
+      relay.handlers["session.remove"] = () => {
+        relay.setRoster({ ...r, sessions: r.sessions.filter((s) => s.callsign !== "poe-bot@pc") });
+        return { ok: true };
+      };
       const t = await wideCard(r, relay);
       await t.tab("set");
       await t.click(t.btn(".cw-set", "Убрать…"));
-      await t.click(t.btn(".cw-confirm", "Отмена"));
-      expect(t.$(".cw-confirm")).toBeNull();
+      await t.click(t.btn(".sb-confirm", "Отмена"));
+      expect(t.$(".sb-confirm")).toBeNull();
       expect(relay.sent("session.remove")).toHaveLength(0);
       await t.click(t.btn(".cw-set", "Убрать…"));
       const before = location.hash;
-      await t.click(t.btn(".cw-confirm", "Убрать"));
+      await t.click(t.btn(".sb-confirm", "Убрать"));
       await flush(5);
       expect(relay.sent("session.remove")).toHaveLength(1);
       expect(location.hash).not.toBe(before);
@@ -317,22 +320,20 @@ describe("Карточка: настройки", () => {
       }
     });
 
-    it("6937 · на время запроса кнопки неактивны; модель — session.update, стоп — session.stop", async () => {
+    it("6937 · модель — session.update; на время запроса стопа кнопка неактивна", async () => {
       // источник: чьё: код
       const r = roster();
       const relay = relayFor(r);
-      relay.handlers["session.update"] = () => undefined;
+      relay.handlers["session.update"] = () => ({ ok: true });
+      relay.handlers["session.stop"] = () => undefined;
       const t = await narrow(r, relay);
-      await t.click(t.$('[data-pick="model"] button'));
-      const sent = relay.sent("session.update").at(-1)!;
-      expect(sent).toHaveProperty("model");
-      expect(t.button("Остановить")!.disabled).toBe(true);
-      relay.reply(sent.id!, { ok: true });
+      await t.click(t.$('[data-model="sonnet"]'));
+      expect(relay.sent("session.update").at(-1)).toHaveProperty("model", "sonnet");
+      await t.click(t.button("Остановить"));
+      expect(t.button("Останавливаю…")!.disabled).toBe(true);
+      relay.reply(relay.sent("session.stop").at(-1)!.id!, { ok: true });
       await flush();
       expect(t.button("Остановить")!.disabled).toBe(false);
-      relay.handlers["session.stop"] = () => ({ ok: true });
-      await t.click(t.button("Остановить"));
-      expect(relay.sent("session.stop")).toHaveLength(1);
     });
 
     it("6938 · отказ: «Не вышло» и «запрос: слово»; следующее действие снимает прошлое слово", async () => {
@@ -340,12 +341,12 @@ describe("Карточка: настройки", () => {
       const r = roster();
       const relay = relayFor(r);
       relay.handlers["session.stop"] = () => ({ ok: false, error: "stopping" });
-      relay.handlers["session.update"] = () => undefined;
       const t = await narrow(r, relay);
       await t.click(t.button("Остановить"));
       expect(t.text()).toContain("Не вышло");
       expect(t.text()).toContain("session.stop: stopping");
-      await t.click(t.$('[data-pick="model"] button'));
+      relay.handlers["session.stop"] = () => ({ ok: true });
+      await t.click(t.button("Остановить"));
       expect(t.text()).not.toContain("session.stop: stopping");
     });
   });
@@ -372,15 +373,15 @@ describe("Карточка: настройки", () => {
       const relay = relayFor(r);
       const t = await stand(parts(), { relay, store, wide: true, url: "/#card?callsign=poe-bot%40pc" });
       await flush();
-      expect(t.$("aside.cw-info")).toBeNull();
+      expect(t.$(".cw-at")).not.toBeNull();
       // уход с экрана доводит начатые запросы: ответить на те, что без подделки
       for (const f of relay.got) if (typeof f.id === "string") relay.reply(f.id, { ok: true, result: null });
       await flush();
       await t.run.hide();
-      store.data["card.info"] = true;
+      store.data["card.head"] = { hat: false };
       await t.run.show();
       await flush();
-      expect(t.$("aside.cw-info")).not.toBeNull();
+      expect(t.$(".cw-at")).toBeNull();
     });
   });
 
@@ -390,21 +391,21 @@ describe("Карточка: настройки", () => {
     it("E6 · слот, профиль, заголовок и серверы MCP: через 10 с слово на месте данных, а не «без слота» и не пусто", async () => {
       // источник: слово пользователя 4 нояб. — «таймаут операций на запрос метадаты 10 секунд»; дизайн «Что видит человек при отказе»
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
-      const r = roster([], (x) => void Object.assign(x.sessions.find((s) => s.callsign === "poe-bot@pc")!, { slot: { name: "main", wait: null }, profile: { id: "team/profiles/ops", state: "ok" } }));
+      const r = roster([], (x) => void Object.assign(x.sessions.find((s) => s.callsign === "poe-bot@pc")!, { slot: { name: "main", wait: null }, profile: [{ id: "team/profiles/ops", state: "ok" }] }));
       const relay = relayFor(r);
       for (const n of ["machine.accounts", "machine.profiles", "session.spec", "session.call"]) relay.handlers[n] = () => undefined as never;
       const t = await wideCard(r, relay);
-      await t.click(t.$('[data-pop="menu"]'));
-      await t.click(t.$('.cw-pop [data-act="info"]'));
       await t.tab("set");
       await vi.advanceTimersByTimeAsync(9_000);
       expect(t.$('[data-refused="slot"]')).toBeNull();
       await vi.advanceTimersByTimeAsync(1_500);
       await flush();
       expect(t.$('[data-refused="slot"]')!.textContent).toBe("main · timeout");
-      expect(t.$('[data-sec="slot"] [data-slot=""]')).toBeNull();
       expect(t.$('[data-refused="profile"]')!.textContent).toBe("ops · timeout");
       expect(t.$('[data-refused="title"]')!.textContent).toBe("timeout");
+      await t.tab("info");
+      await vi.advanceTimersByTimeAsync(10_500);
+      await flush();
       expect(t.$('[data-refused="mcp"]')!.textContent).toBe("timeout");
     });
   });
@@ -492,22 +493,27 @@ describe("Карточка: широкий вид", () => {
   });
 
   describe("карточка в широком виде", () => {
-    // источник: прототип «Пульт и телефон», подписан пользователем 2 нояб. («основа дизайна ок»); комментарии к прототипу:
+    // источник шапки и «Сведений»: слова пользователя 6 нояб. — «шапка в одну строку», «меню ⋯ убрать», «Сведения» вкладкой: окон поверх нет. Остальное —
+    // прототип «Пульт и телефон», подписан пользователем 2 нояб. («основа дизайна ок»); комментарии к прототипу:
     // «переработай статус в 1 строку», «перенести в право в контекст меню всю панель», «не запустилось — ховер индикатора,
     // опус и высокое конфигурируемый отсюда», «где-то надо сделать лимиты и аккаунт активный», сведения — «опциональные»
-    it("5301 · шапка — одна строка: лампа, позывной, «модель · усилие ▾», «аккаунт · % ▾» (жёлтая с 70 %), вкладки, «⋯»", async () => {
+    it("5301 · шапка — одна строка: лампа, имя, «модель · усилие», «аккаунт · %» (жёлтая с 70 %), вкладки; меню ⋯ и окон нет; плашки нет", async () => {
       const r = roster();
       const relay = relayFor(r);
-      relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { email: "dev@mail", plan: "Max 20×", limits: { five_hour: { utilization: 0.82, resetsAt: 1793660000 }, seven_day: { utilization: 0.41 } } } } } });
+      relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { email: "dev@mail", plan: "Max 20×", limits: { five_hour: { utilization: 0.82, resetsAt: 0 } } } } } });
       const t = await wideCard("site@laptop", r, relay);
       const head = t.$(".cw-h")!;
       expect(head.querySelector(".cw-cs")!.textContent).toBe("site");
-      expect(head.querySelector('[data-pop="model"]')!.textContent).toBe("opus · высокое ▾");
-      expect(head.querySelector('[data-pop="acc"]')!.textContent).toBe("y0902 · 82 % ▾");
-      expect(head.querySelector('[data-pop="acc"]')!.classList.contains("lim")).toBe(true);
-      expect(head.querySelector(".cw-tabs")).not.toBeNull();
-      expect([...head.querySelectorAll(".cw-tabs [data-tab]")].map((b) => b.textContent)).toEqual(["Разговор", "Настройки", "Журнал"]);
-      expect(head.querySelector('[data-pop="menu"]')).not.toBeNull();
+      expect(head.querySelector('[data-go="set"]')!.textContent).toBe("opus · высокое");
+      expect(head.querySelector('[data-go="info"]')!.textContent).toBe("y0902 · 82 %");
+      expect(head.querySelector('[data-go="info"]')!.classList.contains("lim")).toBe(true);
+      expect([...head.querySelectorAll(".cw-tabs [data-tab]")].map((b) => b.textContent)).toEqual(["Разговор", "Настройки", "Журнал", "Сведения"]);
+      expect(head.querySelector("[data-pop]")).toBeNull();
+      expect(t.$(".cw-pop")).toBeNull();
+      await t.click(head.querySelector('[data-go="set"]'));
+      expect(t.$('.cw-tabs [aria-selected="true"]')!.textContent).toBe("Настройки");
+      await t.click(head.querySelector('[data-go="info"]'));
+      expect(t.$('.cw-tabs [aria-selected="true"]')!.textContent).toBe("Сведения");
       // плашки у живой сессии нет; состояние — не текстом
       expect(t.$(".cw-pl")!.hidden).toBe(true);
       expect(head.textContent).not.toContain("работает");
@@ -533,7 +539,7 @@ describe("Карточка: широкий вид", () => {
       expect(t2.$(".cw-h .cw-lamp")!.getAttribute("title")).toBe("свободна");
     });
 
-    it("7310 · supportedModels — один запрос на экран: поле ввода чата и окно модели шапки берут один ответ", async () => {
+    it("7310 · supportedModels — один запрос на экран: поле ввода и режим в настройках берут один ответ", async () => {
       // источник: отчёт архитектора, лишняя коммуникация 6: модели на одном экране спрашивают дважды
       const r = roster([], (x) => void (x.sessions.find((v) => v.callsign === "poe-bot@pc")!.mode = "default"));
       const relay = relayFor(r);
@@ -543,78 +549,67 @@ describe("Карточка: широкий вид", () => {
       await flush(10);
       expect(t.$(".chat-mode")).not.toBeNull();
       expect(asked()).toBe(1);
-      await t.click(t.$('[data-pop="model"]'));
+      await t.tab("set");
       await flush(10);
-      expect(t.$$(".cw-pop [data-model]").map((b) => b.textContent)).toEqual(["Opus 5.5", "✓ Sonnet 5.5"]);
+      expect(t.$('.cw-set [data-sec="mode"]')).not.toBeNull();
       expect(asked()).toBe(1);
     });
 
-    it("5303 · модель и усилие — из шапки: модели — ответ SDK машины (supportedModels), выбор — session.update; отказ — тост", async () => {
+    it("5303 · модель и усилие — в таблице участника: выбор — session.update; полное имя модели отмечает свой псевдоним; отказ — слово в разделе", async () => {
       const relay = relayFor(roster());
       relay.handlers["session.call"] = (f) => (f.method === "supportedModels" ? { ok: true, result: [{ value: "opus", displayName: "Opus 5.5" }, { value: "sonnet", displayName: "Sonnet 5.5" }] } : { ok: true, result: null });
       relay.handlers["session.update"] = () => ({ ok: true, result: { now: ["model"] } });
       const t = await wideCard("poe-bot@pc", roster(), relay);
-      await t.click(t.$('[data-pop="model"]'));
-      expect(relay.sent("session.call")).toEqual([expect.objectContaining({ callsign: "poe-bot@pc", method: "supportedModels" })]);
-      expect(t.$$(".cw-pop [data-model]").map((b) => b.textContent)).toEqual(["Opus 5.5", "✓ Sonnet 5.5"]);
-      await t.click(t.$('.cw-pop [data-model="opus"]'));
-      expect(relay.sent("session.update")).toEqual([expect.objectContaining({ v: 1, callsign: "poe-bot@pc", model: "opus" })]);
-      expect(t.$(".cw-pop")).toBeNull();
-      relay.handlers["session.update"] = () => ({ ok: false, error: "bad_spec" });
-      await t.click(t.$('[data-pop="model"]'));
-      await t.click(t.$('.cw-pop [data-effort="low"]'));
-      expect(relay.sent("session.update").at(-1)).toMatchObject({ callsign: "poe-bot@pc", effort: "low" });
-      expect(t.$(".sb-toast")!.textContent).toBe("poe-bot@pc: усилие — bad_spec");
-      // в настройках модели и усилия нет — одно место
       await t.tab("set");
-      expect(t.$(".cw-set [data-model], .cw-set [data-effort]")).toBeNull();
+      await flush(5);
+      expect(t.$$('.cw-set [data-model][aria-pressed="true"]').map((b) => b.textContent)).toEqual(["sonnet"]);
+      await t.click(t.$('.cw-set [data-model="opus"]'));
+      expect(relay.sent("session.update")).toEqual([expect.objectContaining({ v: 1, callsign: "poe-bot@pc", model: "opus" })]);
+      relay.handlers["session.update"] = () => ({ ok: false, error: "bad_spec" });
+      await t.click(t.$('.cw-set [data-effort="low"]'));
+      expect(relay.sent("session.update").at(-1)).toMatchObject({ callsign: "poe-bot@pc", effort: "low" });
+      expect(t.$('[data-sec="pair"] .cw-note')!.textContent).toContain("bad_spec");
     });
 
-    it("5304 · аккаунт и лимиты: окно — почта и план, слот, окна лимитов, очередь слота; слот ждёт сброса — «ждёт сброса ЧЧ:ММ»", async () => {
+    it("режим разрешений в настройках — кнопками, без выпадающего списка: выбор — setPermissionMode, нынешний нажат", async () => {
+      // источник: слово пользователя 6 нояб. — «не надо никаких селектов, всё переключателями»
+      const r = roster([], (x) => void (x.sessions.find((v) => v.callsign === "poe-bot@pc")!.mode = "default"));
+      const relay = relayFor(r);
+      relay.handlers["session.call"] = () => ({ ok: true, result: [] });
+      const t = await wideCard("poe-bot@pc", r, relay);
+      await t.tab("set");
+      await flush(5);
+      expect(t.$(".cw-set select")).toBeNull();
+      expect(t.$$('[data-sec="mode"] [aria-pressed="true"]').map((b) => b.textContent)).toEqual(["Спрашивать"]);
+      await t.click(t.$('[data-perm="plan"]'));
+      expect(relay.sent("session.call").find((f) => f.method === "setPermissionMode")).toMatchObject({ callsign: "poe-bot@pc", args: ["plan"] });
+    });
+
+    it("5304 · аккаунт и лимиты в «Сведениях»: почта и план, слот, окна лимитов, очередь слота; слот ждёт сброса — кнопка шапки своим цветом", async () => {
       const reset = Math.floor(new Date(2026, 10, 2, 16, 40).getTime() / 1000);
       const r = roster([], (x) => Object.assign(x.sessions[0], { slot: { name: "night", wait: reset } }));
       const relay = relayFor(r);
-      relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { email: "night@mail", plan: "Max 5×", limits: { five_hour: { utilization: 0.98, resetsAt: reset } } } }, slots: { night: { account: "y0902", order: ["y0902", "spare"], wait: reset, sessions: ["site@laptop"] } } } });
+      relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { email: "night@mail", plan: "Max 5×", limits: { five_hour: { utilization: 0.98, resetsAt: reset } } } }, slots: { night: { order: ["y0902", "spare"] } } } });
       const t = await wideCard("site@laptop", r, relay);
-      const b = t.$('[data-pop="acc"]')!;
-      expect(b.textContent).toBe("y0902 · ждёт сброса 16:40 ▾");
+      const b = t.$('[data-go="info"]')!;
+      expect(b.textContent).toBe("y0902 · ждёт сброса 16:40");
       expect(b.classList.contains("you")).toBe(true);
       await t.click(b);
-      const pop = t.$(".cw-pop")!;
-      expect(pop.querySelector(".cw-kv")!.textContent).toBe("аккаунтy0902 · Max 5×слотnight @laptop");
-      expect(pop.querySelector('[data-win="five_hour"]')!.textContent).toBe("5 ч98 % · до 16:40");
-      expect(pop.textContent).toContain("очередь слота: y0902 → spare");
-      await t.click(t.btn(".cw-pop", "Сменить слот"));
+      const sec = t.$('[data-sec="account"]')!;
+      expect(sec.querySelector(".cw-kv")!.textContent).toBe("аккаунтy0902 · Max 5×слотnight");
+      expect(sec.querySelector('[data-win="five_hour"]')!.textContent).toBe("5 ч98 % · до 16:40");
+      expect(sec.textContent).toContain("очередь слота: y0902 → spare");
+      await t.click(t.btn('[data-sec="account"]', "Сменить слот"));
       expect(t.$('.cw-tabs [aria-selected="true"]')!.textContent).toBe("Настройки");
     });
 
-    it("5305 · меню ⋯: профиль, папка (поле dir), машина, инцидент; пункты места card.menu — экран с from; claude.ai — ссылкой", async () => {
-      const r = roster([], (x) => Object.assign(x.sessions[0], { dir: "~/Projects/site", profile: { id: "team/profiles/ops", state: "ok" }, incident: { type: "disk-full", key: "/" }, remote: { url: "https://claude.ai/code/s1" } }));
+    it("5305 · «Сведения»: кто дал задачу, модель, адрес, машина, инцидент, папка, профиль; claude.ai — ссылкой", async () => {
+      const r = roster([], (x) => Object.assign(x.sessions[0], { dir: "~/Projects/site", by: "pult~you@mail", profile: [{ id: "team/profiles/ops", state: "ok" }], incident: { type: "disk-full", key: "/" }, remote: { url: "https://claude.ai/code/s1" } }));
       const t = await wideCard("site@laptop", r);
-      await t.click(t.$('[data-pop="menu"]'));
-      expect(t.$(".cw-pop .cw-kv")!.textContent).toBe("профильopsпапка~/Projects/siteмашина@laptopинцидентdisk-full · /");
-      expect(t.$<HTMLAnchorElement>('.cw-pop a[href="https://claude.ai/code/s1"]')!.textContent).toBe("Открыть в claude.ai ↗");
-      // клик мимо закрывает меню
-      document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await flush();
-      expect(t.$(".cw-pop")).toBeNull();
-    });
-
-    it("5306 · сведения сбоку — по желанию: по умолчанию скрыты; «Сведения сбоку» — показаны и запомнены на устройстве", async () => {
-      const store = memoryStore({ key: KEY });
-      const r = roster([], (x) => Object.assign(x.sessions[0], { dir: "~/Projects/site", by: "pult~you@mail", parent: "pult~you@mail" }));
-      const relay = relayFor(r);
-      const t = await stand(parts(), { relay, wide: true, store, url: "/#card?callsign=site%40laptop", options: { beside: { card: "board", chat: "board", ask: "board" } } });
-      await flush();
-      expect(t.$("aside.cw-info")).toBeNull();
-      await t.click(t.$('[data-pop="menu"]'));
-      await t.click(t.$('.cw-pop [data-act="info"]'));
-      await flush();
-      expect(t.$("aside.cw-info")!.textContent).toContain("задачу далpult~you@mail");
-      expect(t.$("aside.cw-info")!.textContent).toContain("папка~/Projects/site");
-      const t2 = await stand(parts(), { relay: relayFor(r), wide: true, store, url: "/#card?callsign=site%40laptop", options: { beside: { card: "board", chat: "board", ask: "board" } } });
-      await flush();
-      expect(t2.$("aside.cw-info")).not.toBeNull();
+      await t.tab("info");
+      const info = t.$("aside.cw-info")!;
+      expect(info.querySelector(".cw-kv")!.textContent).toBe("задачу далpult~you@mailмодельopus · высокоеадресsite@laptopмашина@laptopинцидентdisk-full · /папка~/Projects/siteпрофильops");
+      expect(info.querySelector<HTMLAnchorElement>('a[href="https://claude.ai/code/s1"]')!.textContent).toBe("Открыть в claude.ai ↗");
     });
 
     it("6106 · сведения открыты, сессия ожила позже — список серверов MCP приходит без переоткрытия", async () => {
@@ -622,8 +617,7 @@ describe("Карточка: широкий вид", () => {
       const relay = relayFor(r);
       relay.handlers["session.call"] = (f) => (f.method === "mcpServerStatus" ? { ok: true, result: [{ name: "fleet", status: "connected" }] } : { ok: true, result: null });
       const t = await wideCard("site@laptop", r, relay);
-      await t.click(t.$('[data-pop="menu"]'));
-      await t.click(t.$('.cw-pop [data-act="info"]'));
+      await t.tab("info");
       await flush();
       const asked = () => relay.sent("session.call").filter((f) => f.method === "mcpServerStatus");
       expect(asked()).toHaveLength(0);
@@ -638,8 +632,7 @@ describe("Карточка: широкий вид", () => {
       const relay = relayFor(r);
       relay.handlers["session.call"] = (f) => (f.method === "mcpServerStatus" ? { ok: true, result: [{ name: "fleet", status: "connected" }] } : { ok: true, result: null });
       const t = await wideCard("site@laptop", r, relay);
-      await t.click(t.$('[data-pop="menu"]'));
-      await t.click(t.$('.cw-pop [data-act="info"]'));
+      await t.tab("info");
       await flush();
       const toggled = () => relay.sent("session.call").filter((f) => f.method === "toggleMcpServer");
       await t.click(t.$(".cw-sw span"));
@@ -656,8 +649,7 @@ describe("Карточка: широкий вид", () => {
       const relay = relayFor(r);
       relay.handlers["session.call"] = (f) => (f.method === "mcpServerStatus" ? { ok: true, result: [{ name: "fleet", status: "failed" }] } : f.method === "reconnectMcpServer" ? { ok: false, error: "sdk_error" } : { ok: true, result: null });
       const t = await wideCard("site@laptop", r, relay);
-      await t.click(t.$('[data-pop="menu"]'));
-      await t.click(t.$('.cw-pop [data-act="info"]'));
+      await t.tab("info");
       await flush();
       expect(t.$(".cw-sw")!.textContent).toContain("ошибка");
       const asked = () => relay.sent("session.call").filter((f) => f.method === "mcpServerStatus").length;
@@ -681,8 +673,7 @@ describe("Карточка: широкий вид", () => {
       let url: string | undefined = "https://example.com/login";
       relay.handlers["session.call"] = (f) => (f.method === "mcpServerStatus" ? { ok: true, result: [{ name: "gh", status: "needs-auth" }, { name: "fleet", status: "connected" }] } : f.method === "mcpAuthenticate" ? { ok: true, result: { authUrl: url } } : { ok: true, result: null });
       const t = await wideCard("site@laptop", r, relay);
-      await t.click(t.$('[data-pop="menu"]'));
-      await t.click(t.$('.cw-pop [data-act="info"]'));
+      await t.tab("info");
       await flush();
       expect(t.$('[data-mcp-login="fleet"]')).toBeNull();
       await t.click(t.$('[data-mcp-login="gh"]'));
@@ -703,31 +694,63 @@ describe("Карточка: широкий вид", () => {
         x.sessions = x.sessions.filter((s) => !s.callsign.endsWith("@pc"));
       });
       const t = await wideCard("poe-bot@pc", r);
-      expect(t.$(".cw-h")!.textContent).toContain("poe-bot@pc✎не на связи");
+      expect(t.$(".cw-h")!.textContent).toContain("не на связи");
+      expect(t.$(".cw-h .cw-cs")!.textContent).toBe("poe-bot");
       expect(t.$(".cw-pl")!.hidden).toBe(true);
     });
   });
 
   describe("настройки карточки", () => {
-    it("5307 · профиль и слот — чипами (session.profile, session.slot), отказ — «Не вышло: слово»; «Убрать…» — подтверждение, session.remove", async () => {
+    it("8055 · пара из настроек: переключатель — session.open { wing_of }; пара есть — вторая колонка, снятие с вопросом на месте, session.remove ведомого", async () => {
+      // источник: слово пользователя 6 нояб.: пара — opt-in, выбрать всё для обеих сессий
+      const r = roster();
+      const relay = relayFor(r);
+      relay.handlers["session.open"] = () => ({ ok: true, result: { callsign: "poe-bot-wing@pc" } });
+      const t = await wideCard("poe-bot@pc", r, relay);
+      await t.tab("set");
+      await flush(5);
+      expect(t.$('[data-side="Ведомый"]')).toBeNull();
+      await t.click(t.$("button[data-pair]"));
+      expect(relay.sent("session.open").at(-1)).toMatchObject({ machine: "pc", wing_of: "poe-bot@pc" });
+      expect(relay.sent("session.open").at(-1)).not.toHaveProperty("name");
+      const lead = r.sessions.find((s) => s.callsign === "poe-bot@pc")!;
+      relay.setRoster({ ...r, sessions: [...r.sessions, { ...lead, callsign: "poe-bot-wing@pc", parent: "poe-bot@pc", wing: true, model: "haiku" } as never] });
+      await flush(5);
+      expect(t.$('[data-side="Ведомый"] [data-model="haiku"]')!.getAttribute("aria-pressed")).toBe("true");
+      expect(t.$('.cw-side[data-callsign="poe-bot-wing@pc"]')).not.toBeNull();
+      relay.handlers["session.update"] = () => ({ ok: true });
+      await t.click(t.$('[data-side="Ведомый"] [data-model="opus"]'));
+      expect(relay.sent("session.update").at(-1)).toMatchObject({ callsign: "poe-bot-wing@pc", model: "opus" });
+      relay.handlers["session.remove"] = () => ({ ok: true });
+      await t.click(t.$("button[data-pair]"));
+      expect(relay.sent("session.remove")).toHaveLength(0);
+      await t.click(t.btn('[data-sec="pair"] .sb-confirm', "Убрать"));
+      expect(relay.sent("session.remove")).toEqual([expect.objectContaining({ callsign: "poe-bot-wing@pc" })]);
+    });
+
+    it("5307 · профиль списком и слот (session.profile, session.slot), отказ — «Не вышло: слово»; ключ флота — слот; «Убрать…» — подтверждение, session.remove", async () => {
       const relay = relayFor(roster());
       relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": {}, "team/profiles/writer": {} } } });
       relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: {}, slots: { main: { account: "y0902", order: ["y0902"] }, bot: { account: "work3", order: ["work3"] } } } });
       relay.handlers["session.profile"] = () => ({ ok: false, error: "no_profile" });
       relay.handlers["session.slot"] = () => ({ ok: true, result: { restart: true } });
       relay.handlers["session.remove"] = () => ({ ok: true });
+      relay.handlers["fleetkeys.list"] = () => ({ ok: true, result: { keys: { orca: { env: {}, settings: {} } } } });
       const t = await wideCard("poe-bot@pc", roster(), relay);
       await t.tab("set");
-      expect(t.$$('[data-sec="profile"] [data-profile]').map((b) => b.textContent)).toEqual(["ops", "writer", "без профиля"]);
-      await t.click(t.$('[data-profile="team/profiles/writer"]'));
-      expect(relay.sent("session.profile")).toEqual([expect.objectContaining({ callsign: "poe-bot@pc", profile: "team/profiles/writer" })]);
-      expect(t.$('[data-sec="profile"]')!.textContent).toContain("Не вышло: no_profile");
-      await t.click(t.$('[data-slot="bot"]'));
+      await flush(5);
+      expect(t.$$('[data-side="Ведущий"] [data-profile]').map((b) => b.dataset.profile)).toEqual(["team/profiles/ops", "team/profiles/writer"]);
+      await t.click(t.$('[data-side="Ведущий"] [data-profile="team/profiles/writer"]'));
+      expect(relay.sent("session.profile")).toEqual([expect.objectContaining({ callsign: "poe-bot@pc", profile: ["team/profiles/writer"] })]);
+      expect(t.$('[data-sec="pair"]')!.textContent).toContain("Не вышло: no_profile");
+      await t.click(t.$('[data-side="Ведущий"] [data-slot="bot"]'));
       expect(relay.sent("session.slot")).toEqual([expect.objectContaining({ callsign: "poe-bot@pc", slot: "bot" })]);
-      expect(t.$('[data-sec="slot"]')!.textContent).toContain("после хода");
+      expect(t.$('[data-sec="pair"]')!.textContent).toContain("после хода");
+      await t.click(t.$('[data-side="Ведущий"] [data-fleet][data-slot="orca"]'));
+      expect(relay.sent("session.slot").at(-1)).toMatchObject({ slot: "orca" });
       await t.click(t.btn(".cw-set", "Убрать…"));
       expect(relay.sent("session.remove")).toHaveLength(0);
-      await t.click(t.btn(".cw-confirm", "Убрать"));
+      await t.click(t.btn(".sb-confirm", "Убрать"));
       expect(relay.sent("session.remove")).toEqual([expect.objectContaining({ callsign: "poe-bot@pc" })]);
     });
 
@@ -801,36 +824,25 @@ describe("Карточка: широкий вид", () => {
   });
 
   describe("видимое (чьё: код)", () => {
-    it("V-C1 · шапка: названия кнопок и окон; подписи окна модели, аккаунта и меню", async () => {
+    it("V-C1 · шапка: название кнопки имён; окон и меню нет", async () => {
       const t = await wideCard("site@laptop");
       expect(t.$('[data-act="names"]')!.getAttribute("aria-label")).toBe("Имена сессии и машины");
-      expect(t.$('[data-pop="menu"]')!.getAttribute("aria-label")).toBe("Действия сессии");
-      await t.click(t.$('[data-pop="model"]'));
-      const model = t.$(".cw-pop")!;
-      expect(model.getAttribute("aria-label")).toBe("Модель и усилие");
-      expect(t.$$(".cw-pop .lb").map((x) => x.textContent)).toEqual(["Модель", "Усилие"]);
-      await t.click(t.$('[data-pop="acc"]'));
-      expect(t.$(".cw-pop")!.getAttribute("aria-label")).toBe("Аккаунт и лимиты");
-      await t.click(t.$('[data-pop="menu"]'));
-      expect(t.$(".cw-pop")!.getAttribute("aria-label")).toBe("Сессия site@laptop");
-      // Esc закрывает окно шапки
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-      await flush();
-      expect(t.$(".cw-pop")).toBeNull();
+      expect(t.$(".cw-h [data-pop]")).toBeNull();
+      expect(t.$('.cw-h [role="dialog"], .cw-h [role="menu"]')).toBeNull();
     });
 
     it("V-C2 · настройки: подписи разделов, заголовок, текст подтверждения удаления", async () => {
       const t = await wideCard("poe-bot@pc");
       await t.tab("set");
-      expect(t.$$(".cw-set .lb").map((x) => x.textContent)).toEqual(["Профиль", "Заголовок", "Слот", "Сессия"]);
+      expect(t.$$(".cw-set .pt-k").map((x) => x.textContent).filter(Boolean)).toEqual(["Профиль", "Модель", "Слот", "Усилие"]);
+      expect(t.$$(".cw-set .lb").map((x) => x.textContent)).toEqual(["Заголовок", "Сессия"]);
       expect(t.$('[data-sec="fast"]')!.textContent).toContain("Быстрый режим");
       expect(t.$<HTMLInputElement>('[data-f="title"]')!.placeholder).toBe("Заголовок в claude.ai");
-      expect(t.$('[data-sec="slot"] [data-slot=""]')).toBeNull();
       await t.click(t.btn(".cw-set", "Убрать…"));
-      expect(t.$(".cw-confirm")!.textContent).toContain("poe-bot@pc остановится и уйдёт из списка. Точки в R2 останутся.");
+      expect(t.$(".sb-confirm")!.textContent).toContain("poe-bot@pc остановится и уйдёт из списка. Точки в R2 останутся.");
     });
 
-    it("V-C3 · сведения сбоку: дерево — кто открыл и кого ведёт, переход к дочерней; слова состояний MCP; ссылка входа", async () => {
+    it("V-C3 · «Сведения»: дерево — кто открыл и кого ведёт, переход к дочерней; слова состояний MCP; ссылка входа", async () => {
       const r = roster([], (x) => {
         Object.assign(x.sessions[0], { parent: "lead@pc" });
         x.sessions.push({ callsign: "kid@laptop", state: "idle", parent: "site@laptop" } as never);
@@ -838,12 +850,11 @@ describe("Карточка: широкий вид", () => {
       const relay = relayFor(r);
       relay.handlers["session.call"] = (f) => (f.method === "mcpServerStatus" ? { ok: true, result: [{ name: "a", status: "pending" }, { name: "b", status: "disabled" }, { name: "c", status: "needs-auth" }, { name: "d", status: "connected" }, { name: "e", status: "странное" }] } : f.method === "mcpAuthenticate" ? { ok: true, result: { authUrl: "https://example.com/l" } } : { ok: true, result: null });
       const t = await wideCard("site@laptop", r, relay);
-      await t.click(t.$('[data-pop="menu"]'));
-      await t.click(t.$('.cw-pop [data-act="info"]'));
+      await t.tab("info");
       await flush();
       const aside = t.$("aside.cw-info")!;
       expect(aside.getAttribute("aria-label")).toBe("Сведения");
-      expect([...aside.querySelectorAll("h4")].map((x) => x.textContent)).toEqual(["Сведения", "Дерево", "Серверы MCP"]);
+      expect([...aside.querySelectorAll("h4")].map((x) => x.textContent)).toEqual(["Сведения", "Аккаунт", "Дерево", "Серверы MCP"]);
       expect(aside.textContent).toContain("открылаlead@pc");
       expect([...aside.querySelectorAll(".cw-mcp-st")].map((x) => x.textContent)).toEqual(["подключается", "выключен", "нужен вход", "подключён", "странное"]);
       // выключенный: кнопка «вкл», переподключить нельзя
@@ -929,13 +940,12 @@ describe("Найдено сверкой деревьев", () => {
     return r;
   };
 
-  it("карточка: процент на чипе — окно 5 ч; модель неактивна без session.update, без журнала нет «Почему»; плашка и без причины", async () => {
+  it("карточка: процент на кнопке шапки — окно 5 ч; без журнала нет «Почему»; плашка и без причины", async () => {
     const relay = fleetRelay(cut("session.update", "machine.journal"));
     relay.handlers["machine.accounts"] = accounts;
     const t = await pult({ relay, url: "/#card?callsign=api%40pc" });
     await flush(5);
-    expect(t.$('[data-pop="acc"]')!.textContent).toBe("y0902 · 42 % ▾");
-    expect(t.$<HTMLButtonElement>('[data-pop="model"]')!.disabled).toBe(true);
+    expect(t.$('[data-go="info"]')!.textContent).toBe("y0902 · 42 %");
     expect(t.btn(t.$(".cw-pl"), "Почему")).toBeNull();
     const r = fleetRoster();
     r.sessions.find((s) => s.callsign === "docs@pc")!.state = "failed";
@@ -948,14 +958,13 @@ describe("Найдено сверкой деревьев", () => {
     const r = fleetRoster();
     r.sessions.find((s) => s.callsign === "site@laptop")!.state = "idle";
     const relay = fleetRelay(r);
-    const store = memoryStore({ key: KEY, "card.info": true, "card.head": { haddr: true, howner: true, hprof: true, hmodel: true } });
-    const t = await pult({ relay, store, url: "/#card?callsign=site%40laptop&tab=set" });
+    const t = await pult({ relay, url: "/#card?callsign=site%40laptop&tab=info" });
     await flush(5);
-    expect(t.$(".cw-real")).toBeNull();
     expect(t.$<HTMLAnchorElement>("aside.cw-info .cw-mi.flat")!.href).toBe("https://claude.ai/code/session_01Pf");
     relay.setRoster({ ...r, sessions: r.sessions.filter((s) => s.callsign !== "site@laptop") });
     await flush(5);
-    expect(t.$('[data-sec="ctl"] button')).toBeNull();
     expect(t.$("aside.cw-info")!.textContent).toBe("");
+    await t.click(t.$('.cw-tabs [data-tab="set"]'));
+    expect(t.$('[data-sec="ctl"] button')).toBeNull();
   });
 });

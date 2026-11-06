@@ -25,11 +25,19 @@ export const slotOf = (s?: SessionRecord) => s?.slot as { name?: string; wait?: 
 export const incidentOf = (s?: SessionRecord) => s?.incident as { type?: string; key?: string } | null | undefined;
 export const remoteOf = (s?: SessionRecord) => (typeof s?.remote === "string" ? s.remote : (s?.remote as { url?: string } | undefined)?.url);
 export const profileName = (id: string) => id.slice(id.lastIndexOf("/") + 1);
-export const profileIdOf = (s?: SessionRecord) => (s?.profile as { id?: string } | null | undefined)?.id;
+/** Репозиторий кусочка: «владелец/имя» из id. */
+export const profileRepo = (id: string) => id.slice(0, id.lastIndexOf("/"));
+/** Профиль сессии — список кусочков и наборов как выбран. */
+export const profileIdsOf = (s?: SessionRecord) => ((s?.profile ?? []) as Array<{ id: string }>).map((p) => p.id);
+/** Подпись профиля: первый кусочек и сколько ещё — «dev +1». */
 export function profileNameOf(s?: SessionRecord) {
-  const id = profileIdOf(s);
-  return id && profileName(id);
+  const ids = profileIdsOf(s);
+  return ids.length ? profileName(ids[0]) + (ids.length > 1 ? ` +${ids.length - 1}` : "") : undefined;
 }
+/** Ведомый пары: в списке и для других сессий его нет, он виден только через своего ведущего. */
+export const isWing = (s?: SessionRecord) => (s as { wing?: boolean } | undefined)?.wing === true;
+/** Ведомый этой сессии: wing и parent — единственный способ найти пару. */
+export const wingOf = (sessions: readonly SessionRecord[], lead: string) => sessions.find((x) => isWing(x) && x.parent === lead);
 
 export const lamp = (s: SessionRecord) => stateLabel(s.state).dot || "stop";
 export const failText = (s: SessionRecord) => Object.entries((s.failed ?? {}) as Record<string, unknown>).map(([part, why]) => `${part}: ${String(why)}`).join("; ");

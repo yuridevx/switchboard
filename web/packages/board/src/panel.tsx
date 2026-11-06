@@ -1,16 +1,15 @@
 // Окна «Работы»: панель вида и окно фильтра.
 import { useState, type KeyboardEvent } from "react";
 import { userOf } from "@switchboard/protocol";
-import { Btn, Chip, Chips, Choices, In, machineLabel, profileNameOf, stateLabel, useApp, useModule } from "@switchboard/web-ui";
+import { Btn, Chip, Chips, Choices, In, machineLabel, profileIdsOf, profileName, stateLabel, useApp, useModule } from "@switchboard/web-ui";
 import { fitLine, VIEW, type Filter, type FilterField, type View } from "./model.ts";
 import type { BoardState } from "./state.ts";
 
 type Unit = [keyof View, string, string];
 const GROUPS: Array<[string, Unit[]]> = [
   ["Список", [["projects", "По проектам", "Группировать по проектам"], ["group", "По машинам", "Группы по машинам в проекте"], ["tree", "Дочерние", "Дочерние под родителем"], ["dense", "В одну строку", "В одну строку"]]],
-  ["Строка", [["lamp", "Лампа", "Лампа состояния"], ["at", "Машина", "Машина"], ["owner", "Владелец", "Владелец чужой сессии"], ["pin", "Закрепление", "Значок закрепления"], ["inc", "Инцидент", "Инцидент"], ["badge", "«?» и число", "Значок вопроса и непрочитанного"], ["q", "Вопрос", "Текст вопроса"], ["unread", "Непрочитанное", "Текст непрочитанного"], ["fail", "Сбой", "Причина сбоя"], ["prof", "Профиль", "Профиль"], ["model", "Модель", "Модель"]]],
+  ["Строка", [["lamp", "Лампа", "Лампа состояния"], ["at", "Машина", "Машина"], ["owner", "Владелец", "Владелец чужой сессии"], ["pin", "Закрепление", "Значок закрепления"], ["inc", "Инцидент", "Инцидент"], ["badge", "Значок", "Значок вопроса и непрочитанного"], ["q", "Вопрос", "Текст вопроса"], ["unread", "Непрочитанное", "Текст непрочитанного"], ["fail", "Сбой", "Причина сбоя"], ["prof", "Профиль", "Профиль"], ["model", "Модель", "Модель"]]],
   ["Проект", [["pjlamps", "Лампы", "Лампы свёрнутого проекта"], ["grip", "Ручка", "Ручка перетаскивания"], ["add", "«+»", "Кнопка новой сессии"]]],
-  ["Фильтры", [["fcount", "Число", "Число сессий в фильтре"]]],
 ];
 
 export function ViewPanel({ v, close }: { v: View; close(): void }) {
@@ -70,7 +69,7 @@ export function FilterEditor({ filter, close }: { filter: Filter | null; close()
     const sessions = s.sessions();
     const me = app.address() && userOf(app.address()!);
     const owners = [...new Set(sessions.map((x) => s.owner(x.callsign)))].filter((o): o is string => !!o && o !== me).sort();
-    const profiles = [...new Set(sessions.map(profileNameOf))].filter((p): p is string => !!p).sort();
+    const profiles = [...new Set(sessions.flatMap(profileIdsOf).map(profileName))].sort();
     const machines = (app.roster()?.machines ?? []).map((m) => m.machine);
     return {
       who: [{ value: "mine", text: "моё" }, ...owners.map((o) => ({ value: o, text: o.slice(1) }))],
@@ -115,7 +114,6 @@ export function FilterEditor({ filter, close }: { filter: Filter | null; close()
               <div key={field} className="fe-f" data-field={field}>
                 <div className="fe-l">
                   <b>{title}</b>
-                  {picked.length > 0 && <span>{picked.length}</span>}
                 </div>
                 <Chips className="fe-c">
                   {list.map((o) => (
