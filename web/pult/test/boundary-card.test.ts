@@ -31,6 +31,13 @@ describe("Карточка: телефон", () => {
     { manifest: alertsM, module: createAlerts({}) },
   ];
 
+  /** Пара на телефоне: «Да, это 2 сессии» — слово пользователя 6 нояб. */
+  const pairHome = () => {
+    const r = homeRoster();
+    r.sessions.push({ ...r.sessions[0], callsign: `w-${r.sessions[0].callsign}`, model: "haiku", parent: r.sessions[0].callsign, wing: true } as never);
+    return r;
+  };
+
   async function card(callsign: string, roster = homeRoster()) {
     const relay = new FakeRelay(roster);
     relay.handlers["session.watch"] = () => ({ ok: true });
@@ -39,6 +46,23 @@ describe("Карточка: телефон", () => {
     const t = await stand(parts(), { relay, url: `/#card?callsign=${encodeURIComponent(callsign)}` });
     return t;
   }
+
+  describe("пара на телефоне", () => {
+    it("одна сторона, переключает шапка; стрелки «обе» нет; «Ещё» показывает обе стороны", async () => {
+      const r = pairHome();
+      const lead = r.sessions[0];
+      const t = await card(lead.callsign, r);
+      expect(t.root.querySelectorAll(".cw-stage .cw-lane").length).toBe(1);
+      expect(t.$('[data-show="both"]')).toBeNull();
+      const was = t.$(".cw-stage textarea") as HTMLTextAreaElement;
+      expect(was.placeholder).toContain(String(lead.model));
+      await t.click(t.$('.card-tabrow [data-show="wing"]'));
+      expect((t.$(".cw-stage textarea") as HTMLTextAreaElement).placeholder).toContain("haiku");
+      expect(t.root.querySelectorAll(".cw-stage .cw-lane").length).toBe(1);
+      await t.click(t.$('.card-tabs [data-tab="info"]'));
+      expect(t.root.querySelectorAll(".card-info").length).toBe(2);
+    });
+  });
 
   describe("карточка сессии", () => {
     it("шапка: имя, машина и папка; состояние — лампой без слов; вкладка «Чат» — лента в месте карточки", async () => {
@@ -793,6 +817,106 @@ describe("Карточка: широкий вид", () => {
       expect(t.$(".cw-log")!.textContent).not.toContain("Записей нет.");
     });
 
+  });
+
+  describe("пара: две сессии одной сцены", () => {
+    const LEAD = "poe-bot@pc";
+    const WING = "poe-bot-wing@pc";
+    /** Слово пользователя 6 нояб.: «Да, это 2 сессии. С особым отношением»; ведомый — wing и parent. */
+    const paired = (without: string[] = []) =>
+      roster(without, (r) => {
+        const lead = r.sessions.find((s) => s.callsign === LEAD)!;
+        r.sessions.push({ ...lead, callsign: WING, model: "haiku", effort: "low", parent: LEAD, wing: true, slot: { name: "kimi", wait: null } } as never);
+      });
+    const lanes = (t: { root: Element }) => [...t.root.querySelectorAll<HTMLElement>(".cw-stage .cw-lane")];
+    const fields = (t: { root: Element }) => [...t.root.querySelectorAll<HTMLTextAreaElement>(".cw-stage textarea")].map((x) => x.placeholder);
+
+    it("две колонки, у каждой своё поле, названное моделью; короткие настройки уступают участникам", async () => {
+      const t = await wideCard(LEAD, paired());
+      expect(lanes(t).length).toBe(2);
+      expect(fields(t)).toEqual(["Написать sonnet", "Написать haiku"]);
+      expect(t.root.querySelectorAll(".cw-h [data-show]").length).toBe(3);
+      expect(t.$(".cw-h .cw-hb")).toBeNull();
+      expect(t.$(".cw-h")!.textContent).not.toMatch(/ведущ|ведом/i);
+    });
+
+    it("участник — только он, он же ещё раз — обе; скрытая сторона — строка, нажатие показывает её; выбор запоминается", async () => {
+      const store = memoryStore({ key: KEY });
+      const r = paired();
+      const relay = relayFor(r);
+      const t = await stand(parts(), { relay, store, wide: true, options: { beside: { card: "board", chat: "board", ask: "board" } } });
+      history.pushState(null, "", `/#card?callsign=${encodeURIComponent(LEAD)}`);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+      await flush();
+      await t.click(t.$('.cw-h [data-show="lead"]'));
+      expect(lanes(t).length).toBe(1);
+      expect(fields(t)).toEqual(["Написать sonnet"]);
+      expect(await store.get("card.pair")).toBe("lead");
+      await t.click(t.$(`.cw-whos button.cw-who[data-callsign="${WING}"]`));
+      expect(fields(t)).toEqual(["Написать haiku"]);
+      await t.click(t.$('.cw-h [data-show="wing"]'));
+      expect(lanes(t).length).toBe(2);
+      await t.click(t.$('.cw-h [data-show="lead"]'));
+      await t.click(t.$('.cw-h [data-show="both"]'));
+      expect(lanes(t).length).toBe(2);
+    });
+
+    it("подпись колонки — одна строка: модель, слот и живой шаг; остальное в подсказке", async () => {
+      const r = paired();
+      const relay = relayFor(r);
+      relay.handlers["session.history"] = (f) => ({ ok: true, result: { messages: f.callsign === WING ? [{ type: "assistant", uuid: "a1", message: { id: "a1", model: "haiku", content: [{ type: "text", text: "Сделано: тест\nвторая строка" }] } }] : [] } });
+      const t = await wideCard(LEAD, r, relay);
+      const who = t.$(`.cw-who[data-callsign="${WING}"]`)!;
+      expect(who.querySelector("b")!.textContent).toBe("haiku");
+      expect(who.querySelector(".cw-facts")!.textContent).toBe("kimi");
+      expect(who.querySelector(".chat-last")!.textContent).toBe("Сделано: тест");
+    });
+
+    it("нажатие в ленту ставит курсор в поле этой колонки; выделенный текст не сбивается", async () => {
+      const t = await wideCard(LEAD, paired());
+      const wing = lanes(t)[1];
+      await t.click(wing.querySelector(".chat-feed"));
+      expect(document.activeElement).toBe(wing.querySelector("textarea"));
+    });
+
+    it("панель контекста — в своей колонке: вторая лента остаётся видна", async () => {
+      const r = paired();
+      const relay = relayFor(r);
+      relay.handlers["session.call"] = () => ({ ok: true, result: { totalTokens: 10, maxTokens: 100, categories: [] } });
+      const t = await wideCard(LEAD, r, relay);
+      const [lead, wing] = lanes(t);
+      await t.click(wing.querySelector('[aria-label="Контекст"]'));
+      expect(wing.querySelector(".chat-panel")).not.toBeNull();
+      expect(lead.querySelector(".chat-panel")).toBeNull();
+      expect(lead.querySelector(".chat-feed")).not.toBeNull();
+    });
+
+    it("«Журнал» по колонкам: у каждой стороны своя запись", async () => {
+      const r = paired();
+      const relay = relayFor(r);
+      const asked: unknown[] = [];
+      relay.handlers["machine.journal"] = (f) => (asked.push(f.session), { ok: true, result: { records: [], more: false } });
+      const t = await wideCard(LEAD, r, relay);
+      await t.tab("log");
+      expect(t.root.querySelectorAll(".cw-place .cw-lanes .cw-lane").length).toBe(2);
+      expect(asked).toEqual(expect.arrayContaining([LEAD, WING]));
+    });
+
+    it("«Сведения» на две стороны: общие ряды, ведомый не считается дочерней сессией", async () => {
+      const t = await wideCard(LEAD, paired());
+      await t.tab("info");
+      expect(t.$(".cw-info.two")).not.toBeNull();
+      expect(t.root.querySelectorAll('.cw-iside [data-row="sum"]').length).toBe(2);
+      expect(t.root.querySelectorAll('.cw-iside:first-child [data-row="tree"]').length).toBe(0);
+      expect(t.$(".cw-info")!.textContent).toContain(WING);
+    });
+
+    it("без ведомого — обычная лента: ни колонок, ни участников", async () => {
+      const t = await wideCard(LEAD, roster());
+      expect(t.$(".cw-lanes")).toBeNull();
+      expect(t.$(".cw-show")).toBeNull();
+      expect(t.root.querySelectorAll("textarea").length).toBe(1);
+    });
   });
 
   describe("видимое (чьё: код)", () => {

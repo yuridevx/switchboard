@@ -1,8 +1,9 @@
-// Шапка широкой карточки в одну строку: лампа, имя, короткие настройки, вкладки. Окон нет: настройка ведёт на свою вкладку, что не влезло — в подсказке и в «Сведениях».
+// Шапка широкой карточки в одну строку: лампа, имя, короткие настройки или участники пары, вкладки. Окон нет: настройка ведёт на свою вкладку, что не влезло — в подсказке и в «Сведениях».
 import { machineOf, userOf } from "@switchboard/protocol";
-import { at, Btn, Dot, effortName, failText, IconBtn, lamp, LIMIT_WARN, machineLabel, myAddress, profileNameOf, sessionLabel, sessionOf, slotOf, stateLabel, Tabs, useApp, useModule, type AccountsAnswer } from "@switchboard/web-ui";
+import { at, Btn, Dot, effortName, failText, IconBtn, lamp, LIMIT_WARN, machineLabel, myAddress, profileNameOf, sessionLabel, sessionOf, slotOf, stateLabel, Tabs, useApp, useModule, wingOf, type AccountsAnswer } from "@switchboard/web-ui";
 import type { SessionRecord } from "@switchboard/web-core";
 import type { CardState } from "./module.tsx";
+import { PairPick } from "./pair.tsx";
 
 const classes = (...list: unknown[]) => list.filter(Boolean).join(" ");
 const useHead = () => {
@@ -84,11 +85,12 @@ export function Head({ callsign, accounts, tabs, tab, pick, names }: { callsign:
   const app = useApp();
   const s = app.use(() => sessionOf(app, callsign));
   const placed = app.use(() => app.placed("card.menu", { callsign }));
+  const wing = app.use(() => wingOf(app.roster()?.sessions ?? [], callsign));
   return (
     <div className="cw-h">
       <Lamp s={s} />
       <NameBtn callsign={callsign} names={names} />
-      {s ? <Facts s={s} accounts={accounts} pick={pick} /> : <span className="cw-note">не на связи</span>}
+      {!s ? <span className="cw-note">не на связи</span> : wing ? <PairPick lead={s} wing={wing} /> : <Facts s={s} accounts={accounts} pick={pick} />}
       <span className="cw-gap" />
       <Tabs className="cw-tabs" tabs={tabs} cur={tab} pick={pick} />
       {placed.map((p) => (

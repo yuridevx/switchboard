@@ -5,6 +5,7 @@ import type { ScreenProps } from "@switchboard/web-core";
 import { Btn, failText, sessionOf, useApp, useMachineLoad, type AccountsAnswer } from "@switchboard/web-ui";
 import { Aside } from "./aside.tsx";
 import { Head } from "./head.tsx";
+import { Feeds, Lanes } from "./pair.tsx";
 import { LogTab, SetTab } from "./tabs.tsx";
 
 export function WideCard({ params }: ScreenProps) {
@@ -36,9 +37,10 @@ export function WideCard({ params }: ScreenProps) {
       <div className="cw-body">
         <div className="cw-place">
           {tab === "set" && <SetTab callsign={callsign} machine={machine} accounts={accounts} />}
-          {tab === "log" && <LogTab callsign={callsign} machine={machine} />}
+          {tab === "log" && <Lanes callsign={callsign} each={(cs) => <LogTab callsign={cs} machine={machine} />} />}
           {tab === "info" && <Aside callsign={callsign} machine={machine} accounts={accounts.data} pick={setTab} />}
-          {tab !== "set" && tab !== "log" && tab !== "info" && <app.Slot screen={tab} params={{ callsign }} />}
+          {tab === "chat" && <Feeds callsign={callsign} wide />}
+          {placed.some((p) => p.name === tab) && <Lanes callsign={callsign} each={(cs) => <app.Slot screen={tab} params={{ callsign: cs }} />} />}
         </div>
       </div>
       {names && <app.Slot screen="labels" params={{ callsign }} close={() => setNames(false)} />}

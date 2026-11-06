@@ -70,3 +70,47 @@
 .cw-note.queue{padding:2px 8px}
 .sb-b.kid{padding:0 4px}
 .cw-mi.flat{padding:0}
+
+/* Пара. Сведения: две колонки с общими рядами; разделы стороны — прямо в сетке */
+.cw-info.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 24px;align-content:start}
+.cw-iside{display:contents}
+.cw-iside:nth-child(1)>*{grid-column:1}
+.cw-iside:nth-child(2)>*{grid-column:2}
+.cw-iside>[data-row="head"]{grid-row:1}
+.cw-iside>[data-row="sum"]{grid-row:2}
+.cw-iside>[data-row="account"]{grid-row:3}
+.cw-iside>[data-row="tree"]{grid-row:4}
+.cw-iside>[data-row="mcp"]{grid-row:5}
+.cw-ih{display:flex;align-items:center;gap:6px;font:600 13px var(--mono)}
+.cw-ih .sb-dot{width:8px;height:8px}
+@container (max-width:640px){.cw-info.two{display:flex}.cw-iside{display:flex;flex-direction:column;gap:14px}}
+/* сцена пары: ленты рядом через тонкую черту, у каждой стороны своё поле; скрытая сторона — строка с лампой и шагом */
+.cw-stage{display:flex;flex-direction:column;flex:1;min-height:0}
+.cw-lanes{flex:1;min-height:0;display:flex}
+.cw-lane{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.cw-lane+.cw-lane{border-left:1px solid var(--line2)}
+.cw-whos{flex:none;display:flex;min-width:0;border-bottom:1px solid var(--line2)}
+.cw-whos .cw-who{width:auto;border-bottom:0}
+.cw-whos .cw-who:first-child{flex:none;padding-right:0}
+.cw-whos .cw-who:last-child{flex:1 1 0;min-width:0}
+/* участник: одна строка, шаг сокращается по ширине */
+.cw-who{flex:none;display:flex;flex-wrap:nowrap;align-items:center;gap:6px;width:100%;height:30px;box-sizing:border-box;padding:0 14px;white-space:nowrap;overflow:hidden;border:0;border-bottom:1px solid var(--line2);background:none;color:var(--muted);font:400 12.5px var(--body);text-align:left}
+button.cw-who{cursor:pointer}
+@media (hover:hover){button.cw-who:hover{background:var(--surface2)}}
+.cw-who b{flex:none;font-weight:600;color:var(--ink)}
+.cw-who .sb-dot{width:8px;height:8px;flex:none}
+.cw-facts{flex:none;font:500 12px var(--mono)}
+.cw-facts:not(:empty)::before{content:"· "}
+.cw-step{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:6px;overflow:hidden}
+.cw-step::before{content:"·";flex:none}
+/* выбор участников: нажатый — виден; стрелка — обе стороны */
+.cw-show{flex:none;display:inline-flex;align-items:center;gap:2px}
+.cw-show button{display:inline-flex;align-items:center;gap:5px;border:1px solid transparent;background:none;padding:2px 9px;border-radius:999px;font:500 12.5px var(--body);color:var(--muted);cursor:pointer;white-space:nowrap}
+.cw-show button b{font:600 12.5px var(--mono)}
+.cw-show button .sb-dot{width:8px;height:8px}
+.cw-show button[aria-pressed="true"]{border-color:var(--line);background:var(--surface2);color:var(--ink)}
+.cw-show .cw-arrow,.cw-show .cw-arrow[aria-pressed="true"]{border:0;background:none;padding:2px 5px;color:var(--muted)}
+@media (hover:hover){.cw-show .cw-arrow:hover{color:var(--ink)}}
+.cw-show>i{font-style:normal;color:var(--muted);font-size:11px}
+.card-tabrow{flex:none;display:flex;align-items:center;gap:8px;padding-right:10px;background:var(--surface);border-bottom:1px solid var(--line2)}
+.card-tabrow .card-tabs{flex:1;min-width:0;border-bottom:0}

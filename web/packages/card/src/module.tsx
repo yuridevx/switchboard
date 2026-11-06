@@ -1,4 +1,4 @@
-// Модуль карточки: экран сессии, группа «Шапка» для панели вида, настройки шапки на устройстве.
+// Модуль карточки: экран сессии, группа «Шапка» для панели вида, настройки шапки и выбор стороны пары на устройстве.
 import type { AppPart, Params } from "@switchboard/web-core";
 import { Chip, Choices, createStore, effortName, folderOf, lamp, linkText, machineLabel, sessionLabel, sessionOf, useApp, useModule, type Store } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
@@ -8,10 +8,14 @@ import css from "./card.css";
 
 export const HEAD = { hat: true, howner: true, hprof: true, hmodel: true, hacc: true };
 export type HeadView = typeof HEAD;
-export type Device = { head: HeadView };
+/** Что видно у пары: одна сторона или обе. */
+export type Shown = "lead" | "wing" | "both";
+export type Device = { head: HeadView; shown: Shown };
 export type CardState = {
   device: Store<Device>;
   setHead(head: HeadView): void;
+  /** Участник — только он; он же ещё раз — обе стороны; на телефоне одна сторона всегда. */
+  pick(v: Shown, wide: boolean): void;
 };
 
 const UNITS: Array<[keyof HeadView, string, string]> = [["hat", "Машина", "Машина в шапке"], ["howner", "Владелец", "Владелец в шапке"], ["hprof", "Профиль", "Профиль в шапке"], ["hmodel", "Модель", "Модель и усилие в шапке"], ["hacc", "Аккаунт", "Аккаунт и лимит в шапке"]];
@@ -32,16 +36,24 @@ function HeadGroup() {
 }
 
 export const createCard = ((app) => {
-  const device = createStore<Device>({ head: HEAD }, () => app.changed());
+  const device = createStore<Device>({ head: HEAD, shown: "both" }, () => app.changed());
   const setHead = (head: HeadView) => {
     device.set((d) => void (d.head = head));
     void app.store("card.head").set(head);
   };
+  const pick = (v: Shown, wide: boolean) => {
+    const next = wide && v === device.get().shown ? "both" : v;
+    device.set((d) => void (d.shown = next));
+    void app.store("card.pair").set(next);
+  };
   async function load() {
-    const head = await app.store<Partial<HeadView>>("card.head").get();
-    device.set((d) => void (d.head = { ...HEAD, ...head }));
+    const [head, shown] = await Promise.all([app.store<Partial<HeadView>>("card.head").get(), app.store<Shown>("card.pair").get()]);
+    device.set((d) => {
+      d.head = { ...HEAD, ...head };
+      d.shown = shown ?? "both";
+    });
   }
-  const state: CardState = { device, setHead };
+  const state: CardState = { device, setHead, pick };
   /** Шапка: имя; на телефоне — машина и папка, лампа — состояние; на пульте — модель и усилие. */
   function head({ callsign }: Params) {
     const s = sessionOf(app, callsign);
@@ -54,7 +66,7 @@ export const createCard = ((app) => {
   return {
     css,
     state,
-    store: ["card.head"],
+    store: ["card.head", "card.pair"],
     start: load,
     on: { show: load },
     screens: {
