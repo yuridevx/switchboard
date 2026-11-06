@@ -185,7 +185,7 @@ func (k *Keeper) setup(dir string, cmd []string) error {
 const waitDelay = 5 * time.Second
 
 // resolve — команда app.json: node — из keeper.json, npm — npm-cli.js рядом с ним под тем же Node (у Windows — рядом, у Linux — в
-// ../lib/node_modules); аргумент, который есть в папке версии, — полным путём.
+// ../lib/node_modules); команда и аргумент, которые есть в папке версии, — полным путём: рабочая папка процесса — data части.
 func (k *Keeper) resolve(cmd []string, dir string) []string {
 	out := append([]string{}, cmd...)
 	switch node := k.c.Node; {
@@ -200,8 +200,8 @@ func (k *Keeper) resolve(cmd []string, dir string) []string {
 			}
 		}
 	}
-	for i := 1; i < len(out); i++ {
-		if p := filepath.Join(dir, out[i]); !filepath.IsAbs(out[i]) && fileExists(p) {
+	for i := range out {
+		if p := filepath.Join(dir, out[i]); filepath.IsLocal(out[i]) && fileExists(p) {
 			out[i] = p
 		}
 	}
