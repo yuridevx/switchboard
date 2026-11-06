@@ -2,19 +2,17 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { join } from "node:path";
-import { eachFunction } from "./functions.mjs";
+import { CODE, eachFunction, loadTs, TEST } from "./functions.mjs";
 
 const [root, out] = process.argv.slice(2);
-const ts = createRequire(join(process.cwd(), "package.json"))("typescript");
+const ts = loadTs();
 const git = (...a) => execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 1 << 29 });
-const TEST = /(\/test\/|\/tests\/|\.test\.|\.spec\.|\.d\.ts$)/;
 // дома и исключения — от привязки проекта, через census.ts
 const houses = JSON.parse(process.env.SLOPIK_HOUSES ?? "[]").sort((a, b) => b.dir.length - a.dir.length);
 const IGNORE = process.env.SLOPIK_IGNORE ? new RegExp(process.env.SLOPIK_IGNORE) : null;
 const moduleOf = (f) => houses.find((h) => f.startsWith(h.dir))?.name ?? f.split("/")[0];
-const files = git("ls-files").split("\n").filter((f) => /\.(ts|tsx|mjs|js|jsx)$/.test(f) && !TEST.test(f) && !IGNORE?.test(f));
+const files = git("ls-files").split("\n").filter((f) => CODE.test(f) && !TEST.test(f) && !IGNORE?.test(f));
 
 const fns = [];
 const wrappers = [];
@@ -72,6 +70,16 @@ for (const file of files) {
       if (args.length === params.length && args.every((a, i) => a === params[i])) wrappers.push({ name: owner, to: call.expression.getText(sf).slice(0, 50), file, line });
     }
   });
+}
+
+// другие языки: команда config.scan печатает [{ file, name, line, toks, lits }]
+if (process.env.SLOPIK_SCAN) {
+  const extra = JSON.parse(execFileSync(process.env.SLOPIK_SCAN, { cwd: root, shell: true, encoding: "utf8", maxBuffer: 1 << 29 }));
+  for (const f of extra) if (!TEST.test(f.file) && !IGNORE?.test(f.file)) fns.push({ ...f, mod: moduleOf(f.file), lits: new Set(f.lits), pos: f.line, end: f.line });
+}
+if (!fns.length) {
+  console.error("нет функций: нет разборщика для языка этого репо — config.scan");
+  process.exit(2);
 }
 
 // 1. одно имя в разных модулях, тело не пустяк

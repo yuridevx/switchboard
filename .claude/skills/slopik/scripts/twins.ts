@@ -2,14 +2,12 @@
 //   twins.ts <до> <после> [--root <repo>]
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { TEST } from "../../../../tools/manifest-gate/contract.ts";
 import { home, journalFile, load, type Pair, type Snapshot } from "./census.ts";
-import { eachFunction } from "./functions.mjs";
+import { CODE, eachFunction, loadTs, TEST } from "./functions.mjs";
 
-const ts = createRequire(import.meta.url)("typescript");
+const ts = loadTs();
 const here = dirname(fileURLToPath(import.meta.url));
 
 const MASS = 12; // порог массового коммита — тот же, что у совместных правок в scan.mjs
@@ -160,7 +158,7 @@ export function walk(root: string, pairs: Pair[], from: string, tips: string[]) 
       t = new Map();
       for (const l of git("-c", "core.quotePath=false", "ls-tree", "-r", c).split("\n")) {
         const m = l.match(/^\d+ blob (\w+)\t(.*)$/);
-        if (m && /\.(ts|tsx|mjs)$/.test(m[2]) && !TEST.test(m[2])) t.set(m[2], m[1]);
+        if (m && CODE.test(m[2]) && !TEST.test(m[2])) t.set(m[2], m[1]);
       }
       trees.set(c, t);
     }

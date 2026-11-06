@@ -114,6 +114,14 @@ it("снятые проверки, правка контроля и новый �
   assert.deepEqual(fate(snap([]), snap([]), () => false, { copies: () => 0, lost: 0, control: [] }).signs, []);
 });
 
+it("снятая запись «различие открыто» — след, новая запись книги — только поле на чтение", () => {
+  const trace = (book: string[]) => ({ copies: () => 0, lost: 0, control: [], book });
+  assert.ok(fate(snap([]), snap([]), () => false, trace(["-| вход | различие открыто | x |"])).signs.some((s) => s.includes("различие открыто")));
+  const honest = fate(snap([]), snap([]), () => false, trace(["+| вход | оставлена | факт |"]));
+  assert.deepEqual(honest.signs, []);
+  assert.equal(honest.book.length, 1);
+});
+
 it("следы считаются по дереву: тест без expect, правка судеб, литерал в новой папке", () => {
   put("workers/a/test/a.test.ts", "expect(1).toBe(1);\nexpect(2).toBe(2);\n");
   put(".claude/slopik/registry.md", "| a |\n");
@@ -127,6 +135,7 @@ it("следы считаются по дереву: тест без expect, п�
   const t = traces(root, a, b);
   assert.equal(t.lost, 1);
   assert.deepEqual(t.control, [".claude/slopik/registry.md"]);
+  assert.deepEqual(t.book, ["+# a"]);
   assert.equal(t.copies(a, ["Удалить насовсем"]), 1);
   assert.equal(t.copies(b, ["Удалить насовсем"]), 2);
 });

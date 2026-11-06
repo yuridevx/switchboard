@@ -16,7 +16,7 @@ export const home = () => process.env.SLOPIK_HOME ?? join(homedir(), ".slopik");
 const git = (root: string, ...a: string[]) => execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 });
 
 /** Привязка проекта: .claude/slopik/config.json — houses: команда, печатает JSON [{name, dir}]; ignore: выражение путей вне счёта. */
-export function config(root: string): { houses: string; ignore?: string; slots?: number } {
+export function config(root: string): { houses: string; ignore?: string; slots?: number; scan?: string; assert?: string } {
   return JSON.parse(readFileSync(join(root, ".claude/slopik/config.json"), "utf8"));
 }
 const housesOf = (root: string): Array<{ name: string; dir: string }> => JSON.parse(execSync(config(root).houses, { cwd: root, encoding: "utf8", maxBuffer: 1 << 26 }));
@@ -105,7 +105,7 @@ export function census(root: string) {
 export function snapshot(root: string, name: string): Snapshot {
   mkdirSync(home(), { recursive: true });
   const out = join(home(), `scan-${name}.txt`);
-  execFileSync("node", [join(here, "scan.mjs"), root, out], { cwd: root, stdio: "pipe", env: { ...process.env, SLOPIK_HOUSES: JSON.stringify(housesOf(root)), SLOPIK_IGNORE: config(root).ignore ?? "" } });
+  execFileSync("node", [join(here, "scan.mjs"), root, out], { cwd: root, stdio: "pipe", env: { ...process.env, SLOPIK_HOUSES: JSON.stringify(housesOf(root)), SLOPIK_IGNORE: config(root).ignore ?? "", SLOPIK_SCAN: config(root).scan ?? "" } });
   const scan = JSON.parse(readFileSync(`${out}.json`, "utf8"));
   const scanner = git(root, "hash-object", join(here, "scan.mjs"), join(here, "functions.mjs"), join(here, "census.ts")).trim().split(/\s+/).join(" ");
   const snap: Snapshot = { sha: git(root, "rev-parse", "HEAD").trim(), config: scanner, ...scan };
@@ -136,6 +136,7 @@ export function fate(before: Snapshot, after: Snapshot, alive: (key: string) => 
   const smallGrowth = after.small - before.small;
   return {
     left: left.length,
+    book: trace?.book ?? [],
     gone: left.filter((k) => !stillThere.includes(k)),
     read: stillThere,
     fresh,
@@ -145,18 +146,19 @@ export function fate(before: Snapshot, after: Snapshot, alive: (key: string) => 
       ...(named.length ? [`${named.length} пар ушло, а символ жив`] : []),
       ...(copied.length ? [`${copied.length} пар ушло, а их литералы на месте`] : []),
       ...(newFlags.length ? [`новый флаг решает ветки: ${newFlags.join(" ")}`] : []),
+      ...(trace?.book?.some((l) => l.startsWith("-") && l.includes("различие открыто")) ? ["снята запись «различие открыто»: нужен вердикт архитектора"] : []),
       ...(trace?.lost ? [`снято проверок в тестах: ${trace.lost}`] : []),
       ...(trace?.control.length ? [`правка контроля в задаче: ${trace.control.join(" ")}`] : []),
     ],
   };
 }
 
-export type Trace = { copies(sha: string, lits: string[]): number; lost: number; control: string[] };
+export type Trace = { copies(sha: string, lits: string[]): number; lost: number; control: string[]; book?: string[] };
 
 /** Следы, которых нет в снимке: литералы по всему дереву в любой папке, снятые проверки, правка самого контроля. */
 export function traces(root: string, before: string, after: string): Trace {
-  const code = ["ts", "tsx", "mts", "cts", "mjs", "cjs", "js", "jsx"].map((e) => ":(glob)**/*." + e);
-  const tests = [":(glob)**/test/**", ":(glob)**/tests/**", ":(glob)**/*.test.*", ":(glob)**/*.spec.*", ":(glob)**/__snapshots__/**"];
+  const code = ["ts", "tsx", "mts", "cts", "mjs", "cjs", "js", "jsx", "go", "py", "rs", "java"].map((e) => ":(glob)**/*." + e);
+  const tests = [":(glob)**/test/**", ":(glob)**/tests/**", ":(glob)**/*.test.*", ":(glob)**/*.spec.*", ":(glob)**/*_test.go", ":(glob)**/__snapshots__/**"];
   const notTests = tests.map((t) => t.replace(":(glob)", ":(exclude,glob)"));
   const copies = (sha: string, lits: string[]) => {
     try {
@@ -166,9 +168,12 @@ export function traces(root: string, before: string, after: string): Trace {
       return 0; // git grep без совпадений выходит с кодом 1
     }
   };
-  const lost = git(root, "diff", "-U0", before, after, "--", ...tests).split("\n").filter((l) => l.startsWith("-") && /\bexpect\(/.test(l)).length;
+  const check = new RegExp(config(root).assert ?? "\\bexpect\\(");
+  const lost = git(root, "diff", "-U0", before, after, "--", ...tests).split("\n").filter((l) => l.startsWith("-") && check.test(l)).length;
   const control = git(root, "diff", "--name-only", before, after, "--", ".claude/slopik", ":(glob).claude/skills/slopik*/**", ":(exclude).claude/slopik/books").split("\n").filter(Boolean);
-  return { copies, lost, control };
+  // книга — поле, а не след: честная запись обходом не считается, но каждую строку читает ревизор
+  const book = git(root, "diff", "-U0", before, after, "--", ".claude/slopik/books").split("\n").filter((l) => /^[-+]\s*\S/.test(l) && !/^(\+\+\+|---) /.test(l));
+  return { copies, lost, control, book };
 }
 
 export type Target = { id: string; houses: string[] };
@@ -210,7 +215,9 @@ export function stop(): { go: boolean; why: string } {
 function main(argv: string[]): void {
   const [command, ...rest] = argv;
   const at = rest.indexOf("--root");
-  const root = at >= 0 ? rest[at + 1] : join(here, "..", "..", "..", "..");
+  const root = at >= 0 ? rest[at + 1] : git(process.cwd(), "rev-parse", "--show-toplevel").trim();
+  // состояние отдельно на каждый репо: чужой sha в журнале ломает перепись
+  process.env.SLOPIK_HOME ??= join(homedir(), ".slopik", git(root, "rev-list", "--max-parents=0", "HEAD").trim().split("\n").at(-1)!.slice(0, 12));
   const say = (x: unknown) => console.log(JSON.stringify(x, null, 1));
   if (command === "census") say(census(root));
   else if (command === "snapshot") {
