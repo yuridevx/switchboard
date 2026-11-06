@@ -57,7 +57,7 @@ async function deployAll(env: Env, cat: Catalog, row: Row, by: unknown): Promise
 async function deployModule(env: Env, cat: Catalog, row: Row, p: Part, f: Frame) {
   const without = (f.without ?? []) as string[];
   const checkWith = (f.check_with ?? []) as string[];
-  for (const name of without) if ((await cat.part(name)).kind !== "module") refuse("bad_frame", "without — модули сборки");
+  for (const name of without) if (name === p.name || (await cat.part(name)).kind !== "module") refuse("bad_frame", "without — модули сборки, не корень и не выкладываемая часть");
   for (const app of [...checkWith, ...(p.manifest!.into ?? [])]) if (!(await cat.part(app)).root) refuse("no_build", `${app} — не приложение каталога`);
   const gone = without.length ? `; сняты ${without.join(", ")}` : "";
   const latest = !!f.latest;

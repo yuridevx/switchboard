@@ -1025,6 +1025,15 @@ describe("сверка со старым кодом", () => {
     expect((await req(s, "~x", "releases.deploy", { part: "web-y" }))[0]).toMatchObject({ ok: false, error: "no_build" });
     expect((await req(s, "~x", "releases.deploy", { part: "web-y", latest: true }))[0]).toMatchObject({ ok: false, error: "no_build" });
   });
+
+  it("without не называет то, что выкладывается: bad_frame, сборки нет (чьё: код)", async () => {
+    const s = fresh();
+    cloudflare({}, { any: true });
+    await put("pult", "1.0.0", { type: "web-app", workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"]]);
+    await put("web-x", "1.0.0", { type: "web", into: ["pult"] }, [["module.js", "x"]]);
+    expect((await req(s, "~x", "releases.deploy", { part: "web-x", latest: true, without: ["web-x"] }))[0]).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(await env.BUCKET.get("test/pult/1.0.0+1.tgz")).toBeNull();
+  });
 });
 
 describe("releases.fetch", () => {
