@@ -266,3 +266,4 @@
   .chat-sugi span{white-space:normal;overflow:visible}
 }
 .chat-tb[aria-pressed="true"]{color:var(--ink);background:var(--surface2)}
+.chat-last{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
