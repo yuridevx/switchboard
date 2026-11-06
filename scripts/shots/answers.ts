@@ -1,4 +1,5 @@
 // Ответы владельцев на подделке relay: что страница стенда получает на свои запросы. Образцы данных: снимки сравниваются с ними.
+import { machineOf } from "@switchboard/protocol";
 import { FakeRelay } from "../../web/packages/core/stand/relay.ts";
 import type { Fleet, S } from "./fleets.ts";
 
@@ -120,7 +121,7 @@ export function answerRequests(relay: FakeRelay, F: Fleet, roster: { sessions: A
     const m = String(f.machine);
     const p = String(f.path);
     const kids = new Set<string>();
-    for (const s of F.ss) if (s.cs.endsWith(`@${m}`) && s.dir !== p && s.dir.startsWith(`${p}/`)) kids.add(s.dir.slice(p.length + 1).split("/")[0]);
+    for (const s of F.ss) if (machineOf(s.cs) === m && s.dir !== p && s.dir.startsWith(`${p}/`)) kids.add(s.dir.slice(p.length + 1).split("/")[0]);
     const depth = p.split("/").length - 1;
     (depth === 0 ? ["Documents", "Downloads", ".config"] : depth === 1 ? ["sandbox", "experiments", "old"] : ["src", "docs", "tests", "scripts", ".git"]).forEach((x) => kids.add(x));
     return { ok: true, result: { path: p, dirs: [...kids].sort() } };
