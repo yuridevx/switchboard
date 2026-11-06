@@ -1,64 +1,66 @@
-// Загрузка и скачивание архива каталога: один путь у CLI и инструмента сессии.
-import { gunzipSync } from "node:zlib";
-import { shaLine } from "./layout.ts";
+// Загрузка и скачивание по ссылкам «Выпусков»: одна функция у CLI и инструмента сессии. Как спросить «Выпуски», говорит вызывающий.
+import { shaLine } from "./sign.ts";
+import { entries } from "./tar.ts";
 
-/** Ответ на запрос к «Выпускам». */
-export type Answer<T> = { ok: true; result: T } | { ok: false; error: string; why?: string };
-export type UploadReply = { tgz: string; sha256: string } | { same: true };
-export type FetchReply = { version: string; url: string };
-/** Сеть: fetch платформы или подделка теста. */
-export type Net = (url: string, init: { method: string; body?: Uint8Array | string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; arrayBuffer?(): Promise<ArrayBuffer> }>;
+/** Предел обмена с R2: как у keeper на скачивание архива части. */
+const LINK_MS = 10 * 60_000;
+/** Его пишет npm, а не код: на другой машине он другой при том же дереве. */
+const NOT_CODE = "package-lock.json";
 
-type Ask = <T>(type: string, body: Record<string, unknown>) => Promise<Answer<T>>;
+export type Answer = { ok: true; result?: unknown } | { ok: false; error: string; why?: unknown };
+type Response = { ok: boolean; status: number; arrayBuffer?(): Promise<ArrayBuffer> };
+export type Net = {
+  ask(type: string, frame: Record<string, unknown>): Promise<Answer>;
+  fetch(url: string, init: { method: string; body?: Uint8Array; signal: AbortSignal }): Promise<Response>;
+};
+/** Слова ошибки обмена: причина → вся строка. */
+type Say = (why: string) => string;
 
-/** Предел передачи — как у keeper на скачивание части. */
-const TRANSFER_MS = 10 * 60_000;
-const minutes = (ms: number) => `${ms / 60_000} мин`;
+/** Отказ запроса словами. */
+export const refused = (type: string, r: { error: string; why?: unknown }): string => `${type}: ${r.error}${r.why ? ` — ${r.why}` : ""}`;
 
-const refused = (type: string, a: { error: string; why?: string }) => new Error(`${type}: ${a.error}${a.why ? ` — ${a.why}` : ""}`);
-
-/** Запрос в R2 с пределом; остановка вызывающего снимает его. */
-async function transfer(net: Net, url: string, init: { method: string; body?: Uint8Array | string }, word: string, what: string, stop?: AbortSignal) {
-  const ac = new AbortController();
-  const late = setTimeout(() => ac.abort(new Error("late")), TRANSFER_MS);
-  const signal = stop ? AbortSignal.any([ac.signal, stop]) : ac.signal;
+async function exchange(net: Net, url: string, method: string, say: Say, o: { body?: Uint8Array; signal?: AbortSignal } = {}): Promise<Buffer> {
+  const stop = new AbortController();
+  const limit = setTimeout(() => stop.abort(say("R2 не ответил за 10 мин")), LINK_MS);
+  const signal = o.signal ? AbortSignal.any([stop.signal, o.signal]) : stop.signal;
   try {
-    const r = await net(url, { ...init, signal });
-    if (!r.ok) throw new Error(`${word}: R2 ответил ${r.status} на ${what}`);
-    return r;
+    const r = await net.fetch(url, { method, body: o.body, signal });
+    if (!r.ok) throw say(`R2 ответил ${r.status}`);
+    return r.arrayBuffer ? Buffer.from(await r.arrayBuffer()) : Buffer.alloc(0);
   } catch (e) {
-    if (String((e as Error).message).startsWith(word)) throw e;
-    throw new Error(ac.signal.aborted ? `${word}: R2 не ответил за ${minutes(TRANSFER_MS)} на ${what}` : `${word}: ${String(e)} на ${what}`);
+    throw new Error(stop.signal.aborted ? stop.signal.reason : typeof e === "string" ? e : say(String(e)));
   } finally {
-    clearTimeout(late);
+    clearTimeout(limit);
   }
 }
 
-/** Ссылка на чтение и байты архива. */
-export async function download(ask: Ask, net: Net, part: string, version: string | undefined, name: string | null, stop?: AbortSignal): Promise<{ version: string; tgz: Buffer }> {
-  const a = await ask<FetchReply>("releases.fetch", { part, ...(version ? { version } : {}) });
-  if (!a.ok) throw refused("releases.fetch", a);
-  const what = name ?? `${part} ${a.result.version}`;
-  const r = await transfer(net, a.result.url, { method: "GET" }, "fetch_failed", what === "" ? new URL(a.result.url).pathname : what, stop);
-  return { version: a.result.version, tgz: Buffer.from(await r.arrayBuffer!()) };
+/** Пути, чьё содержимое в архивах разное. */
+export function differs(a: Uint8Array, b: Uint8Array): string[] {
+  const filesOf = (tgz: Uint8Array) => new Map(entries(tgz).filter((e) => e.data).map((e) => [e.path, e.data!]));
+  const [x, y] = [filesOf(a), filesOf(b)];
+  return [...new Set([...x.keys(), ...y.keys()])].filter((p) => p !== NOT_CODE && !x.get(p)?.equals(y.get(p) ?? Buffer.alloc(0)));
 }
 
-/** Номер занят: тот же tar другим сжатием — та же версия (gzip на разных машинах даёт разные байты). */
-async function sameTar(ask: Ask, net: Net, part: string, version: string, tgz: Uint8Array): Promise<boolean> {
-  const held = await download(ask, net, part, version, "");
-  return gunzipSync(held.tgz).equals(gunzipSync(tgz));
-}
+export const download = (net: Net, url: string, say: Say, signal?: AbortSignal): Promise<Buffer> => exchange(net, url, "GET", say, { signal });
 
-/** Загрузить версию: ссылки у «Выпусков», архив, затем хэш — версия готова. same: такой уже лежит. */
-export async function upload(ask: Ask, net: Net, m: { name: string; version: string; tgz: Uint8Array; sha: string }): Promise<{ same: boolean }> {
-  const a = await ask<UploadReply>("releases.upload", { part: m.name, version: m.version, sha256: m.sha });
-  if (!a.ok) {
-    if (a.error === "version_exists" && (await sameTar(ask, net, m.name, m.version, m.tgz))) return { same: true };
-    throw refused("releases.upload", a);
+/**
+ * Версия в каталог: архив, затем хэш — он делает её готовой. same — такая уже лежит: тот же хэш или, у занятого номера, те же файлы.
+ */
+export async function upload(net: Net, m: { name: string; version: string; tgz: Buffer; sha: string }, signal?: AbortSignal): Promise<{ same?: true }> {
+  const version = { part: m.name, version: m.version };
+  const on = (url: string, word: string): Say => (why) => `${word}: ${why} на ${new URL(url).pathname}`;
+  const r = await net.ask("releases.upload", { ...version, sha256: m.sha });
+  if (!r.ok) {
+    if (r.error !== "version_exists") throw new Error(refused("releases.upload", r));
+    const got = await net.ask("releases.fetch", version);
+    if (!got.ok) throw new Error(refused("releases.fetch", got));
+    const { url } = got.result as { url: string };
+    if (differs(await download(net, url, on(url, "fetch_failed"), signal), m.tgz).length) throw new Error(refused("releases.upload", r));
+    return { same: true };
   }
-  if ("same" in a.result) return { same: true };
-  const pathOf = (url: string) => new URL(url).pathname;
-  await transfer(net, a.result.tgz, { method: "PUT", body: m.tgz }, "upload_failed", pathOf(a.result.tgz));
-  await transfer(net, a.result.sha256, { method: "PUT", body: shaLine(m.sha, m.version) }, "upload_failed", pathOf(a.result.sha256));
-  return { same: false };
+  const links = r.result as { same: true } | { tgz: string; sha256: string };
+  if ("same" in links) return { same: true };
+  await exchange(net, links.tgz, "PUT", on(links.tgz, "upload_failed"), { body: m.tgz, signal });
+  await exchange(net, links.sha256, "PUT", on(links.sha256, "upload_failed"), { body: Buffer.from(shaLine(m.sha, m.version)), signal });
+  return {};
 }
