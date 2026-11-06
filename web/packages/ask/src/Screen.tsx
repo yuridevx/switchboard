@@ -1,121 +1,105 @@
-// Экран вопроса сессии: AskUserQuestion, запрос разрешения и план, форма и ссылка MCP. Первый ответ выигрывает.
-import { useState, type ReactNode } from "react";
-import { Area, Btn, Cta, In, Markdown, Note, Pad, PERM_PLACES, permModeName, RowBtn, Sel, useApp, useModule, type Params } from "@switchboard/web-ui";
-import type { Ask, Asked, Outcome } from "./store.ts";
+// Экран вопроса: AskUserQuestion, запрос разрешения, план и форма MCP. На весь экран — в обёртке страницы; в чужом месте (над вводом, в «Вам») — только вопрос.
+import { useEffect, useState, type ReactNode } from "react";
+import { Area, BadCard, Btn, Cta, In, Markdown, OkCard, Pad, PERM_PLACES, permModeName, RowBtn, Sel, useApp, useModule, WaitCard, type Params } from "@switchboard/web-ui";
+import { subjectOf, type AskStore, type Entry, type Question } from "./store.ts";
 
-type Opt = { label?: string; description?: string };
-type Q = { question?: string; header?: string; multiSelect?: boolean; options?: Opt[] };
-type Rule = { type?: string; rules?: Array<{ toolName?: string; ruleContent?: string }>; mode?: string; directories?: string[]; destination?: string };
-type Body = Record<string, unknown>;
+type Reply = (reply: Record<string, unknown>, text: string) => void;
+type Props = { q: Question; sending: boolean; closed: boolean; reply: Reply };
 
 const LATE = "Первый ответ выигрывает — ваш не отправлен повторно.";
-const APPS: Record<string, string> = { pult: "пульт", phone: "телефон" };
+const APP_NAMES: Record<string, string> = { pult: "пульт", phone: "телефон" };
 
-/** Суть входа инструмента: команда, файл, адрес или запрос. */
-export const subjectOf = (input: Body = {}): string => String(input.command ?? input.file_path ?? input.notebook_path ?? input.url ?? input.query ?? input.pattern ?? input.path ?? "");
-
-/** Что предложил SDK запомнить: строка на предложение. */
-export function ruleLine(r: Rule): string {
-  const what = r.type === "setMode" ? (permModeName(r.mode ?? "") ?? r.mode) : r.type === "addDirectories" ? r.directories?.join(", ") : r.rules?.map((x) => (x.ruleContent ? `${x.toolName}(${x.ruleContent})` : x.toolName)).join(", ");
-  return `${what} · ${PERM_PLACES[r.destination ?? ""] ?? r.destination}`;
-}
-
-function Done({ d, cs }: { d: Outcome; cs: string }) {
-  const [b, span]: [string, string] =
-    d.word === "ours" ? [d.said ? `Ответ «${d.said}» принят.` : "Ответ принят.", `${cs} продолжила работу.`]
-    : d.word === "theirs" ? [d.said ? `Уже ответили с ${d.by}: «${d.said}».` : `Уже ответили с ${d.by}.`, LATE]
-    : d.word === "late" ? ["Уже ответили.", LATE]
-    : d.word === "cancelled" ? ["Вопрос снят.", "Ход прервали — ответ больше не нужен."]
-    : d.word === "gone" ? ["Вопроса больше нет.", `${cs} его не ждёт: ${d.error}.`]
-    : [`Не отправлено: ${d.error}`, "Ответ не дошёл — можно отправить ещё раз."];
-  return (
-    <Note role={d.word === "failed" ? "alert" : "status"} tone={d.word === "ours" ? "ok" : d.word === "failed" ? "bad" : "wait"}>
-      <b>{b}</b> <span>{span}</span>
-    </Note>
-  );
-}
-
-function Pick({ q, n, of, value, set, off }: { q: Q; n: number; of: number; value: string[]; set(v: string[]): void; off: boolean }) {
-  const [own, setOwn] = useState<string | null>(null);
-  const toggle = (label: string) => set(q.multiSelect ? (value.includes(label) ? value.filter((x) => x !== label) : [...value, label]) : [label]);
-  const ownOn = own !== null;
-  const put = (text: string | null) => {
-    setOwn(text);
-    const picked = q.multiSelect ? value.filter((v) => (q.options ?? []).some((o) => o.label === v)) : [];
-    set(text === null ? picked : [...picked, ...(text ? [text] : [])]);
+/** Варианты вопроса: один или несколько, свой ответ. */
+function AskQuestions({ q, sending, closed, reply }: Props) {
+  const list = q.questions ?? [];
+  const [picked, setPicked] = useState<Record<number, string[]>>({});
+  const [own, setOwn] = useState<Record<number, string | null>>({});
+  const answerOf = (i: number) => [...(picked[i] ?? []), ...(own[i]?.trim() ? [own[i]!.trim()] : [])].join(", ");
+  const toggle = (i: number, label: string, many?: boolean) => {
+    const was = picked[i] ?? [];
+    setPicked({ ...picked, [i]: many ? (was.includes(label) ? was.filter((x) => x !== label) : [...was, label]) : was.includes(label) ? [] : [label] });
+    if (!many) setOwn({ ...own, [i]: null });
   };
-  return (
-    <div className="ask-q">
-      <div className="ask-qh">
-        {q.header && <span className="ask-chip">{q.header}</span>}
-        {of > 1 && <span className="ask-qn">{`вопрос ${n} из ${of}`}</span>}
-      </div>
-      <div className="ask-qt">{q.question}</div>
-      <div className="ask-opts">
-        {(q.options ?? []).map((o) => (
-          <RowBtn key={o.label} className={q.multiSelect ? "ask-opt multi" : "ask-opt"} aria-pressed={value.includes(o.label ?? "")} disabled={off} onClick={() => toggle(o.label ?? "")}>
-            <span>
-              <b>{o.label}</b>
-              {o.description && <span>{o.description}</span>}
-            </span>
-          </RowBtn>
-        ))}
-        <RowBtn className="ask-opt own" aria-pressed={ownOn} disabled={off} onClick={() => put(ownOn && !q.multiSelect ? null : (own ?? ""))}>
-          <span>
-            <b>Свой ответ</b>
-          </span>
-        </RowBtn>
-        {ownOn && <In className="ask-own" type="text" data-own={q.question} placeholder="Ваш ответ" value={own} disabled={off} onInput={(e) => put(e.currentTarget.value)} />}
-      </div>
-    </div>
-  );
-}
-
-function AskQ({ cs, q, send, off }: { cs: string; q: Asked; send(b: Body): void; off: boolean }) {
-  const qs = (q.questions ?? []) as Q[];
-  const [values, setValues] = useState<string[][]>(() => qs.map(() => []));
-  const ready = values.every((v) => v.some(Boolean));
+  const toggleOwn = (i: number, many?: boolean) => {
+    setOwn({ ...own, [i]: own[i] === undefined || own[i] === null ? "" : null });
+    if (!many) setPicked({ ...picked, [i]: [] });
+  };
+  const ready = list.every((_, i) => answerOf(i));
   return (
     <>
-      {qs.map((x, i) => (
-        <Pick key={i} q={x} n={i + 1} of={qs.length} value={values[i]} off={off} set={(v) => setValues((all) => all.map((w, j) => (j === i ? v : w)))} />
+      {list.map((x, i) => (
+        <div key={i} className="ask-q">
+          {x.header || list.length > 1 ? (
+            <div className="ask-qh">
+              {x.header ? <span className="ask-chip">{x.header}</span> : <span />}
+              {list.length > 1 ? <span className="ask-qn">{`вопрос ${i + 1} из ${list.length}`}</span> : null}
+            </div>
+          ) : null}
+          <div className="ask-qt">{x.question}</div>
+          <div className="ask-opts">
+            {(x.options ?? []).map((o) => (
+              <RowBtn key={o.label} className={x.multiSelect ? "ask-opt multi" : "ask-opt"} aria-pressed={(picked[i] ?? []).includes(o.label)} disabled={closed} onClick={() => toggle(i, o.label, x.multiSelect)}>
+                <span>
+                  <b>{o.label}</b>
+                  {o.description ? <span>{o.description}</span> : null}
+                </span>
+              </RowBtn>
+            ))}
+            <RowBtn className="ask-opt own" aria-pressed={own[i] !== undefined && own[i] !== null} disabled={closed} onClick={() => toggleOwn(i, x.multiSelect)}>
+              <span>
+                <b>Свой ответ</b>
+              </span>
+            </RowBtn>
+            {own[i] !== undefined && own[i] !== null ? <In className="ask-own" data-own={x.question} type="text" placeholder="Ваш ответ" value={own[i]!} disabled={closed} onInput={(e) => setOwn({ ...own, [i]: e.currentTarget.value })} /> : null}
+          </div>
+        </div>
       ))}
-      {!off && (
-        <Cta disabled={!ready || q.sending} onClick={() => send({ answers: Object.fromEntries(qs.map((x, i) => [x.question, values[i].filter(Boolean).join(", ")])) })}>
-          {q.sending ? "Отправляю…" : "Ответить"}
+      {closed ? null : (
+        <Cta disabled={!ready || sending} onClick={() => reply({ answers: Object.fromEntries(list.map((x, i) => [x.question, answerOf(i)])) }, list.map((_, i) => answerOf(i)).join(", "))}>
+          {sending ? "Отправляю…" : "Ответить"}
         </Cta>
       )}
-      <Hint cs={cs} q={q} />
     </>
   );
 }
 
-function PermQ({ q, send, off }: { q: Asked; send(b: Body): void; off: boolean }) {
-  const [deny, setDeny] = useState(false);
-  const [why, setWhy] = useState("");
+/** Строка «что ляжет навсегда»: правило и место, одной строкой на предложение. */
+function suggestionLine(s: Record<string, unknown>): string {
+  const place = PERM_PLACES[String(s.destination)] ?? String(s.destination ?? "");
+  const rules = (s.rules ?? []) as Array<{ toolName?: string; ruleContent?: string }>;
+  const what = s.type === "setMode" ? (permModeName(String(s.mode)) ?? String(s.mode)) : s.type === "addDirectories" ? ((s.directories ?? []) as string[]).join(", ") : rules.map((r) => (r.ruleContent ? `${r.toolName}(${r.ruleContent})` : String(r.toolName))).join(", ");
+  return [what, place].filter(Boolean).join(" · ");
+}
+
+/** Заголовок «План» в начале текста не повторяется: он уже в заголовке вопроса. */
+const planText = (input?: Record<string, unknown>) => String(input?.plan ?? "").replace(/^\s*#+\s*План\s*\n+/, "");
+
+function PermQuestion({ q, sending, closed, reply }: Props) {
+  const [deny, setDeny] = useState<string | null>(null);
   const plan = q.tool === "ExitPlanMode";
-  const input = (q.input ?? {}) as Body;
-  const rules = ((q.suggestions ?? []) as Rule[]).map(ruleLine);
-  const words = plan ? ["Одобрить", "Одобрить и разрешать правки", "Вернуть с замечаниями", "Замечания", "Вернуть"] : ["Разрешить", "Разрешать всегда", "Отклонить", "Причина", "Отклонить"];
-  const notes = [...new Set([q.title, q.description, q.reason].filter(Boolean) as string[])];
+  const input = q.input ?? {};
+  const subject = subjectOf(q);
+  const notes = [...new Set([q.title, q.description, q.reason])].filter(Boolean) as string[];
+  const wordDeny = plan ? "Вернуть" : "Отклонить";
+  const note = plan ? "Замечания" : "Причина";
   return (
     <>
       <div className="ask-q">
-        <div className="ask-qt">{plan ? "Claude предлагает план" : "Claude просит разрешения"}</div>
+        <div className="ask-qt">{plan ? "План на одобрение" : "Claude просит разрешения"}</div>
         {plan ? (
           <div className="ask-plan">
-            <Markdown text={String(input.plan ?? "").replace(/^\s*#+\s*План\s*\n/, "")} />
+            <Markdown text={planText(input)} />
           </div>
         ) : (
           <>
-            <span className="ask-chip">{String(q.tool)}</span>
-            {subjectOf(input) && <code className="ask-subject">{subjectOf(input)}</code>}
+            <span className="ask-chip">{q.tool}</span>
+            {subject ? <code className="ask-subject">{subject}</code> : null}
             {notes.map((n) => (
               <div key={n} className="ask-note">
                 {n}
               </div>
             ))}
-            {typeof q.blockedPath === "string" && <code className="ask-path">{q.blockedPath}</code>}
+            {q.blockedPath ? <code className="ask-path">{q.blockedPath}</code> : null}
             <details className="ask-more">
               <summary>Весь вход</summary>
               <pre>{JSON.stringify(input, null, 2)}</pre>
@@ -123,67 +107,71 @@ function PermQ({ q, send, off }: { q: Asked; send(b: Body): void; off: boolean }
           </>
         )}
       </div>
-      {!off &&
-        (deny ? (
-          <>
-            <Area className="ask-own" rows={2} placeholder={words[3]} aria-label={words[3]} value={why} onInput={(e) => setWhy(e.currentTarget.value)} />
-            <div className="ask-acts">
-              <Cta disabled={q.sending} onClick={() => send({ action: "deny", ...(why.trim() ? { message: why.trim() } : {}), label: words[2] })}>
-                {words[4]}
-              </Cta>
-              <Btn type="button" className="ask-decline" onClick={() => setDeny(false)}>
-                Назад
-              </Btn>
+      {!plan && q.suggestions?.length && !closed && deny === null
+        ? q.suggestions.map((s, i) => (
+            <div key={i} className="ask-note">
+              {suggestionLine(s)}
             </div>
-          </>
-        ) : (
-          <>
-            {rules.map((r) => (
-              <div key={r} className="ask-note">
-                {r}
-              </div>
-            ))}
-            <div className="ask-acts">
-              <Cta disabled={q.sending} onClick={() => send({ action: "allow", label: words[0] })}>
-                {q.sending ? "Отправляю…" : words[0]}
-              </Cta>
-              {(plan || rules.length > 0) && (
-                <Btn type="button" className="ask-decline" disabled={q.sending} onClick={() => send({ action: "allow", always: true, label: words[1] })}>
-                  {words[1]}
-                </Btn>
-              )}
-              <Btn type="button" className="ask-decline" onClick={() => setDeny(true)}>
-                {words[2]}
-              </Btn>
-            </div>
-          </>
-        ))}
+          ))
+        : null}
+      {closed ? null : deny !== null ? (
+        <>
+          <Area className="ask-own" rows={2} placeholder={note} aria-label={note} value={deny} onInput={(e) => setDeny(e.currentTarget.value)} />
+          <div className="ask-acts">
+            <Cta disabled={sending} onClick={() => reply({ action: "deny", ...(deny.trim() ? { message: deny.trim() } : {}) }, wordDeny)}>
+              {wordDeny}
+            </Cta>
+            <Btn type="button" className="ask-decline" onClick={() => setDeny(null)}>
+              Назад
+            </Btn>
+          </div>
+        </>
+      ) : (
+        <div className="ask-acts">
+          <Cta disabled={sending} onClick={() => reply({ action: "allow" }, plan ? "Одобрить" : "Разрешить")}>
+            {plan ? "Одобрить" : "Разрешить"}
+          </Cta>
+          {plan ? (
+            <Btn type="button" className="ask-decline" disabled={sending} onClick={() => reply({ action: "allow", always: true }, "Одобрить и разрешать правки")}>
+              Одобрить и разрешать правки
+            </Btn>
+          ) : q.suggestions?.length ? (
+            <Btn type="button" className="ask-decline" disabled={sending} onClick={() => reply({ action: "allow", always: true }, "Разрешать всегда")}>
+              Разрешать всегда
+            </Btn>
+          ) : null}
+          <Btn type="button" className="ask-decline" disabled={sending} onClick={() => setDeny("")}>
+            {plan ? "Вернуть с замечаниями" : "Отклонить"}
+          </Btn>
+        </div>
+      )}
     </>
   );
 }
 
-type Field = { type?: string; enum?: unknown[]; title?: string; description?: string };
+type Field = NonNullable<NonNullable<Question["schema"]>["properties"]>[string];
+const isNumber = (f: Field) => f.type === "number" || f.type === "integer";
 
-function FormQ({ q, send, off }: { q: Asked; send(b: Body): void; off: boolean }) {
-  const props = ((q.schema as { properties?: Record<string, Field> } | undefined)?.properties ?? {}) as Record<string, Field>;
-  const [vals, setVals] = useState<Record<string, string>>({});
-  const url = typeof q.url === "string" ? q.url : null;
-  const set = (k: string, v: string) => setVals((x) => ({ ...x, [k]: v }));
-  const content = () => Object.fromEntries(Object.entries(vals).filter(([, v]) => v !== "").map(([k, v]) => [k, props[k]?.type === "integer" || props[k]?.type === "number" ? Number(v) : v]));
+function FormQuestion({ q, sending, closed, reply }: Props) {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const fields = Object.entries(q.schema?.properties ?? {});
+  const content = () => Object.fromEntries(fields.flatMap(([k, f]) => (values[k] ? [[k, isNumber(f) ? Number(values[k]) : values[k]]] : [])));
   return (
     <>
       <div className="ask-q">
-        <div className="ask-qt">{String(q.message ?? "")}</div>
-        {url ? (
-          <a className="ask-url" href={url} target="_blank" rel="noopener">
-            {url}
+        <div className="ask-qt">{q.message || "Форма"}</div>
+        {q.url ? (
+          <a className="ask-url" href={q.url} target="_blank" rel="noopener">
+            {q.url}
           </a>
-        ) : (
-          Object.entries(props).map(([k, f]) => (
+        ) : null}
+        {fields.map(([k, f]) => {
+          const set = (value: string) => setValues((was) => ({ ...was, [k]: value }));
+          return (
             <label key={k} className="ask-field">
               <span>{f.title ?? k}</span>
               {f.enum ? (
-                <Sel className="ask-own" value={vals[k] ?? ""} disabled={off} onChange={(e) => set(k, e.target.value)}>
+                <Sel className="ask-own" value={values[k] ?? ""} disabled={closed} onChange={(e) => set(e.currentTarget.value)}>
                   <option value="">—</option>
                   {f.enum.map((v) => (
                     <option key={String(v)} value={String(v)}>
@@ -192,19 +180,19 @@ function FormQ({ q, send, off }: { q: Asked; send(b: Body): void; off: boolean }
                   ))}
                 </Sel>
               ) : (
-                <In className="ask-own" type={f.type === "integer" || f.type === "number" ? "number" : "text"} value={vals[k] ?? ""} disabled={off} onInput={(e) => set(k, e.currentTarget.value)} />
+                <In className="ask-own" type={isNumber(f) ? "number" : "text"} value={values[k] ?? ""} disabled={closed} onInput={(e) => set(e.currentTarget.value)} />
               )}
-              {f.description && <small>{f.description}</small>}
+              {f.description ? <small>{f.description}</small> : null}
             </label>
-          ))
-        )}
+          );
+        })}
       </div>
-      {!off && (
+      {closed ? null : (
         <>
-          <Cta disabled={q.sending} onClick={() => send(url ? { action: "accept" } : { action: "accept", content: content() })}>
-            {q.sending ? "Отправляю…" : url ? "Перешёл" : "Отправить"}
+          <Cta disabled={sending} onClick={() => reply(q.url ? { action: "accept" } : { action: "accept", content: content() }, "")}>
+            {sending ? "Отправляю…" : q.url ? "Перешёл" : "Отправить"}
           </Cta>
-          <Btn type="button" className="ask-decline" onClick={() => send({ action: "decline" })}>
+          <Btn className="ask-decline" disabled={sending} onClick={() => reply({ action: "decline" }, "Отклонить")}>
             Отклонить
           </Btn>
         </>
@@ -213,41 +201,65 @@ function FormQ({ q, send, off }: { q: Asked; send(b: Body): void; off: boolean }
   );
 }
 
-function Hint({ cs: _cs, q }: { cs: string; q: Asked }) {
-  const app = useApp();
-  if (!q.to?.length) return null;
-  const names = q.to.map((a) => {
-    const name = a.split("~")[0];
-    return a === app.name || a === app.address() || name === app.name ? "вы" : (APPS[name] ?? name);
-  });
-  const sorted = [...new Set(names)].sort((a, b) => (a === "вы" ? -1 : b === "вы" ? 1 : 0));
-  return <div className="ask-hint">{`Вопрос видят: ${sorted.join(" и ")}`}</div>;
+function Outcome({ e, callsign }: { e: Entry; callsign: string }) {
+  const d = e.done;
+  const two = (head: string, tail?: string, Card: typeof OkCard = WaitCard): ReactNode => (
+    <Card role="status">
+      <b>{head}</b>
+      {tail ? <span>{tail}</span> : null}
+    </Card>
+  );
+  if (e.word)
+    return (
+      <BadCard role="alert">
+        <b>{`Не отправлено: ${e.word}`}</b>
+        <span>Ответ не дошёл — можно отправить ещё раз.</span>
+      </BadCard>
+    );
+  if (!d) return null;
+  switch (d.how) {
+    case "mine":
+      return two(d.text ? `Ответ «${d.text}» принят.` : "Ответ принят.", `${callsign} продолжила работу.`, OkCard);
+    case "already":
+      return two("Уже ответили.", LATE);
+    case "other":
+      return two(`Уже ответили с ${d.by}${d.text ? `: «${d.text}»` : ""}.`, LATE);
+    case "cancelled":
+      return two("Вопрос снят.", "Ход прервали — ответ больше не нужен.");
+    case "gone":
+      return two("Вопроса больше нет.", `${callsign} его не ждёт: ${d.word}.`);
+  }
 }
 
-/** Вопрос на экране: первый ждущий, иначе последний с итогом. */
-export const shownOf = (qs: Asked[] = []): Asked | undefined => qs.find((q) => !q.done || q.done.word === "failed") ?? qs.at(-1);
+function Audience({ q }: { q: Question }) {
+  const app = useApp();
+  if (!q.to) return null;
+  const others = q.to.filter((n) => n !== app.name && n !== app.address());
+  return <div className="ask-hint">{`Вопрос видят: вы${others.length ? ` и ${others.map((n) => APP_NAMES[n] ?? n).join(", ")}` : ""}`}</div>;
+}
 
 export function AskScreen({ params }: { params: Params }) {
   const app = useApp();
-  const ask = useModule<Ask>();
-  const cs = params.callsign;
-  const own = app.use(() => app.current()?.screen === "ask");
-  const per = app.use(() => ask.store.get()[cs]);
-  const q = shownOf(per?.qs);
-  if (!q) {
-    if (!own) return null;
-    const list = per?.list;
-    const text: ReactNode = typeof list === "object" ? `question.list: ${list.error}` : list === "ok" ? `У ${cs} нет ждущих вопросов.` : "Загружаю вопросы…";
-    return <div className="ask-empty">{text}</div>;
-  }
-  const off = !!q.done && q.done.word !== "failed";
-  const send = (b: Body) => void ask.answer(cs, q, b);
-  const View = q.kind === "perm" ? PermQ : q.kind === "ask" ? AskQ : FormQ;
+  const asks = useModule<AskStore>();
+  const { callsign } = params;
+  useEffect(() => asks.mount(callsign), [callsign]); // eslint-disable-line react-hooks/exhaustive-deps
+  const e = app.use(() => asks.shown(callsign));
+  const loading = app.use(() => asks.asks(callsign).loading);
+  const word = app.use(() => asks.asks(callsign).word);
+  const inPlace = app.current()?.screen !== "ask";
+  if (!e && inPlace) return null;
+  if (!e)
+    return (
+      <Pad>
+        <div className="ask-empty">{word || (loading ? "Загружаю вопросы…" : `У ${callsign} нет ждущих вопросов.`)}</div>
+      </Pad>
+    );
+  const props: Props = { q: e.q, sending: e.sending, closed: !!e.done, reply: (reply, text) => void asks.answer(callsign, e.q.question, reply, text) };
   return (
-    <Pad className="ask" key={q.question}>
-      <View cs={cs} q={q} send={send} off={off} />
-      {q.kind !== "ask" && <Hint cs={cs} q={q} />}
-      {q.done && <Done d={q.done} cs={cs} />}
+    <Pad className="ask">
+      {e.q.kind === "ask" ? <AskQuestions key={e.q.question} {...props} /> : e.q.kind === "perm" ? <PermQuestion key={e.q.question} {...props} /> : <FormQuestion key={e.q.question} {...props} />}
+      <Outcome e={e} callsign={callsign} />
+      <Audience q={e.q} />
     </Pad>
   );
 }

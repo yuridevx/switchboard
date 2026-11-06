@@ -37,7 +37,7 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
   function ask<T>(s: Session, id: string, kind: Kind, fields: Record<string, unknown>, signal: AbortSignal, answer: (a: Answer) => T, cancelled: T): Promise<T> {
     const cs = s.info.callsign;
     const to = audience(s, kind);
-    host().log({ kind: "note", ev: "question", callsign: cs, question: id, asked: kind });
+    host().log({ kind: "note", ev: "question", callsign: cs, question: id, asked: kind, to, ...(to.length ? {} : { why: "адресатов нет: ждёт question.list" }) });
     return new Promise<T>((resolve) => {
       const p: Pending = { id, kind, fields: defined(fields), to, clients: to.filter(isClient), settle: () => {} };
       const close = (frame: Record<string, unknown>) => {
@@ -57,7 +57,7 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
       };
       const abort = () => {
         close({ cancelled: true });
-        notify(s, p, { title: `${cs} · вопрос снят`, body: "ход прервали" }, "answered");
+        notify(s, p, { title: cs, body: "вопрос снят" }, "answered");
         resolve(cancelled);
       };
       signal.addEventListener("abort", abort);
@@ -68,7 +68,8 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
         const one = first?.length === 1 && !first[0].multiSelect ? first[0] : undefined;
         const actions = one?.options?.map((o) => ({ title: o.label, frame: { type: "answer", v: 1, callsign: cs, question: id, answers: { [one.question!]: o.label } } }));
         notify(s, p, { title: `${cs} спрашивает`, body: first?.[0]?.question ?? "", ...(actions?.length ? { actions } : {}) }, "question");
-      } else notify(s, p, { title: kind === "perm" ? `${cs} просит разрешения` : `${cs} спрашивает`, body: String(fields.title ?? fields.message ?? fields.tool ?? "") }, "question");
+      } else if (kind === "perm") notify(s, p, { title: `${cs} просит разрешения`, body: String(fields.title ?? fields.tool) }, "question");
+      else notify(s, p, { title: `${cs} · форма`, body: String(fields.message ?? fields.url ?? "") }, "question");
     });
   }
 
@@ -100,15 +101,21 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
       return ask<ElicitationResult>(s, opts.requestId, url ? "url" : "form", fields, opts.signal, ({ body }) => defined({ action: body.action ?? "accept", content: body.content }) as ElicitationResult, { action: "cancel" });
     },
     requests: {
-      answer(req: Frame, ctx: { from?: string }) {
+      answer(req: Frame, { from }: { from?: string }) {
+        if (!from) throw refuse("bad_frame", "answer: отправитель без адреса");
         const cs = String(req.callsign);
         const id = String(req.question);
         const p = open.get(cs)?.get(id);
-        if (!p) throw done(cs).has(id) ? refuse("already_answered", `${id}: на вопрос уже ответили`) : refuse("unknown_question", `${id}: ${cs} этого вопроса не ждёт`);
-        const good = p.kind === "ask" ? !!req.answers && typeof req.answers === "object" : p.kind === "perm" ? req.action === "allow" || req.action === "deny" : req.action === undefined || ["accept", "decline", "cancel"].includes(String(req.action));
-        if (!good) throw refuse("bad_frame", `ответ не той формы для ${p.kind}`);
-        if (p.kind !== "ask" && !isClient(ctx.from ?? "")) throw refuse("not_client", `${ctx.from} — не человек`);
-        p.settle({ by: ctx.from ?? "", body: req });
+        if (!p) throw done(cs).has(id) ? refuse("already_answered", `${id}: на вопрос уже ответили`) : refuse("unknown_question", `${id}: ждущего вопроса с таким id этот Host не знает`);
+        const { answers, content, action, message } = req;
+        if (p.kind === "ask") {
+          if (!answers || typeof answers !== "object") throw refuse("bad_frame", "answer: answers — «текст вопроса → ответ»");
+        } else if (p.kind === "perm") {
+          if (!isClient(from)) throw refuse("not_client", `${id}: разрешение решает человек, а не ${from}`);
+          if (action !== "allow" && action !== "deny") throw refuse("bad_frame", `answer: action ${String(action)} — allow или deny`);
+          if (message !== undefined && typeof message !== "string") throw refuse("bad_frame", "answer: message — строка");
+        } else if (!["accept", "decline", "cancel"].includes(String(action ?? "accept")) || (content !== undefined && typeof content !== "object")) throw refuse("bad_frame", "answer: action формы и content — объект формы");
+        p.settle({ by: from, body: req });
         return undefined;
       },
       "question.list": (req: Frame) => [...(open.get(String(req.callsign))?.values() ?? [])].map((p) => ({ question: p.id, kind: p.kind, ...p.fields })),

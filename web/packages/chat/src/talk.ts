@@ -1,54 +1,65 @@
-// Разговоры страницы: по сессии — сообщения SDK (история и живое), свои отправки, вопросы сбоку, поле ввода. Связь с Host — только запросами и кадрами контракта.
-import { accountChanges, createStore, isLive, linkText, plural, sessionOf, type App, type ModelInfo, type Result } from "@switchboard/web-ui";
+// Разговоры страницы: по сессии — сообщения SDK (история и живое), свои отправки, вопросы сбоку, поле ввода. Единственное место модуля, что говорит с Host.
+import { accountChanges, createStore, isLive, plural, sessionOf, type App, type ModelInfo, type Result } from "@switchboard/web-ui";
 import type { Frame, Roster } from "@switchboard/web-core";
 import type { Msg } from "./fold.ts";
-import { refusal } from "./words.ts";
+import { sayWord } from "./words.ts";
 
 export type Att = { name: string; media_type: string; data: string };
-export type Send = { uuid: string; text: string; files: Att[]; at: number; state: "sending" | "ok" | "queued" | "pend" };
-export type Side = { id: number; q: string; state: "wait" | "done" | "bad"; a?: string };
-export type Rewind = { state: "probe" | "ask" | "no" | "apply" | "done" | "bad"; text: string };
+/** Своё сообщение: в пути, принято, обрыв до ответа; эхо — запись с тем же uuid в сообщениях. */
+export type Send = { uuid: string; text: string; files: Att[]; at: number; state: "sending" | "ok" | "lost"; queued: boolean };
+export type Side = { id: number; q: string; state: "wait" | "done" | "bad"; a: string };
+export type Rewind = { id: string; state: "probe" | "ask" | "bad" | "ok"; text: string };
 export type Cmd = { name: string; description?: string };
 export type Talk = {
   msgs: Msg[];
   more: boolean;
+  loaded: boolean;
   seq?: number;
-  note?: string;
+  refused: string;
   sends: Send[];
   sides: Side[];
   draft: string;
   files: Att[];
-  unread: number;
-  unreadText?: string;
-  rewinds: Record<string, Rewind>;
+  unread: { count: number; text: string } | null;
+  rewind: Rewind | null;
   models?: ModelInfo[] | "loading";
   commands?: Cmd[] | "loading";
   focus: boolean;
 };
 
 const HISTORY = 50;
-const blank = (draft = ""): Talk => ({ msgs: [], more: false, sends: [], sides: [], draft, files: [], unread: 0, rewinds: {}, focus: false });
+const NOT_CONFIRMED = new Set(["timeout", "disconnected"]);
+const blank = (draft = ""): Talk => ({ msgs: [], more: false, loaded: false, refused: "", sends: [], sides: [], draft, files: [], unread: null, rewind: null, focus: false });
 export const machineOf = (cs: string) => cs.slice(cs.lastIndexOf("@") + 1);
-const uuids = (msgs: readonly Msg[]) => new Set(msgs.map((m) => m.uuid).filter(Boolean));
 
-/** Страница истории поверх известного: что раньше страницы — впереди, что не вошло в неё — следом. Кусочки живого заменяет история. */
+/** Страница истории: что уже есть, остаётся на месте; новое — у своего соседа; кусочки живого заменяет история. Разрыв длиннее страницы: прежнему соседа нет, «Раньше» доберёт его по порядку. */
 function merge(cur: readonly Msg[], page: readonly Msg[], more: boolean): Msg[] {
-  const inPage = uuids(page);
-  const first = cur.findIndex((m) => m.uuid && m.uuid === page[0]?.uuid);
-  // разрыв длиннее страницы: прежнее ей не сосед, «Раньше» доберёт его по порядку; свои строки страницы остаются
-  if (first < 0 && more) return [...page, ...cur.filter((m) => String(m.uuid).startsWith("x:"))];
-  const before = first > 0 ? cur.slice(0, first) : [];
-  const after = cur.slice(Math.max(first, 0)).filter((m) => m.type !== "stream_event" && !(m.uuid && inPage.has(m.uuid)));
-  return [...before, ...page, ...after];
+  const log = cur.filter((m) => m.type !== "stream_event");
+  const at = new Map(log.flatMap((m, i) => (typeof m.uuid === "string" ? [[m.uuid, i] as const] : [])));
+  if (more && page.length && !page.some((p) => at.has(p.uuid))) return [...page, ...log.filter((m) => String(m.uuid).startsWith("x:"))];
+  const out: Msg[] = [];
+  let waiting: Msg[] = [];
+  let i = 0;
+  for (const p of page) {
+    const j = at.get(p.uuid);
+    if (j === undefined) waiting.push(p);
+    else if (j >= i) {
+      out.push(...log.slice(i, j), ...waiting, log[j]);
+      waiting = [];
+      i = j + 1;
+    }
+  }
+  return [...out, ...waiting, ...log.slice(i)];
 }
 
-/** Кусочки идущего сообщения: одна запись с накопленным текстом вместо тысячи маленьких; кусочки входа инструмента не рисуются. */
+/** Кусочки идущего сообщения: одна запись с накопленным текстом вместо тысячи маленьких; счётчики хода — одна запись; кусочки входа инструмента не рисуются. */
 function addEvent(list: Msg[], m: Msg): void {
+  const prev = list.at(-1);
   const d = m.type === "stream_event" && m.event?.type === "content_block_delta" ? m.event.delta : undefined;
   const key = d?.type === "text_delta" ? "text" : d?.type === "thinking_delta" ? "thinking" : undefined;
   if (d && !key) return;
-  const prev = list.at(-1);
   if (prev && key && prev.event?.delta?.type === d.type && prev.parent_tool_use_id === m.parent_tool_use_id) prev.event.delta[key] += d[key];
+  else if (prev && (m.subtype === "thinking_tokens" ? prev.subtype === m.subtype : m.type === "tool_progress" && prev.tool_use_id === m.tool_use_id && prev.type === m.type)) list[list.length - 1] = m;
   else list.push(m);
 }
 
@@ -59,7 +70,7 @@ export function createTalks(app: App) {
   let drafts: Record<string, string> = {};
   const opened = new Map<string, number>();
   const watching = new Set<string>();
-  const known: Record<string, string> = {};
+  const known = new Map<string, string>();
   let n = 0;
 
   const get = (cs: string): Talk => store.get()[cs] ?? blank(drafts[cs]);
@@ -67,92 +78,101 @@ export function createTalks(app: App) {
     store.set((s) => {
       fn((s[cs] ??= blank(drafts[cs])) as Talk);
     });
-  const live = (cs: string) => isLive(sessionOf(app, cs)?.state);
   const can = (cs: string, name: string) => app.can(machineOf(cs), name) === true;
-  const call = <T = unknown>(cs: string, method: string, args: unknown[] = [], read = false): Promise<Result<T>> => (read ? app.read<T> : app.request<T>)("session.call", { callsign: cs, method, args });
-  const say = (cs: string, word: string) => refusal(word, machineOf(cs));
+  const canAct = (cs: string) => can(cs, "session.call") && isLive(sessionOf(app, cs)?.state);
+  const call = (cs: string, method: string, args: unknown[] = []) => app.request("session.call", { callsign: cs, method, args });
+  const read = <T = unknown>(cs: string, method: string, args: unknown[] = []): Promise<Result<T>> => app.read<T>("session.call", { callsign: cs, method, args });
+  const say = (cs: string, word: string) => sayWord(word, machineOf(cs));
 
   async function history(cs: string) {
-    if (!can(cs, "session.history")) return;
+    if (!can(cs, "session.history")) return edit(cs, (t) => void (t.loaded = true));
     const r = await app.request<{ messages: Msg[]; more: boolean }>("session.history", { callsign: cs, before: null, limit: HISTORY });
     edit(cs, (t) => {
-      if (!r.ok) return void (t.note ??= `session.history: ${r.error}`);
+      t.loaded = true;
+      if (!r.ok) return void (t.refused ||= `session.history: ${r.error}`);
       t.msgs = merge(t.msgs, r.result.messages, r.result.more);
       t.more = r.result.more;
     });
   }
 
+  /** Подписка и история: при открытии, когда машина появилась, связь вернулась или Host поднялся заново. */
   async function watch(cs: string) {
-    if (watching.has(cs) || app.link() !== "open" || !app.roster()?.machines.some((m) => m.machine === machineOf(cs))) return;
-    if (!can(cs, "session.watch")) return edit(cs, (t) => void (t.note = `${machineOf(cs)} не отдаёт ленту — только переписка и ввод`));
+    if (watching.has(cs) || app.link() !== "open" || app.can(machineOf(cs), "session.watch") === null) return;
     watching.add(cs);
-    const r = await app.read("session.watch", { callsign: cs });
-    edit(cs, (t) => void (t.note = r.ok ? undefined : `session.watch: ${r.error}`));
+    edit(cs, (t) => {
+      t.refused = "";
+      t.seq = undefined;
+    });
+    if (can(cs, "session.watch")) {
+      const r = await app.read("session.watch", { callsign: cs });
+      if (!r.ok) edit(cs, (t) => void (t.refused = `session.watch: ${r.error}`));
+    }
     await history(cs);
   }
 
   function unwatch(cs: string) {
-    if (!watching.delete(cs)) return;
-    void app.request("session.unwatch", { callsign: cs });
+    if (watching.delete(cs) && can(cs, "session.watch")) void app.request("session.unwatch", { callsign: cs });
   }
 
-  const saveDrafts = () => void app.store<Record<string, string>>("drafts").set(drafts);
-  const keepDraft = (cs: string) => {
-    const d = get(cs).draft;
-    if (d.trim()) drafts[cs] = d;
+  const saveDrafts = () => app.store<Record<string, string>>("drafts").set({ ...drafts });
+  const setDraft = (cs: string, text: string) => {
+    if (text) drafts[cs] = text;
     else delete drafts[cs];
   };
 
-  /** Отправленное не дошло: текст — в поле, если оно пусто, вложения — к набранным; тост словами. */
+  /** Отказ: сообщения нет; что написал человек, не пропадает и новое не затирает. */
   function giveBack(cs: string, s: Send, word?: string) {
-    const open = (opened.get(cs) ?? 0) > 0;
-    const t = get(cs);
-    const empty = !t.draft.trim();
-    edit(cs, (x) => {
-      x.sends = x.sends.filter((y) => y.uuid !== s.uuid);
-      if (empty) x.draft = s.text;
-      if (open) x.files.push(...s.files);
+    const open = opened.has(cs);
+    const empty = !get(cs).draft;
+    edit(cs, (t) => {
+      t.sends = t.sends.filter((x) => x.uuid !== s.uuid);
+      if (empty) t.draft = s.text;
+      if (open) t.files.push(...s.files);
     });
     if (!open && empty) {
-      drafts[cs] = s.text;
-      saveDrafts();
+      setDraft(cs, s.text);
+      void saveDrafts();
     }
-    if (word) app.toast(`${cs}: не доставлено — ${say(cs, word)}. ${!open ? "Черновик цел, вложения не сохранены." : empty ? "Черновик цел." : "В поле новый текст, отправленный текст не возвращён."}`, "bad");
+    if (!word) return;
+    const why = `${cs}: не доставлено — ${say(cs, word)}.`;
+    if (!open) app.toast(`${why} Черновик цел${s.files.length ? ", вложения не сохранены" : ""}.`);
+    else app.toast(`${why} ${empty ? "Черновик цел." : "В поле новый текст, отправленный текст не возвращён."}`);
   }
 
   async function deliver(cs: string, s: Send) {
-    const busy = ["busy", "waiting"].includes(String(sessionOf(app, cs)?.state));
     const r = await app.request("session.prompt", { callsign: cs, uuid: s.uuid, text: s.text, ...(s.files.length ? { attachments: s.files } : {}) });
-    if (r.ok || r.error === "timeout" || r.error === "disconnected")
-      return edit(cs, (t) => {
-        const x = t.sends.find((y) => y.uuid === s.uuid);
-        if (x) x.state = r.ok ? (busy ? "queued" : "ok") : "pend";
-      });
-    giveBack(cs, s, r.error);
+    if (!r.ok && !NOT_CONFIRMED.has(r.error)) return giveBack(cs, s, r.error);
+    edit(cs, (t) => {
+      const x = t.sends.find((y) => y.uuid === s.uuid);
+      if (x) x.state = r.ok ? "ok" : "lost";
+    });
+  }
+
+  async function act(cs: string, method: string, args: unknown[] = []) {
+    const r = await call(cs, method, args);
+    if (!r.ok) app.toast(`${cs}: ${method} — ${say(cs, r.error)}`);
   }
 
   return {
     store,
     get,
     edit,
-    live,
     can,
-    call,
+    canAct,
+    read,
+    act,
     async start() {
       drafts = (await app.store<Record<string, string>>("drafts").get()) ?? {};
     },
-    stop() {
+    async stop() {
       for (const cs of [...watching]) unwatch(cs);
-      for (const cs of opened.keys()) keepDraft(cs);
-      saveDrafts();
+      for (const cs of opened.keys()) setDraft(cs, get(cs).draft);
+      await saveDrafts();
     },
-    /** Экран открыт: лента и чтение заново; непрочитанное снято. */
+    /** Экран открыт: первый смотрящий подписывается, последний отписывается. */
     open(cs: string) {
       opened.set(cs, (opened.get(cs) ?? 0) + 1);
-      edit(cs, (t) => {
-        t.unread = 0;
-        t.unreadText = undefined;
-      });
+      edit(cs, (t) => void (t.unread = null));
       void watch(cs);
     },
     close(cs: string) {
@@ -160,19 +180,18 @@ export function createTalks(app: App) {
       if (left > 0) return void opened.set(cs, left);
       opened.delete(cs);
       unwatch(cs);
-      keepDraft(cs);
-      saveDrafts();
+      setDraft(cs, get(cs).draft);
+      void saveDrafts();
     },
-    isOpen: (cs: string) => (opened.get(cs) ?? 0) > 0,
     async older(cs: string) {
-      const first = get(cs).msgs.find((m) => m.uuid && !String(m.uuid).startsWith("x:"));
+      const first = get(cs).msgs.find((m) => typeof m.uuid === "string" && !m.uuid.startsWith("x:"));
       const r = await app.request<{ messages: Msg[]; more: boolean }>("session.history", { callsign: cs, before: first?.uuid ?? null, limit: HISTORY });
       if (!r.ok) {
-        app.toast(`${cs}: session.history — ${r.error}`, "bad");
+        app.toast(`${cs}: session.history — ${r.error}`);
         return false;
       }
       edit(cs, (t) => {
-        const have = uuids(t.msgs);
+        const have = new Set(t.msgs.map((m) => m.uuid));
         t.msgs = [...r.result.messages.filter((m) => !have.has(m.uuid)), ...t.msgs];
         t.more = r.result.more;
       });
@@ -184,7 +203,8 @@ export function createTalks(app: App) {
       quiet = false;
     },
     send(cs: string, text: string, files: Att[]) {
-      const s: Send = { uuid: crypto.randomUUID(), text, files, at: Date.now(), state: "sending" };
+      const state = sessionOf(app, cs)?.state;
+      const s: Send = { uuid: crypto.randomUUID(), text, files, at: Date.now(), state: "sending", queued: state === "busy" || state === "waiting" };
       edit(cs, (t) => {
         t.sends.push(s);
         t.draft = "";
@@ -199,90 +219,87 @@ export function createTalks(app: App) {
       void deliver(cs, s);
     },
     async cancel(cs: string, uuid: string) {
-      const r = await call<boolean>(cs, "cancelAsyncMessage", [uuid]);
+      const r = await call(cs, "cancelAsyncMessage", [uuid]);
+      if (!r.ok) return app.toast(`${cs}: cancelAsyncMessage — ${say(cs, r.error)}`);
       const s = get(cs).sends.find((x) => x.uuid === uuid);
-      if (!r.ok) return app.toast(`${cs}: cancelAsyncMessage — ${say(cs, r.error)}`, "bad");
       if (r.result && s) giveBack(cs, s);
-      else app.toast("Claude уже взял это сообщение", "bad");
-    },
-    /** Действие сессии: отказ — тост «позывной: метод — слово». */
-    async act(cs: string, method: string, args: unknown[] = []) {
-      const r = await call(cs, method, args);
-      if (!r.ok) app.toast(`${cs}: ${method} — ${say(cs, r.error)}`, "bad");
-      return r;
+      else app.toast("Claude уже взял это сообщение");
     },
     async side(cs: string, q: string) {
       const id = ++n;
       edit(cs, (t) => {
-        t.sides.push({ id, q, state: "wait" });
+        t.sides.push({ id, q, state: "wait", a: "" });
         t.draft = "";
       });
-      const r = await call<{ response?: string | null }>(cs, "askSideQuestion", [q]);
+      const r = await call(cs, "askSideQuestion", [q]);
       edit(cs, (t) => {
         const x = t.sides.find((y) => y.id === id);
-        if (x) Object.assign(x, r.ok ? { state: "done", a: r.result?.response ?? undefined } : { state: "bad", a: say(cs, r.error) });
+        if (x) Object.assign(x, r.ok ? { state: "done", a: String((r.result as { response?: string } | null)?.response ?? "Claude не ответил") } : { state: "bad", a: say(cs, r.error) });
       });
     },
-    async rewind(cs: string, uuid: string, apply: boolean) {
-      edit(cs, (t) => void (t.rewinds[uuid] = { state: apply ? "apply" : "probe", text: apply ? "Откатываю…" : "Проба отката…" }));
-      const r = await call<{ canRewind?: boolean; error?: string; filesChanged?: string[]; insertions?: number; deletions?: number }>(cs, "rewindFiles", apply ? [uuid] : [uuid, { dryRun: true }]);
-      const word = (e: string) => linkText(e, machineOf(cs));
-      edit(cs, (t) => {
-        if (apply) t.rewinds[uuid] = r.ok ? { state: "done", text: "Файлы откачены к этому сообщению." } : { state: "bad", text: `Не откатилось: ${word(r.error)}` };
-        else if (!r.ok) t.rewinds[uuid] = { state: "no", text: `Откатить нельзя: ${word(r.error)}` };
-        else if (!r.result?.canRewind) t.rewinds[uuid] = { state: "no", text: `Откатить нельзя: ${r.result?.error ?? "canRewind: false"}` };
-        else t.rewinds[uuid] = { state: "ask", text: probeText(r.result) };
-      });
+    async probe(cs: string, id: string) {
+      edit(cs, (t) => void (t.rewind = { id, state: "probe", text: "Проба отката…" }));
+      const r = await read<{ canRewind?: boolean; error?: string; filesChanged?: string[]; insertions?: number; deletions?: number }>(cs, "rewindFiles", [id, { dryRun: true }]);
+      const why = !r.ok ? say(cs, r.error) : r.result.canRewind ? "" : (r.result.error ?? "canRewind: false");
+      if (!r.ok || why) return edit(cs, (t) => void (t.rewind = { id, state: "bad", text: `Откатить нельзя: ${why}` }));
+      const files = r.result.filesChanged?.length ?? 0;
+      edit(cs, (t) => void (t.rewind = { id, state: "ask", text: `Откатить файлы к этому сообщению? ${files} ${plural(files, "файл", "файла", "файлов")} · +${r.result.insertions ?? 0} −${r.result.deletions ?? 0} · команды Bash не откатываются` }));
     },
+    async apply(cs: string, id: string) {
+      const r = await call(cs, "rewindFiles", [id]);
+      edit(cs, (t) => void (t.rewind = r.ok ? { id, state: "ok", text: "Файлы откачены к этому сообщению." } : { id, state: "bad", text: `Не откатилось: ${say(cs, r.error)}` }));
+    },
+    /** Модели сессии: один запрос на разговор; отказ не запоминается. */
     async models(cs: string) {
-      if (get(cs).models || !live(cs) || !can(cs, "session.call")) return;
+      if (get(cs).models) return;
       edit(cs, (t) => void (t.models = "loading"));
-      const r = await call<ModelInfo[]>(cs, "supportedModels", [], true);
-      edit(cs, (t) => void (t.models = r.ok ? r.result : undefined));
+      const r = await read<ModelInfo[]>(cs, "supportedModels");
+      edit(cs, (t) => void (t.models = r.ok && Array.isArray(r.result) ? r.result : undefined));
     },
+    /** Команды сессии: один раз на разговор; отказ — пустой список. */
     async commands(cs: string) {
-      if (get(cs).commands || !can(cs, "session.call")) return;
+      if (get(cs).commands) return;
       edit(cs, (t) => void (t.commands = "loading"));
-      const r = await call<Cmd[]>(cs, "supportedCommands", [], true);
+      const r = await read<Cmd[]>(cs, "supportedCommands");
       edit(cs, (t) => void (t.commands = r.ok && Array.isArray(r.result) ? r.result : []));
+    },
+    async reloadPlugins(cs: string) {
+      await act(cs, "reloadPlugins");
+      edit(cs, (t) => void (t.commands = undefined));
     },
     frames: {
       "session.events"(f: Frame) {
         const cs = String(f.from);
         if (!watching.has(cs)) return;
-        const t = get(cs);
-        const gap = t.seq !== undefined && typeof f.seq === "number" && f.seq !== t.seq + 1;
+        const seq = typeof f.seq === "number" ? f.seq : undefined;
+        const was = get(cs).seq;
         const at = Date.now();
-        edit(cs, (x) => {
-          for (const m of (f.events ?? []) as Msg[]) addEvent(x.msgs, { ...m, _at: at });
-          if (typeof f.seq === "number") x.seq = f.seq;
+        edit(cs, (t) => {
+          for (const m of (f.events ?? []) as Msg[]) addEvent(t.msgs, { ...m, _at: at });
+          if (seq !== undefined) t.seq = seq;
         });
-        if (gap) void history(cs);
+        if (seq !== undefined && was !== undefined && seq !== was + 1) void history(cs);
       },
+      /** Сообщение сессии владельцу: закрытый чат получает метку; нажатый пуш открывает чат. */
       message(f: Frame, ctx: { open: boolean }) {
         const cs = String(f.from);
-        if (ctx.open) app.open("chat", { callsign: cs });
-        const text = typeof f.text === "string" ? f.text : undefined;
-        const body = (f.notify as { body?: string } | undefined)?.body;
+        const text = typeof f.text === "string" ? f.text : String((f.notify as { body?: string } | undefined)?.body ?? "");
         edit(cs, (t) => {
-          t.msgs.push({ type: "x-message", uuid: `x:${++n}`, text: text ?? body ?? "", push: text === undefined, at: Date.now() });
-          if ((opened.get(cs) ?? 0) > 0) return;
-          t.unread += 1;
-          t.unreadText = text ?? body;
+          t.msgs.push({ type: "owner", uuid: `x:${++n}`, from: cs, text, ...(typeof f.text === "string" ? {} : { tag: "из уведомления" }), timestamp: new Date().toISOString() });
+          if (!opened.has(cs) && !ctx.open) t.unread = { count: (t.unread?.count ?? 0) + 1, text };
         });
+        if (ctx.open) app.open("chat", { callsign: cs });
       },
     },
+    /** Подмену аккаунта делает Host: строка в ленте, где эта сессия. */
     roster(r: Roster) {
-      for (const c of accountChanges(r, (cs) => known[cs])) {
-        known[c.callsign] = c.account;
-        if (c.from !== undefined && store.get()[c.callsign]) edit(c.callsign, (t) => void t.msgs.push({ type: "x-account", uuid: `x:${++n}`, from: c.from, to: c.account }));
+      for (const c of accountChanges(r, (cs) => known.get(cs))) {
+        known.set(c.callsign, c.account);
+        if (c.from !== undefined && store.get()[c.callsign]) edit(c.callsign, (t) => void t.msgs.push({ type: "account", uuid: `x:${++n}`, from: c.from, to: c.account }));
       }
     },
     link(state: string, machine?: string) {
-      if (state !== "open") {
-        watching.clear();
-        return;
-      }
+      if (state !== "open") return watching.clear();
       for (const cs of opened.keys())
         if (!machine || machineOf(cs) === machine) {
           watching.delete(cs);
@@ -292,8 +309,3 @@ export function createTalks(app: App) {
   };
 }
 export type Talks = ReturnType<typeof createTalks>;
-
-function probeText(r: { filesChanged?: string[]; insertions?: number; deletions?: number }): string {
-  const files = r.filesChanged?.length ?? 0;
-  return `Откатить файлы к этому сообщению? ${files} ${plural(files, "файл", "файла", "файлов")} · +${r.insertions ?? 0} −${r.deletions ?? 0} · команды Bash не откатываются`;
-}

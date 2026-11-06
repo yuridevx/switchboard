@@ -1,79 +1,81 @@
-// Фокус и выгрузка: та же свёртка в другом виде. Фокус — по ходу: реплики, шаги свёрнуто, плашки, итоговый ответ, итог хода, служебное свёрнуто.
-import type { Part, Row, View } from "./fold.ts";
-import { shapeOf, steps } from "./words.ts";
+// Вид «фокус» и выгрузка: та же свёртка в другом виде. Ход сжат до сообщения, сводки шагов, того, что требует внимания, итогового текста и строки итога.
+import { plural } from "@switchboard/web-ui";
+import type { Part, Row, Tool, View } from "./fold.ts";
+import { toolLook } from "./tools.ts";
 
-export type Item = { k: "row"; row: Row; only?: Part[] } | { k: "steps"; key: string; head: string; items: Item[] } | { k: "service"; key: string; rows: Row[] };
-const SHOWN_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
+export type Steps = { k: "steps"; key: string; title: string; rows: Row[] };
+export type Item = Row | Steps;
+/** Эти инструменты на виду и в фокусе: ждут человека. */
+const IN_THE_OPEN = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
-function turn(rows: Row[], v: View, n: number): Item[] {
-  const replies = rows.filter((r): r is Extract<Row, { k: "reply" }> => r.k === "reply");
-  const lastReply = replies.at(-1);
-  const toolAt = lastReply ? lastReply.parts.map((p) => p.k === "tool" || p.k === "think").lastIndexOf(true) : -1;
-  const final = lastReply?.parts.slice(toolAt + 1).filter((p) => p.k === "text" || p.k === "doc") ?? [];
-  const stepItems: Item[] = [];
-  const shown: Item[] = [];
-  const service: Row[] = [];
-  let res: Item | null = null;
-  const tools: string[] = [];
-  let thought = false;
-  for (const r of rows) {
-    if (r.k === "reply") {
-      const parts = r === lastReply ? r.parts.slice(0, toolAt + 1) : r.parts;
-      const step: Part[] = [];
-      for (const p of parts) {
-        if (p.k === "tool" && SHOWN_TOOLS.has(v.tools[p.id]?.name)) shown.push({ k: "row", row: r, only: [p] });
-        else {
-          if (p.k === "tool") tools.push(shapeOf(v.tools[p.id]?.name ?? "", v.tools[p.id]?.input).word);
-          if (p.k === "think") thought = true;
-          step.push(p);
-        }
-      }
-      if (step.length) stepItems.push({ k: "row", row: r, only: step });
-    } else if (r.k === "ban" || (r.k === "sys" && r.icon === "square")) shown.push({ k: "row", row: r });
-    else if (r.k === "res") res = { k: "row", row: r };
-    else service.push(r);
-  }
+function title(hidden: Row[], tools: Record<string, Tool>) {
   const counts = new Map<string, number>();
-  for (const t of tools) counts.set(t, (counts.get(t) ?? 0) + 1);
-  const words = [...counts].sort((a, b) => b[1] - a[1]).map(([w, c]) => (c > 1 ? `${w} ×${c}` : w));
-  const out: Item[] = [];
-  stepItems.push(...(stepItems.length ? service.map((row): Item => ({ k: "row", row })) : []));
-  if (stepItems.length) out.push({ k: "steps", key: `s${n}`, head: [steps(tools.length), ...words, ...(thought ? ["размышлял"] : [])].join(" · "), items: stepItems });
-  out.push(...shown);
-  if (final.length && lastReply) out.push({ k: "row", row: lastReply, only: final });
-  if (res) out.push(res);
-  if (service.length && !stepItems.length) out.push({ k: "service", key: `v${n}`, rows: service });
-  return out;
-}
-
-export function focusItems(v: View): Item[] {
-  const out: Item[] = [];
-  let cur: Row[] = [];
-  let n = 0;
-  const flush = () => {
-    out.push(...turn(cur, v, n++));
-    cur = [];
-  };
-  for (const r of v.rows) {
-    if (r.k === "me" || r.k === "in") {
-      flush();
-      out.push({ k: "row", row: r });
-    } else cur.push(r);
+  let thought = false;
+  for (const r of hidden) {
+    if (r.k !== "reply") continue;
+    for (const p of r.parts) {
+      if (p.k === "think") thought = true;
+      if (p.k !== "tool") continue;
+      const { word } = toolLook(tools[p.id]);
+      counts.set(word, (counts.get(word) ?? 0) + 1);
+    }
   }
-  flush();
+  const total = [...counts.values()].reduce((a, b) => a + b, 0);
+  const names = [...counts].sort((a, b) => b[1] - a[1]).map(([w, n]) => (n > 1 ? `${w} ×${n}` : w));
+  return [total ? `${total} ${plural(total, "шаг", "шага", "шагов")}` : "", ...names, thought ? "размышлял" : ""].filter(Boolean).join(" · ") || "служебные строки";
+}
+
+function foldTurn(turn: Row[], tools: Record<string, Tool>, out: Item[]) {
+  const hidden: Row[] = [];
+  const shown: Row[] = [];
+  const ends: Row[] = [];
+  let final: Row | null = null;
+  const lastReply = turn.findLastIndex((r) => r.k === "reply");
+  turn.forEach((r, i) => {
+    if (r.k === "ban" || r.k === "sum" || r.k === "task" || (r.k === "sys" && r.tone === "wait")) return void shown.push(r);
+    if (r.k === "res" || r.k === "end") return void ends.push(r);
+    if (r.k !== "reply") return void hidden.push(r);
+    let parts: Part[] = r.parts;
+    const tail = parts.at(-1);
+    if (i === lastReply && tail?.k === "text") {
+      final = { k: "reply", key: `${r.key}-final`, parts: [tail] };
+      parts = parts.slice(0, -1);
+    }
+    const open = parts.filter((p) => p.k === "tool" && IN_THE_OPEN.has(String(tools[p.id]?.name)));
+    if (open.length) shown.push({ k: "reply", key: `${r.key}-open`, parts: open });
+    const rest = parts.filter((p) => !open.includes(p));
+    if (rest.length) hidden.push({ ...r, parts: rest });
+  });
+  if (hidden.length) out.push({ k: "steps", key: `steps-${hidden[0].key}`, title: title(hidden, tools), rows: hidden });
+  out.push(...shown, ...(final ? [final] : []), ...ends);
+}
+
+export function focused(v: View): Item[] {
+  const out: Item[] = [];
+  let turn: Row[] = [];
+  for (const r of v.rows) {
+    if (r.k !== "me" && r.k !== "in") {
+      turn.push(r);
+      continue;
+    }
+    foldTurn(turn, v.tools, out);
+    turn = [];
+    out.push(r);
+  }
+  foldTurn(turn, v.tools, out);
   return out;
 }
 
-/** Переписка в markdown: кто → кому, текст; инструменты строкой. */
+/** Переписка в markdown: то, что видно в ленте, текстом. */
 export function exportMd(cs: string, v: View): string {
   const out = [`# ${cs}\n`];
   for (const r of v.rows) {
-    if (r.k === "me") out.push(`## Вы\n\n${r.text}`);
-    else if (r.k === "in") out.push(r.from === "owner" ? `## ${cs} → вам\n\n${r.text}` : `## ${r.name || "сессия"} → сессии\n\n${r.text}`);
+    if (r.k === "me") out.push(`## Вы\n\n${r.text}\n`);
+    else if (r.k === "in") out.push(r.via === "owner" ? `## ${r.from} → вам\n\n${r.text}\n` : `## ${r.from || (r.via === "agent" ? "субагент" : "сессия")} → сессии\n\n${r.text}\n`);
     else if (r.k === "reply") {
-      const body = r.parts.flatMap((p) => (p.k === "text" || p.k === "doc" ? [p.text] : p.k === "tool" && v.tools[p.id] ? [`- \`${v.tools[p.id].name}\` ${JSON.stringify(v.tools[p.id].input)}`] : []));
-      if (body.length) out.push(`## Claude\n\n${body.join("\n\n")}`);
+      const text = r.parts.flatMap((p) => (p.k === "text" ? [p.text] : p.k === "tool" ? [`- \`${v.tools[p.id]?.name}\` ${JSON.stringify(v.tools[p.id]?.input ?? {})}`] : [])).join("\n\n");
+      if (text) out.push(`## Claude\n\n${text}\n`);
     }
   }
-  return out.join("\n\n");
+  return out.join("\n");
 }

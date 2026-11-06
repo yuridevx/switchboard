@@ -1,161 +1,182 @@
-// Ввод: текст, вложения, подсказки «/» и «@», режим разрешений, «Прервать». Поле живёт в сторе разговора: черновик переживает экран.
+// Ввод: текст, вложения, подсказки «/» и «@», режим разрешений, «Прервать». Поле живёт в сторе разговора: черновик переживает экран, буква ввода страницу не будит.
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
-import { Area, Btn, IconBtn, isLive, PERM_MODES, RowBtn, Sel, sessionOf, useApp, useModule, type ModelInfo } from "@switchboard/web-ui";
-import { ArrowUp, AtSign, Lightbulb, Paperclip, Slash } from "lucide-react";
+import { Area, Btn, IconBtn, isLive, PERM_MODES, permModeName, RowBtn, Sel, sessionOf, useApp, useModule } from "@switchboard/web-ui";
 import type { Att, Talks } from "../talk.ts";
 import { useEnv } from "./env.ts";
 import { Icon } from "./icons.tsx";
 
-const LIMIT = 20;
-const BTW = { name: "btw", description: "Вопрос сбоку, в разговор не попадёт" };
-type Item = { label: string; hint?: string };
+const SIDE = "/btw";
+const SIDE_ABOUT = "Вопрос сбоку, в разговор не попадёт";
+const LIST_MAX = 20;
+type Item = { value: string; about?: string; file?: boolean };
 
 async function attOf(f: File): Promise<Att> {
-  const bytes = new Uint8Array(await f.arrayBuffer());
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return { name: f.name, media_type: f.type || "application/octet-stream", data: btoa(bin) };
+  let raw = "";
+  for (const b of new Uint8Array(await f.arrayBuffer())) raw += String.fromCharCode(b);
+  return { name: f.name, media_type: f.type || "application/octet-stream", data: btoa(raw) };
 }
 
-/** Можно ли предложить «Авто»: модель сессии из ленты, иначе модель по умолчанию из списка SDK. */
-function autoOk(models: ModelInfo[] | "loading" | undefined, model: string | undefined): boolean {
-  if (!Array.isArray(models)) return false;
-  const m = (model && models.find((x) => model.includes(x.value))) || models.find((x) => x.value === "default");
-  return !!m?.supportsAutoMode;
+function ModeSelect() {
+  const { cs, view, act } = useEnv();
+  const app = useApp();
+  const talks = useModule<Talks>();
+  const mode = app.use(() => sessionOf(app, cs)?.mode as string | undefined);
+  const live = app.use(() => isLive(sessionOf(app, cs)?.state));
+  const models = app.use(() => talks.get(cs).models);
+  useEffect(() => {
+    if (mode !== undefined && live) void talks.models(cs);
+  }, [mode !== undefined, live, cs]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (mode === undefined || !live) return null;
+  // модель сессии в списке SDK; не нашлась — запись по умолчанию
+  const list = Array.isArray(models) ? models : [];
+  const found = list.find((m) => m.value !== "default" && view.model?.includes(m.value)) ?? list.find((m) => m.value === "default");
+  const modes = PERM_MODES.filter(([value]) => value !== "auto" || found?.supportsAutoMode || mode === "auto");
+  return (
+    <Sel className="chat-mode" title="Режим разрешений" aria-label="Режим разрешений" data-mode={mode} value={mode} onChange={(e) => act("setPermissionMode", [e.currentTarget.value])}>
+      {modes.some(([value]) => value === mode) ? null : <option value={mode}>{permModeName(mode) ?? mode}</option>}
+      {modes.map(([value, label]) => (
+        <option key={value} value={value}>
+          {label}
+        </option>
+      ))}
+    </Sel>
+  );
 }
 
 export function Composer() {
   const env = useEnv();
   const app = useApp();
   const talks = useModule<Talks>();
-  const cs = env.cs;
-  // чужая правка поля будит ввод выборкой, своя буква — redraw: она не будит страницу
+  const { cs } = env;
+  // чужая правка поля будит ввод выборкой, своя буква — redraw
   app.use(() => talks.get(cs).draft);
-  const draft = talks.get(cs).draft;
+  const text = talks.get(cs).draft;
   const [, redraw] = useState(0);
   const [caret, setCaret] = useState<number | null>(null);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const [selected, setSelected] = useState(0);
+  const [found, setFound] = useState<string[]>([]);
+  const [drag, setDrag] = useState(false);
+  const field = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const asked = useRef(0);
   const files = app.use(() => talks.get(cs).files);
   const commands = app.use(() => talks.get(cs).commands);
-  const models = app.use(() => talks.get(cs).models);
-  const s = app.use(() => {
-    const x = sessionOf(app, cs);
-    return { state: x?.state as string | undefined, mode: (x as { mode?: string } | undefined)?.mode };
-  });
-  const live = isLive(s.state);
-  const call = app.use(() => talks.can(cs, "session.call"));
-  const folder = app.use(() => talks.can(cs, "session.files"));
-  const inp = useRef<HTMLTextAreaElement>(null);
-  const pick = useRef<HTMLInputElement>(null);
-  const [drag, setDrag] = useState(false);
-  const [closed, setClosed] = useState(false);
-  const [sel, setSel] = useState(0);
-  const [found, setFound] = useState<{ query: string; paths: string[] } | null>(null);
-  const asked = useRef(0);
+  const busy = app.use(() => ["busy", "waiting"].includes(String(sessionOf(app, cs)?.state)));
+  const canFiles = app.use(() => talks.can(cs, "session.files"));
+  const hint = env.view.hint;
 
-  const set = (text: string) => {
-    setClosed(false);
-    setCaret(null);
-    talks.typed(cs, text);
+  const put = (value: string, at: number | null = null) => {
+    talks.typed(cs, value);
+    setCaret(at);
+    setSelected(0);
     redraw((n) => n + 1);
   };
-  const add = async (list: FileList | File[] | null | undefined) => {
-    const atts = await Promise.all([...(list ?? [])].map(attOf));
-    if (atts.length) talks.edit(cs, (t) => void t.files.push(...atts));
-  };
 
-  // подсказка — по тексту до каретки
-  const before = draft.slice(0, caret ?? draft.length);
-  const after = draft.slice(before.length);
-  const cmd = /^\/(\S*)$/.exec(before);
-  const at = folder ? /(?:^|\s)@(\S*)$/.exec(before) : null;
-  useEffect(() => {
-    if (cmd && call) void talks.commands(cs);
-  }, [!!cmd, call]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (!at) return;
-    const n = ++asked.current;
-    void app.read<string[]>("session.files", { callsign: cs, query: at[1], limit: LIMIT }).then((r) => n === asked.current && setFound(r.ok ? { query: at[1], paths: r.result } : null));
-  }, [at?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (live && s.mode) void talks.models(cs);
-  }, [live, !!s.mode]); // eslint-disable-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
-    const el = inp.current;
-    if (!el) return;
+    const el = field.current!;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight + 2}px`;
-  }, [draft]);
+  }, [text]);
 
-  const items: Item[] = closed
-    ? []
-    : cmd && call
-      ? [...(Array.isArray(commands) ? commands : []), BTW].filter((c) => c.name.startsWith(cmd[1])).slice(0, LIMIT).map((c) => ({ label: `/${c.name}`, hint: c.description }))
-      : at && found
-        ? found.paths.map((p) => ({ label: p }))
+  // подсказка — по тексту до каретки
+  const before = text.slice(0, caret ?? text.length);
+  const on = dismissed !== text;
+  const cq = env.canAct && on ? /^\/(\S*)$/.exec(before)?.[1] : undefined;
+  const fq = canFiles && on ? /(?:^|\s)@(\S*)$/.exec(before)?.[1] : undefined;
+
+  useEffect(() => {
+    if (cq !== undefined) void talks.commands(cs);
+  }, [cq !== undefined, commands === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
+  // команды — один запрос на разговор; файлы — на каждый набор, поздний ответ на старый запрос отброшен
+  useEffect(() => {
+    if (fq === undefined) return setFound([]);
+    const turn = ++asked.current;
+    void app.read<string[]>("session.files", { callsign: cs, query: fq, limit: LIST_MAX }).then((r) => {
+      if (turn === asked.current) setFound(r.ok ? r.result : []);
+    });
+  }, [fq]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const items: Item[] =
+    cq !== undefined
+      ? [...(Array.isArray(commands) ? commands : []).map((c) => ({ value: `/${c.name}`, about: c.description })), { value: SIDE, about: SIDE_ABOUT }].filter((c) => c.value.slice(1).startsWith(cq.toLowerCase())).slice(0, LIST_MAX)
+      : fq !== undefined
+        ? found.map((path) => ({ value: path, file: true }))
         : [];
-  const cur = Math.min(sel, Math.max(items.length - 1, 0));
-  useEffect(() => setSel(0), [items.length, cmd?.[1], at?.[1]]);
+  const cur = Math.min(selected, Math.max(0, items.length - 1));
 
-  const choose = (it: Item) => {
-    set(`${cmd ? `${it.label} ` : before.replace(/@\S*$/, `@${it.label} `)}${after}`);
-    inp.current?.focus();
-  };
-  const submit = () => {
-    const text = draft.trim();
-    if (!text && !files.length) return;
-    const btw = /^\/btw\s+([\s\S]+)$/.exec(text);
-    if (btw && !files.length && call) return void talks.side(cs, btw[1].trim());
-    talks.send(cs, text, files);
-  };
-  const hint = !draft ? env.view.hint : undefined;
-  const key = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (items.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-      e.preventDefault();
-      setSel((cur + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length);
-    } else if (e.key === "Escape" && items.length) setClosed(true);
-    else if (e.key === "Tab" && (items.length || hint)) {
-      e.preventDefault();
-      if (items.length) choose(items[cur]);
-      else set(hint!);
-    } else if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (items.length && items[cur].label !== draft.trim()) choose(items[cur]);
-      else submit();
+  function accept(item: Item) {
+    if (item.file) {
+      const start = before.lastIndexOf("@") + 1;
+      put(`${text.slice(0, start)}${item.value} ${text.slice(before.length)}`);
+    } else put(`${item.value} `);
+    field.current?.focus();
+  }
+
+  function submit() {
+    const body = text.trim();
+    if (!body && !files.length) return;
+    if (env.canAct && !files.length && body.startsWith(`${SIDE} `)) void talks.side(cs, body.slice(SIDE.length).trim());
+    else talks.send(cs, body, files);
+  }
+
+  function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (items.length) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        return setSelected((cur + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length);
+      }
+      if (e.key === "Escape") return setDismissed(text);
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && items[cur].value !== text)) {
+        e.preventDefault();
+        return accept(items[cur]);
+      }
     }
+    if (e.key === "Tab" && !text && hint) {
+      e.preventDefault();
+      return put(hint);
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
+  }
+
+  const add = async (list: FileList | File[] | null | undefined) => {
+    const read = await Promise.all([...(list ?? [])].map(attOf));
+    if (read.length) talks.edit(cs, (t) => void t.files.push(...read));
   };
-  const paste = (e: ClipboardEvent) => {
+  function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
     if (!e.clipboardData?.files?.length) return;
     e.preventDefault();
     void add(e.clipboardData.files);
-  };
-  const dropped = (e: DragEvent) => {
+  }
+  function onDrop(e: DragEvent) {
     e.preventDefault();
     setDrag(false);
     void add(e.dataTransfer?.files);
-  };
-  const modes = PERM_MODES.filter(([m]) => m !== "auto" || autoOk(models, env.view.model));
-  if (s.mode && !modes.some(([m]) => m === s.mode)) modes.push([s.mode, s.mode]);
+  }
 
   return (
     <div className="chat-under">
-      {hint && (
-        <Btn type="button" className="chat-hint" onClick={() => set(hint)}>
-          <Lightbulb size={13} aria-hidden="true" />
+      {!text && hint ? (
+        <Btn type="button" className="chat-hint" onClick={() => put(hint)}>
+          <Icon name="lightbulb" />
           <span>{hint}</span>
           <kbd>Tab</kbd>
         </Btn>
-      )}
-      {items.length > 0 && (
-        <div className="chat-sug" role="listbox" data-kind={cmd ? "cmd" : "file"}>
-          {items.map((it, i) => (
-            <RowBtn key={it.label} className="chat-sugi" role="option" aria-selected={i === cur} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(it)}>
-              {!cmd && <Icon name="file-text" size={13} />}
-              <b>{it.label}</b>
-              {it.hint && <span>{it.hint}</span>}
+      ) : null}
+      {items.length ? (
+        <div className="chat-sug" data-kind={cq !== undefined ? "cmd" : "file"} role="listbox">
+          {items.map((item, i) => (
+            <RowBtn key={item.value} role="option" className="chat-sugi" aria-selected={i === cur} onClick={() => accept(item)}>
+              {item.file ? <Icon name="file-text" /> : null}
+              <b>{item.value}</b>
+              {item.about ? <span>{item.about}</span> : null}
             </RowBtn>
           ))}
         </div>
-      )}
+      ) : null}
       <form
         className={drag ? "chat-comp drag" : "chat-comp"}
         onSubmit={(e) => {
@@ -168,13 +189,13 @@ export function Composer() {
           setDrag(true);
         }}
         onDragLeave={() => setDrag(false)}
-        onDrop={dropped}
+        onDrop={onDrop}
       >
-        {files.length > 0 && (
+        {files.length ? (
           <div className="chat-files">
             {files.map((f, i) => (
-              <span key={i} className="chat-file">
-                {f.media_type.startsWith("image/") ? <img src={`data:${f.media_type};base64,${f.data}`} alt="" /> : <Icon name="file-text" size={13} />}
+              <span key={`${i}:${f.name}`} className="chat-file">
+                {f.media_type.startsWith("image/") ? <img src={`data:${f.media_type};base64,${f.data}`} alt="" /> : <Icon name="file-text" />}
                 {f.name}
                 <IconBtn aria-label={`убрать ${f.name}`} onClick={() => talks.edit(cs, (t) => void t.files.splice(i, 1))}>
                   <Icon name="x" size={12} />
@@ -182,64 +203,66 @@ export function Composer() {
               </span>
             ))}
           </div>
-        )}
-        <Area ref={inp} className="chat-inp" rows={1} aria-label={`Написать ${env.label}`} placeholder={`${s.state === "busy" || s.state === "waiting" ? "В очередь" : "Написать"} ${env.label}`} value={draft} onInput={(e) => {
-            set(e.currentTarget.value);
-            setCaret(e.currentTarget.selectionStart);
+        ) : null}
+        <Area
+          ref={field}
+          className="chat-inp"
+          rows={1}
+          value={text}
+          aria-label={`Написать ${env.label}`}
+          placeholder={busy ? `В очередь ${env.label}` : `Написать ${env.label}`}
+          onInput={(e) => {
+            const el = e.currentTarget;
+            put(el.value, el.selectionStart ?? el.value.length);
           }}
-          onKeyDown={key} onPaste={paste} />
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? e.currentTarget.value.length)}
+          onKeyDown={onKey}
+          onPaste={onPaste}
+        />
         <div className="chat-tools">
-          <IconBtn className="chat-tb" title="Вложить файл" aria-label="Вложить файл" onClick={() => pick.current?.click()}>
-            <Paperclip size={16} aria-hidden="true" />
+          <IconBtn className="chat-tb" aria-label="Вложить файл" title="Вложить файл" onClick={() => picker.current?.click()}>
+            <Icon name="paperclip" size={16} />
           </IconBtn>
-          {folder && (
-          <IconBtn
-            className="chat-tb"
-            title="Файл папки"
-            aria-label="Файл папки"
-            onClick={() => {
-              set(!draft ? "@" : /\s$/.test(draft) ? `${draft}@` : `${draft} @`);
-              inp.current?.focus();
-            }}
-          >
-            <AtSign size={16} aria-hidden="true" />
-          </IconBtn>
-          )}
-          {live && call && (
+          {canFiles ? (
             <IconBtn
               className="chat-tb"
-              title="Команда"
-              aria-label="Команда"
+              aria-label="Файл папки"
+              title="Файл папки"
               onClick={() => {
-                set("/");
-                inp.current?.focus();
+                put(`${text}${text && !/\s$/.test(text) ? " " : ""}@`);
+                field.current?.focus();
               }}
             >
-              <Slash size={16} aria-hidden="true" />
+              <Icon name="at-sign" size={16} />
             </IconBtn>
-          )}
-          {live && s.mode && (
-            <Sel className="chat-mode" title="Режим разрешений" aria-label="Режим разрешений" data-mode={s.mode} value={s.mode} onChange={(e) => env.act("setPermissionMode", [e.target.value])}>
-              {modes.map(([m, label]) => (
-                <option key={m} value={m}>
-                  {label}
-                </option>
-              ))}
-            </Sel>
-          )}
+          ) : null}
+          {env.canAct ? (
+            <IconBtn
+              className="chat-tb"
+              aria-label="Команда"
+              title="Команда"
+              onClick={() => {
+                put("/");
+                field.current?.focus();
+              }}
+            >
+              <Icon name="slash" size={16} />
+            </IconBtn>
+          ) : null}
+          <ModeSelect />
           <span className="chat-grow" />
-          {call && (s.state === "busy" || s.state === "waiting") && (
+          {busy && env.canAct ? (
             <Btn type="button" bad className="chat-stop" onClick={() => env.act("interrupt", [])}>
               <Icon name="square" />
               Прервать
             </Btn>
-          )}
-          <IconBtn className="chat-send" type="submit" aria-label="Отправить" disabled={!draft.trim() && !files.length}>
-            <ArrowUp size={18} aria-hidden="true" />
+          ) : null}
+          <IconBtn type="submit" className="chat-send" aria-label="Отправить" disabled={!text.trim() && !files.length}>
+            <Icon name="arrow-up" size={18} />
           </IconBtn>
         </div>
         <input
-          ref={pick}
+          ref={picker}
           type="file"
           multiple
           hidden

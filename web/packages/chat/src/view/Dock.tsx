@@ -1,69 +1,89 @@
-// Над вводом: задачи в фоне с выводом, список задач Claude, вопросы сбоку и вопрос сессии.
+// Над вводом: вопросы сбоку, задачи Claude, идущее в фоне и вопрос сессии (узко — полоса к экрану, широко — экран ask в месте).
 import { useEffect, useState } from "react";
 import { Btn, IconBtn, Markdown, TextBtn, useApp, useModule } from "@switchboard/web-ui";
-import { MessageSquareQuote } from "lucide-react";
-import type { Task } from "../fold.ts";
+import { backgrounded, taskIcon, type Task } from "../fold.ts";
 import type { Talks } from "../talk.ts";
-import { refusal } from "../words.ts";
 import { useEnv } from "./env.ts";
 import { Icon } from "./icons.tsx";
 import { Dis } from "./Rows.tsx";
-import { Todos } from "./Tool.tsx";
+import { TodoList } from "./Tool.tsx";
 
-const POLL_MS = 2000;
+const OUTPUT_EVERY_MS = 2000;
+/** Сколько вывода отдаёт SDK за раз. */
+const OUTPUT_TAIL = "8 КБ";
 type Output = { output?: string; total_bytes?: number; truncated?: boolean };
 
-function Out({ id }: { id: string }) {
-  const env = useEnv();
+function TaskOutput({ id }: { id: string }) {
+  const { cs } = useEnv();
   const talks = useModule<Talks>();
-  const [r, setR] = useState<{ ok: true; result: Output } | { ok: false; error: string } | null>(null);
+  const [got, setGot] = useState<Output | null>(null);
+  const [word, setWord] = useState("");
   useEffect(() => {
     let live = true;
-    const read = () => void talks.call<Output>(env.cs, "getTaskOutput", [id], true).then((x) => live && setR(x as never));
-    read();
-    const timer = setInterval(read, POLL_MS);
+    const ask = () =>
+      void talks.read<Output>(cs, "getTaskOutput", [id]).then((r) => {
+        if (!live) return;
+        if (r.ok) setGot(r.result);
+        else setWord(r.error);
+      });
+    ask();
+    const timer = setInterval(ask, OUTPUT_EVERY_MS);
     return () => {
       live = false;
       clearInterval(timer);
     };
-  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cs, id]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="chat-out">
-      {r && !r.ok ? (
-        <div className="chat-out-e">{refusal(r.error)}</div>
-      ) : (
-        <>
-          {r?.result.truncated && <div className="chat-out-h">{`последние 8 КБ из ${Math.round((r.result.total_bytes ?? 0) / 1024)} КБ`}</div>}
-          <pre>{!r ? "читаю…" : r.result.output || "пока пусто"}</pre>
-        </>
-      )}
+      {got?.truncated ? <div className="chat-out-h">{`последние ${OUTPUT_TAIL} из ${Math.round((got.total_bytes ?? 0) / 1024)} КБ`}</div> : null}
+      {word ? <div className="chat-out-e">{word}</div> : <pre>{got ? got.output || "пока пусто" : "читаю…"}</pre>}
     </div>
   );
 }
 
-function Bg({ t }: { t: Task }) {
+function BgRow({ task }: { task: Task }) {
   const env = useEnv();
-  const [out, setOut] = useState(false);
-  const agent = t.type === "local_agent";
+  const [output, setOutput] = useState(false);
+  const withOutput = task.type === "local_bash" || task.type === "monitor";
   return (
     <div className="chat-bgw">
       <div className="chat-bgr">
-        <Icon name={agent ? "bot" : "terminal"} size={14} />
-        <span title={t.description}>{t.description || t.id}</span>
-        {t.summary && <em>{t.summary}</em>}
-        {!agent && env.canAct && (
-          <Btn type="button" className="chat-mini" onClick={() => setOut(!out)}>
-            {out ? "Скрыть" : "Вывод"}
+        <Icon name={taskIcon(task.type)} size={14} />
+        <span title={task.desc || task.id}>{task.desc || task.id}</span>
+        {task.summary ? <em>{task.summary}</em> : null}
+        {env.canAct && withOutput ? (
+          <Btn type="button" className="chat-mini" onClick={() => setOutput(!output)}>
+            {output ? "Скрыть" : "Вывод"}
           </Btn>
-        )}
-        {env.canAct && (
-          <Btn type="button" className="chat-mini" onClick={() => env.act("stopTask", [t.id])}>
+        ) : null}
+        {env.canAct ? (
+          <Btn type="button" className="chat-mini" onClick={() => env.act("stopTask", [task.id])}>
             <Icon name="square" />
             Стоп
           </Btn>
-        )}
+        ) : null}
       </div>
-      {out && <Out id={t.id} />}
+      {output ? <TaskOutput id={task.id} /> : null}
+    </div>
+  );
+}
+
+function AskPlace() {
+  const { cs, wide } = useEnv();
+  const app = useApp();
+  const asked = app.use(() => app.mark("asked", cs) as string | undefined);
+  // широко экран остаётся после ответа: на нём итог; пока вопроса не было — места нет
+  const seen = app.use((was?: boolean) => !!was || !!app.mark("asked", cs));
+  if (wide) return <div className="chat-ask">{seen ? <app.Slot screen="ask" params={{ callsign: cs }} /> : null}</div>;
+  return (
+    <div className="chat-ask">
+      {asked ? (
+        <TextBtn className="chat-askbar" onClick={() => app.open("ask", { callsign: cs })}>
+          <b>?</b>
+          <span>{asked}</span>
+          <em>Ответить</em>
+        </TextBtn>
+      ) : null}
     </div>
   );
 }
@@ -73,70 +93,61 @@ export function Dock() {
   const app = useApp();
   const talks = useModule<Talks>();
   const sides = app.use(() => talks.get(env.cs).sides);
-  const asked = app.use(() => app.mark("asked", env.cs) as string | undefined);
-  // вопрос уже был: итог ответа остаётся на месте; вопроса не было — пустая вставка не занимает строку
-  const askedOnce = app.use((was?: boolean) => !!was || !!asked);
-  const bg = Object.values(env.view.tasks).filter((t) => t.bg && t.status === "running");
-  const todos = env.view.todos ?? [];
-  const done = todos.filter((t) => t.status === "completed").length;
-  const doing = todos.find((t) => t.status === "in_progress");
+  const tasks = backgrounded(env.view);
+  const todos = env.view.todos;
+  const left = todos?.filter((t) => t.status !== "completed") ?? [];
+  const doing = todos?.find((t) => t.status === "in_progress");
   return (
     <div className="chat-dock">
-      {bg.length > 0 && (
-        <Dis
-          className="chat-bg"
-          head={
-            <>
-              <Icon name="layers" size={14} />
-              <b>{`В фоне: ${bg.length}`}</b>
-              <span>{bg[0].description || bg[0].id}</span>
-            </>
-          }
-        >
-          {bg.map((t) => (
-            <Bg key={t.id} t={t} />
-          ))}
-        </Dis>
-      )}
-      {todos.length > 0 && done < todos.length && (
-        <Dis
-          className="chat-todo"
-          head={
-            <>
-              <Icon name="list-checks" size={14} />
-              <b>{`${done} из ${todos.length}`}</b>
-              <span>{doing?.activeForm ?? doing?.content ?? ""}</span>
-            </>
-          }
-        >
-          <Todos todos={todos} />
-        </Dis>
-      )}
       {sides.map((s) => (
         <div key={s.id} className="chat-side" data-state={s.state}>
-          <MessageSquareQuote size={14} aria-hidden="true" />
+          <Icon name="message-square-quote" size={14} />
           <div className="chat-side-b">
             <div className="chat-side-q">{s.q}</div>
-            {s.state === "wait" ? <div className="chat-side-w">думает…</div> : s.state === "bad" ? <div className="chat-side-e">{s.a}</div> : <div className="chat-side-a">{s.a ? <Markdown text={s.a} /> : "Claude не ответил"}</div>}
+            {s.state === "wait" ? <div className="chat-side-w">думает…</div> : null}
+            {s.state === "done" ? (
+              <div className="chat-side-a">
+                <Markdown text={s.a} />
+              </div>
+            ) : null}
+            {s.state === "bad" ? <div className="chat-side-e">{s.a}</div> : null}
           </div>
           <IconBtn className="chat-side-x" aria-label="Закрыть" onClick={() => talks.edit(env.cs, (t) => void (t.sides = t.sides.filter((x) => x.id !== s.id)))}>
             <Icon name="x" size={14} />
           </IconBtn>
         </div>
       ))}
-      <div className="chat-ask">
-        {env.wide ? (
-          askedOnce && <app.Slot screen="ask" params={{ callsign: env.cs }} />
-        ) : (
-          asked && (
-            <TextBtn className="chat-askbar" onClick={() => app.open("ask", { callsign: env.cs })}>
-              <b>?</b>
-              <span>{asked}</span>
-              <em>Ответить</em>
-            </TextBtn>
-          )
-        )}
-      </div>
+      {tasks.length ? (
+        <Dis
+          className="chat-bg"
+          head={
+            <>
+              <Icon name="layers" size={14} />
+              <b>{`В фоне: ${tasks.length}`}</b>
+              <span>{tasks[0].desc || tasks[0].id}</span>
+            </>
+          }
+        >
+          {tasks.map((t) => (
+            <BgRow key={t.id} task={t} />
+          ))}
+        </Dis>
+      ) : null}
+      {todos && left.length ? (
+        <Dis
+          className="chat-todo"
+          head={
+            <>
+              <Icon name="list-checks" size={14} />
+              <b>{`${todos.length - left.length} из ${todos.length}`}</b>
+              <span>{doing?.activeForm ?? doing?.content ?? left[0].content}</span>
+            </>
+          }
+        >
+          <TodoList todos={todos} />
+        </Dis>
+      ) : null}
+      <AskPlace />
     </div>
   );
 }

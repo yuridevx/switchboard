@@ -2660,3 +2660,83 @@ describe("правила из комментариев старого кода",
     expect(f.q(".chat-res")).toBeNull();
   });
 });
+
+// Видимое, которое потеряла перепись и нашла сверка строк круга 3. Источник — чьё: код.
+describe("видимое из сверки строк", () => {
+  it("длинное сообщение сессии: «показать всё» раскрывает, «свернуть» сворачивает обратно", async () => {
+    const f = await feed([human(`<fleet-message from="a@b">\n${"слово ".repeat(200)}\n</fleet-message>`)]);
+    expect(f.q(".chat-more")!.textContent).toBe("показать всё");
+    await f.open(".chat-more");
+    expect(f.q(".chat-clamp")).toBeNull();
+    expect(f.q(".chat-more")!.textContent).toBe("свернуть");
+    expect(f.q(".chat-more")!.getAttribute("aria-expanded")).toBe("true");
+    await f.open(".chat-more");
+    expect(f.q(".chat-clamp")).not.toBeNull();
+    expect(f.q(".chat-more")!.textContent).toBe("показать всё");
+  });
+
+  it("план на одобрение: так и назван в вопросе, в строке списка и над вводом", async () => {
+    const pl = { question: "toolu_pl", kind: "perm", tool: "ExitPlanMode", input: { plan: "1. шаг" } };
+    const relay = relayFor();
+    relay.handlers["question.list"] = (x) => ({ ok: true, result: x.callsign === BUSY ? [pl] : [] });
+    const t = await chat(BUSY, { relay, wide: true });
+    relay.push({ type: "question", from: BUSY, to: ["phone"], ...pl });
+    await flush();
+    expect(t.$(".chat-ask .ask-qt")!.textContent).toBe("План на одобрение");
+    const u = await chat(BUSY, { relay: (() => { const r = relayFor(); r.handlers["question.list"] = relay.handlers["question.list"]; return r; })() });
+    u.relay.push({ type: "question", from: BUSY, to: ["phone"], ...pl });
+    await flush();
+    expect(u.$(".chat-askbar span")!.textContent).toBe("План на одобрение");
+  });
+
+  it("подписи и тексты кнопок экрана", async () => {
+    const r = roster((x) => void (x.sessions.find((s) => s.callsign === BUSY)!.mode = "default"));
+    const t = await chat(BUSY, { relay: relayFor(r, [user("u1", "раз")]), wide: true });
+    const f = t.$<HTMLElement>(".chat-feed")!;
+    let top = 900;
+    Object.defineProperty(f, "scrollHeight", { configurable: true, get: () => 1000 });
+    Object.defineProperty(f, "clientHeight", { configurable: true, get: () => 100 });
+    Object.defineProperty(f, "scrollTop", { configurable: true, get: () => top, set: (v: number) => void (top = v) });
+    f.dispatchEvent(new Event("scroll"));
+    top = 100;
+    f.dispatchEvent(new Event("scroll"));
+    await flush();
+    expect(t.$(".chat-jump")!.getAttribute("aria-label")).toBe("К последнему");
+    expect(t.$(".chat-jump")!.classList.contains("sb-ic")).toBe(true);
+    expect(t.$$(".chat-bar > *").map((x) => x.textContent)).toEqual(["контекст", "фокус", "выгрузить .md"]);
+    expect(t.$$(".chat-tools [aria-label]").map((x) => x.getAttribute("aria-label"))).toEqual(["Вложить файл", "Файл папки", "Команда", "Режим разрешений", "Отправить"]);
+    expect(t.$(".chat-stop")!.textContent).toBe("Прервать");
+    expect(t.$(".chat-rw")!.textContent).toBe("откатить файлы");
+    expect(t.$(".chat-inp")!.getAttribute("placeholder")).toMatch(/^В очередь /);
+  });
+
+  it("нет ленты у машины: история всё равно читается", async () => {
+    const r = roster((x) => void delete (x.machines.find((y) => y.machine === "pc")!.contract as Record<string, unknown>)["session.watch"]);
+    const t = await chat(IDLE, { relay: relayFor(r, [user("u1", "раньше")]) });
+    expect(t.relay.sent("session.history")).toHaveLength(1);
+    expect(t.$(".chat-me")!.textContent).toContain("раньше");
+  });
+
+  it("субагент внутри субагента: шаг и ход времени — в карточке своего родителя; ответ раньше плашки ошибки", async () => {
+    const a = { parent_tool_use_id: "t1" };
+    const b = { parent_tool_use_id: "t2" };
+    const f = await feed([toolUse("t1", "Agent"), toolUse("t2", "Agent", {}, a), toolUse("t3", "Bash", { command: "x" }, b), { type: "tool_progress", tool_use_id: "t3", elapsed_time_seconds: 7 }, text("начало", { error: "overloaded" })]);
+    expect(f.q('.tb-steps .tb-steps [data-tool="Bash"] .tc-st')!.textContent).toBe("7 с");
+    expect([...f.q(".chat-col")!.children].slice(-2).map((x) => x.className)).toEqual(["chat-reply", "chat-ban bad"]);
+  });
+
+  it("итог ответа — карточкой итога; сообщение сессии — со временем записи", async () => {
+    const f = await feed([human('<fleet-message from="a@b">\nx\n</fleet-message>', { timestamp: "2026-11-04T10:20:00" })]);
+    expect(f.q(".chat-in.fleet small")!.textContent).toBe("10:20");
+    const relay = relayFor();
+    relay.handlers["question.list"] = () => ({ ok: true, result: [{ question: "q", kind: "ask", questions: [{ question: "База?", options: [{ label: "да" }] }] }] });
+    relay.handlers.answer = () => ({ ok: true });
+    const t = await stand(parts(), { relay });
+    await open(`#ask?callsign=${encodeURIComponent(ASKING)}`);
+    await flush(5);
+    await t.click(t.$(".ask-opt"));
+    await t.click(t.button("Ответить"));
+    expect(t.$('.sb-okc[role="status"] b')!.textContent).toBe("Ответ «да» принят.");
+    expect(relay.sent("answer")[0]).not.toHaveProperty("label");
+  });
+});

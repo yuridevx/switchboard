@@ -6,18 +6,20 @@ import type { Rewind, Send } from "../talk.ts";
 export type Env = {
   cs: string;
   wide: boolean;
-  /** сессия живая и машина умеет session.call: кнопки действий видны */
+  /** сессия жива и машина умеет session.call */
   canAct: boolean;
   view: View;
   sends: Record<string, Send>;
-  rewinds: Record<string, Rewind>;
+  rewind: Rewind | null;
   label: string;
+  /** запрос разрешения этого инструмента ждёт человека */
   waiting(toolId: string): boolean;
   act(method: string, args: unknown[]): void;
   again(uuid: string): void;
   cancel(uuid: string): void;
-  rewind(uuid: string, apply: boolean): void;
-  dropRewind(uuid: string): void;
+  probe(uuid: string): void;
+  apply(uuid: string): void;
+  cancelRewind(): void;
   fill(text: string): void;
 };
 

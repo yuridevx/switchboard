@@ -1,91 +1,101 @@
 // Строки ленты: свои и чужие сообщения, ответ Claude, служебные строки и плашки.
 import { useState, type ReactNode } from "react";
-import { Btn, CodeBlock, CopyButton, DisclosureBtn, hhmm, Markdown, permModeName, TextBtn } from "@switchboard/web-ui";
-import { RotateCcwClock, RotateCw } from "lucide-react";
-import type { Part, Row } from "../fold.ts";
-import { steps, taskEnd } from "../words.ts";
+import { Btn, CodeBlock, CopyButton, DisclosureBtn, hhmm, Markdown, permModeName, plural, TextBtn } from "@switchboard/web-ui";
+import { taskIcon, type Part, type Row } from "../fold.ts";
+import { TASK_END } from "../words.ts";
 import { useEnv } from "./env.ts";
 import { Icon } from "./icons.tsx";
 import { ToolCard } from "./Tool.tsx";
 
-const LONG = 700;
-const cls = (...w: unknown[]) => w.filter(Boolean).join(" ");
+const CLAMP_AT = 700;
+const THINK_TAIL = 400;
+const DOC = /^\s*(<!doctype html|<html[\s>])/i;
 
 /** Свёрнутая строка: заголовок и тело по нажатию. */
-export function Dis({ className, head, open: start = false, children }: { className?: string; head: ReactNode; open?: boolean; children: ReactNode }) {
-  const [open, setOpen] = useState(start);
+export function Dis({ className, head, children }: { className?: string; head: ReactNode; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className={cls("dis", className)}>
+    <div className={`dis ${className ?? ""}`.trim()}>
       <DisclosureBtn className="dis-h" open={open} onClick={() => setOpen(!open)}>
         {head}
         <Icon name={open ? "chevron-down" : "chevron-right"} size={14} />
       </DisclosureBtn>
-      {open && <div className="dis-b">{children}</div>}
+      {open ? <div className="dis-b">{children}</div> : null}
     </div>
   );
 }
 
-function Think({ text, live, redacted }: { text: string; live?: boolean; redacted?: boolean }) {
-  const head = (
+function Text({ part }: { part: Extract<Part, { k: "text" }> }) {
+  // целый документ: готовый — блок с просмотром, пишущийся — как текст
+  if (!part.live && DOC.test(part.text)) return <CodeBlock code={part.text.trim()} lang="html" />;
+  return (
+    <div className="chat-txt">
+      <Markdown text={part.text} live={part.live} />
+    </div>
+  );
+}
+
+function Think({ part }: { part: Extract<Part, { k: "think" }> }) {
+  const label = (text: string) => (
     <>
       <Icon name="brain-circuit" size={14} />
-      {live ? "Размышляет…" : "Размышлял"}
+      {text}
     </>
   );
-  if (live)
+  if (part.live)
     return (
       <div className="chat-think live">
-        <div className="chat-think-h">{head}</div>
-        <div className="chat-think-t">{text.slice(-400)}</div>
+        <div className="chat-think-h">{label("Размышляет…")}</div>
+        <div className="chat-think-t">{part.text.slice(-THINK_TAIL)}</div>
       </div>
     );
-  if (redacted || !text.trim())
+  if (!part.text)
     return (
       <div className="chat-think">
-        <div className="chat-think-h">{head}</div>
+        <div className="chat-think-h">{label("Размышлял")}</div>
       </div>
     );
   return (
-    <Dis className="chat-think" head={head}>
+    <Dis className="chat-think" head={label("Размышлял")}>
       <div className="chat-think-t">
-        <Markdown text={text} />
+        <Markdown text={part.text} />
       </div>
     </Dis>
   );
 }
 
-function PartView({ p }: { p: Part }) {
-  if (p.k === "text")
-    return (
-      <div className="chat-txt">
-        <Markdown text={p.text} />
-      </div>
-    );
-  if (p.k === "doc") return <CodeBlock code={p.text} lang="html" />;
-  if (p.k === "think") return <Think text={p.text} redacted={p.redacted} />;
-  return <ToolCard id={p.id} />;
-}
-
-export function Reply({ r, only }: { r: Extract<Row, { k: "reply" }>; only?: Part[] }) {
-  const parts = only ?? r.parts;
-  const writing = !only && (r.liveText !== undefined || r.liveThink !== undefined);
-  const texts = parts.filter((p) => p.k === "text").map((p) => (p as { text: string }).text);
+export function Reply({ parts }: { parts: Part[] }) {
+  const texts = parts.flatMap((p) => (p.k === "text" ? [p] : []));
+  const ready = texts.length > 0 && !texts.some((p) => p.live);
   return (
     <div className="chat-reply">
-      {parts.map((p, i) => (
-        <PartView key={i} p={p} />
-      ))}
-      {!only && r.liveThink !== undefined && <Think text={r.liveThink} live />}
-      {!only && r.liveText !== undefined && (
-        <div className="chat-txt">
-          <Markdown text={r.liveText} live />
-        </div>
-      )}
-      {!writing && texts.length > 0 && (
+      {parts.map((p, i) => (p.k === "text" ? <Text key={i} part={p} /> : p.k === "think" ? <Think key={i} part={p} /> : <ToolCard key={p.id} id={p.id} />))}
+      {ready ? (
         <div className="chat-acts">
-          <CopyButton text={texts.join("\n\n")} label="копировать" />
+          <CopyButton text={texts.map((p) => p.text).join("\n\n")} label="копировать" />
         </div>
-      )}
+      ) : null}
+    </div>
+  );
+}
+
+function Rewind({ id }: { id: string }) {
+  const env = useEnv();
+  const rw = env.rewind;
+  if (rw?.id !== id) return null;
+  return (
+    <div className={`chat-rwc ${rw.state === "bad" || rw.state === "ok" ? rw.state : ""}`.trim()} role="status">
+      <span>{rw.text}</span>
+      {rw.state === "ask" ? (
+        <>
+          <Btn type="button" className="chat-mini" onClick={env.cancelRewind}>
+            Отмена
+          </Btn>
+          <Btn type="button" bad className="chat-mini" onClick={() => env.apply(id)}>
+            Откатить
+          </Btn>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -96,174 +106,132 @@ function Me({ r }: { r: Extract<Row, { k: "me" }> }) {
   const echoed = !!s && r.key !== `send:${s.uuid}`;
   const pics = [...r.pics, ...(s?.files ?? []).filter((f) => f.media_type.startsWith("image/")).map((f) => `data:${f.media_type};base64,${f.data}`)];
   const files = (s?.files ?? []).filter((f) => !f.media_type.startsWith("image/"));
-  const state = s ? (echoed ? "ok" : s.state === "queued" ? "ok" : s.state) : undefined;
-  const time = s ? hhmm(s.at) : "";
-  const status = !s
-    ? null
-    : echoed
-      ? `${time} · ${env.wide ? "✓✓" : "доставлено"}`
-      : s.state === "sending"
-        ? "отправляю…"
-        : s.state === "queued"
-          ? env.wide ? "в очереди · ✓" : "в очереди"
-          : s.state === "ok"
-            ? `${time} · ${env.wide ? "✓" : "доставлено"}`
-            : null;
-  const rw = env.wide && env.canAct && !!r.uuid && (!s || echoed || s.state === "ok" || s.state === "queued");
-  const rwState = r.uuid ? env.rewinds[r.uuid] : undefined;
+  const state = s && (echoed ? "echo" : s.state);
+  const lost = state === "lost";
+  const stamp = () => {
+    if (!s) return "";
+    if (state === "sending") return "отправляю…";
+    if (s.queued && state === "ok") return env.wide ? "в очереди · ✓" : "в очереди";
+    return `${hhmm(s.at)} · ${env.wide ? (state === "echo" ? "✓✓" : "✓") : "доставлено"}`;
+  };
   return (
     <>
-      <div className={cls("chat-me", state === "pend" && "pend")} data-state={state}>
-        {files.map((f) => (
-          <span key={f.name} className="chat-att">
-            {f.name}
-          </span>
-        ))}
-        {pics.length > 0 && (
+      <div className={lost ? "chat-me pend" : "chat-me"} data-state={state === "echo" ? "ok" : state}>
+        {pics.length ? (
           <div className="chat-pics">
             {pics.map((src, i) => (
-              <a key={i} href={src} target="_blank" rel="noopener">
+              <a key={i} href={src} target="_blank" rel="noopener noreferrer">
                 <img src={src} alt={`картинка ${i + 1}`} />
               </a>
             ))}
           </div>
-        )}
+        ) : null}
+        {files.map((f, i) => (
+          <span key={i} className="chat-att">
+            <Icon name="file-text" size={12} />
+            {f.name}
+          </span>
+        ))}
         {r.text}
-        {status !== null && <small>{status}</small>}
-        {state === "pend" && (
+        {lost ? (
           <small>
             {"связь оборвалась до ответа — "}
             <span className="chat-nb">не подтверждено ·</span>{" "}
             <TextBtn className="chat-again" onClick={() => env.again(s!.uuid)}>
-              <RotateCw size={11} aria-hidden="true" />
+              <Icon name="rotate-cw" size={11} />
               отправить ещё раз
             </TextBtn>
           </small>
-        )}
-        {s?.state === "queued" && !echoed && env.canAct && (
+        ) : stamp() ? (
+          <small>{stamp()}</small>
+        ) : null}
+        {s?.queued && state === "ok" && env.canAct ? (
           <TextBtn className="chat-again chat-cancel" onClick={() => env.cancel(s.uuid)}>
+            <Icon name="undo-2" size={11} />
             отменить
           </TextBtn>
-        )}
-        {rw && (
-          <TextBtn className="chat-rw" onClick={() => env.rewind(r.uuid!, false)}>
-            <RotateCcwClock size={11} aria-hidden="true" />
+        ) : null}
+        {env.wide && env.canAct && r.uuid && (!s || state === "echo" || state === "ok") ? (
+          <TextBtn className="chat-rw" onClick={() => env.probe(r.uuid!)}>
+            <Icon name="history" size={11} />
             откатить файлы
           </TextBtn>
-        )}
+        ) : null}
       </div>
-      {rwState && (
-        <div className={cls("chat-rwc", rwState.state === "done" && "ok", (rwState.state === "no" || rwState.state === "bad") && "bad")} role={rwState.state === "no" || rwState.state === "bad" ? "alert" : "status"}>
-          {rwState.state === "ask" ? (
-            <>
-              <span>{rwState.text}</span>
-              <Btn type="button" className="chat-mini" onClick={() => env.dropRewind(r.uuid!)}>
-                Отмена
-              </Btn>
-              <Btn type="button" className="chat-mini" onClick={() => env.rewind(r.uuid!, true)}>
-                Откатить
-              </Btn>
-            </>
-          ) : (
-            rwState.text
-          )}
-        </div>
-      )}
+      {r.uuid ? <Rewind id={r.uuid} /> : null}
     </>
   );
 }
 
-function In({ r }: { r: Extract<Row, { k: "in" }> }) {
+function Incoming({ r }: { r: Extract<Row, { k: "in" }> }) {
   const env = useEnv();
-  const [all, setAll] = useState(false);
-  if (r.from === "owner")
-    return (
-      <div className="chat-in">
-        <div className="chat-from">
-          {`${env.label} → вам`}
-          {r.push && <span className="chat-tag">из уведомления</span>}
-        </div>
-        <Markdown text={r.text} />
-        {r.at && <small>{hhmm(r.at)}</small>}
-      </div>
-    );
-  const long = r.text.length > LONG && !all;
-  const mode = r.mode && (permModeName(r.mode) ?? r.mode).toLowerCase();
+  const owner = r.via === "owner";
+  const long = !owner && r.text.length > CLAMP_AT;
+  const [whole, setWhole] = useState(false);
+  const from = owner ? `${env.label} → вам` : r.via === "agent" ? `субагент · ${r.from}` : r.from ? `сессия Claude · ${r.from}` : "сессия Claude";
   return (
-    <div className="chat-in fleet" data-from={r.from}>
+    <div className={owner ? "chat-in" : "chat-in fleet"} data-from={owner ? undefined : r.via}>
       <div className="chat-from">
-        <Icon name={r.from === "agent" ? "bot" : "messages-square"} />
-        {`${r.from === "agent" ? "субагент" : "сессия Claude"} · ${r.name}`}
-        {mode && <span className="chat-tag">{mode}</span>}
+        {r.via === "agent" ? <Icon name="bot" /> : r.via === "session" ? <Icon name="messages-square" /> : null}
+        {from}
+        {r.tag ? <span className="chat-tag">{owner ? r.tag : (permModeName(r.tag)?.toLowerCase() ?? r.tag)}</span> : null}
       </div>
-      {long ? (
+      {owner ? (
+        <Markdown text={r.text} />
+      ) : (
         <>
-          <div className="chat-clamp">
+          <div className={long && !whole ? "chat-clamp" : ""}>
             <Markdown text={r.text} />
           </div>
-          <DisclosureBtn className="chat-more" open={false} onClick={() => setAll(true)}>
-            показать всё
-          </DisclosureBtn>
+          {long ? (
+            <DisclosureBtn className="chat-more" open={whole} onClick={() => setWhole(!whole)}>
+              <Icon name={whole ? "chevron-up" : "chevron-down"} />
+              {whole ? "свернуть" : "показать всё"}
+            </DisclosureBtn>
+          ) : null}
         </>
-      ) : (
-        <Markdown text={r.text} />
       )}
+      {r.at ? <small>{r.at}</small> : null}
     </div>
   );
 }
 
-function TaskRow({ id }: { id: string }) {
+function Banner({ r }: { r: Extract<Row, { k: "ban" }> }) {
+  const env = useEnv();
+  const { edit } = r;
+  return (
+    <div className={`chat-ban ${r.tone}`} {...(r.tone === "bad" ? { role: "alert" } : {})}>
+      <Icon name={r.icon ?? (r.tone === "bad" ? "x" : "info")} size={15} />
+      <div>
+        <b>{r.title}</b>
+        {r.body ? <p>{r.body}</p> : null}
+        {edit !== undefined ? (
+          <Btn type="button" className="chat-mini" onClick={() => env.fill(edit)}>
+            <Icon name="pencil" size={12} />
+            Изменить сообщение
+          </Btn>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function RunningTask({ id }: { id: string }) {
   const env = useEnv();
   const t = env.view.tasks[id];
-  if (!t || t.status === "gone") return null;
-  const icon = t.type === "local_bash" ? "terminal" : "bot";
-  if (t.status !== "running") {
-    const [word, tone] = taskEnd(t.status);
-    const what = t.description || t.summary;
-    return <Line r={{ k: "line", key: id, icon, text: word, tone, dim: what ? ` · ${what}` : undefined }} />;
-  }
+  if (!t) return null;
+  const steps = t.steps ?? 0;
   return (
     <div className="chat-line run">
-      <Icon name={icon} />
-      <span>{[t.description || t.id, t.summary].filter(Boolean).join(" · ")}</span>
-      <em>{steps(t.uses ?? 0)}</em>
-      {env.canAct && (
-        <Btn type="button" className="chat-mini" onClick={() => env.act("stopTask", [t.id])}>
+      <Icon name={taskIcon(t.type)} />
+      <span>{[t.desc, t.summary].filter(Boolean).join(" · ")}</span>
+      <em>{`${steps} ${plural(steps, "шаг", "шага", "шагов")}`}</em>
+      {env.canAct ? (
+        <Btn type="button" className="chat-mini" onClick={() => env.act("stopTask", [id])}>
           <Icon name="square" />
           Стоп
         </Btn>
-      )}
-    </div>
-  );
-}
-
-function Line({ r }: { r: Extract<Row, { k: "line" }> }) {
-  return (
-    <div className={cls("chat-line", r.tone)}>
-      {r.icon && <Icon name={r.icon} />}
-      <span>
-        {r.text}
-        {r.dim && <span className="chat-dim">{r.dim}</span>}
-      </span>
-    </div>
-  );
-}
-
-function Ban({ r }: { r: Extract<Row, { k: "ban" }> }) {
-  const env = useEnv();
-  const edit = r.edit ? env.view.rows.find((x) => x.k === "me" && x.uuid === r.edit) : undefined;
-  return (
-    <div className={`chat-ban ${r.tone}`} role={r.tone === "bad" ? "alert" : undefined}>
-      <Icon name={r.icon} size={15} />
-      <div>
-        <b>{r.title}</b>
-        {r.body && <p>{r.body}</p>}
-        {r.edit && (
-          <Btn type="button" className="chat-mini" onClick={() => env.fill(edit && edit.k === "me" ? edit.text : "")}>
-            Изменить сообщение
-          </Btn>
-        )}
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -273,47 +241,57 @@ export function RowView({ r }: { r: Row }) {
     case "me":
       return <Me r={r} />;
     case "in":
-      return <In r={r} />;
+      return <Incoming r={r} />;
     case "reply":
-      return <Reply r={r} />;
+      return <Reply parts={r.parts} />;
+    case "ban":
+      return <Banner r={r} />;
+    case "task":
+      return <RunningTask id={r.id} />;
     case "cmd":
       return (
         <div className="chat-cmd">
           <span>
             <Icon name="zap" size={12} />
-            {r.name}
+            {r.args ? `${r.name} ${r.args}` : r.name}
           </span>
-          {r.out && <pre>{r.out}</pre>}
+          {r.out ? <pre>{r.out}</pre> : null}
         </div>
       );
     case "sys":
       return (
-        <div className={cls("chat-sys", r.tone)}>
+        <div className={r.tone ? `chat-sys ${r.tone}` : "chat-sys"}>
           <Icon name={r.icon} />
           {r.text}
         </div>
       );
     case "line":
-      return <Line r={r} />;
-    case "task":
-      return <TaskRow id={r.id} />;
-    case "ban":
-      return <Ban r={r} />;
-    case "res":
-      return r.err !== undefined ? (
-        <div className="chat-res err">
-          <Icon name="triangle-alert" />
-          {`ход оборвался: ${r.err}`}
-          {r.why && <p>{r.why}</p>}
+      return (
+        <div className={r.tone ? `chat-line ${r.tone}` : "chat-line"}>
+          {r.icon ? <Icon name={r.icon} /> : null}
+          <span>
+            {r.text}
+            {r.dim ? <span className="chat-dim">{r.dim}</span> : null}
+          </span>
         </div>
-      ) : (
+      );
+    case "res":
+      return (
         <div className="chat-res">
-          {r.parts.map((p, i) => (
+          {r.bits.map((bit, i) => (
             <span key={i}>
               {i ? " · " : ""}
-              <span className="chat-nb">{p}</span>
+              <span className="chat-nb">{bit}</span>
             </span>
           ))}
+        </div>
+      );
+    case "end":
+      return (
+        <div className="chat-res err">
+          <Icon name="triangle-alert" />
+          {r.text}
+          {r.why ? <p>{r.why}</p> : null}
         </div>
       );
     case "sum":
@@ -323,7 +301,7 @@ export function RowView({ r }: { r: Row }) {
           head={
             <>
               <Icon name="archive" />
-              {r.head}
+              {r.stats}
             </>
           }
         >
@@ -334,11 +312,5 @@ export function RowView({ r }: { r: Row }) {
 }
 
 export function Rows({ rows }: { rows: readonly Row[] }) {
-  return (
-    <>
-      {rows.map((r) => (
-        <RowView key={r.key} r={r} />
-      ))}
-    </>
-  );
+  return rows.map((r) => <RowView key={r.key} r={r} />);
 }

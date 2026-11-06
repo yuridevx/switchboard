@@ -1,105 +1,182 @@
-// Вопросы сессий на странице: кадры question и answered, ждущие у Host по question.list. Ответ уходит запросом answer.
+// Вопросы сессий на странице: кадры question и answered, сверка с Host запросом question.list. Одно правило сверки: known — список этой сессии уже спрошен.
 import { createStore, type App } from "@switchboard/web-ui";
+import type { Roster } from "@switchboard/web-core";
 
 /** Вопрос как его отдаёт Host: кадр question без конверта или строка question.list. */
-export type Question = { question: string; kind: string; to?: string[]; at?: number; [k: string]: unknown };
-/** Итог вопроса: ответили (мы или другие), снят, Host его не знает, отказ отправки. */
-export type Outcome = { word: "ours" | "theirs" | "late" | "cancelled" | "gone" | "failed"; said?: string; by?: string; error?: string };
-export type Asked = Question & { done?: Outcome; sending?: boolean };
-type Per = { qs: Asked[]; list?: "loading" | "ok" | { error: string }; waiting?: boolean; want?: boolean };
-export type State = Record<string, Per>;
+export type Question = {
+  question: string;
+  kind: "ask" | "form" | "url" | "perm";
+  to?: string[];
+  questions?: Array<{ question: string; header?: string; multiSelect?: boolean; options?: Array<{ label: string; description?: string }> }>;
+  message?: string;
+  server?: string;
+  schema?: { properties?: Record<string, { type?: string; title?: string; description?: string; enum?: unknown[] }> };
+  url?: string;
+  tool?: string;
+  input?: Record<string, unknown>;
+  title?: string;
+  description?: string;
+  reason?: string;
+  blockedPath?: string;
+  suggestions?: Array<Record<string, unknown>>;
+};
+/** Чем кончился вопрос. */
+export type Done = { how: "mine" | "other" | "already" | "cancelled" | "gone"; by?: string; text?: string; word?: string };
+export type Entry = { q: Question; at: number; sending: boolean; word: string; done?: Done };
+type Asks = { items: Entry[]; loading: boolean; word: string };
 
-const said = (body: Record<string, unknown>) => (body.answers ? Object.values(body.answers as Record<string, string>).join(", ") : undefined);
+const EMPTY: Asks = { items: [], loading: false, word: "" };
+const machineOf = (cs: string) => cs.slice(cs.lastIndexOf("@") + 1);
+const entry = (q: Question): Entry => ({ q, at: Date.now(), sending: false, word: "" });
 
-export function createAsk(app: App) {
-  const store = createStore<State>({}, () => app.changed());
-  const per = (s: State, cs: string) => (s[cs] ??= { qs: [] });
-  const closed = new Map<string, Set<string>>();
-  const isClosed = (cs: string, id: string) => !!closed.get(cs)?.has(id);
-  const close = (cs: string, id: string, done: Outcome) => {
-    (closed.get(cs) ?? closed.set(cs, new Set()).get(cs)!).add(id);
-    store.set((s) => {
-      const q = per(s, cs).qs.find((x) => x.question === id);
-      if (q) Object.assign(q, { done, sending: false });
-    });
-  };
-  const me = (by: unknown) => by === app.name || by === app.address();
+/** Суть входа инструмента одной строкой. */
+export const subjectOf = (q: Question) => String(q.input?.command ?? q.input?.file_path ?? q.input?.url ?? q.input?.pattern ?? "");
+
+/** Текст вопроса для строки списка. */
+function askedText(q: Question): string {
+  if (q.kind === "ask") return String(q.questions?.[0]?.question ?? "вопрос");
+  if (q.kind === "perm") return q.tool === "ExitPlanMode" ? "План на одобрение" : (q.title ?? [q.tool, subjectOf(q)].filter(Boolean).join(": "));
+  return q.message || "форма";
+}
+
+export function createAskStore(app: App) {
+  const store = createStore<Record<string, Asks>>({}, () => app.changed());
+  /** Список сессии спрошен: заново — после новой связи, закрытого вопроса, конца ожидания. */
+  const known = new Set<string>();
+  /** Вопрос из уведомления без тела: взять у Host, как только будет связь. */
+  const wanted = new Set<string>();
+  const mounted = new Map<string, number>();
+  const waiting = new Set<string>();
+  const turns = new Map<string, number>();
+
+  const asks = (cs: string) => store.get()[cs] ?? EMPTY;
+  const edit = (cs: string, fn: (a: Asks) => void) => store.set((d) => fn((d[cs] ??= { items: [], loading: false, word: "" })));
+  const openOf = (a: Asks) => a.items.find((e) => !e.done);
 
   async function list(cs: string) {
-    if (app.link() !== "open") return store.set((s) => void (per(s, cs).want = true));
-    store.set((s) => void Object.assign(per(s, cs), { list: "loading", want: false }));
+    known.add(cs);
+    const turn = (turns.get(cs) ?? 0) + 1;
+    turns.set(cs, turn);
+    edit(cs, (a) => void (a.loading = true));
     const r = await app.read<Question[]>("question.list", { callsign: cs });
-    store.set((s) => {
-      const p = per(s, cs);
-      if (!r.ok) return void (p.list = { error: r.error });
-      p.list = "ok";
-      const ids = new Set(r.result.map((q) => q.question));
-      p.qs = p.qs.filter((q) => q.done || ids.has(q.question));
-      for (const q of r.result) if (!isClosed(cs, q.question) && !p.qs.some((x) => x.question === q.question)) p.qs.push({ ...q, at: Date.now() });
+    if (turns.get(cs) !== turn) return;
+    if (!r.ok) {
+      known.delete(cs);
+      return edit(cs, (a) => {
+        a.loading = false;
+        a.word = `question.list: ${r.error}`;
+      });
+    }
+    wanted.delete(cs);
+    // ответ Host — правда о ждущих: закрытые остаются для экрана, известные сохраняют выбор
+    edit(cs, (a) => {
+      a.loading = false;
+      a.word = "";
+      const was = a.items;
+      a.items = [...was.filter((e) => e.done), ...r.result.map((q) => was.find((e) => e.q.question === q.question) ?? entry(q))];
     });
   }
 
-  const open = (cs: string) => store.get()[cs]?.qs.filter((q) => !q.done) ?? [];
-
-  async function answer(cs: string, q: Asked, body: Record<string, unknown>) {
-    store.set((s) => {
-      const x = per(s, cs).qs.find((y) => y.question === q.question);
-      if (x) Object.assign(x, { sending: true, done: undefined });
+  function close(cs: string, id: string, done: Done) {
+    known.delete(cs);
+    edit(cs, (a) => {
+      const e = a.items.find((x) => x.q.question === id);
+      if (e && !e.done) {
+        e.done = done;
+        e.sending = false;
+      }
     });
-    const r = await app.request("answer", { callsign: cs, question: q.question, ...body });
-    if (isClosed(cs, q.question)) return;
-    const s = said(body) ?? (body.label as string | undefined);
-    if (r.ok) close(cs, q.question, { word: "ours", said: s });
-    else if (r.error === "already_answered") close(cs, q.question, { word: "late" });
-    else if (r.error === "unknown_question") close(cs, q.question, { word: "gone", error: r.error });
-    else
-      store.set((st) => {
-        const x = per(st, cs).qs.find((y) => y.question === q.question);
-        if (x) Object.assign(x, { sending: false, done: { word: "failed", error: r.error } });
-      });
   }
 
   return {
-    store,
-    open,
-    answer,
-    list,
-    frames: {
-      question(f: Record<string, unknown>, ctx: { open: boolean }) {
-        const cs = String(f.from);
-        if (ctx.open) app.open("ask", { callsign: cs });
-        if (typeof f.question !== "string" || !f.kind) return void list(cs);
-        const id = f.question;
-        if (isClosed(cs, id)) return;
-        store.set((s) => {
-          const p = per(s, cs);
-          const { type: _t, from: _f, v: _v, open: _o, ...q } = f;
-          if (!p.qs.some((x) => x.question === id)) p.qs.push({ ...(q as Question), at: Date.now() });
-        });
-      },
-      answered(f: Record<string, unknown>) {
-        const cs = String(f.from);
-        const id = String(f.question);
-        if (isClosed(cs, id)) return;
-        const mine = store.get()[cs]?.qs.find((q) => q.question === id)?.sending && me(f.by);
-        close(cs, id, f.cancelled ? { word: "cancelled" } : mine ? { word: "ours", said: said(f) ?? (f.action as string | undefined) } : { word: "theirs", by: String(f.by ?? ""), said: said(f) });
-      },
+    asks,
+    /** Первый ждущий; ждущих нет — последний закрытый: на нём итог. */
+    shown(cs: string): Entry | undefined {
+      const a = asks(cs);
+      return openOf(a) ?? a.items.at(-1);
     },
-    /** roster: вошла в ожидание или вышла из него с нашими вопросами — спросить Host; прошлый список отказал — спросить снова. */
-    roster(sessions: ReadonlyArray<{ callsign: string; state?: unknown }>) {
-      for (const s of sessions) {
-        const waiting = s.state === "waiting";
-        const p = store.get()[s.callsign];
-        const was = p?.waiting ?? false;
-        const failed = typeof p?.list === "object";
-        if (waiting !== was) store.set((st) => void (per(st, s.callsign).waiting = waiting));
-        if ((waiting && (!was || failed)) || (!waiting && was && open(s.callsign).length)) void list(s.callsign);
+    asked(cs: string) {
+      const e = openOf(asks(cs));
+      return e ? askedText(e.q) : undefined;
+    },
+    askedTool: (cs: string, id: string) => asks(cs).items.some((e) => !e.done && e.q.kind === "perm" && e.q.question === id),
+    onQuestion(f: Record<string, unknown>, opened: boolean) {
+      const cs = String(f.from);
+      if (typeof f.question !== "string") {
+        wanted.add(cs);
+        if (app.link() === "open") void list(cs);
+      } else {
+        const { type: _t, from: _f, ...rest } = f;
+        const q = rest as unknown as Question;
+        edit(cs, (a) => {
+          if (a.items.some((e) => e.q.question === q.question)) return;
+          // новый вопрос вытесняет закрытые: на экране он, а не итог прежнего
+          a.items = [...a.items.filter((e) => !e.done), entry(q)];
+        });
+      }
+      if (opened) app.open("ask", { callsign: cs });
+    },
+    onAnswered(f: { from?: string; question?: string; by?: string; cancelled?: boolean; answers?: Record<string, unknown> }) {
+      const cs = String(f.from);
+      const id = String(f.question);
+      if (f.cancelled) return close(cs, id, { how: "cancelled" });
+      const me = f.by === app.name || f.by === app.address();
+      const mine = me && asks(cs).items.find((e) => e.q.question === id)?.sending;
+      const text = Object.values(f.answers ?? {}).join(", ");
+      close(cs, id, mine ? { how: "mine", text } : { how: "other", by: f.by, text });
+    },
+    onRoster(r: Roster) {
+      for (const s of r.sessions) {
+        const cs = s.callsign;
+        const was = waiting.has(cs);
+        if (s.state === "waiting") {
+          waiting.add(cs);
+          if (!known.has(cs)) void list(cs);
+        } else if (was) {
+          // ждала и перестала, а ответа мы не видели: спросить Host и забыть спрошенное
+          waiting.delete(cs);
+          if (openOf(asks(cs))) void list(cs);
+          known.delete(cs);
+        }
       }
     },
-    /** Связь вернулась: спросить сессии с ждущими вопросами и ждущие сессии. */
-    relink() {
-      for (const [cs, p] of Object.entries(store.get())) if (p.want || p.waiting || p.qs.some((q) => !q.done)) void list(cs);
+    onLink(state: string, machine?: string) {
+      if (state !== "open") return;
+      const here = (cs: string) => !machine || machineOf(cs) === machine;
+      for (const cs of [...known]) if (here(cs)) known.delete(cs);
+      const all = new Set([...wanted, ...waiting, ...mounted.keys(), ...Object.keys(store.get()).filter((cs) => openOf(asks(cs)))]);
+      for (const cs of all) if (here(cs) && !known.has(cs)) void list(cs);
+    },
+    /** Экран открыт: список спрашивается, если ещё не спрошен. */
+    mount(cs: string) {
+      mounted.set(cs, (mounted.get(cs) ?? 0) + 1);
+      if (!known.has(cs) && app.link() === "open") void list(cs);
+      return () => {
+        const n = mounted.get(cs)! - 1;
+        if (n) mounted.set(cs, n);
+        else mounted.delete(cs);
+      };
+    },
+    /** Ответ человека: первый ответ выигрывает; отказ сети оставляет вопрос открытым. text — что написать в итоге. */
+    async answer(cs: string, id: string, reply: Record<string, unknown>, text: string) {
+      const change = (fn: (e: Entry) => void) =>
+        edit(cs, (a) => {
+          const e = a.items.find((x) => x.q.question === id);
+          if (e) fn(e);
+        });
+      change((e) => {
+        e.sending = true;
+        e.word = "";
+      });
+      const r = await app.request("answer", { callsign: cs, question: id, ...reply });
+      if (r.ok) return close(cs, id, { how: "mine", text });
+      if (r.error === "already_answered") return close(cs, id, { how: "already" });
+      if (r.error === "unknown_question") return close(cs, id, { how: "gone", word: r.error });
+      change((e) => {
+        e.sending = false;
+        e.word = r.error;
+      });
     },
   };
 }
-export type Ask = ReturnType<typeof createAsk>;
+export type AskStore = ReturnType<typeof createAskStore>;

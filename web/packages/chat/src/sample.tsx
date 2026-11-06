@@ -7,10 +7,7 @@ import { Rows } from "./view/Rows.tsx";
 const quiet = () => {};
 
 export function Sample({ msgs }: { msgs: Msg[] }) {
-  const env = useMemo<Env>(() => {
-    const view = fold(msgs);
-    return { cs: "site@laptop", wide: true, canAct: true, view, sends: {}, rewinds: {}, label: "site", waiting: () => false, act: quiet, again: quiet, cancel: quiet, rewind: quiet, dropRewind: quiet, fill: quiet };
-  }, [msgs]);
+  const env = useMemo<Env>(() => ({ cs: "site@laptop", wide: true, canAct: true, view: fold(msgs), sends: {}, rewind: null, label: "site", waiting: () => false, act: quiet, again: quiet, cancel: quiet, probe: quiet, apply: quiet, cancelRewind: quiet, fill: quiet }), [msgs]);
   return (
     <EnvCtx.Provider value={env}>
       <Rows rows={env.view.rows} />

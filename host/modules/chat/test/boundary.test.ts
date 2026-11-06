@@ -737,6 +737,18 @@ describe("вопрос человеку", () => {
     await a;
     expect(closed(st)[0].to).toEqual([PHONE, PANEL]);
   });
+  it("пуш формы и снятого вопроса — своими словами (чьё: код)", async () => {
+    const { st, notifies } = await bench();
+    const { p } = await tasked(st);
+    void p.elicit({ serverName: "jira", message: "Данные", mode: "form", requestedSchema: {} });
+    await until(() => notifies.length === 1);
+    expect((notifies[0].frame as { notify: Record<string, unknown> }).notify).toMatchObject({ title: `${CS} · форма`, body: "Данные" });
+    void p.ask("AskUserQuestion", ASK, "toolu_c");
+    await until(() => notifies.length === 2);
+    p.abortAsk("toolu_c");
+    await until(() => notifies.length === 3);
+    expect((notifies[2].frame as { notify: Record<string, unknown> }).notify).toMatchObject({ title: CS, body: "вопрос снят", tag: "toolu_c" });
+  });
 });
 
 describe("запрос разрешения и план", () => {

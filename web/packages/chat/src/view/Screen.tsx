@@ -1,44 +1,180 @@
 // Экран разговора: полоса (широко), лента или фокус, док над вводом и ввод.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Btn, isLive, Pad, sessionLabel, sessionOf, useApp, useModule, type Params } from "@switchboard/web-ui";
-import { Download } from "lucide-react";
-import { exportMd, focusItems, type Item } from "../focus.ts";
-import { fold, type Row } from "../fold.ts";
+import { Btn, IconBtn, Pad, sessionLabel, sessionOf, useApp, useModule, type Params } from "@switchboard/web-ui";
+import { exportMd, focused, type Item } from "../focus.ts";
+import { fold, type View } from "../fold.ts";
 import { machineOf, type Talks } from "../talk.ts";
 import { Composer } from "./Composer.tsx";
 import { Dock } from "./Dock.tsx";
 import { EnvCtx, type Env } from "./env.ts";
 import { Icon } from "./icons.tsx";
 import { Panel } from "./Panel.tsx";
-import { Dis, Reply, RowView } from "./Rows.tsx";
+import { Dis, RowView, Rows } from "./Rows.tsx";
 
 /** Ближе этого к низу лента считается у края и идёт за новыми строками. */
 const AT_END_PX = 48;
+const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)} К` : String(n));
 
 function ItemView({ it }: { it: Item }) {
-  if (it.k === "row") return it.only && it.row.k === "reply" ? <Reply r={it.row} only={it.only} /> : <RowView r={it.row} />;
-  if (it.k === "service")
-    return (
-      <Dis className="chat-steps" head="служебные строки">
-        {it.rows.map((r) => (
-          <RowView key={r.key} r={r} />
-        ))}
-      </Dis>
-    );
+  if (it.k !== "steps") return <RowView r={it} />;
   return (
     <Dis
       className="chat-steps"
       head={
         <>
-          <Icon name="list-collapse" />
-          {it.head}
+          <Icon name="list-collapse" size={14} />
+          {it.title}
         </>
       }
     >
-      {it.items.map((x, i) => (
-        <ItemView key={i} it={x} />
-      ))}
+      <Rows rows={it.rows} />
     </Dis>
+  );
+}
+
+function Work({ cs, view }: { cs: string; view: View }) {
+  const app = useApp();
+  const busy = app.use(() => sessionOf(app, cs)?.state === "busy");
+  if (view.compacting) return <div className="chat-work">Сжимаю контекст…</div>;
+  if (!busy) return null;
+  return (
+    <div className="chat-work">
+      <i />
+      <i />
+      <i />
+      {view.thinking ? `размышляет · ${tokens(view.thinking)}` : ""}
+    </div>
+  );
+}
+
+function Bar({ cs, view, focus }: { cs: string; view: View; focus: boolean }) {
+  const talks = useModule<Talks>();
+  const app = useApp();
+  const canAct = app.use(() => talks.canAct(cs));
+  const [panel, setPanel] = useState(false);
+  return (
+    <>
+      <div className="chat-bar">
+        {canAct ? (
+          <Btn type="button" className="chat-mini" aria-pressed={panel} onClick={() => setPanel(!panel)}>
+            <Icon name="gauge" />
+            контекст
+          </Btn>
+        ) : null}
+        <Btn type="button" className="chat-mini" aria-pressed={focus} onClick={() => talks.edit(cs, (t) => void (t.focus = !t.focus))}>
+          <Icon name="focus" />
+          фокус
+        </Btn>
+        <a
+          className="chat-mini"
+          download={`${cs.replace("@", "-")}.md`}
+          href="#"
+          onClick={(e) => {
+            e.currentTarget.href = `data:text/markdown;charset=utf-8,${encodeURIComponent(exportMd(cs, view))}`;
+          }}
+        >
+          <Icon name="download" />
+          выгрузить .md
+        </a>
+      </div>
+      {panel && canAct ? <Panel cs={cs} close={() => setPanel(false)} /> : null}
+    </>
+  );
+}
+
+function Feed({ cs, view, pending, focus }: { cs: string; view: View; pending: Item[]; focus: boolean }) {
+  const app = useApp();
+  const talks = useModule<Talks>();
+  const more = app.use(() => talks.get(cs).more);
+  const loaded = app.use(() => talks.get(cs).loaded);
+  const refused = app.use(() => talks.get(cs).refused);
+  const noFeed = app.use(() => app.can(machineOf(cs), "session.watch") === false);
+  const items = useMemo(() => (focus ? focused(view) : view.rows), [focus, view]);
+  const box = useRef<HTMLDivElement>(null);
+  const atEnd = useRef(true);
+  const lastTop = useRef(0);
+  /** высота до страницы «Раньше»: лента остаётся на том же сообщении */
+  const heightBefore = useRef<number | null>(null);
+  const [away, setAway] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = box.current!;
+    if (heightBefore.current !== null) el.scrollTop += el.scrollHeight - heightBefore.current;
+    else if (atEnd.current) el.scrollTop = el.scrollHeight;
+    heightBefore.current = null;
+  }, [items, pending.length]);
+
+  // лента у низа остаётся у низа, что бы ни выросло: поток текста, поле ввода, док над ним
+  useEffect(() => {
+    const el = box.current!;
+    const keep = new ResizeObserver(() => {
+      if (atEnd.current) el.scrollTop = el.scrollHeight;
+    });
+    keep.observe(el);
+    keep.observe(el.firstElementChild!);
+    return () => keep.disconnect();
+  }, []);
+
+  const toEnd = () => {
+    const el = box.current!;
+    el.scrollTop = el.scrollHeight;
+    atEnd.current = true;
+    setAway(false);
+  };
+
+  return (
+    <div className="chat-feedw">
+      <Pad
+        className="chat-feed"
+        aria-live="polite"
+        ref={box}
+        onScroll={(e) => {
+          // от низа уводит только прокрутка вверх: рост ленты стороной не считается
+          const el = e.currentTarget;
+          const near = el.scrollHeight - el.clientHeight - el.scrollTop < AT_END_PX;
+          if (near || el.scrollTop < lastTop.current) atEnd.current = near;
+          lastTop.current = el.scrollTop;
+          setAway(!atEnd.current);
+        }}
+      >
+        <div className="chat-col">
+          {noFeed ? <div className="chat-note">{`${machineOf(cs)} не отдаёт ленту — только переписка и ввод`}</div> : null}
+          {more ? (
+            <button
+              type="button"
+              className="chat-older"
+              onClick={() => {
+                heightBefore.current = box.current!.scrollHeight;
+                void talks.older(cs).then((ok) => {
+                  if (!ok) heightBefore.current = null;
+                });
+              }}
+            >
+              Раньше
+            </button>
+          ) : null}
+          {items.map((it) => (
+            <ItemView key={it.key} it={it} />
+          ))}
+          {pending.map((it) => (
+            <ItemView key={it.key} it={it} />
+          ))}
+          {refused ? (
+            <div className="chat-note" role="alert">
+              {refused}
+            </div>
+          ) : loaded && !noFeed && !view.rows.length && !pending.length ? (
+            <div className="chat-note">Сообщений пока нет</div>
+          ) : null}
+          <Work cs={cs} view={view} />
+        </div>
+      </Pad>
+      {away ? (
+        <IconBtn className="chat-jump" aria-label="К последнему" onClick={toEnd}>
+          <Icon name="arrow-down" size={16} />
+        </IconBtn>
+      ) : null}
+    </div>
   );
 }
 
@@ -46,164 +182,48 @@ export function ChatScreen({ params }: { params: Params }) {
   const app = useApp();
   const talks = useModule<Talks>();
   const cs = params.callsign;
-  const t = app.use(() => talks.get(cs));
-  const state = app.use(() => sessionOf(app, cs)?.state as string | undefined);
-  const call = app.use(() => app.can(machineOf(cs), "session.call") === true);
+  const msgs = app.use(() => talks.get(cs).msgs);
+  const sendList = app.use(() => talks.get(cs).sends);
+  const rewind = app.use(() => talks.get(cs).rewind);
+  const canAct = app.use(() => talks.canAct(cs));
   const label = app.use(() => sessionLabel(app, cs).text);
-  const live = isLive(state);
-  const [panel, setPanel] = useState(false);
-  const [jump, setJump] = useState(false);
-  const feed = useRef<HTMLDivElement>(null);
-  const stick = useRef(true);
-  const top = useRef(0);
-  /** высота до страницы «Раньше»: лента остаётся на том же сообщении */
-  const kept = useRef<number | null>(null);
+  const focus = app.use(() => app.wide && talks.get(cs).focus);
 
   useEffect(() => {
     talks.open(cs);
     return () => talks.close(cs);
   }, [cs]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const view = useMemo(() => fold(t.msgs), [t.msgs]);
-  const sends = useMemo(() => Object.fromEntries(t.sends.map((s) => [s.uuid, s])), [t.sends]);
-  const echoed = useMemo(() => new Set(view.rows.flatMap((r) => (r.k === "me" && r.uuid ? [r.uuid] : []))), [view]);
-  const pending: Row[] = t.sends.filter((s) => !echoed.has(s.uuid)).map((s) => ({ k: "me", key: `send:${s.uuid}`, uuid: s.uuid, text: s.text, pics: [] }));
+  const view = useMemo(() => fold(msgs), [msgs]);
+  const sends = useMemo(() => Object.fromEntries(sendList.map((s) => [s.uuid, s])), [sendList]);
+  const pending = useMemo<Item[]>(() => {
+    const echoed = new Set(view.rows.flatMap((r) => (r.k === "me" && r.uuid ? [r.uuid] : [])));
+    return sendList.filter((s) => !echoed.has(s.uuid)).map((s) => ({ k: "me", key: `send:${s.uuid}`, uuid: s.uuid, text: s.text, pics: [] }));
+  }, [view, sendList]);
   const env: Env = {
     cs,
     wide: app.wide,
-    canAct: live && call,
+    canAct,
     view,
     sends,
-    rewinds: t.rewinds,
-    label: label,
+    rewind,
+    label,
     waiting: (id) => app.mark("asked.tool", cs, id) === true,
     act: (m, args) => void talks.act(cs, m, args),
     again: (u) => talks.again(cs, u),
     cancel: (u) => void talks.cancel(cs, u),
-    rewind: (u, apply) => void talks.rewind(cs, u, apply),
-    dropRewind: (u) => talks.edit(cs, (x) => void delete x.rewinds[u]),
-    fill: (text) => talks.edit(cs, (x) => void (x.draft = text)),
+    probe: (u) => void talks.probe(cs, u),
+    apply: (u) => void talks.apply(cs, u),
+    cancelRewind: () => talks.edit(cs, (t) => void (t.rewind = null)),
+    fill: (text) => talks.edit(cs, (t) => void (t.draft = text)),
   };
-  const focus = app.wide && t.focus;
-  const work = view.compacting ? "Сжимаю контекст…" : view.thinking !== undefined ? `размышляет · ${+(view.thinking / 1000).toFixed(1)} К` : state === "busy" ? "" : null;
-
-  useLayoutEffect(() => {
-    const el = feed.current;
-    if (!el) return;
-    if (kept.current !== null) el.scrollTop = el.scrollHeight - kept.current;
-    else if (stick.current) el.scrollTop = el.scrollHeight;
-    kept.current = null;
-  }, [view, t.sends.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // лента у низа остаётся у низа, что бы ни выросло: поток текста, поле ввода, док над ним
-  useEffect(() => {
-    const el = feed.current!;
-    const keep = new ResizeObserver(() => {
-      if (stick.current) el.scrollTop = el.scrollHeight;
-    });
-    keep.observe(el);
-    keep.observe(el.firstElementChild!);
-    return () => keep.disconnect();
-  }, []);
-
-  const empty = !view.rows.length && !pending.length;
   return (
     <EnvCtx.Provider value={env}>
       <div className={app.wide ? "chat wide" : "chat"}>
-        {app.wide && (
-          <div className="chat-bar">
-            {env.canAct && (
-              <Btn type="button" className="chat-mini" aria-pressed={panel} onClick={() => setPanel(!panel)}>
-                <Icon name="gauge" />
-                контекст
-              </Btn>
-            )}
-            <Btn type="button" className="chat-mini" aria-pressed={focus} onClick={() => talks.edit(cs, (x) => void (x.focus = !x.focus))}>
-              <Icon name="focus" />
-              фокус
-            </Btn>
-            <a
-              className="chat-mini"
-              download={`${cs.replace(/@/g, "-")}.md`}
-              href="#"
-              onClick={(e) => {
-                e.currentTarget.href = `data:text/markdown;charset=utf-8,${encodeURIComponent(exportMd(cs, view))}`;
-              }}
-            >
-              <Download size={13} aria-hidden="true" />
-              выгрузить .md
-            </a>
-          </div>
-        )}
-        {panel && env.canAct && <Panel close={() => setPanel(false)} />}
-        <div className="chat-feedw">
-          <Pad
-            className="chat-feed"
-            aria-live="polite"
-            ref={feed}
-            onScroll={(e) => {
-              // от низа уводит только прокрутка вверх: рост ленты стороной не считается
-              const el = e.currentTarget;
-              if (el.scrollHeight - el.clientHeight - el.scrollTop < AT_END_PX) stick.current = true;
-              else if (el.scrollTop < top.current) stick.current = false;
-              top.current = el.scrollTop;
-              setJump(!stick.current);
-            }}
-          >
-            <div className="chat-col">
-              {t.more && (
-                <button
-                  type="button"
-                  className="chat-older"
-                  onClick={() => {
-                    const el = feed.current!;
-                    kept.current = el.scrollHeight - el.scrollTop;
-                    void talks.older(cs).then((ok) => {
-                      if (!ok) kept.current = null;
-                    });
-                  }}
-                >
-                  Раньше
-                </button>
-              )}
-              {t.note && (
-                <div className="chat-note" role={t.note.startsWith("session.") ? "alert" : undefined}>
-                  {t.note}
-                </div>
-              )}
-              {empty && !t.note && <div className="chat-note">Сообщений пока нет</div>}
-              {focus ? focusItems(view).map((it, i) => <ItemView key={i} it={it} />) : view.rows.map((r) => <RowView key={r.key} r={r} />)}
-              {pending.map((r) => (
-                <RowView key={r.key} r={r} />
-              ))}
-              {work !== null && (
-                <div className="chat-work">
-                  <i />
-                  <i />
-                  <i />
-                  {work}
-                </div>
-              )}
-            </div>
-          </Pad>
-          {jump && (
-            <button
-              type="button"
-              className="chat-jump"
-              aria-label="Вниз"
-              onClick={() => {
-                const el = feed.current!;
-                el.scrollTop = el.scrollHeight;
-                stick.current = true;
-                setJump(false);
-              }}
-            >
-              <Icon name="arrow-down" size={16} />
-            </button>
-          )}
-        </div>
+        {app.wide ? <Bar cs={cs} view={view} focus={focus} /> : null}
+        <Feed cs={cs} view={view} pending={pending} focus={focus} />
         <Dock />
-        <Composer />
+        <Composer key={cs} />
       </div>
     </EnvCtx.Provider>
   );

@@ -1,5 +1,5 @@
 // Модуль разговора с сессией: стор разговоров, кадры ленты и сообщений, экран chat, метки unread и models.
-import { lamp, linkText, sessionLabel, sessionOf, stateLabel, type App } from "@switchboard/web-ui";
+import { isLive, sessionLabel, sessionLine, sessionOf, stateLabel, type App } from "@switchboard/web-ui";
 import type { AppModule } from "@switchboard/web-core";
 import css from "./chat.css";
 import { createTalks, machineOf } from "./talk.ts";
@@ -15,24 +15,27 @@ export function createChat(app: App): AppModule {
       chat: {
         label: "Лента",
         view: ChatScreen,
-        head(params) {
-          const s = sessionOf(app, params.callsign);
+        head({ callsign }) {
+          const s = sessionOf(app, callsign);
           const st = stateLabel(s?.state);
-          return { title: sessionLabel(app, params.callsign).text, sub: s ? params.callsign : linkText("offline", machineOf(params.callsign)), mono: true, ...(s ? { pill: { text: st.text, tone: st.tone }, dot: lamp(s) } : {}) };
+          return { title: sessionLabel(app, callsign).text, mono: true, sub: s ? sessionLine(s, true) : `${machineOf(callsign)} не на связи`, ...(s ? { pill: { text: st.text, tone: st.tone } } : {}) };
         },
       },
     },
     marks: {
-      unread(cs: string) {
-        const t = talks.get(cs);
-        return t.unread ? { count: t.unread, text: t.unreadText ?? "" } : undefined;
-      },
+      unread: (cs: string) => talks.get(cs).unread ?? undefined,
       models(cs: string) {
         const m = talks.get(cs).models;
         return Array.isArray(m) ? m : undefined;
       },
     },
-    commands: { "models.load": { run: (p) => void talks.models(p.callsign) } },
+    commands: {
+      "models.load": {
+        run(p) {
+          if (isLive(sessionOf(app, p.callsign)?.state)) void talks.models(p.callsign);
+        },
+      },
+    },
     store: ["drafts"],
     css,
     start: talks.start,
