@@ -6,7 +6,7 @@
 //   census.ts pass <json>                    запись прохода в журнал
 //   census.ts stop                           идти дальше или остановиться
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +18,7 @@ const git = (root: string, ...a: string[]) => execFileSync("git", a, { cwd: root
 
 type Pair = { ka: string; kb: string; j: number; toks: number };
 type Snapshot = { sha: string; functions: number; small: number; near: Pair[]; inside: Pair[]; config: string };
-export type Wake = { house: string; why: "правка" | "след"; detail: string };
+export type Wake = { house: string; why: "правка" | "след"; detail: string; named?: string };
 
 /** Таблица markdown под заголовком → строки ячеек. */
 function table(text: string, heading: string): string[][] {
@@ -38,6 +38,16 @@ export function registry(root: string) {
   };
 }
 
+/** Именные слопики: файл на имя в .claude/slopik/named, строка «дом: a, b» — их дома. Заводит и снимает только человек. */
+export function named(root: string) {
+  const dir = join(root, ".claude/slopik/named");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => {
+    const houses = /^дом:\s*(.+)$/m.exec(readFileSync(join(dir, f), "utf8"))?.[1] ?? "";
+    return { name: f.slice(0, -3), houses: houses.split(",").map((h) => unquote(h.trim())).filter(Boolean) };
+  });
+}
+
 const stateFile = () => join(home(), "state.json");
 const lastPass = (): string | null => (existsSync(stateFile()) ? JSON.parse(readFileSync(stateFile(), "utf8")).last : null);
 
@@ -45,10 +55,14 @@ const lastPass = (): string | null => (existsSync(stateFile()) ? JSON.parse(read
 export function census(root: string) {
   const mods = loadRepo(root).map((m) => ({ name: m.name, dir: m.dir.replaceAll("\\", "/") + "/" }));
   const reg = registry(root);
-  const known = new Set(reg.houses.map((h) => h.name));
+  const people = named(root);
+  const held = new Map(people.flatMap((p) => p.houses.map((h) => [h, p.name] as const)));
+  const known = new Set([...reg.houses.map((h) => h.name), ...held.keys()]);
   const names = new Set(mods.map((m) => m.name));
   const born = mods.filter((m) => !known.has(m.name)).map((m) => m.name);
-  const gone = reg.houses.filter((h) => !names.has(h.name)).map((h) => h.name);
+  const gone = reg.houses.filter((h) => !names.has(h.name) && !held.has(h.name)).map((h) => h.name);
+  /** Дом именного исчез: сам он не снимается, вопрос человеку. */
+  const orphaned = [...held].filter(([h]) => !names.has(h)).map(([house, name]) => ({ name, house }));
   const longest = [...mods].sort((a, b) => b.dir.length - a.dir.length);
   const houseOf = (file: string) => longest.find((m) => file.startsWith(m.dir))?.name;
   const wake: Wake[] = [];
@@ -73,7 +87,8 @@ export function census(root: string) {
     const out = hits.filter((f) => houseOf(f) !== owner);
     if (out.length) wake.push({ house: owner, why: "след", detail: `${concept}: ${out.join(" ")}` });
   }
-  return { houses: mods.length, born, gone, wake, last };
+  for (const w of wake) if (held.has(w.house)) w.named = held.get(w.house);
+  return { houses: mods.length, born, gone, orphaned, named: people, wake, last };
 }
 
 /** Снимок пар с хэшем конфигурации проверок: правка исключений видна как смена хэша. */

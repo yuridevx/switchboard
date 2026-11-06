@@ -59,6 +59,18 @@ it("след понятия вне владельца будит владель�
   assert.match(hit!.detail, /workers\/b\/src\/index\.ts/);
 });
 
+it("именной: не рождается и не снимается переписью, его дом помечается, исчезнувший дом — вопрос человеку", () => {
+  put(".claude/slopik/named/страж.md", "# Страж"+String.fromCharCode(92)+"n"+String.fromCharCode(92)+"nдом: `b`, `lost`"+String.fromCharCode(92)+"n");
+  commit();
+  const c = census(root);
+  assert.deepEqual(c.born, []);
+  assert.deepEqual(c.orphaned, [{ name: "страж", house: "lost" }]);
+  put("workers/b/src/index.ts", "export class Refusal {}"+String.fromCharCode(92)+"n");
+  commit();
+  pass({ confirmed: 1, rejected: 0, queue: 0 }, git("rev-parse", "HEAD~1"));
+  assert.equal(census(root).wake.find((w) => w.why === "правка")?.named, "страж");
+});
+
 const snap = (near: Array<[string, string]>, small = 10, config = "c") => ({ sha: "s", config, functions: 100, small, near: near.map(([ka, kb]) => ({ ka, kb, j: 0.8, toks: 50 })), inside: [] });
 
 it("ушедшая пара с живыми символами идёт на чтение, настоящая сводка — нет", () => {
