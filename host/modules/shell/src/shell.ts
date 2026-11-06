@@ -3,7 +3,7 @@ import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { refuse } from "@switchboard/host";
 import type { Ctx, Frame, Host, Module } from "@switchboard/host";
 import { pathOf, SHELLS, versionOf, type Shell } from "./os.ts";
-import { Runs, type Spec } from "./runs.ts";
+import { makeRuns, type Spec } from "./runs.ts";
 import { toolsOf } from "./tools.ts";
 
 const RUN_ID = /^[\w-]{1,64}$/;
@@ -24,7 +24,7 @@ function specOf(f: Frame): Omit<Spec, "path" | "from"> {
 
 export function make() {
   let host: Host;
-  const runs = new Runs(() => host);
+  const runs = makeRuns(() => host);
   let armed = false;
   /** Ядро ждёт начатые запросы до stop(): запуски гаснут по сигналу остановки, он приходит с запросом. */
   const arm = ({ signal }: Ctx) => {
