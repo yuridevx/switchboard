@@ -1,6 +1,0 @@
-schema_version: "1.1"
-name: rebuild-cycle
-expected_outcome: |
-  Реестр говорит, что счета уже снесены, поэтому итерация берёт другую часть: заказы. Счета не тронуты, в реестре новая строка.
-context:
-  scaffold_script: place-files.sh

@@ -1,0 +1,6 @@
+{
+  "houses": "node .claude/skills/slopik-switchboard/scripts/houses.ts",
+  "ignore": "/stand/|^scripts/flow-|^scripts/live|^scripts/shots/",
+  "scan": "go run .claude/skills/slopik-switchboard/scripts/gofuncs.go os",
+  "assert": "\\bexpect\\(|\\bt\\.(Error|Errorf|Fatal|Fatalf)\\("
+}

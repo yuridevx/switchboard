@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
 import { build } from "esbuild";
-import { check, loadRepo, nameOf, order, ownerOf, type Manifest } from "../contract.ts";
+import { check, checkSet, loadRepo, nameOf, order, ownerOf, type Manifest } from "../contract.ts";
 
 const GATE = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -97,6 +97,17 @@ describe("набор модулей", () => {
     expect(check([c1, b1, a1, watch])).toEqual(["цикл зависимостей: c → a → b → c"]);
     expect(order([c1, a1, b1]).map((x) => x.name).sort()).toEqual(["a", "b", "c"]);
     expect(check([m("a", { provides: { x: 1 }, uses: { "x@a": 1 } })])).toEqual([]);
+  });
+
+  it("7901 · checkSet судит набор сам по себе: ссылка на владельца вне набора отброшена, ссылка внутри и остальные поля манифеста идут к check", () => {
+    // источник: чьё: код — отбор из setProblems Host и appGate страницы, сведён к владельцу вердиктом архитектора 6 нояб.
+    const owner = m("o", { provides: { x: 1 } });
+    const user = m("a", { uses: { "x@o": 1, "y@outside": 1, bad: 1 } });
+    expect(check([owner, user])).toEqual(["модуль a: uses y@outside — владельца нет в наборе", "модуль a: uses «bad» — нужно имя@владелец"]);
+    expect(checkSet([owner, user])).toEqual([]);
+    expect(user.uses).toEqual({ "x@o": 1, "y@outside": 1, bad: 1 });
+    expect(checkSet([owner, m("a", { uses: { "x@o": 2, "y@outside": 1 } })])).toEqual(["модуль a: uses x@o v2 — у владельца v1"]);
+    expect(checkSet([m("a", { type: "web", into: ["pult"], imports: ["@switchboard/ghost"] })])).toEqual(["модуль a: импорт @switchboard/ghost — такого модуля нет", "модуль a: into pult — такого приложения нет в наборе"]);
   });
 
   it("ссылка манифеста: имя и владелец по последней @", () => {

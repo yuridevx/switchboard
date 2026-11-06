@@ -1,5 +1,5 @@
 // Правила набора на старте Host и склейка вкладов модулей в query(): у имени один владелец.
-import { check, nameOf, ownerOf } from "@switchboard/manifest-gate";
+import { checkSet, nameOf, ownerOf } from "@switchboard/manifest-gate";
 import type { Manifest, QueryDefaults, QueryPart } from "../contract.ts";
 import type { ModuleEntry } from "./release.ts";
 
@@ -31,9 +31,7 @@ const names = (core: Manifest, entries: Entry[]) => new Set([core.name, ...entri
 
 /** Правила набора — гейт монорепо; владелец вне набора (Worker, keeper) ему не виден. */
 export function setProblems(core: Manifest, entries: Entry[]): string[] {
-  const here = names(core, entries);
-  const inSet = (m: Manifest) => ({ ...m, uses: Object.fromEntries(Object.entries(m.uses).filter(([ref]) => here.has(ownerOf(ref)))) });
-  return check([core, ...entries.map((e) => e.manifest)].map(inSet)).map((why) => why.replace(/^имя /, ""));
+  return checkSet([core, ...entries.map((e) => e.manifest)]).map((why) => why.replace(/^имя /, ""));
 }
 
 /** Имена, которые идут только через relay: без него в сборке им неоткуда взяться. */

@@ -135,3 +135,9 @@ export function check(mods: Manifest[]): string[] {
   const inModules = mods.flatMap((m) => faults(m, byName, byPkg).flatMap((word) => (word ? [`модуль ${m.name}: ${word}`] : [])));
   return [...claims(mods), ...inModules, ...cycles(byName)];
 }
+
+/** Суд над частью флота, которая не видит остальных: ссылка на владельца вне mods отброшена, её сверяет получатель. */
+export function checkSet(mods: Manifest[]): string[] {
+  const here = new Set(mods.map((m) => m.name));
+  return check(mods.map((m) => ({ ...m, uses: Object.fromEntries(Object.entries(m.uses).filter(([ref]) => here.has(ownerOf(ref)))) })));
+}
