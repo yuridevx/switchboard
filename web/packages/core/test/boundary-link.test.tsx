@@ -296,6 +296,31 @@ describe("уход с экрана", () => {
     expect(log.filter((x) => x.startsWith("roster"))[0]).toBe("roster 2");
   });
 
+  it("вернулись, ушли и снова вернулись, пока уход ждёт запрос: одно новое соединение, один on.show", async () => {
+    // источник: чьё: код — второе соединение осиротело бы: уход закрывает только последнее, прежнее живёт и переподключается
+    let shows = 0;
+    const relay = new FakeRelay(oneMachine());
+    relay.handlers.ask = () => undefined as never;
+    const m = mod({ on: { show: () => void shows++ } }, {}, { "ask@x": 1 });
+    await stand([m.part], { relay });
+    void m.box.app.request("ask", { callsign: "site@laptop" });
+    await flush();
+    try {
+      visible("hidden");
+      visible("visible");
+      visible("hidden");
+      visible("visible");
+      await flush();
+      relay.reply(relay.sent("ask")[0].id as string, { ok: true });
+      await flush(10);
+      expect(shows).toBe(1);
+      expect(relay.hellos).toHaveLength(2);
+      expect(relay.open).toHaveLength(1);
+    } finally {
+      visible("visible");
+    }
+  });
+
   it("4029 · после отказа relay возвращение на экран не подключает", async () => {
     const relay = new FakeRelay(oneMachine());
     relay.refuse = ["revoked"];
