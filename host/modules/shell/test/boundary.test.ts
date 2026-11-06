@@ -72,11 +72,13 @@ async function pair() {
 
 /** Свой PID для ОС: у Git Bash номер Windows лежит в /proc. */
 const SAY_PID = "{ cat /proc/$BASHPID/winpid 2>/dev/null || echo $BASHPID; }";
-function isAlive(pid: number): boolean {
+/** Мёртв: процесса нет. На Linux kill(pid, 0) успешен и у зомби, которого не подобрал родитель, и у получившего SIGKILL в первые миллисекунды: ждём Z или конца. */
+function isDead(pid: number): boolean {
   try {
-    return process.kill(pid, 0);
+    process.kill(pid, 0);
+    return !win && readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /, "")[0] === "Z";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -218,11 +220,12 @@ describe("запуск", { timeout: 30_000 }, () => {
     expect(b.result).toMatchObject({ state: "exit", stdout: "got:\n" });
   });
 
-  it("273 · таймаут: state timeout; в момент конца всё дерево мертво — фоновый ребёнок уже не процесс", async () => {
+  it("273 · таймаут: state timeout; всё дерево снято — фоновый ребёнок не живёт дальше сна", async () => {
     const { req } = await machine("laptop");
     const r = await req("shell.run", { run: rid(273), shell: "bash", script: `(${SAY_PID} > "$SB_OUT/child"; sleep 60; true) & sleep 60; wait`, background: false, timeout: 3 });
     expect(r.result).toMatchObject({ state: "timeout", code: null });
-    expect(isAlive(Number(Buffer.from(r.result!.files![0].data, "base64").toString()))).toBe(false);
+    const child = Number(Buffer.from(r.result!.files![0].data, "base64").toString());
+    await until(() => isDead(child));
   });
 
   it("274 · погасить: Esc ждущего run на второй машине — туда ушёл shell.kill того же run; kill фонового — ok, killed; неизвестный run — no_run", async () => {
@@ -349,7 +352,7 @@ describe("запуск", { timeout: 30_000 }, () => {
     await until(() => said(a.st, "site@win").includes(`run ${bgRun} на wsl остановлен: Host wsl перезапускается, итог не сохранён`));
     expect(said(a.st, "site@win")).toContain('from=\\"@wsl\\"');
     for (const id of [old, bgRun]) expect(existsSync(runDir(id))).toBe(false);
-    expect(isAlive(child as number)).toBe(false);
+    await until(() => isDead(child as number));
   });
 
   it("283 · фоновый на своей машине и на второй: снимок running сразу; в конце — сообщение владельцу; wait — итог с файлами; без timeout — bad_frame, скрипт не запущен", async () => {
