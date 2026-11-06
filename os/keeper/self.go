@@ -35,6 +35,7 @@ func (k *Keeper) selfUpdate(e *entry) bool {
 	ctx, cancel := context.WithTimeout(k.ctx, k.o.Stop)
 	check := exec.CommandContext(ctx, bin, "version")
 	check.WaitDelay = waitDelay
+	detached(check) // своя группа, без окна: у keeper под задачей при входе консоли нет
 	out, err := check.Output()
 	late := ctx.Err() == context.DeadlineExceeded
 	cancel()
