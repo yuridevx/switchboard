@@ -23,6 +23,7 @@ import (
 const (
 	dialWait   = 20 * time.Second // подключение к relay и ответ roster на hello
 	callWait   = 10 * time.Second // запись журнала флота
+	writeWait  = 10 * time.Second // запись в relay: не вышло — соединение закрыто, keeper подключается снова
 	frameMax   = 32 << 20         // предел кадра relay
 	relayProto = 1
 )
@@ -108,7 +109,7 @@ func (k *Keeper) session(url string) (accepted bool, why string) {
 				c.CloseNow()
 				return
 			}
-			c.Write(ctx, websocket.MessageText, []byte("ping"))
+			send(ctx, c, []byte("ping"))
 		}
 	}()
 	for {
@@ -132,6 +133,13 @@ func (k *Keeper) session(url string) (accepted bool, why string) {
 	}
 }
 
+// send — кадр в relay за предел записи.
+func send(ctx context.Context, c *websocket.Conn, b []byte) {
+	wctx, cancel := context.WithTimeout(ctx, writeWait)
+	defer cancel()
+	c.Write(wctx, websocket.MessageText, b)
+}
+
 // frame — кадр от relay: план от «Выпусков», запрос keeper.state; незнакомый запрос — отказ словом.
 func (k *Keeper) frame(ctx context.Context, c *websocket.Conn, b []byte) {
 	var f struct{ Type, ID, From string }
@@ -139,7 +147,7 @@ func (k *Keeper) frame(ctx context.Context, c *websocket.Conn, b []byte) {
 	reply := func(r map[string]any) {
 		r["type"], r["id"], r["to"] = "reply", f.ID, f.From
 		out, _ := json.Marshal(r)
-		c.Write(ctx, websocket.MessageText, out)
+		send(ctx, c, out)
 	}
 	switch f.Type {
 	case "releases.plan":

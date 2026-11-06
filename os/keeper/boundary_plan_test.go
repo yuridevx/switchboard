@@ -473,5 +473,16 @@ func TestEtRelayWriteLimit(t *testing.T) {
 	t.Cleanup(srv.Close)
 	home := relayHome(t, srv.URL)
 	bootOn(t, home, tuning{ping: time.Hour})
-	waitFor(t, "второе подключение", func() bool { mu.Lock(); defer mu.Unlock(); return hellos >= 2 })
+	// предел записи — 10 с от полной трубы, а наполнить её — сколько даст машина
+	for end := time.Now().Add(time.Minute); ; time.Sleep(100 * time.Millisecond) {
+		mu.Lock()
+		n := hellos
+		mu.Unlock()
+		if n >= 2 {
+			return
+		}
+		if time.Now().After(end) {
+			t.Fatal("соединение с relay, который не читает, висит")
+		}
+	}
 }
