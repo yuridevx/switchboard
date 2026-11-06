@@ -241,12 +241,14 @@ func (k *Keeper) remove(p *part) {
 	k.prune(p.name)
 }
 
-// prune — папки версий части, кроме keep и data.
+// prune — папки версий части, кроме keep и data; занятую ОС не даёт удалить — остаётся до следующей смены.
 func (k *Keeper) prune(name string, keep ...string) {
 	es, _ := os.ReadDir(k.partDir(name))
 	for _, d := range es {
 		if d.Name() != "data" && !contains(keep, d.Name()) {
-			os.RemoveAll(filepath.Join(k.partDir(name), d.Name()))
+			if err := os.RemoveAll(filepath.Join(k.partDir(name), d.Name())); err != nil {
+				k.j.add("keeper", name, "note", "cleanup", "version", d.Name(), "why", "занята: "+err.Error())
+			}
 		}
 	}
 }
