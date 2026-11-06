@@ -8,7 +8,7 @@ import { gateStand } from "./contract.ts";
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 const migrations = await readD1Migrations(here("./migrations"));
 // настоящий вывод seed: Worker проверяет инструкцию и приглашение целиком
-const seeded = spawnSync(process.execPath, [here("./seed.ts"), "host", "first"], { encoding: "utf8" });
+const seeded = spawnSync(process.execPath, [here("./seed.ts"), "host", "first"], { encoding: "utf8", timeout: 30_000 });
 const seed = { sql: seeded.stdout, invite: seeded.stderr.trim() };
 
 export default defineConfig({
@@ -19,7 +19,6 @@ export default defineConfig({
           cloudflareTest({
             wrangler: { configPath: "./wrangler.jsonc" },
             miniflare: {
-              d1Databases: ["PROD"],
               bindings: { TEST_MIGRATIONS: migrations, TEST_SEED: seed },
               workers: [{ ...gateStand(), name: "gate-stand" }],
               serviceBindings: { STAND: { name: "gate-stand", entrypoint: "Gate" } },

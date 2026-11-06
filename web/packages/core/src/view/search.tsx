@@ -1,47 +1,50 @@
-// Поиск Ctrl K: разделы и то, что экраны отдают поиску.
+// Поиск Ctrl K: разделы и то, что отдают экраны.
 import { useEffect, useRef, useState } from "react";
 import { Dot, In, Note, RowBtn } from "@switchboard/web-ui";
 import type { Params } from "../types.ts";
-import type { Page } from "./shell.tsx";
+import { useCore } from "./place.tsx";
 
 const LIMIT = 40;
-const EMPTY = { padding: "10px 12px" };
+
 type Hit = { label: string; hint?: string; dot?: string; screen: string; params?: Params };
 
-function hits({ modules, wide }: Page, q: string): Hit[] {
-  return modules
-    .sections()
-    .flatMap((name): Hit[] => {
-      const [e, s] = modules.screenOf(name)!;
-      if (modules.off(e)) return [];
-      const own: Hit[] = s.nav!.toLowerCase().includes(q) ? [{ label: s.nav!, hint: (wide ? s.group : (s.narrowGroup ?? s.group)) ?? "раздел", screen: name }] : [];
-      const found = s.find ? (modules.trap(e, `экране ${name}`, () => s.find!(q)) ?? []) : [];
-      return [...own, ...found.filter((h) => modules.screenFor(e, h.screen))];
-    })
-    .slice(0, LIMIT);
+/** Живые разделы и их строки: строка ведёт на экран своего модуля или из его uses. */
+function useHits(q: string): Hit[] {
+  const { page, mods } = useCore();
+  return page.use(() =>
+    mods.sections
+      .filter((s) => page.failed[s.mod.name] === undefined)
+      .flatMap((s) => {
+        const group = page.wide ? s.def.group : (s.def.narrowGroup ?? s.def.group);
+        const own: Hit[] = s.label.toLowerCase().includes(q) ? [{ label: s.label, hint: group ?? "раздел", screen: s.name }] : [];
+        const found = (s.def.find && mods.call(s.mod, `экране ${s.name}`, () => s.def.find!(q))) || [];
+        return [...own, ...found.filter((h) => mods.screens.has(h.screen) && mods.reaches(s.mod, mods.screens.get(h.screen), h.screen))];
+      })
+      .slice(0, LIMIT),
+  );
 }
 
-function Box({ page }: { page: Page }) {
+function Box() {
+  const { page, route } = useCore();
   const [q, setQ] = useState("");
   const input = useRef<HTMLInputElement>(null);
-  const rows = page.bus.use(() => hits(page, q.toLowerCase()));
+  const rows = useHits(q.toLowerCase());
   useEffect(() => input.current?.focus(), []);
   const go = (h: Hit) => {
-    page.search();
-    page.open(h.screen, h.params);
+    page.toggleSearch();
+    route.open(h.screen, h.params);
   };
   return (
     <>
-      <div className="sb-palveil" onClick={page.search} />
+      <div className="sb-palveil" onClick={page.toggleSearch} />
       <div className="sb-pal" role="dialog" aria-label="Перейти">
         <In
           ref={input}
           className="sb-palin"
           aria-label="Перейти"
-          value={q}
           onInput={(e) => setQ(e.currentTarget.value)}
           onKeyDown={(e) => {
-            if (e.key === "Escape") page.search();
+            if (e.key === "Escape") page.toggleSearch();
             if (e.key === "Enter" && rows[0]) go(rows[0]);
           }}
         />
@@ -53,28 +56,29 @@ function Box({ page }: { page: Page }) {
               {h.hint && <span className="k">{h.hint}</span>}
             </RowBtn>
           ))}
-          {!rows.length && <Note style={EMPTY}>Ничего не нашлось</Note>}
+          {!rows.length && <Note style={{ padding: "10px 12px" }}>Ничего не нашлось</Note>}
         </div>
       </div>
     </>
   );
 }
 
-export function Search({ page }: { page: Page }) {
-  const { core, bus, doc, wide } = page;
-  const open = bus.use(() => core.searching);
+export function Search() {
+  const { page } = useCore();
+  const open = page.use(() => page.search && !page.stop);
   useEffect(() => {
+    const doc = page.win.document;
     const onKey = (e: KeyboardEvent) => {
-      if (!wide || !(e.ctrlKey || e.metaKey) || !(e.code === "KeyK" || e.key === "k" || e.key === "л") || !core.current || core.stopped !== null) return;
+      if (!page.wide || !(e.ctrlKey || e.metaKey) || !(e.code === "KeyK" || e.key === "k" || e.key === "л") || !page.current || page.stop) return;
       e.preventDefault();
-      page.search();
+      page.toggleSearch();
     };
     doc.addEventListener("keydown", onKey);
     return () => doc.removeEventListener("keydown", onKey);
-  }, [core, doc, page, wide]);
+  }, [page]);
   return (
     <div className="sb-palw" hidden={!open}>
-      {open && <Box page={page} />}
+      {open && <Box />}
     </div>
   );
 }

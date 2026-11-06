@@ -1,35 +1,83 @@
-// Пропуск и приглашение: разбор и приём у gate.
-import { withLimit } from "@switchboard/protocol";
+// Пропуск страницы: из хранилища или из приглашения в адресе; приём у gate; замена и зачистка.
+import { withLimit, within } from "@switchboard/protocol";
+import type { Page } from "./page.ts";
+import type { Route } from "./route.ts";
 
-const REDEEM_MS = 30_000;
+const LIMIT_MS = 30_000;
+
+/** Номер приглашения и пропуска: их и показываем, секрет — никогда. */
+export const inviteNumber = (invite: string) => invite.split(".")[0];
+/** Пропуск без секрета: client.phone.k2a9. */
+export const keyId = (key: string) => key.split(".").slice(0, 3).join(".");
+
 const INVITE = /^[\w-]+\.[\w-]+$/;
 
-/** Номер пропуска без секрета: client.phone.k2a9. */
-export const keyId = (key: string): string => key.split(".").slice(0, 3).join(".");
-/** Имя клиента из пропуска: client.phone.k2a9… → phone. */
-export const nameInKey = (key: string): string => key.split(".")[1] ?? "";
-/** Пропуск получен этим приглашением: номер у них один. */
-export const fromInvite = (key: string, invite: string): boolean => key.split(".")[2] === numberOf(invite);
-/** Номер приглашения без секрета. */
-export const numberOf = (invite: string): string => invite.split(".")[0];
-
 /** Приглашение в тексте: <номер>.<секрет> или ссылка с #invite=; иначе null. */
-export function inviteIn(text: string): string | null {
+function inviteIn(text: string) {
   const at = text.indexOf("#invite=");
-  const raw = at >= 0 ? text.slice(at + "#invite=".length) : text.trim();
-  try {
-    const invite = decodeURIComponent(raw);
-    return INVITE.test(invite) ? invite : null;
-  } catch {
-    return null;
-  }
+  const invite = at >= 0 ? text.slice(at + "#invite=".length) : text.trim();
+  return INVITE.test(invite) ? invite : null;
 }
 
-/** Принять приглашение у gate: пропуск или слово отказа. */
-export function redeem(fetcher: typeof fetch, gate: string, invite: string): Promise<{ key: string } | { error: string }> {
-  const asked = fetcher(gate, { method: "POST", body: JSON.stringify({ type: "gate.redeem", id: "redeem", v: 1, invite }) })
-    .then((r) => r.json() as Promise<{ ok: boolean; result?: { key: string }; error?: string }>)
-    .then((r) => (r.ok ? { key: r.result!.key } : { error: r.error ?? "gate_unavailable" }))
-    .catch(() => ({ error: "gate_unavailable" }));
-  return withLimit(asked, REDEEM_MS, () => ({ error: "gate_unavailable" }));
+export type Pass = ReturnType<typeof createPass>;
+
+export function createPass(page: Page, route: Route, stop: (word: string, invite?: boolean) => void) {
+  const { o, win, store } = page;
+
+  /** gate.redeem; отказ — слово. */
+  async function redeem(invite: string): Promise<{ key: string } | { word: string }> {
+    const ask = async () => {
+      const res = await (o.fetch ?? fetch)(o.workers.gate, { method: "POST", body: JSON.stringify({ type: "gate.redeem", v: 1, id: "redeem", invite }) });
+      const r = (await res.json()) as { ok: true; result: { key: string } } | { ok: false; error: string };
+      return r.ok ? { key: r.result.key } : { word: r.error };
+    };
+    return withLimit(ask(), LIMIT_MS, () => ({ word: "gate_unavailable" })).catch(() => ({ word: "gate_unavailable" }));
+  }
+
+  /** Принять и перезагрузиться; отказ — под кнопкой. */
+  async function accept(invite: string) {
+    const r = await redeem(invite);
+    if ("word" in r) {
+      page.note = `Приглашение не принято: ${r.word}.`;
+      return page.changed();
+    }
+    await store.set("key", r.key);
+    win.location.reload();
+  }
+
+  return {
+    /** Пропуск страницы; нет — страница остановлена с причиной. */
+    async enter(): Promise<string | null> {
+      const had = await within(store.get<string>("key"), "хранилище не ответило за 30 с", LIMIT_MS);
+      const invite = win.location.hash.startsWith("#invite=") ? inviteIn(win.location.hash) : null;
+      if (!invite) return had ?? (stop("no_key"), null);
+      page.invite = invite;
+      if (page.platform.ios && !page.platform.standalone) return stop("install"), null;
+      route.clear();
+      if (had) {
+        if (had.split(".")[2] === inviteNumber(invite)) return had;
+        page.key = had;
+        return stop("replace"), null;
+      }
+      const r = await redeem(invite);
+      if ("word" in r) return stop(r.word, true), null;
+      await store.set("key", r.key);
+      page.saved = true;
+      return r.key;
+    },
+    /** Вставленное приглашение: ссылка или <номер>.<секрет>. */
+    paste(text: string) {
+      const invite = inviteIn(text);
+      if (invite) return accept(invite);
+      page.note = "Это не приглашение: нужен <номер>.<секрет> или ссылка с #invite=.";
+      page.changed();
+    },
+    replace: () => accept(page.invite!),
+    /** Стереть всё и начать с чистой страницы. */
+    async wipe() {
+      await store.clear();
+      route.clear();
+      win.location.reload();
+    },
+  };
 }
