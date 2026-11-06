@@ -330,6 +330,16 @@ describe("вход по адресу gate", () => {
     expect(await (await send(body)).json()).toEqual({ type: "reply", id: "", ok: false, error: "bad_frame" });
   });
 
+  it("дверь открыта без пропуска: кадр с пустым id — кадр без id, отказ словом: приглашение ждёт дальше, новой строки нет", async () => {
+    const by = await agent();
+    const inv = await invited({ role: "host", name: "laptop" }, by);
+    const before = await rows();
+    for (const f of [{ type: "gate.redeem", invite: inv.invite }, { type: "keys.invite", key: by, role: "host", name: "next" }, { type: "keys.list", key: by }])
+      expect(await (await send(JSON.stringify({ id: "", v: 1, ...f }))).json()).toEqual({ type: "reply", id: "", ok: false, error: "bad_frame" });
+    expect(await rows()).toEqual(before);
+    expect(await post({ type: "gate.redeem", invite: inv.invite })).toMatchObject({ ok: true });
+  });
+
   it("предел тела 16 КиБ: ровно предел идёт в разбор, больше — too_large 413", async () => {
     const pad = (len: number) => {
       const base = JSON.stringify({ type: "keys.list", id: "p", v: 1, key: "x", pad: "" });
