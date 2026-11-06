@@ -307,7 +307,7 @@ export function createTalks(app: App) {
     roster(r: Roster) {
       for (const c of accountChanges(r, (cs) => known.get(cs))) {
         known.set(c.callsign, c.account);
-        if (c.from !== undefined && store.get()[c.callsign]) edit(c.callsign, (t) => void t.msgs.push({ type: "account", uuid: `x:${++n}`, from: c.from, to: c.account }));
+        if (c.from !== undefined) edit(c.callsign, (t) => void t.msgs.push({ type: "account", uuid: `x:${++n}`, from: c.from, to: c.account }));
       }
     },
     link(state: string, machine?: string) {

@@ -2830,4 +2830,14 @@ describe("сверка строк, второй проход", () => {
     const t = await chat(IDLE, { relay });
     expect(t.$("button.sb-b.chat-older")).not.toBeNull();
   });
+
+  it("смена аккаунта, пока разговор не открывали: строка видна при открытии", async () => {
+    const relay = relayFor(roster((x) => void (x.sessions[0].account = "infirex")));
+    const t = await stand(parts(), { relay });
+    relay.setRoster(roster((x) => void (x.sessions[0].account = "yurianrun")));
+    await flush();
+    await open(`/#chat?callsign=${encodeURIComponent(BUSY)}`);
+    await flush(5);
+    expect(t.$(".chat-sys.swap")?.textContent).toBe("аккаунт: infirex → yurianrun");
+  });
 });
