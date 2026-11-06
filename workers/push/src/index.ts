@@ -29,8 +29,6 @@ const refuse = (word: string, why: string, row?: Row): never => {
   throw new Refusal(word, why, row);
 };
 
-const B64U = /^[A-Za-z0-9_-]+$/;
-
 /** Подписка браузера по контракту: https-адрес службы, точка P-256 и 16 байт auth. */
 function subscription(sub: unknown) {
   if (!sub) return refuse("bad_frame", "нет sub");
@@ -39,9 +37,16 @@ function subscription(sub: unknown) {
   if (!host) refuse("bad_frame", "в подписке нет https-адреса");
   const { p256dh, auth } = keys ?? {};
   if (typeof p256dh !== "string" || typeof auth !== "string") return refuse("bad_frame", "в подписке нет ключей");
-  if (!B64U.test(p256dh) || !B64U.test(auth)) refuse("bad_frame", "ключи подписки — не base64url");
-  if (unb64u(p256dh).length !== 65) refuse("bad_frame", "p256dh — не точка P-256 в 65 Б");
-  if (unb64u(auth).length !== 16) refuse("bad_frame", "auth — не 16 Б");
+  let point: Uint8Array;
+  let secret: Uint8Array;
+  try {
+    point = unb64u(p256dh);
+    secret = unb64u(auth);
+  } catch {
+    return refuse("bad_frame", "ключи подписки — не base64url");
+  }
+  if (point.length !== 65) refuse("bad_frame", "p256dh — не точка P-256 в 65 Б");
+  if (secret.length !== 16) refuse("bad_frame", "auth — не 16 Б");
   return { endpoint: endpoint as string, p256dh, auth, host };
 }
 
