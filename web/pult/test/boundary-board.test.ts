@@ -71,6 +71,48 @@ describe("Работа", () => {
   };
   const start = (o: Parameters<typeof stand>[1] = {}) => stand(parts(), { relay: relayWith(), ...o }).then(async (t) => (await flush(5), t));
 
+  describe("пара", () => {
+    /** refactor@laptop — ведущий, его ведомый ждёт ответа на своём ключе флота. */
+    const paired = () => {
+      const relay = relayWith();
+      relay.roster.sessions.push({ callsign: "refactor-wing@laptop", state: "waiting", dir: "~/Projects/switchboard", parent: "refactor@laptop", wing: true, model: "haiku", slot: { name: "orca" }, profile: { id: "you/profiles/ci", state: "ok" } });
+      return relay;
+    };
+    const row = (t: T) => t.$('[data-callsign="refactor@laptop"]')!;
+
+    it("8108 · список «Работа» с парой: одна строка с двумя лампами, дочерней строки ведомого нет; профиль ведомого — только если другой; слов о ролях нет (слово пользователя 5 нояб.: «снаружи выглядит как одна сессия»)", async () => {
+      const t = await start({ relay: paired() });
+      await t.expand();
+      expect(rows(t)).not.toContain("refactor-wing@laptop");
+      expect(rows(t).filter((c) => c === "refactor@laptop")).toHaveLength(1);
+      expect(row(t).querySelectorAll(".sb-dot")).toHaveLength(2);
+      expect(row(t).querySelector(".bd-pr")!.textContent).toBe("switchboardopus▸cihaiku orca");
+      expect(row(t).textContent).not.toMatch(/ведущ|ведом/i);
+      await t.click(t.$('[data-fid="all"]'));
+      await t.expand();
+      expect(rows(t)).not.toContain("refactor-wing@laptop");
+    });
+
+    it("вид списка: «Слот» и «Пара» — ключи группы «Строка»; без «Пары» строка как обычная (чьё: слово пользователя 6 нояб. к прототипу)", async () => {
+      const t = await start({ relay: paired() });
+      await t.expand();
+      await t.click(t.$(".fc.vw"));
+      await t.click(t.$('[data-v="slot"]'));
+      expect(row(t).querySelector(".bd-pr")!.textContent).toBe("switchboardopus▸cihaiku");
+      await t.click(t.$('[data-v="wing"]'));
+      expect(row(t).querySelector(".bd-pr")).toBeNull();
+      expect(row(t).querySelectorAll(".sb-dot")).toHaveLength(1);
+      expect(row(t).querySelector(".bd-t2")!.textContent).toBe("switchboardopus");
+    });
+
+    it("ждёт только ведомый: проект ведущего раскрыт на первом показе (чьё: код — проект раскрыт, если в нём ждут вас)", async () => {
+      const relay = paired();
+      relay.roster.sessions = relay.roster.sessions.map((s) => (s.callsign === "migrate@laptop" ? { ...s, state: "idle" } : s));
+      const t = await start({ relay });
+      expect(t.$('.pjs[data-proj="switchboard"] .bd-row')).not.toBeNull();
+    });
+  });
+
   describe("список", () => {
     it("5210 · проект — последнее имя папки на любой машине; разделы: ждёт вас → работает → остальные; числа сессий в заголовке нет (слово пользователя 3 нояб.: «цифер не нужно»)", async () => {
       const t = await start();

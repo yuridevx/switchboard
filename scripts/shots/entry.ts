@@ -28,7 +28,8 @@ const session = (s: S): SessionRecord => ({
   effort: s.effort,
   by: `${app}~${s.who === "me" ? ME : `${s.who}@mail.ru`}`,
   parent: s.parent,
-  slot: { name: "main", wait: null },
+  ...(s.wing ? { wing: true } : {}),
+  slot: { name: s.slot ?? "main", wait: null },
   account: "dev@mail.ru",
   mode: "bypassPermissions",
   ...(s.cs === "refactor@win" ? { r2: {} } : {}),
@@ -50,7 +51,7 @@ answerRequests(relay, F, roster, app, ME);
 const names = [...new Set(F.ss.map(project))].filter((id) => id !== "~").sort();
 const order = big ? ["switchboard", "pfarm", ...names.filter((id) => id !== "switchboard" && id !== "pfarm")] : names;
 relay.scoped.global = {
-  "fleet.projects": order.map((id) => ({ id, name: id, sessions: F.ss.filter((s) => project(s) === id).map((s) => s.cs).sort() })),
+  "fleet.projects": order.map((id) => ({ id, name: id, sessions: F.ss.filter((s) => !s.wing && project(s) === id).map((s) => s.cs).sort() })),
   "fleet.labels": big ? {} : { machines: { win: "Домашний ПК", wsl: "Ubuntu дома" }, sessions: { "refactor@win": "Переделка списка" } },
 };
 relay.values["web-board.filters"] = big

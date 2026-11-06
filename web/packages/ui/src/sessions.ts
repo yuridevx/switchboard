@@ -31,6 +31,11 @@ export function profileNameOf(s?: SessionRecord) {
   return id && profileName(id);
 }
 
+/** Ведомый пары: в списке его нет, он виден только через своего ведущего. */
+export const isWing = (s?: SessionRecord): boolean => s?.wing === true;
+/** Ведомый этой сессии: wing и parent — единственный способ найти пару. */
+export const wingOf = (sessions: readonly SessionRecord[], lead: string): SessionRecord | undefined => sessions.find((x) => isWing(x) && x.parent === lead);
+
 export const lamp = (s: SessionRecord) => stateLabel(s.state).dot || "stop";
 export const failText = (s: SessionRecord) => Object.entries((s.failed ?? {}) as Record<string, unknown>).map(([part, why]) => `${part}: ${String(why)}`).join("; ");
 

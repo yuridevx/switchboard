@@ -2,12 +2,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { machineOf } from "@switchboard/protocol";
 import { NONE } from "@switchboard/records";
-import { Badge, Btn, DisclosureBtn, Dot, failText, holdTouch, IconBtn, In, incidentOf, lamp, machineLabel, profileNameOf, RowBtn, sessionLabel, stateLabel, TextBtn, track, useApp, useModule, type App } from "@switchboard/web-ui";
+import { Badge, Btn, DisclosureBtn, Dot, failText, holdTouch, IconBtn, In, incidentOf, lamp, machineLabel, profileNameOf, RowBtn, sessionLabel, slotOf, stateLabel, TextBtn, track, useApp, useModule, type App } from "@switchboard/web-ui";
 import { rowDrag, sorting } from "./drag.ts";
 import { beforeOf, blockIn, byUrgency, tree, type Filter, type Line, type Section, type View } from "./model.ts";
 import { FilterEditor, ViewPanel } from "./panel.tsx";
 import type { BoardState } from "./state.ts";
 
+type Rec = ReturnType<BoardState["sessions"]>[number];
 type Shared = { host: () => HTMLElement; body: () => HTMLElement };
 const words = (...list: unknown[]) => list.filter(Boolean).join(" ");
 /** Ламп у свёрнутого проекта: больше не помещается. */
@@ -36,10 +37,14 @@ const SLIDERS = (
   </svg>
 );
 
+/** Участник пары в строке. */
+const sideOf = (x: Rec) => ({ dot: lamp(x), title: stateLabel(x.state).text, prof: profileNameOf(x), model: x.model as string | undefined, slot: slotOf(x)?.name });
+
 /** Что показывает строка: данные выборки. */
 function rowOf(app: App, s: BoardState, callsign: string, project: boolean) {
   const r = s.sessions().find((x) => x.callsign === callsign);
   const owner = s.mine(callsign) ? null : s.owner(callsign);
+  const wing = s.wingOf(callsign);
   return {
     dot: r ? lamp(r) : "stop",
     title: stateLabel(r?.state).text,
@@ -54,15 +59,32 @@ function rowOf(app: App, s: BoardState, callsign: string, project: boolean) {
     fail: r ? failText(r) : "",
     profile: profileNameOf(r),
     model: r?.model as string | undefined,
+    pair: r && wing ? { lead: sideOf(r), wing: sideOf(wing) } : null,
     current: app.current()?.screen !== "board" && app.current()?.params.callsign === callsign,
   };
 }
 
-/** Вторая строка: вопрос, сбой, непрочитанное; иначе профиль и модель. */
+/** Строка пары: ведущий ▸ лампа ведомого; его профиль — только если другой. */
+function PairLine({ lead, wing, v }: { lead: ReturnType<typeof sideOf>; wing: ReturnType<typeof sideOf>; v: View }) {
+  const text = (x: ReturnType<typeof sideOf>) => words(v.model && x.model, v.slot && x.slot);
+  return (
+    <span className="bd-pr">
+      {v.prof && lead.prof && <span className="bd-pill">{lead.prof}</span>}
+      <span>{text(lead)}</span>
+      <i aria-hidden="true">▸</i>
+      {v.lamp && <Dot kind={wing.dot} title={wing.title} />}
+      {v.prof && wing.prof && wing.prof !== lead.prof && <span className="bd-pill">{wing.prof}</span>}
+      <span>{text(wing)}</span>
+    </span>
+  );
+}
+
+/** Вторая строка: вопрос, сбой, непрочитанное; иначе профиль и модель, у пары — обе стороны. */
 function second(r: ReturnType<typeof rowOf>, v: View): ReactNode {
   if (v.q && r.asked) return <span className="tx q">{`? ${r.asked}`}</span>;
   if (v.fail && r.fail) return <span className="tx f">{r.fail}</span>;
   if (v.unread && r.unread?.count) return <span className="tx">{r.unread.text}</span>;
+  if (v.wing && r.pair) return <PairLine lead={r.pair.lead} wing={r.pair.wing} v={v} />;
   return (
     <>
       {v.prof && r.profile && <span className="bd-pill">{r.profile}</span>}
