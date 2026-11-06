@@ -1,5 +1,6 @@
 // Кандидаты для старшего: только читает. Запускается через census.ts snapshot.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -17,6 +18,34 @@ const files = git("ls-files").split("\n").filter((f) => /\.(ts|tsx|mjs|js|jsx)$/
 
 const fns = [];
 const wrappers = [];
+/** Булев параметр решает ветку три раза и больше: слияние через флаг. */
+const flags = [];
+const LITERAL = new Set([ts.SyntaxKind.StringLiteral, ts.SyntaxKind.NoSubstitutionTemplateLiteral, ts.SyntaxKind.JsxText, ts.SyntaxKind.TemplateHead, ts.SyntaxKind.TemplateMiddle, ts.SyntaxKind.TemplateTail]);
+const literals = (sf, n, acc = new Set()) => {
+  if (ts.isJSDoc(n)) return acc;
+  if (ts.isToken(n)) {
+    if (LITERAL.has(n.kind)) {
+      const v = n.getText(sf).replace(/^["'}`]|["'`]$|\$\{$/g, "").trim();
+      if (v.length >= 4 && !v.includes("\n")) acc.add(v);
+    }
+  } else n.getChildren(sf).forEach((k) => literals(sf, k, acc));
+  return acc;
+};
+const boolParams = (n) => n.parameters.flatMap((p) => {
+  if (ts.isIdentifier(p.name) && p.type?.kind === ts.SyntaxKind.BooleanKeyword) return [p.name.text];
+  if (ts.isObjectBindingPattern(p.name) && p.type && ts.isTypeLiteralNode(p.type)) return p.type.members.filter((m) => ts.isPropertySignature(m) && m.type?.kind === ts.SyntaxKind.BooleanKeyword).map((m) => m.name.getText());
+  return [];
+});
+const branchesOn = (body, name) => {
+  const word = new RegExp("\\b" + name + "\\b");
+  let c = 0;
+  const walk = (x) => {
+    if ((ts.isConditionalExpression(x) || ts.isIfStatement(x)) && word.test((x.condition ?? x.expression).getText())) c++;
+    ts.forEachChild(x, walk);
+  };
+  walk(body);
+  return c;
+};
 for (const file of files) {
   const text = readFileSync(join(root, file), "utf8");
   const leaves = (sf, n, acc = []) => {
@@ -31,7 +60,8 @@ for (const file of files) {
   };
   eachFunction(ts, file, text, (n, sf, owner, line) => {
     const toks = leaves(sf, n.body);
-    fns.push({ name: owner, file, line, mod: moduleOf(file), toks, pos: n.getStart(sf), end: n.end });
+    fns.push({ name: owner, file, line, mod: moduleOf(file), toks, lits: literals(sf, n.body), pos: n.getStart(sf), end: n.end });
+    for (const b of boolParams(n)) if (branchesOn(n.body, b) >= 3) flags.push(`${file}:${owner ?? line}:${b}`);
     // сквозная обёртка: тело — один вызов, аргументы только параметры
     const body = ts.isBlock(n.body) ? (n.body.statements.length === 1 ? n.body.statements[0] : null) : n.body;
     const expr = body && (ts.isReturnStatement(body) ? body.expression : ts.isExpressionStatement(body) ? body.expression : ts.isExpression(body) ? body : null);
@@ -64,6 +94,11 @@ for (const list of index.values()) {
   if (list.length > 60) continue;
   for (let a = 0; a < list.length; a++) for (let b = a + 1; b < list.length; b++) cand.add(list[a] * 100000 + list[b]);
 }
+// редкий литерал — след самой копии: распространённые строки её не выдают
+const litFiles = new Map();
+for (const f of fns) for (const l of f.lits) (litFiles.get(l) ?? litFiles.set(l, new Set()).get(l)).add(f.file);
+const RARE = 6;
+const label = (f) => f.name ?? `${f.file}#${createHash("sha1").update(f.toks.join(" ")).digest("hex").slice(0, 8)}`;
 const near = [], nearIn = [];
 for (const key of cand) {
   const x = big[Math.floor(key / 100000)], y = big[key % 100000];
@@ -72,7 +107,7 @@ for (const key of cand) {
   for (const s of x.sh) if (y.sh.has(s)) c++;
   const j = c / (x.sh.size + y.sh.size - c);
   if (j < 0.5) continue;
-  const row = { ka: `${x.mod}:${x.name ?? x.file}`, kb: `${y.mod}:${y.name ?? y.file}`, fa: `${x.file}:${x.line}`, fb: `${y.file}:${y.line}`, j: +j.toFixed(2), a: `${x.mod} ${x.name ?? "?"} ${x.file}:${x.line}`, b: `${y.mod} ${y.name ?? "?"} ${y.file}:${y.line}`, toks: Math.min(x.toks.length, y.toks.length) };
+  const row = { ka: `${x.mod}:${label(x)}`, kb: `${y.mod}:${label(y)}`, lits: [...x.lits].filter((l) => y.lits.has(l) && litFiles.get(l).size <= RARE), fa: `${x.file}:${x.line}`, fb: `${y.file}:${y.line}`, j: +j.toFixed(2), a: `${x.mod} ${x.name ?? "?"} ${x.file}:${x.line}`, b: `${y.mod} ${y.name ?? "?"} ${y.file}:${y.line}`, toks: Math.min(x.toks.length, y.toks.length) };
   (x.mod === y.mod ? nearIn : near).push(row);
 }
 near.sort((p, q) => q.toks * q.j - p.toks * p.j);
@@ -105,5 +140,5 @@ for (const w of wrappers.slice(0, 40)) lines.push(`${w.name} → ${w.to} · ${w.
 lines.push(`\n== совместные правки между модулями: ${coupled.length} пар`);
 for (const c of coupled.slice(0, 25)) lines.push(`${c.k}: ${c.n} коммитов, связанность ${c.deg}`);
 writeFileSync(out, lines.join("\n"));
-writeFileSync(out + ".json", JSON.stringify({ functions: fns.length, small: fns.filter((f) => f.toks.length < 30).length, near: near.map(({ ka, kb, fa, fb, j, toks }) => ({ ka, kb, fa, fb, j, toks })), inside: nearIn.map(({ ka, kb, fa, fb, j, toks }) => ({ ka, kb, fa, fb, j, toks })) }));
+writeFileSync(out + ".json", JSON.stringify({ functions: fns.length, small: fns.filter((f) => f.toks.length < 30).length, flags, near: near.map(({ ka, kb, fa, fb, lits, j, toks }) => ({ ka, kb, fa, fb, lits, j, toks })), inside: nearIn.map(({ ka, kb, fa, fb, lits, j, toks }) => ({ ka, kb, fa, fb, lits, j, toks })) }));
 console.log(`файлов ${files.length} · функций ${fns.length} · одноимённых ${sameName.length} · почти-клонов ${near.length} (внутри модуля ${nearIn.length}) · обёрток ${wrappers.length} · связанных пар ${coupled.length}`);

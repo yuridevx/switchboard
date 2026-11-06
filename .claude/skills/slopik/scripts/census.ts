@@ -21,8 +21,8 @@ export function config(root: string): { houses: string; ignore?: string } {
 }
 const housesOf = (root: string): Array<{ name: string; dir: string }> => JSON.parse(execSync(config(root).houses, { cwd: root, encoding: "utf8", maxBuffer: 1 << 26 }));
 
-export type Pair = { ka: string; kb: string; fa: string; fb: string; j: number; toks: number };
-export type Snapshot = { sha: string; functions: number; small: number; near: Pair[]; inside: Pair[]; config: string };
+export type Pair = { ka: string; kb: string; fa: string; fb: string; lits?: string[]; j: number; toks: number };
+export type Snapshot = { sha: string; functions: number; small: number; near: Pair[]; inside: Pair[]; config: string; flags?: string[] };
 export type Wake = { house: string; why: "правка" | "след"; detail: string; named?: string };
 
 /** Таблица markdown под заголовком → строки ячеек. */
@@ -107,7 +107,7 @@ export function snapshot(root: string, name: string): Snapshot {
   const out = join(home(), `scan-${name}.txt`);
   execFileSync("node", [join(here, "scan.mjs"), root, out], { cwd: root, stdio: "pipe", env: { ...process.env, SLOPIK_HOUSES: JSON.stringify(housesOf(root)), SLOPIK_IGNORE: config(root).ignore ?? "" } });
   const scan = JSON.parse(readFileSync(`${out}.json`, "utf8"));
-  const scanner = git(root, "hash-object", join(here, "scan.mjs"), join(here, "functions.mjs")).trim().split(/\s+/).join(" ");
+  const scanner = git(root, "hash-object", join(here, "scan.mjs"), join(here, "functions.mjs"), join(here, "census.ts")).trim().split(/\s+/).join(" ");
   const snap: Snapshot = { sha: git(root, "rev-parse", "HEAD").trim(), config: scanner, ...scan };
   writeFileSync(join(home(), `pairs-${name}.json`), JSON.stringify(snap));
   return snap;
@@ -120,12 +120,19 @@ export const load = (name: string): Snapshot => JSON.parse(readFileSync(join(hom
  * Судьбы по двум снимкам. Детектор знает только «пара ушла»: была ли это настоящая сводка, решает чтение.
  * Следы обхода: сменилась конфигурация, почти-клонов меньше, а мелких функций больше, старые символы живы.
  */
-export function fate(before: Snapshot, after: Snapshot, alive: (key: string) => boolean) {
+export function fate(before: Snapshot, after: Snapshot, alive: (key: string) => boolean, trace?: Trace) {
   const was = new Map([...before.near, ...before.inside].map((p) => [keyOf(p), p]));
   const now = new Map([...after.near, ...after.inside].map((p) => [keyOf(p), p]));
   const left = [...was.keys()].filter((k) => !now.has(k));
   const fresh = [...now.keys()].filter((k) => !was.has(k));
-  const stillThere = left.filter((k) => k.split(" = ").every(alive));
+  const named = left.filter((k) => k.split(" = ").some(alive));
+  // копии живы по содержимому: новое имя и новая папка литералов не меняют
+  const copied = left.filter((k) => {
+    const lits = was.get(k)!.lits ?? [];
+    return trace && lits.length > 0 && trace.copies(after.sha, lits) >= trace.copies(before.sha, lits);
+  });
+  const stillThere = [...new Set([...named, ...copied])];
+  const newFlags = (after.flags ?? []).filter((f) => !(before.flags ?? []).includes(f));
   const smallGrowth = after.small - before.small;
   return {
     left: left.length,
@@ -135,9 +142,33 @@ export function fate(before: Snapshot, after: Snapshot, alive: (key: string) => 
     signs: [
       ...(before.config !== after.config ? ["сменилась конфигурация детектора"] : []),
       ...(left.length && smallGrowth > left.length ? [`мелких функций +${smallGrowth} при ${left.length} ушедших парах`] : []),
-      ...(stillThere.length ? [`${stillThere.length} пар ушло, а оба символа живы`] : []),
+      ...(named.length ? [`${named.length} пар ушло, а символ жив`] : []),
+      ...(copied.length ? [`${copied.length} пар ушло, а их литералы на месте`] : []),
+      ...(newFlags.length ? [`новый флаг решает ветки: ${newFlags.join(" ")}`] : []),
+      ...(trace?.lost ? [`снято проверок в тестах: ${trace.lost}`] : []),
+      ...(trace?.control.length ? [`правка контроля в задаче: ${trace.control.join(" ")}`] : []),
     ],
   };
+}
+
+export type Trace = { copies(sha: string, lits: string[]): number; lost: number; control: string[] };
+
+/** Следы, которых нет в снимке: литералы по всему дереву в любой папке, снятые проверки, правка самого контроля. */
+export function traces(root: string, before: string, after: string): Trace {
+  const code = ["ts", "tsx", "mts", "cts", "mjs", "cjs", "js", "jsx"].map((e) => ":(glob)**/*." + e);
+  const tests = [":(glob)**/test/**", ":(glob)**/tests/**", ":(glob)**/*.test.*", ":(glob)**/*.spec.*", ":(glob)**/__snapshots__/**"];
+  const notTests = tests.map((t) => t.replace(":(glob)", ":(exclude,glob)"));
+  const copies = (sha: string, lits: string[]) => {
+    try {
+      const out = git(root, "grep", "-c", "-F", ...lits.flatMap((l) => ["-e", l]), sha, "--", ...code, ...notTests, ":(exclude).claude");
+      return out.split("\n").filter(Boolean).reduce((n, l) => n + Number(l.slice(l.lastIndexOf(":") + 1)), 0);
+    } catch {
+      return 0; // git grep без совпадений выходит с кодом 1
+    }
+  };
+  const lost = git(root, "diff", "-U0", before, after, "--", ...tests).split("\n").filter((l) => l.startsWith("-") && /\bexpect\(/.test(l)).length;
+  const control = git(root, "diff", "--name-only", before, after, "--", ".claude/slopik", ":(glob).claude/skills/slopik*/**").split("\n").filter(Boolean);
+  return { copies, lost, control };
 }
 
 type Pass = { confirmed: number; rejected: number; queue: number; waiting?: number; failed?: number };
@@ -170,16 +201,18 @@ function main(argv: string[]): void {
     const s = snapshot(root, rest[0]);
     say({ sha: s.sha, near: s.near.length, inside: s.inside.length });
   } else if (command === "fate") {
+    const before = load(rest[0]);
+    const after = load(rest[1]);
     const defined = (key: string) => {
       const name = key.split(":").slice(1).join(":");
       if (!/^[\w$]+$/.test(name)) return true; // анонимная: снимок её не различает, читать
       try {
-        return !!git(root, "grep", "-lE", `\\b${name}\\b`, "--", "workers", "host", "web", "tools", "protocol", "scripts");
+        return !!git(root, "grep", "-lE", `\\b${name}\\b`, after.sha, "--", ".", ":(exclude).claude");
       } catch {
         return false;
       }
     };
-    say(fate(load(rest[0]), load(rest[1]), defined));
+    say(fate(before, after, defined, traces(root, before.sha, after.sha)));
   } else if (command === "pass") pass(JSON.parse(rest[0]), git(root, "rev-parse", "HEAD").trim(), housesOf(root).map((h) => h.name));
   else if (command === "stop") say(stop());
   else throw new Error("census | snapshot <имя> | fate <до> <после> | pass <json> | stop");

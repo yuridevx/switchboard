@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, it } from "node:test";
-import { census, fate, pass, stop } from "./census.ts";
+import { census, fate, pass, stop, traces } from "./census.ts";
 
 let root = "";
 const git = (...a: string[]) => execFileSync("git", a, { cwd: root, encoding: "utf8" }).trim();
@@ -86,7 +86,42 @@ it("ушедшая пара с живыми символами идёт на ч�
   const f = fate(snap([["m:live", "n:live2"], ["m:dead", "n:dead2"]]), snap([]), (k) => k.includes("live"));
   assert.deepEqual(f.read, ["m:live = n:live2"]);
   assert.deepEqual(f.gone, ["m:dead = n:dead2"]);
-  assert.ok(f.signs.some((s) => s.includes("оба символа живы")));
+  assert.ok(f.signs.some((s) => s.includes("символ жив")));
+});
+
+it("новое имя одной стороны не уводит пару от чтения", () => {
+  const f = fate(snap([["m:old", "n:twin"]]), snap([]), (k) => k.includes("twin"));
+  assert.deepEqual(f.read, ["m:old = n:twin"]);
+});
+
+it("оба имени новые, копия в новой папке: пару выдают литералы; настоящая сводка их снижает", () => {
+  const before = { ...snap([]), near: [{ ka: "m:a", kb: "n:b", fa: "", fb: "", lits: ["Удалить насовсем"], j: 0.7, toks: 50 }] };
+  const after = { ...snap([]), sha: "t" };
+  const trace = (n: number) => ({ copies: (sha: string) => (sha === "s" ? 2 : n), lost: 0, control: [] });
+  assert.deepEqual(fate(before, after, () => false, trace(2)).read, ["m:a = n:b"]);
+  assert.deepEqual(fate(before, after, () => false, trace(1)).read, []);
+});
+
+it("снятые проверки, правка контроля и новый флаг — следы обхода, настоящая сводка их не даёт", () => {
+  const f = fate({ ...snap([]), flags: [] }, { ...snap([]), flags: ["x:y:wide"] }, () => false, { copies: () => 0, lost: 3, control: [".claude/slopik/pairs.md"] });
+  for (const word of ["флаг", "снято проверок", "правка контроля"]) assert.ok(f.signs.some((s) => s.includes(word)));
+  assert.deepEqual(fate(snap([]), snap([]), () => false, { copies: () => 0, lost: 0, control: [] }).signs, []);
+});
+
+it("следы считаются по дереву: тест без expect, правка судеб, литерал в новой папке", () => {
+  put("workers/a/test/a.test.ts", "expect(1).toBe(1);\nexpect(2).toBe(2);\n");
+  put(".claude/slopik/pairs.md", "| a |\n");
+  put("workers/a/src/x.ts", 'export const t = "Удалить насовсем";\n');
+  const a = commit();
+  put("workers/a/test/a.test.ts", "expect(1).toBe(1);\n");
+  put(".claude/slopik/pairs.md", "| b |\n");
+  put("shared/y.ts", 'export const t = "Удалить насовсем";\n');
+  const b = commit();
+  const t = traces(root, a, b);
+  assert.equal(t.lost, 1);
+  assert.deepEqual(t.control, [".claude/slopik/pairs.md"]);
+  assert.equal(t.copies(a, ["Удалить насовсем"]), 1);
+  assert.equal(t.copies(b, ["Удалить насовсем"]), 2);
 });
 
 it("смена конфигурации и рост мелких функций — следы обхода", () => {
