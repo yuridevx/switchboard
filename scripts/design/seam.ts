@@ -1,6 +1,6 @@
-// Шов прототипа для StartOptions.seam ядра. Прод — только чтение:
+// Шов прототипа для StartOptions.seam ядра и настройки страницы. Флот у прототипа — только чтение:
 //   запросы договора дизайна (owns) и кадры к службам-заглушкам (workers) — только мок; молчание мока — ошибка прототипа: тост и консоль;
-//   чтения и безвредные записи — в прод; остальные записи — отказ и тост.
+//   чтения и безвредные записи — во флот; остальные записи — отказ и тост. Страница разработки шва не имеет: запись идёт во флот.
 // Состояние мока и настройки страницы (prefs.set) живут в памяти страницы.
 import type { Frame, Reply } from "@switchboard/protocol";
 import type { Roster } from "@switchboard/relay";
@@ -9,6 +9,13 @@ import type { Answer, MockCtx, ProtoMock } from "./api.ts";
 const reply = (f: Frame, a: Answer): Reply => ({ type: "reply", id: f.id, ...a }) as unknown as Reply;
 
 export type SeamOptions<S> = { mock: ProtoMock<S>; state: S; notice(text: string): void; data: MockCtx["data"] };
+
+export type Proto = { app: string; workers: Record<string, string>; live: boolean };
+
+/** Настройки запуска страницы: адреса, имя приложения и шов — только у прототипа. */
+export function pageOptions<S>(proto: Proto, o: SeamOptions<S>) {
+  return { workers: { ...proto.workers, ...o.mock.workers }, application: proto.app, ...(proto.live ? {} : { seam: protoSeam(o) }) };
+}
 
 export function protoSeam<S>(o: SeamOptions<S>) {
   const harmless = new Set(o.mock.harmless ?? []);

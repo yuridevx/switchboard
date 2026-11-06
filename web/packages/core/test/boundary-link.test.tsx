@@ -87,11 +87,13 @@ describe("связь с relay", () => {
     expect(t.$(".sb-off")!.textContent).toContain("Нет связи");
     expect(s.box.app.link()).toBe("closed");
     down = false;
-    // следующая попытка — по растущей паузе от начала отказов, а не от этой строки: ждём условие, а не срок
-    await vi.waitFor(() => {
-      expect(t.$(".sb-off")!.hidden).toBe(true);
-      expect(t.$('[data-s="a"]')).not.toBeNull();
-    });
+    // пауза растёт вдвое: срок попытки не задан, ждём исход с пределом
+    for (const end = Date.now() + 3000; !t.$(".sb-off")!.hidden && Date.now() < end; ) {
+      await new Promise((r) => setTimeout(r, 20));
+      await flush(1);
+    }
+    expect(t.$(".sb-off")!.hidden).toBe(true);
+    expect(t.$('[data-s="a"]')).not.toBeNull();
   });
 
   it("4009 · «Сейчас» на полосе — новый hello сразу, прежнее закрыто 1000 now без экрана отказа", async () => {

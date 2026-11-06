@@ -1,17 +1,18 @@
-// Вход прототипа в прод: приглашения клиентов design-<имя> (ссылка в чат) и design-<имя>-shots (браузер снимков сессии) у gate
-// пропуском агента; отзыв — keys.revoke у relay. Секрет агента — из файла, никогда не в argv.
-//   node scripts/design/pass.mjs close <папка дизайна> [--app pult]   — отозвать пропуска дизайна (закрытие прототипа)
-// Пропуск агента: $SWITCHBOARD_DEV_DIR/prod-agent.pass, по умолчанию ~/.switchboard-dev/prod-agent.pass.
+// Вход страницы во флот: приглашения клиентов design-<имя> (ссылка в чат) и design-<имя>-shots (браузер снимков сессии) у gate
+// пропуском агента флота; отзыв — keys.revoke у relay. Секрет агента — из файла, никогда не в argv.
+//   node scripts/design/pass.mjs close <папка> [--app pult] [--fleet test]   — отозвать пропуска папки; флот по умолчанию — прод
+// Адреса: build.json страницы флота или SWITCHBOARD_WORKERS — одна карта адресов, как у клиента флота.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { pageOf, passFile } from "../fleets.ts";
 
 const ASK_MS = 10_000;
 
-/** Адреса Worker'ов прода из build.json приложения. */
-export async function workersOf(app) {
-  const url = `https://${app}.pfarm.app/build.json`;
+/** Адреса Worker'ов флота из build.json приложения. */
+export async function workersOf(app, fleet) {
+  if (process.env.SWITCHBOARD_WORKERS) return JSON.parse(process.env.SWITCHBOARD_WORKERS);
+  const url = new URL("build.json", pageOf(fleet, app)).href;
   const list = await fetch(url, { signal: AbortSignal.timeout(ASK_MS) })
     .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
     .catch((e) => Promise.reject(Object.assign(new Error(`${url}: ${e.message}`), { word: "no_build" })));
@@ -19,10 +20,9 @@ export async function workersOf(app) {
   return list.workers;
 }
 
-const agentKey = () => fs.readFileSync(path.join(process.env.SWITCHBOARD_DEV_DIR ?? path.join(os.homedir(), ".switchboard-dev"), "prod-agent.pass"), "utf8").trim();
-
-async function post(url, f) {
-  const r = await fetch(url, { method: "POST", body: JSON.stringify({ id: `design-${Date.now().toString(36)}`, v: 1, key: agentKey(), ...f }), signal: AbortSignal.timeout(ASK_MS) }).then((x) => x.json());
+async function post(url, fleet, f) {
+  const key = fs.readFileSync(passFile(fleet), "utf8").trim();
+  const r = await fetch(url, { method: "POST", body: JSON.stringify({ id: `design-${Date.now().toString(36)}`, v: 1, key, ...f }), signal: AbortSignal.timeout(ASK_MS) }).then((x) => x.json());
   if (!r.ok) throw Object.assign(new Error(`${f.type}: ${r.error}${r.why ? ` — ${r.why}` : ""}`), { word: r.error });
   return r.result;
 }
@@ -34,36 +34,36 @@ export const namesOf = (dir) => {
 };
 
 /** Отозвать все пропуска дизайна, и принятые, и ждущие приёма. Возвращает отозванные адреса. */
-export async function close(workers, dir) {
+export async function close(workers, dir, fleet) {
   const names = Object.values(namesOf(dir));
-  const { passes } = await post(workers.gate, { type: "keys.list" });
+  const { passes } = await post(workers.gate, fleet, { type: "keys.list" });
   const mine = passes.filter((p) => p.role === "client" && names.includes(p.name));
-  for (const p of mine) await post(workers.relay, { type: "keys.revoke", kid: p.id });
+  for (const p of mine) await post(workers.relay, fleet, { type: "keys.revoke", kid: p.id });
   return mine.map((p) => p.addr);
 }
 
-/** Старые пропуска дизайна отозвать, выдать два новых приглашения: человеку за пультом и браузеру снимков. */
-export async function open(workers, dir) {
-  const closed = await close(workers, dir);
-  const { you } = await post(workers.gate, { type: "keys.list", role: "client" });
+/** Старые пропуска дизайна отозвать, выдать новые приглашения: человеку за пультом и, если agent, браузеру снимков. */
+export async function open(workers, dir, fleet, agent) {
+  const closed = await close(workers, dir, fleet);
+  const { you } = await post(workers.gate, fleet, { type: "keys.list", role: "client" });
   const person = String(you).split("~")[1];
   const names = namesOf(dir);
-  const user = await post(workers.gate, { type: "keys.invite", role: "client", name: names.user, person });
-  const shots = await post(workers.gate, { type: "keys.invite", role: "client", name: names.shots, person });
-  return { closed, user: user.invite, shots: shots.invite };
+  const invite = (name) => post(workers.gate, fleet, { type: "keys.invite", role: "client", name, person }).then((r) => r.invite);
+  return { closed, user: await invite(names.user), shots: agent ? await invite(names.shots) : null };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const i = args.indexOf("--app");
-  const app = i >= 0 ? args.splice(i, 2)[1] : "pult";
+  const flag = (name, none) => { const i = args.indexOf(name); return i >= 0 ? args.splice(i, 2)[1] : none; };
+  const app = flag("--app", "pult");
+  const fleet = flag("--fleet", "prod");
   const [verb, dir] = args;
   if (verb !== "close" || !dir) {
-    console.error("нужно: node scripts/design/pass.mjs close <папка дизайна> [--app pult]");
+    console.error("нужно: node scripts/design/pass.mjs close <папка> [--app pult] [--fleet test]");
     process.exit(1);
   }
   try {
-    const gone = await close(await workersOf(app), dir);
+    const gone = await close(await workersOf(app, fleet), dir, fleet);
     console.log(`отозвано ${gone.length}: ${gone.join(", ") || "пропусков дизайна нет"}`);
   } catch (e) {
     console.error(`${e.word ?? "error"}: ${e.message}`);

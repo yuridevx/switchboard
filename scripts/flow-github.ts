@@ -4,6 +4,7 @@
 // github_failed (прежнее приложение цело), токен репозитория установки, чужой репозиторий — not_installed.
 // Токенов в выводе нет. env: FLOW_CLIENT_KEY; FLOW_REPO — репозиторий установки (по умолчанию yuridevx/switchboard-profiles).
 import { client } from "./client.ts";
+import { pageOf } from "./fleets.ts";
 
 const l = client(process.env.FLOW_CLIENT_KEY!);
 const fails: string[] = [];
@@ -13,7 +14,7 @@ const check = (n: string, ok: boolean, d?: unknown) => {
 };
 for (let i = 0; l.state !== "open" && i < 150; i++) await new Promise((r) => setTimeout(r, 100));
 const req = (f: Record<string, unknown>) => l.request({ v: 1, to: ".github", ...f } as never) as Promise<{ ok: boolean; result?: any; error?: string }>;
-const PULT = "https://switchboard-pult.yuridevx1608.workers.dev/";
+const PULT = pageOf("test", "pult");
 const BAD_CODE = "0000000000000000000000000000000000000000";
 
 const app = await req({ type: "github.app", redirect: PULT });

@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { Frame, Reply } from "@switchboard/protocol";
 import type { ProtoMock } from "./api.ts";
-import { protoSeam } from "./seam.ts";
+import { pageOptions, protoSeam } from "./seam.ts";
 
 type Keys = { keys: string[] };
 /** Мок образца: новое по договору — список ключей флота и добавление ключа; история сессии — безвредная запись. */
@@ -77,5 +77,29 @@ describe("шов прототипа", () => {
     const g = await r.ask({ type: "prefs.get", scope: "app:pult" }, true);
     expect(r.wire.map((f) => f.type)).toEqual(["prefs.get"]);
     expect(g.result.values).toMatchObject({ "web-board.filters": [1] });
+  });
+});
+
+describe("настройки страницы", () => {
+  const tools = { mock, state: mock.state!(), notice: () => {}, data: async () => ({}) as never };
+  const proto = (live: boolean) => ({ app: "pult", workers: { relay: "https://r/" }, live });
+
+  it("фронт 2 · разработка: шва нет — запись идёт ядром прямо во флот", () => {
+    expect(pageOptions(proto(true), { ...tools, mock: {} })).toEqual({ workers: { relay: "https://r/" }, application: "pult" });
+  });
+
+  it("фронт 3 · прототип на тесте: шов есть — запись не уходит, тост", async () => {
+    const sent: Frame[] = [];
+    const notices: string[] = [];
+    const { seam } = pageOptions(proto(false), { ...tools, notice: (t) => void notices.push(t) });
+    const r = await seam!.request({ id: "w", v: 1, type: "session.stop" } as Frame, false, async (f) => (sent.push(f), { type: "reply", id: "w", ok: true }) as Reply);
+    expect(sent).toEqual([]);
+    expect(r).toMatchObject({ ok: false, error: "prototype" });
+    expect(notices[0]).toMatch(/^прототип: не отправлено · session\.stop/);
+  });
+
+  it("фронт 7 · имя приложения передаётся: настройки приложения пишутся в его область", () => {
+    expect(pageOptions(proto(true), { ...tools, mock: {} }).application).toBe("pult");
+    expect(pageOptions(proto(false), tools).application).toBe("pult");
   });
 });
