@@ -188,7 +188,7 @@ func (k *Keeper) exited(p *part, h *held) {
 		p.state = "stopped"
 		k.j.add("keeper", p.name, "note", "part_exit", "version", p.version, "why", p.why)
 	default:
-		p.state = "exited"
+		p.state, p.err = "exited", p.why
 		k.j.add("keeper", p.name, "stop", "part_exit", "version", p.version, "why", fmt.Sprintf("%s %s вышла сама: %s", p.name, p.version, p.why))
 	}
 	k.poke()
@@ -204,7 +204,7 @@ func (k *Keeper) restartExited() {
 			continue
 		}
 		if e := k.planned(name); e == nil || !e.on() {
-			p.state = "stopped"
+			p.state, p.err = "stopped", ""
 			continue
 		}
 		todo = append(todo, p)
