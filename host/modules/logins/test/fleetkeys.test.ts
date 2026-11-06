@@ -14,8 +14,8 @@ const { FakeHolders, module, standHost, until } = stand;
 type Stand = stand.Stand;
 type Key = { env: Record<string, string>; settings: Record<string, unknown>; key: string };
 
-/** Как под службой Windows: системная папка есть, Git\usr\bin с cat нет. */
-const NO_CAT = process.platform === "win32" ? { PATH: "C:\Windows\System32", SystemRoot: "C:\Windows" } : { PATH: "" };
+/** Как под службой Windows: системная папка есть, папки Git с cat нет. */
+const NO_CAT = process.platform === "win32" ? { PATH: "C:/Windows/System32", SystemRoot: "C:/Windows" } : { PATH: "" };
 const ORCA: Key = { env: { ANTHROPIC_BASE_URL: "https://api.orcarouter.ai", ANTHROPIC_DEFAULT_OPUS_MODEL: "orcarouter/auto" }, settings: { modelOverrides: { a: "b" } }, key: "sk-orca-SECRET" };
 
 let st: Stand | null = null;
