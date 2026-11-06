@@ -183,6 +183,7 @@ describe("hello", () => {
     ["в hello сессия чужой машины", { sessions: [{ callsign: "wiki@pc" }] }, "bad_from", "callsign"],
     ["голое имя машины вместо сессии", { sessions: [{ callsign: "@laptop" }] }, "bad_from", "callsign"],
     ["часть не keeper", { part: "capture" }, "bad_frame", "capture"],
+    ["часть объектом, который не приводится к строке", { part: { toString: 1 } }, "bad_frame", "toString"],
   ])("33 · 34 · hello Host машины: %s — закрыт, слово и причина в журнале; прежний Host не тронут, в roster не попал", async (_n, extra, word, why) => {
     const panel = await hello("client", "panel-desk");
     const x = await open();
@@ -396,6 +397,8 @@ describe("кадр после hello: доставка по адресу", () => 
     ["to списком у кадра с id", { type: "question", id: "q", to: [dev("phone"), dev("panel-desk")] }, "списком"],
     ["в списке не адрес", { type: "question", to: [dev("phone"), "голое"] }, "голое"],
     ["голое имя", { type: "message", id: "q", to: "phone" }, "phone"],
+    ["to объектом, который не приводится к строке", { type: "message", id: "q", to: { toString: 1 } }, "toString"],
+    ["в списке объект, который не приводится к строке", { type: "question", to: [dev("phone"), { toString: 1 }] }, "toString"],
     ["нет адреса", { type: "message", id: "q" }, "нет адреса"],
     ["callsign без машины", { type: "budget.set", id: "q", callsign: "wiki", machine: "laptop" }, "wiki"],
     ["имя relay roster", { type: "roster", id: "q", machines: [] }, "имя relay"],

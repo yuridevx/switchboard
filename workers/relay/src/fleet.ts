@@ -32,9 +32,9 @@ const reached = (c: Seated, to: string) => reaches(to, c.addr) || (isSession(to)
 function addressesOf(f: Frame): string[] | string {
   if (Array.isArray(f.to)) {
     if (f.id !== undefined || !f.to.length) return "to списком — только непустой и у кадра без id";
-    return f.to.every(kindOf) ? f.to : `не адрес: ${f.to}`;
+    return f.to.every(kindOf) ? f.to : `не адрес: ${JSON.stringify(f.to)}`;
   }
-  if (f.to !== undefined) return kindOf(f.to) ? [f.to] : `не адрес: ${f.to}`;
+  if (f.to !== undefined) return kindOf(f.to) ? [f.to] : `не адрес: ${JSON.stringify(f.to)}`;
   const machine = hostOf(f);
   if (machine === undefined) return "нет адреса";
   return machine === null ? `не адрес: ${f.callsign}` : [`@${machine}`];
@@ -196,7 +196,7 @@ export class Fleet extends DurableObject<Env> {
   private seat(who: Verified, f: Frame): Seated | [string, string] {
     if (!this.env.PROTO.includes(f.proto as number)) return ["contract_mismatch", `proto ${JSON.stringify(f.proto)}`];
     const mine = who.addr === `@${this.machine}`;
-    if (f.part !== undefined && (f.part !== "keeper" || !mine)) return [BAD_FRAME, `part ${f.part} с пропуском ${who.addr}`];
+    if (f.part !== undefined && (f.part !== "keeper" || !mine)) return [BAD_FRAME, `part ${JSON.stringify(f.part)} с пропуском ${who.addr}`];
     const base = { ver: this.ver, kid: who.kid };
     if (f.part) return { ...base, addr: `.keeper@${this.machine}` };
     if (!mine) return { ...base, addr: who.addr };
