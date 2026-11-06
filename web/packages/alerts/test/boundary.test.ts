@@ -495,6 +495,18 @@ describe("служебный обработчик: нажатие", () => {
     expect(scope.opened).toEqual([]);
   });
 
+  it("кнопка, хранилище не прочиталось: человек видит «Ответ не отправлен: слово», причина в журнале браузера", async () => {
+    const store = memoryStore({ key: KEY });
+    const { scope } = worker({ store });
+    await scope.fire("push", pushData(notify(2)));
+    store.get = async () => {
+      throw new Error("база закрыта");
+    };
+    await click(scope);
+    expect(scope.shown[1]?.title).toBe("Ответ не отправлен: база закрыта");
+    expect(said()).toContain("switchboard: ответ из уведомления не отправлен — база закрыта");
+  });
+
   it("кнопка, relay молчит: за предел — «Ответ не отправлен: timeout», соединение закрыто", async () => {
     const relay = new FakeRelay(homeRoster());
     const { scope } = worker({ relay });
