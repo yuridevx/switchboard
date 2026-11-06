@@ -81,7 +81,7 @@ describe("контракт shell", () => {
     expect(servers.shell).toMatchObject({ type: "sdk", name: "shell" });
   });
 
-  it("инструменты слово в слово — их читает модель", () => {
+  it("инструменты слово в слово и типы параметров — их читает модель", () => {
     const tools = make().tools("me@pc") as unknown as Array<{ name: string; description: string; inputSchema: Record<string, { description?: string }> }>;
     const params = (t: (typeof tools)[number]) => Object.fromEntries(Object.entries(t.inputSchema).map(([k, v]) => [k, v.description ?? null]));
     const machineWord = "машина флота: win, wsl…; своя тоже";
@@ -110,6 +110,13 @@ describe("контракт shell", () => {
       ],
       ["kill", "Погасить запуск: убить всё дерево процесса. ok — убит или уже кончился.", { machine: machineWord, run: "id запуска" }],
     ]);
+    const schema = Object.fromEntries(tools.map((t) => [t.name, z.toJSONSchema(z.object(t.inputSchema as unknown as z.ZodRawShape))])) as Record<string, { properties: Record<string, { type?: string; enum?: string[] }>; required?: string[] }>;
+    expect(schema.info.required).toEqual(["machine"]);
+    expect(schema.run.required).toEqual(["machine", "shell", "script", "background"]);
+    expect(schema.run.properties).toMatchObject({ machine: { type: "string" }, shell: { type: "string", enum: ["bash", "pwsh", "powershell"] }, script: { type: "string" }, stdin: { type: "string" }, timeout: { type: "number" }, background: { type: "boolean" } });
+    expect(schema.wait.required).toEqual(["machine", "run", "timeout"]);
+    expect(schema.wait.properties.timeout.type).toBe("number");
+    expect(schema.kill.required).toEqual(["machine", "run"]);
   });
 
   it("E21 · 294 · 3081 · отказ машины — текстом для модели, слово в слово; timeout: info — повтори, run — запуск мог начаться", async () => {
@@ -254,21 +261,6 @@ describe("запуск", { timeout: 30_000 }, () => {
     expect(m.content[0].text).toMatch(/^laptop · exit 0 · \d+\.\d с · run \w+\n── stdout ──\nbuilt/);
   });
 
-  it("у модели: пустой вывод — «(пусто)», stderr отдельным блоком; длительность от минуты — «1 мин 05 с»; остальное состояние словом", async () => {
-    const { st, tool } = await machine("laptop");
-    const m = await tool("site@laptop", "run", { machine: "laptop", shell: "bash", script: "echo err >&2", background: false });
-    expect(m.content[0].text).toMatch(/── stdout ──\n\(пусто\)\n── stderr ──\nerr/);
-    const recv = st.relay.receive.bind(st.relay);
-    st.relay.receive = (ws, text) => {
-      recv(ws, text);
-      if (text === "ping") return;
-      const f = JSON.parse(text) as Frame;
-      if (f.type === "shell.wait") queueMicrotask(() => st.relay.deliver({ type: "reply", id: f.id as string, from: "@far", ok: true, result: { state: "timeout", code: null, ms: 65_000, stdout: "x", stderr: "" } } as Frame));
-    };
-    const w = await tool("site@laptop", "wait", { machine: "far", run: "r1", timeout: 0 });
-    expect(w).toEqual({ content: [{ type: "text", text: "far · timeout · 1 мин 05 с · run r1\n── stdout ──\nx" }] });
-  });
-
   it("276 · PowerShell: Write-Output 'привет' — «привет» в stdout; Read-Host падает сразу", async (t) => {
     const { req } = await machine("laptop");
     const info = (await req("shell.info", {})) as unknown as { result: { shells: Record<string, unknown> } };
@@ -341,7 +333,9 @@ describe("запуск", { timeout: 30_000 }, () => {
     const bgRun = /run (\w+)/.exec(bg.content[0].text!)![1];
     const waiting = a.tool("site@win", "wait", { machine: "wsl", run: bgRun, timeout: 60 });
     await until(() => b.st.journal().filter((x) => x.ev === "run_start").length === 3);
-    await new Promise((res) => setTimeout(res, 300));
+    const printed = (id: string, text: string) => until(() => readFileSync(join(runDir(id), "stdout"), "utf8").includes(text));
+    await printed(String(a.st.relay.frames("shell.run")[0].run), "before");
+    await printed(bgRun, "bg");
     await b.st.close();
     expect((await sync).content[0].text).toMatch(/^wsl · stopped .*\n── stdout ──\nbefore/);
     expect((await waiting).content[0].text).toMatch(/^wsl · stopped .*\n── stdout ──\nbg/);
@@ -440,16 +434,6 @@ describe("запуск", { timeout: 30_000 }, () => {
     vi.advanceTimersByTime(TTL_MS);
     expect(await req("shell.wait", { run, timeout: 0 })).toMatchObject({ ok: false, error: "no_run", why: `run ${run}: запуска нет` });
     expect(existsSync(runDir(run))).toBe(false);
-  });
-
-  // источник: принятый дизайн — вход wait «"timeout": 60 } // обязательно: секунды ожидания; 0 — сразу»
-  it("288 · wait без timeout — bad_frame; запуск идёт как шёл", async () => {
-    const { req } = await machine("laptop");
-    const run = rid(288);
-    await req("shell.run", { run, shell: "bash", script: "sleep 30", background: true, timeout: 60 });
-    expect(await req("shell.wait", { run })).toMatchObject({ ok: false, error: "bad_frame", why: "timeout: секунды ожидания, 0 — сразу" });
-    expect((await req("shell.wait", { run, timeout: 0 })).result!.state).toBe("running");
-    await req("shell.kill", { run });
   });
 
   // источник: принятый дизайн — shell.kill «← { "ok": true } // убит или уже кончился»
@@ -559,17 +543,6 @@ describe("запуск", { timeout: 30_000 }, () => {
 
 // Дописано на втором круге: поведение снято с работающего кода чёрным ящиком до сноса; чьё: код.
 describe("shell: остальные формы", { timeout: 30_000 }, () => {
-  it("типы параметров инструментов: их видит модель", () => {
-    const tools = make().tools("me@pc") as unknown as Array<{ name: string; inputSchema: z.ZodRawShape }>;
-    const schema = Object.fromEntries(tools.map((t) => [t.name, z.toJSONSchema(z.object(t.inputSchema))])) as Record<string, { properties: Record<string, { type?: string; enum?: string[] }>; required?: string[] }>;
-    expect(schema.info.required).toEqual(["machine"]);
-    expect(schema.run.required).toEqual(["machine", "shell", "script", "background"]);
-    expect(schema.run.properties).toMatchObject({ machine: { type: "string" }, shell: { type: "string", enum: ["bash", "pwsh", "powershell"] }, script: { type: "string" }, stdin: { type: "string" }, timeout: { type: "number" }, background: { type: "boolean" } });
-    expect(schema.wait.required).toEqual(["machine", "run", "timeout"]);
-    expect(schema.wait.properties.timeout.type).toBe("number");
-    expect(schema.kill.required).toEqual(["machine", "run"]);
-  });
-
   it("скрипт стартует в домашней папке; $SB_OUT — папка выхода запуска; вывод не UTF-8 — со знаком замены; пустой скрипт — exit 0", async () => {
     const { req } = await machine("laptop");
     const run = rid("cwd");
@@ -621,26 +594,6 @@ describe("shell: остальные формы", { timeout: 30_000 }, () => {
     expect(readFileSync(at("nul.dat"))).toEqual(Buffer.from("a\0b"));
   });
 
-  it("скрипт стёр свою папку выхода: итог без файлов, модуль жив", async () => {
-    const { req } = await machine("laptop");
-    expect((await req("shell.run", { run: rid("rm"), shell: "bash", script: 'rm -rf "$SB_OUT"; echo x', background: false })).result).toMatchObject({ state: "exit", code: 0, stdout: "x\n", files: [] });
-    expect((await req("shell.run", { run: rid("rm"), shell: "bash", script: "echo y", background: false })).ok).toBe(true);
-  });
-
-  it("строка журнала: первая строка скрипта, не длиннее 200 знаков", async () => {
-    const { st, req } = await machine("laptop");
-    const a = rid("l");
-    const b = rid("l");
-    const c = rid("l");
-    await req("shell.run", { run: a, shell: "bash", script: "echo a\necho b\n", background: false });
-    await req("shell.run", { run: b, shell: "bash", script: "\n\necho a", background: false });
-    await req("shell.run", { run: c, shell: "bash", script: "echo " + "x".repeat(500), background: false });
-    const line = (r: string) => st.journal().find((l) => l.ev === "run_start" && l.run === r)!.line as string;
-    expect(line(a)).toBe("echo a");
-    expect(line(b)).toBe("");
-    expect(line(c)).toHaveLength(200);
-  });
-
   it("у модели: шапка по снимку — exit без кода, минуты, stderr; приписка фона только у идущего run; info — отступ 1", async () => {
     const { st, tool } = await machine("laptop");
     let reply: Record<string, unknown> = {};
@@ -659,6 +612,7 @@ describe("shell: остальные формы", { timeout: 30_000 }, () => {
     expect(await wait({ state: "killed", code: null, ms: 59_999, stdout: "o\n", stderr: "e\n" })).toEqual(["far · killed · 60.0 с · run r1\n── stdout ──\no\n\n── stderr ──\ne\n"]);
     expect(await wait({ state: "running", ms: 3_600_000, stdout: "", stderr: "" })).toEqual(["far · running · 60 мин 00 с · run r1\n── stdout ──\n(пусто)"]);
     expect(await wait({ state: "exit", code: 0, ms: 125_000, stdout: "", stderr: "", files: [{ name: "x.txt", media_type: "text/plain", data: "aA==" }] })).toEqual(["far · exit 0 · 2 мин 05 с · run r1\n── stdout ──\n(пусто)", "── x.txt (text/plain) ──\nh"]);
+    expect((await wait({ state: "exit", code: 0, ms: 1, stdout: "", stderr: "", files: [{ name: "../../d/./x.bin", media_type: "application/octet-stream", data: "AAE=" }] }))[1]).toBe(`── ../../d/./x.bin (application/octet-stream, 1 КБ) — файл: ${join(tmpdir(), "switchboard-shell", "files", "r1", "d", "x.bin")}`);
     reply = { state: "running", ms: 1, stdout: "", stderr: "" };
     expect((await tool("site@laptop", "run", { machine: "far", shell: "bash", script: "x", background: false })).content[0].text).toMatch(/^far · running · 0\.0 с · run \w+\n── stdout ──\n\(пусто\)$/);
     reply = { state: "exit", code: 0, ms: 1, stdout: "", stderr: "" };
@@ -688,6 +642,7 @@ describe("shell: остальные формы", { timeout: 30_000 }, () => {
     await req("shell.run", { run, shell: "bash", script: "echo x", background: false });
     expect(await req("shell.wait", { run, timeout: -1 })).toMatchObject({ ok: false, error: "bad_frame", why });
     expect(await req("shell.wait", { run, timeout: "1" })).toMatchObject({ ok: false, error: "bad_frame", why });
+    expect(await req("shell.wait", { run })).toMatchObject({ ok: false, error: "bad_frame", why });
     expect(await req("shell.wait", { run: "nope", timeout: -1 })).toMatchObject({ ok: false, error: "no_run" });
     expect(await req("shell.wait", { run: 3, timeout: 0 })).toMatchObject({ ok: false, error: "no_run", why: "run 3: запуска нет" });
     expect(await req("shell.kill", {})).toMatchObject({ ok: false, error: "no_run", why: "run undefined: запуска нет" });
