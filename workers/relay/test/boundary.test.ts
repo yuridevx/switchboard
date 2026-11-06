@@ -538,6 +538,8 @@ describe("keeper машины", () => {
   it("входит своим ключом: в roster его нет, roster он получает; кадр на .keeper@laptop — только ему, ответ — с from .keeper@; второй keeper вытесняет первого словом replaced", async () => {
     const a = await laptop();
     const k = await hello("keeper", "laptop");
+    // keeper считает hello принятым только по первому кадру roster
+    expect(k.frames[0].type).toBe("roster");
     const r = await a.roster();
     expect(r.machines.map((m: F) => m.machine)).toEqual(["laptop"]);
     expect(r.clients).toEqual([]);

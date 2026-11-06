@@ -49,11 +49,11 @@ export type LinkOptions = {
 
 type Waiter = { frame: Frame; seen: unknown; done(r: Reply): void; timer: ReturnType<typeof setTimeout> };
 
-/** Как адресат выглядит в roster: since машины, есть ли гость; undefined — roster о нём не говорит. */
+/** Как адресат выглядит в roster: since его машины или адрес гостя; undefined — ответ или offline даст relay. */
 function presence(r: Roster, f: Frame): unknown {
   const machine = hostOf(f);
-  const address = machine ? `@${machine}` : f.to;
-  return r.machines.find((m) => m.machine === machine)?.since ?? (r.clients.includes(address as string) || undefined);
+  if (machine) return r.machines.find((m) => m.machine === machine)?.since;
+  return r.clients.find((c) => c === f.to);
 }
 
 export function link(o: LinkOptions): Link {
@@ -135,10 +135,10 @@ export function link(o: LinkOptions): Link {
     const s = new (o.WebSocket ?? (globalThis.WebSocket as unknown as WsCtor))(o.url);
     ws = s;
     alive = true;
-    noRoster = setTimeout(() => cut("no_roster"), CALL_MS);
     s.addEventListener("open", () => {
       if (s !== ws) return;
       s.send(JSON.stringify({ ...o.hello?.(), type: "hello", key: o.key, proto: PROTO }));
+      noRoster = setTimeout(() => cut("no_roster"), CALL_MS);
       beat = setInterval(() => {
         if (!alive) return cut("no_pong");
         alive = false;

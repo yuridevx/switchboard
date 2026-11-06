@@ -114,6 +114,8 @@ describe("клиент на подделках", () => {
     it("3143 · hello без ответа — связь не висит в connecting: за предел запроса сокет закрыт 4000 no_roster, переподключение по паузе", async () => {
       // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; факт — hello теряется при смене кода relay
       const { l, ws, states } = start();
+      // предел — с открытия сокета: медленная сеть его не съедает
+      await vi.advanceTimersByTimeAsync(100_000);
       ws.open();
       await alive(ws, 119_999);
       expect(l.state).toBe("connecting");
@@ -230,9 +232,11 @@ describe("клиент на подделках", () => {
   });
 
   describe("link · правило отправителя по roster", () => {
-    it("2054 · адресат ушёл из roster — ждущий запрос disconnected: машина, @машина, клиент, смена since; другая машина, часть машины и пользователь по roster не снимаются", async () => {
+    it("2054 · адресат ушёл из roster — ждущий запрос disconnected: машина, @машина, клиент, смена since; другая машина, гость, часть машины и пользователь по roster не снимаются", async () => {
       const { l, ws } = opened();
       let settled = 0;
+      ws.recv(rosterOf([["laptop", 1], ["pc", 1]], ["phone~owner@example.com", "@mac"]));
+      void l.request({ type: "message", to: "x@mac" }).then(() => settled++);
       const toPc = l.request({ type: "message", to: "poe-bot@pc" });
       const toPhone = l.request({ type: "message", to: "phone~owner@example.com" });
       const toMachine = l.request({ type: "machine.dirs", to: "@laptop" });
