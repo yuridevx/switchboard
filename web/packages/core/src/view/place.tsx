@@ -1,69 +1,66 @@
-// Место экрана: граница ошибки, чей он, область стилей. Модуль выключен — причина вместо экрана.
-import { Component, createElement, memo, useMemo, type CSSProperties, type ReactNode } from "react";
-import { AppCtx, Cta, Pad, BadCard } from "@switchboard/web-ui";
-import type { Entry, Modules } from "../modules.ts";
-import { sameParams } from "../route.ts";
-import type { Params, Screen, SlotProps } from "../types.ts";
+// Место экрана: своя граница ошибки, своё useApp, область стилей модуля.
+import { Component, createContext, memo, useContext, type ReactNode } from "react";
+import { AppCtx, BadCard, Cta, Pad } from "@switchboard/web-ui";
+import type { Core } from "../app.ts";
+import type { Mod } from "../modules.ts";
+import type { Pass } from "../pass.ts";
+import type { Params } from "../types.ts";
 
-const CONTENTS: CSSProperties = { display: "contents" };
+export const CoreCtx = createContext<Core & { pass: Pass }>(null as never);
+export const useCore = () => useContext(CoreCtx);
 
-/** Граница ошибки: ловит отрисовку и сообщает; дальше место показывает причину. */
-class Catch extends Component<{ on(error: Error): void; children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
-  static getDerivedStateFromError = () => ({ failed: true });
-  componentDidCatch(error: Error) {
-    this.props.on(error);
+/** Ошибка отрисовки уходит владельцу; дальше место показывает причину. */
+class Boundary extends Component<{ onError(e: unknown): void; children: ReactNode }, { broken: boolean }> {
+  override state = { broken: false };
+  static getDerivedStateFromError = () => ({ broken: true });
+  override componentDidCatch(e: unknown) {
+    this.props.onError(e);
   }
-  render() {
-    return this.state.failed ? null : this.props.children;
+  override render() {
+    return this.state.broken ? null : this.props.children;
   }
 }
 
-/** Экран упавшего модуля. */
-function Off({ label, why, reload }: { label?: string; why: string; reload(): void }) {
-  const name = label ?? "Экран";
-  return (
-    <Pad>
-      <BadCard>
-        <b>{`${name} выключен${name.endsWith("а") ? "а" : ""}`}</b>
-        <code>{why}</code>
-        <span>Остальные экраны работают. Этот вернётся после перезапуска приложения.</span>
-      </BadCard>
-      <Cta onClick={reload}>Перезапустить приложение</Cta>
-    </Pad>
-  );
-}
+/** Подпись выключенного экрана: род по окончанию. */
+const offLabel = (label = "Экран") => `${label} выключен${label.endsWith("а") ? "а" : ""}`;
 
-type PlaceProps = { entry: Entry; name: string; screen: Screen; params: Params; close?: () => void; modules: Modules };
+type PlaceProps = { screen: string; params?: Params; close?: () => void };
 
-export function Place({ entry, name, screen, params, close, modules }: PlaceProps) {
-  const why = modules.bus.use(() => modules.core.failed[entry.name]);
-  if (why) return <Off label={screen.label} why={why} reload={modules.reload} />;
-  const View = screen.view!;
+const same = (a: PlaceProps, b: PlaceProps) => a.screen === b.screen && a.close === b.close && JSON.stringify(a.params) === JSON.stringify(b.params);
+
+/** Экран в своём месте; другие экран или параметры — начат заново. */
+export const Place = memo(function Place({ screen, params = {}, close }: PlaceProps) {
+  const { page, mods } = useCore();
+  const { mod, def } = mods.screens.get(screen)!;
+  const why = page.use(() => page.failed[mod.name]);
+  if (why !== undefined) {
+    return (
+      <Pad>
+        <BadCard>
+          <b>{offLabel(def.label)}</b>
+          <code>{why}</code>
+          <span>Остальные экраны работают. Этот вернётся после перезапуска приложения.</span>
+        </BadCard>
+        <Cta onClick={() => page.win.location.reload()}>Перезапустить приложение</Cta>
+      </Pad>
+    );
+  }
+  const View = def.view!;
   return (
-    <Catch key={`${name}?${JSON.stringify(params)}`} on={(e) => modules.fail(entry, `экране ${name}`, e)}>
-      <AppCtx.Provider value={entry.app}>
-        <div data-module={entry.name} style={CONTENTS}>
+    <Boundary key={screen + JSON.stringify(params)} onError={(e) => mods.crash(mod, `экране ${screen}`, e)}>
+      <div data-module={mod.name} style={{ display: "contents" }}>
+        <AppCtx.Provider value={mod.app}>
           <View params={params} close={close} />
-        </div>
-      </AppCtx.Provider>
-    </Catch>
+        </AppCtx.Provider>
+      </div>
+    </Boundary>
   );
+}, same);
+
+/** app.Slot: чужой экран в своём; нет права — ошибка вызывающего, её ловит его граница. */
+export function Slot({ from, ...place }: PlaceProps & { from: Mod }) {
+  const { mods } = useCore();
+  const item = mods.screens.get(place.screen);
+  if (!mods.reaches(from, item, place.screen)) throw new Error(`экрана ${place.screen} нет в uses`);
+  return item ? <Place {...place} /> : null;
 }
-
-const NO_PARAMS: Params = {};
-
-/** app.Slot модуля: чужой экран в своём. Равные параметры в новом объекте — тот же экран без перерисовки. */
-export const slotFor = (e: Entry, modules: Modules) =>
-  memo(
-    function Slot({ screen, params = NO_PARAMS, close }: SlotProps) {
-      const same = useMemo(() => params, [JSON.stringify(params)]); // eslint-disable-line react-hooks/exhaustive-deps
-      const found = modules.screenFor(e, screen);
-      if (!found) {
-        modules.fail(e, `экране ${screen}`, new Error(`экрана ${screen} нет в uses`));
-        return null;
-      }
-      return createElement(Place, { entry: found[0], name: screen, screen: found[1], params: same, close, modules });
-    },
-    (a, b) => a.screen === b.screen && a.close === b.close && sameParams(a.params, b.params),
-  );

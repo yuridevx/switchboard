@@ -12,8 +12,6 @@
   "observability": { "enabled": true },
   // записи модуля — база D1 модуля во флоте
   "d1_databases": [{ "binding": "DB", "database_name": "switchboard-github", "database_id": "986ee07a-283a-46d5-b3c7-e4df2c27194a", "migrations_dir": "migrations" }],
-  // объект приложения ушёл: запись перенесена в базу D1
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["App"] }, { "tag": "v2", "deleted_classes": ["App"] }],
   "env": {
     "prod": {
       // свой домен прода: адрес Worker'а в сборках страниц и keeper.json машин прода

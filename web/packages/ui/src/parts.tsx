@@ -1,177 +1,125 @@
-// Компоненты набора. Компонент одного класса — строка: тег, класс основания, слова-модификаторы, свойства по умолчанию.
-import { useEffect, useState, type ComponentProps, type ComponentPropsWithRef, type JSX, type ReactNode } from "react";
-import type { OutcomeNote } from "./hooks.ts";
+// Компоненты набора: один компонент — один класс основания; лишние свойства и ref идут на элемент.
+import { createElement, useEffect, useRef, type ComponentProps, type ElementType, type ReactNode } from "react";
 import { LIMIT_BAD, LIMIT_WARN, type Tone } from "./labels.ts";
-import { at } from "./time.ts";
+import { at, slotWaitText } from "./time.ts";
 
-type Mood = "ok" | "bad" | "wait";
-type Tag = keyof JSX.IntrinsicElements;
+const cx = (...names: unknown[]) => names.filter(Boolean).join(" ");
 
-const classes = (...words: unknown[]) => words.filter(Boolean).join(" ") || undefined;
+/** Компонент без своих свойств: тег, класс основания и свойства по умолчанию. */
+const made =
+  <T extends ElementType>(Tag: T, base: string, defaults: object = {}) =>
+  ({ className, ...rest }: ComponentProps<T>) =>
+    createElement(Tag, { ...defaults, ...rest, className: cx(base, className) });
 
-/**
- * Компонент одного класса. mods — имена свойств, которые становятся словами класса: true — само имя, строка — её значение.
- * Лишнее (data-*, aria-*, ref) идёт на элемент.
- */
-function part<T extends Tag, M extends object = object>(tag: T, base: string, mods: ReadonlyArray<keyof M & string> = [], defaults?: ComponentProps<T>) {
-  return ({ className, ...rest }: ComponentPropsWithRef<T> & M & { className?: string }) => {
-    const props: Record<string, unknown> = { ...defaults, ...rest };
-    const words = mods.map((m) => {
-      const v = props[m];
-      delete props[m];
-      return v === true ? m : v;
-    });
-    const El = tag as "div";
-    return <El {...props} className={classes(base, ...words, className)} />;
-  };
-}
-const BUTTON = { type: "button" } as const;
+const BUTTON = { type: "button" };
 
-/** Кнопка: pri — главная, bad — опасная, dash — необязательная, ghost — без рамки. */
-export const Btn = part<"button", { pri?: boolean; bad?: boolean; dash?: boolean; ghost?: boolean }>("button", "sb-b", ["pri", "bad", "dash", "ghost"]);
-/** Строка или пункт списка и меню: своя разметка внутри, вид — у className места. */
-export const RowBtn = part("button", "sb-rw", [], BUTTON);
-/** Кнопка-значок: подпись обязательна. */
-export const IconBtn = part<"button", { "aria-label": string }>("button", "sb-ic", [], BUTTON);
-/** Действие текстом: ссылка в строке или полоса. */
-export const TextBtn = part("button", "sb-tx", [], BUTTON);
-/** Ссылка в виде кнопки. */
-export const LinkBtn = part<"a", { pri?: boolean; ghost?: boolean }>("a", "sb-b", ["pri", "ghost"]);
-/** Широкая главная кнопка экрана. */
-export const Cta = part("button", "sb-cta");
-/** Ряд чипов выбора: quiet — невыбранные без заливки. */
-export const Chips = part<"div", { quiet?: boolean }>("div", "sb-chips", ["quiet"]);
-/** Многострочное поле. */
-export const Area = part("textarea", "sb-in");
-/** Выпадающий список. */
-export const Sel = part("select", "sb-in");
-/** Строка пояснения или отказа: tone — цвет. */
-export const Note = part<"div", { tone?: Mood }>("div", "sb-note", ["tone"]);
-/** То же внутри строки текста. */
-export const Hint = part<"span", { tone?: Mood }>("span", "sb-note", ["tone"]);
-/** Команда или адрес, который копируют. */
-export const Cmd = part("code", "sb-cmd");
-/** Пилюля состояния: conn — с лампой. */
-export const Pill = part<"span", { tone?: Tone; conn?: boolean }>("span", "sb-pill", ["tone", "conn"]);
-/** Лампа состояния: kind — busy, wait, idle, stop, bad, gone. */
-export const Dot = part<"span", { kind?: string }>("span", "sb-dot", ["kind"]);
-/** Счётчик: wait — ждущий цвет. */
-export const Badge = part<"span", { wait?: boolean }>("span", "sb-badge", ["wait"]);
-/** Страница широкого вида: прокрутка и отступы. */
-export const Page = part("div", "sb-page");
-/** Тело экрана узкого вида: прокрутка и отступы. */
-export const Pad = part("div", "sb-pad");
-/** Раздел страницы: dlg — диалог; tone — цвет. */
-export const Sec = part<"section", { dlg?: boolean; tone?: Mood }>("section", "sb-sec", ["dlg", "tone"]);
-/** Подпись раздела. */
-export const H4 = part("h4", "sb-h4");
-/** Ряд кнопок и значений. */
-export const Opts = part("div", "sb-opts");
-/** Ряд подписи и поля выбора: нажатие на подпись выбирает. */
-export const OptsLabel = part("label", "sb-opts");
-/** Ряд значений внутри строки текста. */
-export const OptsInline = part("span", "sb-opts");
-/** Моноширинный текст. */
-export const M = part("span", "sb-m");
-/** Карточка итога: хорошо. */
-export const OkCard = part("div", "sb-okc");
-/** Карточка итога: ждёт. */
-export const WaitCard = part("div", "sb-waitc");
-/** Карточка итога: отказ. */
-export const BadCard = part("div", "sb-badc");
+export const RowBtn = made("button", "sb-rw", BUTTON);
+export const IconBtn = made("button", "sb-ic", BUTTON) as (p: ComponentProps<"button"> & { "aria-label": string }) => ReactNode;
+export const TextBtn = made("button", "sb-tx", BUTTON);
+export const Cta = made("button", "sb-cta");
+export const Area = made("textarea", "sb-in");
+export const Sel = made("select", "sb-in");
+export const Cmd = made("code", "sb-cmd");
+export const Page = made("div", "sb-page");
+export const Pad = made("div", "sb-pad");
+export const H4 = made("h4", "sb-h4");
+export const Opts = made("div", "sb-opts");
+export const OptsLabel = made("label", "sb-opts");
+export const M = made("span", "sb-m");
+export const OkCard = made("div", "sb-okc");
+export const WaitCard = made("div", "sb-waitc");
+export const BadCard = made("div", "sb-badc");
 
-/** Поле ввода: mono — моноширинное. */
-export function In({ mono, className, ...p }: ComponentProps<"input"> & { mono?: boolean }) {
-  return <input {...p} className={classes("sb-in", mono && "m", className)} />;
-}
+type Look = { pri?: boolean; bad?: boolean; dash?: boolean; ghost?: boolean };
+const look = ({ pri, bad, dash, ghost }: Look) => cx(pri && "pri", bad && "bad", dash && "dash", ghost && "ghost");
 
-/** Заголовок раскрытия: open — раскрыто. */
-export function DisclosureBtn({ open, className, ...p }: ComponentProps<"button"> & { open: boolean }) {
-  return <button type="button" {...p} aria-expanded={open} className={classes("sb-ds", className)} />;
-}
+export const Btn = ({ pri, bad, dash, ghost, className, ...rest }: ComponentProps<"button"> & Look) => <button {...rest} className={cx("sb-b", look({ pri, bad, dash, ghost }), className)} />;
+export const LinkBtn = ({ pri, ghost, className, ...rest }: ComponentProps<"a"> & Pick<Look, "pri" | "ghost">) => <a {...rest} className={cx("sb-b", look({ pri, ghost }), className)} />;
 
-/** Переключатель: on — включён; role можно заменить на checkbox. */
-export function Switch({ on, ...p }: ComponentProps<"button"> & { on: boolean }) {
-  return <button type="button" role="switch" {...p} aria-checked={on} />;
-}
+export const DisclosureBtn = ({ open, className, ...rest }: ComponentProps<"button"> & { open: boolean }) => <button type="button" aria-expanded={open} {...rest} className={cx("sb-ds", className)} />;
 
-/** Флажок. */
-export const Check = (p: Omit<ComponentProps<"input">, "type">) => <input {...p} type="checkbox" />;
+export const Chips = ({ quiet, className, ...rest }: ComponentProps<"div"> & { quiet?: boolean }) => <div {...rest} className={cx("sb-chips", quiet && "quiet", className)} />;
+export const Chip = ({ on, className, ...rest }: ComponentProps<"button"> & { on: boolean }) => <button aria-pressed={on} {...rest} className={cx("sb-chip", className)} />;
 
-/** Чип выбора: on — выбран. */
-export function Chip({ on, className, ...p }: ComponentProps<"button"> & { on: boolean }) {
-  return <button {...p} aria-pressed={on} className={classes("sb-chip", className)} />;
-}
+export const In = ({ mono, className, ...rest }: ComponentProps<"input"> & { mono?: boolean }) => <input {...rest} className={cx("sb-in", mono && "m", className)} />;
 
-/** Строка «подпись — значение». */
-export function Row({ label, children, className, ...p }: ComponentProps<"div"> & { label: ReactNode }) {
-  return (
-    <div {...p} className={classes("sb-row", className)}>
-      <span>{label}</span>
-      {children}
-    </div>
-  );
-}
+export const Note = ({ tone, className, ...rest }: ComponentProps<"div"> & { tone?: Tone }) => <div {...rest} className={cx("sb-note", tone, className)} />;
 
-/**
- * Строка выбора слота: при двух слотах и больше. Отмеченный считает slotChoice; один слот — только подпись, если он ждёт сброса.
- * Один компонент на форму новой сессии и окна подъёма точки.
- */
-export function SlotPick({ slots, value, on, label = "Слот" }: { slots: Record<string, { wait: number | null }>; value: string; on(slot: string): void; label?: string }) {
-  const names = Object.keys(slots);
-  const waits = (name: string) => (slots[name].wait ? ` · ждёт сброса ${at(slots[name].wait!)}` : "");
-  if (names.length < 2) {
-    if (!names[0] || !slots[names[0]].wait) return null;
-    return <Note tone="wait" data-slot-wait="">{`Слот ${names[0]}${waits(names[0])}`}</Note>;
-  }
-  return (
-    <Row label={label} data-slot-pick="">
-      <Chips>
-        {names.map((name) => (
-          <Chip key={name} data-slot={name} on={name === value} onClick={() => on(name)}>
-            {name + waits(name)}
-          </Chip>
-        ))}
-      </Chips>
-    </Row>
-  );
-}
+export const Pill = ({ tone, conn, className, ...rest }: ComponentProps<"span"> & { tone?: Tone; conn?: boolean }) => <span {...rest} className={cx("sb-pill", tone, conn && "conn", className)} />;
+export const Dot = ({ kind, className, ...rest }: ComponentProps<"span"> & { kind?: string }) => <span {...rest} className={cx("sb-dot", kind, className)} />;
+export const Badge = ({ wait, className, ...rest }: ComponentProps<"span"> & { wait?: boolean }) => <span {...rest} className={cx("sb-badge", wait && "wait", className)} />;
 
-/** Вкладки: tabs — [ключ, подпись]; вид — у className места. */
-export function Tabs<K extends string>({ tabs, cur, pick, ...p }: Omit<ComponentProps<"div">, "role"> & { tabs: ReadonlyArray<readonly [K, ReactNode]>; cur: K; pick(k: K): void }) {
-  return (
-    <div {...p} role="tablist">
-      {tabs.map(([k, label]) => (
-        <Btn key={k} role="tab" aria-selected={k === cur} data-tab={k} onClick={() => pick(k)}>
-          {label}
-        </Btn>
-      ))}
-    </div>
-  );
-}
+export const PageHead = ({ title, className, children, ...rest }: Omit<ComponentProps<"div">, "title"> & { title?: ReactNode }) => (
+  <div {...rest} className={cx("sb-ph", className)}>
+    {title !== undefined && <h2>{title}</h2>}
+    {children}
+  </div>
+);
 
-/**
- * Поле с фиксацией: текст — своё состояние, значение уходит наружу по Enter и при уходе с поля, только если изменилось.
- * Esc возвращает прежнее. Новое значение снаружи заменяет текст.
- */
-export function CommitIn({ value, onCommit, onCancel, onBlur, onKeyDown, ...p }: Omit<ComponentProps<typeof In>, "value" | "defaultValue" | "onInput"> & { value: string; onCommit(text: string): void; onCancel?(): void }) {
-  const [text, setText] = useState(value);
-  // что уже зафиксировано: Enter и следующий уход с поля — одна фиксация
-  const [fixed, setFixed] = useState(value);
+export const Sec = ({ dlg, tone, className, ...rest }: ComponentProps<"section"> & { dlg?: boolean; tone?: Tone }) => <section {...rest} className={cx("sb-sec", dlg && "dlg", tone, className)} />;
+
+export const Row = ({ label, className, children, ...rest }: ComponentProps<"div"> & { label: ReactNode }) => (
+  <div {...rest} className={cx("sb-row", className)}>
+    <span>{label}</span>
+    {children}
+  </div>
+);
+
+export const Meter = ({ value, warn, bad, className, ...rest }: ComponentProps<"span"> & { value: number; warn?: boolean; bad?: boolean }) => (
+  <span {...rest} className={cx("sb-barw", warn && "warn", bad && "bad", className)}>
+    <i style={{ width: `${value}%` }} />
+  </span>
+);
+
+export const Switch = ({ on, ...rest }: ComponentProps<"button"> & { on: boolean }) => <button type="button" role="switch" aria-checked={on} {...rest} />;
+export const Check = (p: ComponentProps<"input">) => <input type="checkbox" {...p} />;
+
+export const Tabs = <K extends string>({ tabs, cur, pick, ...rest }: Omit<ComponentProps<"div">, "children"> & { tabs: ReadonlyArray<readonly [K, ReactNode]>; cur: K; pick(id: K): void }) => (
+  <div {...rest} role="tablist">
+    {tabs.map(([id, label]) => (
+      <Btn key={id} role="tab" aria-selected={id === cur} data-tab={id} onClick={() => pick(id)}>
+        {label}
+      </Btn>
+    ))}
+  </div>
+);
+
+export const Choices = ({ title, children }: { title: ReactNode; children: ReactNode }) => (
+  <div className="vw-g">
+    <span className="vw-t">{title}</span>
+    <Chips quiet>{children}</Chips>
+  </div>
+);
+
+export type OutcomeNote = { text: string; tone?: "ok" | "bad" | "wait" | "" };
+
+/** Итог действия: нет текста — нет строки. */
+export const Outcome = ({ note, ...rest }: Omit<ComponentProps<"div">, "role"> & { note: OutcomeNote | null | undefined }) =>
+  note?.text ? (
+    <Note {...rest} tone={note.tone} role={note.tone === "bad" ? "alert" : "status"}>
+      {note.text}
+    </Note>
+  ) : null;
+
+/** Поле с фиксацией: Enter и уход с поля фиксируют изменённое один раз, Esc возвращает прежнее. */
+export function CommitIn({ value, onCommit, onCancel, onBlur, onKeyDown, ...rest }: Omit<ComponentProps<typeof In>, "value" | "defaultValue"> & { value: string; onCommit(v: string): void; onCancel?(): void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const fixed = useRef(value);
   useEffect(() => {
-    setText(value);
-    setFixed(value);
+    fixed.current = value;
+    input.current!.value = value;
   }, [value]);
   const commit = () => {
-    if (text === fixed) return;
-    setFixed(text);
-    onCommit(text);
+    const v = input.current!.value;
+    if (v === fixed.current) return;
+    fixed.current = v;
+    onCommit(v);
   };
   return (
     <In
-      {...p}
-      value={text}
-      onInput={(e) => setText(e.currentTarget.value)}
+      {...rest}
+      ref={input}
+      defaultValue={value}
       onBlur={(e) => {
         commit();
         onBlur?.(e);
@@ -179,7 +127,7 @@ export function CommitIn({ value, onCommit, onCancel, onBlur, onKeyDown, ...p }:
       onKeyDown={(e) => {
         if (e.key === "Enter") commit();
         if (e.key === "Escape") {
-          setText(fixed);
+          input.current!.value = fixed.current;
           onCancel?.();
         }
         onKeyDown?.(e);
@@ -188,40 +136,13 @@ export function CommitIn({ value, onCommit, onCancel, onBlur, onKeyDown, ...p }:
   );
 }
 
-/** Заголовок страницы: заголовок и справа действия. */
-export function PageHead({ title, children, className, ...p }: Omit<ComponentProps<"div">, "title"> & { title?: ReactNode }) {
-  return (
-    <div {...p} className={classes("sb-ph", className)}>
-      {title !== undefined && <h2>{title}</h2>}
-      {children}
-    </div>
-  );
-}
+type LimitProps = ComponentProps<"div"> & { label: ReactNode; used: number; resets?: number };
 
-/** Группа выбора в панели настроек: подпись и ряд кнопок-переключателей. */
-export function Choices({ title, children }: { title: ReactNode; children: ReactNode }) {
-  return (
-    <div className="vw-g">
-      <span className="vw-t">{title}</span>
-      <Chips quiet>{children}</Chips>
-    </div>
-  );
-}
-
-/** Полоса расхода: value — доля 0…100; warn, bad — цвет. */
-export function Meter({ value, warn, bad, className, ...p }: ComponentProps<"span"> & { value: number; warn?: boolean; bad?: boolean }) {
-  return (
-    <span {...p} className={classes("sb-barw", warn && "warn", bad && "bad", className)}>
-      <i style={{ width: `${value}%` }} />
-    </span>
-  );
-}
-
-/** Строка окна лимита: подпись, полоса, процент и время сброса; пороги цвета — одни на все экраны. used — доля 0…1. */
-export function LimitRow({ label, used, resets, ...p }: ComponentProps<"div"> & { label: ReactNode; used: number; resets?: number }) {
+/** Строка лимита: доля, полоса с порогами и срок. */
+export function LimitRow({ label, used, resets, ...rest }: LimitProps) {
   const percent = Math.round(used * 100);
   return (
-    <div {...p}>
+    <div {...rest}>
       <span>{label}</span>
       <Meter value={Math.min(percent, 100)} warn={percent >= LIMIT_WARN && percent < LIMIT_BAD} bad={percent >= LIMIT_BAD} />
       <em>{`${percent} %${resets ? ` · до ${at(resets)}` : ""}`}</em>
@@ -229,21 +150,36 @@ export function LimitRow({ label, used, resets, ...p }: ComponentProps<"div"> & 
   );
 }
 
-/** Итог действия одной строкой: пусто — строки нет. */
-export function Outcome({ note, ...p }: ComponentProps<"div"> & { note?: OutcomeNote | null }) {
-  if (!note?.text) return null;
+type Slots = Record<string, { wait: number | null }>;
+
+/** Выбор слота: два и больше — чипы; один ждущий — подпись; один свободный — ничего. */
+export function SlotPick({ slots, value, on, label = "Слот" }: { slots: Slots; value: string; on(name: string): void; label?: string }) {
+  const names = Object.keys(slots);
+  if (names.length < 2) {
+    const wait = slots[names[0]]?.wait;
+    return wait ? (
+      <Note tone="wait" data-slot-wait="">
+        {`Слот ${slotWaitText(names[0], wait)}`}
+      </Note>
+    ) : null;
+  }
   return (
-    <Note {...p} role={note.tone === "bad" ? "alert" : "status"} tone={note.tone || undefined}>
-      {note.text}
-    </Note>
+    <Row label={label} data-slot-pick="">
+      <Chips>
+        {names.map((n) => (
+          <Chip key={n} on={n === value} data-slot={n} onClick={() => on(n)}>
+            {slots[n].wait ? slotWaitText(n, slots[n].wait) : n}
+          </Chip>
+        ))}
+      </Chips>
+    </Row>
   );
 }
 
-/**
- * Выбор одного из многих: выбранный и ближние (машины проекта) — кнопками, остальные — списком «ещё N…».
- * select — свойства списка (data-f), button — свойства кнопки значения.
- */
-export function PickOne({ all, near, cur, on, select, button }: { all: string[]; near: string[]; cur: string; on(v: string): void; select?: ComponentProps<"select"> & Record<`data-${string}`, unknown>; button?(v: string): ComponentProps<"button"> & Record<`data-${string}`, unknown> }) {
+type PickProps = { all: string[]; near: string[]; cur: string; on(v: string): void; select?: ComponentProps<"select"> & Record<`data-${string}`, unknown>; button?(v: string): ComponentProps<"button"> & Record<`data-${string}`, unknown> };
+
+/** Один из многих: выбранный и ближние — кнопками, остальные — списком «ещё N…». */
+export function PickOne({ all, near, cur, on, select, button }: PickProps) {
   const shown = all.filter((v) => v === cur || near.includes(v));
   const rest = all.filter((v) => !shown.includes(v));
   return (

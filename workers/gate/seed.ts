@@ -1,15 +1,16 @@
 #!/usr/bin/env node
-// Первая строка пропуска нового флота: инструкция вставки — в вывод, приглашение — в поток ошибок. В инструкции только хэш.
+// Первое приглашение флота, когда пропусков ещё нет: инструкция вставки в stdout, приглашение в stderr; секрета в инструкции нет.
 //   wrangler d1 execute switchboard-gate --remote --command "$(node seed.ts host laptop)"
 import { fieldsWrong, newKid, newSecret, sha256 } from "./src/format.ts";
 
 const [role, name, person] = process.argv.slice(2);
-// почта идёт в текст инструкции: кавычка в ней недопустима
-if (fieldsWrong(role, name, person) || person?.includes("'")) {
-  console.error("использование: switchboard seed <host|client> <имя> [<почта человека у client>]");
-  process.exit(2);
+// инструкция — текст SQL: кавычке в нём не место
+if (fieldsWrong({ role, name, person }) || person?.includes("'")) {
+  process.stderr.write("использование: switchboard seed <host|client> <имя> [<почта человека у client>]\n");
+  process.exitCode = 2;
+} else {
+  const kid = newKid();
+  const secret = newSecret();
+  process.stdout.write(`INSERT INTO passes (id, role, name, person, state, hash, by, at) VALUES ('${kid}', '${role}', '${name}', ${person ? `'${person}'` : "NULL"}, 'wait', '${await sha256(secret)}', 'seed', ${Date.now()});\n`);
+  process.stderr.write(`${kid}.${secret}\n`);
 }
-const kid = newKid();
-const code = newSecret();
-console.log(`INSERT INTO passes (id, role, name, person, state, hash, by, at) VALUES ('${kid}', '${role}', '${name}', ${person ? `'${person}'` : "NULL"}, 'wait', '${await sha256(code)}', 'seed', ${Date.now()});`);
-console.error(`${kid}.${code}`);

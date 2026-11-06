@@ -1,6 +1,6 @@
-// Копирование в буфер: галочка на полторы секунды, отказ буфера — словом.
-import { Check, Copy } from "lucide-react";
+// Копирование: значок и подпись говорят, как вышло.
 import { useEffect, useState } from "react";
+import { Check, Copy } from "lucide-react";
 
 const SHOWN_MS = 1500;
 
@@ -11,12 +11,7 @@ export function CopyButton({ text, label }: { text: string; label?: string }) {
     const timer = setTimeout(() => setState(""), SHOWN_MS);
     return () => clearTimeout(timer);
   }, [state]);
-  const copy = () => {
-    (navigator.clipboard?.writeText(text) ?? Promise.reject(new Error("нет буфера"))).then(
-      () => setState("done"),
-      () => setState("denied"),
-    );
-  };
+  const copy = async () => setState((await navigator.clipboard?.writeText(text).then(() => true, () => false)) ? "done" : "denied");
   const Icon = state === "done" ? Check : Copy;
   const word = { "": label, done: "скопировано", denied: "буфер недоступен" }[state];
   return (

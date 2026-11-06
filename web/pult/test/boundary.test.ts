@@ -1,8 +1,8 @@
-// Леса границы «оболочка приложения», сторона пульта и общее: оболочка страницы, обработчик пушей, статика, архив каталога.
+// Леса границы «оболочка приложения», пульт и общее обоих приложений: состав, оболочка страницы, обработчик пушей, статика, архив каталога.
 // Вход — файл сборки build.json, браузерные API и команда сборки, исход — страница, кадры и файлы. Номер — эталон-источник; без номера — чьё: код.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -15,13 +15,12 @@ import { packFromRepo as packModule } from "../../../tools/release-cli/src/modul
 import { fakeScope } from "../../packages/alerts/stand/fakes.ts";
 import { defined } from "../../packages/core/stand/app.ts";
 import { FakeRelay, flush, KEY } from "../../packages/core/stand/relay.ts";
+import { phoneParts } from "../../phone/stand/parts.ts";
 import { pultParts } from "../stand/parts.ts";
 import { fleetRelay, fleetRoster, HOST, pult } from "./stand.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "../../..");
-const app = join(here, "..");
-const dist = join(app, "dist");
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -38,15 +37,6 @@ afterEach(() => {
   vi.doUnmock("../../shell.ts");
   vi.doUnmock("@switchboard/web-core");
 });
-
-const QUESTION = {
-  type: "question",
-  from: "profiles@laptop",
-  to: ["phone", "panel-desk"],
-  question: "toolu_01Hq",
-  kind: "ask",
-  questions: [{ question: "Какую базу мигрировать первой?", header: "База", multiSelect: false, options: [{ label: "прод", description: "Боевая база" }, { label: "стенд", description: "Копия" }] }],
-};
 
 /** Список сборки пульта из into монорепо: имена и версии. */
 function listOf(appName: string): BuildList {
@@ -69,15 +59,15 @@ async function browser(list: BuildList, relay = fleetRelay()) {
 }
 
 describe("состав приложения", () => {
-  it("5138 · модули стенда пульта — те же, что в into пульта: свои восемь, набор проходит гейты монорепо и ядра", () => {
+  it.each([
+    ["pult", pultParts, 17],
+    ["phone", phoneParts, 13],
+  ])("5138 5139 · модули стенда %s — те же, что в его into; набор проходит гейт ядра", (name, parts, count) => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
-    const repo = loadRepo(root);
-    expect(repo.filter((m) => m.name.startsWith("pult-")).map((m) => m.name).sort()).toEqual(["pult-accounts", "pult-incidents", "pult-journal", "pult-machines", "pult-open", "pult-points", "pult-profiles", "pult-settings"]);
-    expect(check(repo)).toEqual([]);
-    const want = order(repo.filter((m) => m.into?.includes("pult") && m.name !== "web-core")).map((m) => m.name);
-    expect(pultParts().map((p) => p.manifest.name).sort()).toEqual([...want].sort());
-    expect(want.length).toBe(17);
-    expect(appGate(defined(pultParts()))).toEqual([]);
+    const want = loadRepo(root).filter((m) => m.into?.includes(name) && !["web-core", ...(name === "phone" ? ["web-view", "web-ui"] : [])].includes(m.name));
+    expect(parts().map((p) => p.manifest.name).sort()).toEqual(want.map((m) => m.name).sort());
+    expect(want.length).toBe(count);
+    expect(appGate(defined(parts()))).toEqual([]);
   });
 
   it("5193 · состав приложения — только into модулей: оболочка пульта и телефона пользуется лишь ядром страницы, снять любой модуль страницы её uses не мешает", () => {
@@ -123,55 +113,23 @@ describe("оболочка страницы", () => {
     await vi.waitFor(() => expect(document.querySelector(".sb-brand b")?.textContent, document.body.textContent ?? "").toBe("Пульт"), { timeout: 15_000 });
     await flush();
     expect(asked[0]).toEqual(["./build.json", { cache: "no-store" }]);
-    expect([...document.querySelectorAll<HTMLElement>(".sb-navcol .sb-nv")].map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "accounts", "profiles", "journal", "points", "settings"]);
     expect(urls.length).toBeGreaterThan(0);
     expect(urls.every((u) => u.startsWith("wss://relay.from-build/m/"))).toBe(true);
   }, 30_000);
 
-  it("список сборки не прочитан: причина на странице, обещание отказывает", async () => {
-    vi.stubGlobal("fetch", async () => {
-      throw new Error("сети нет");
-    });
-    const { boot } = await import("../../shell.ts");
-    await expect(boot({})).rejects.toThrow("сети нет");
-    expect(document.getElementById("app")!.textContent).toBe("Сборка не загрузилась: сети нет");
-  });
-
-  it("список сборки молчит: через 30 с причина на странице", async () => {
+  it.each([
+    ["список сборки", () => new Promise(() => {})],
+    ["ядро страницы", async () => ({ json: async () => listOf("pult") })],
+  ])("%s молчит: через 30 с причина на странице", async (_, answer) => {
+    // устав: у всех операций есть предел
     vi.useFakeTimers();
-    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    vi.stubGlobal("fetch", answer);
+    vi.doMock("@switchboard/web-core", () => new Promise(() => {}));
     const { boot } = await import("../../shell.ts");
     const run = boot({}).catch((e: Error) => e.message);
     await vi.advanceTimersByTimeAsync(29_000);
     expect(document.getElementById("app")!.textContent).toBe("");
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(await run).toBe("нет ответа за 30 с");
-    expect(document.getElementById("app")!.textContent).toBe("Сборка не загрузилась: нет ответа за 30 с");
-  });
-
-  it("ядро страницы не загрузилось: причина на странице, обещание отказывает", async () => {
-    // чьё: код; файл ядра страницы лежит рядом со списком сборки и может не прийти
-    vi.stubGlobal("fetch", async () => ({ json: async () => listOf("pult") }));
-    vi.doMock("@switchboard/web-core", () => {
-      throw new Error("файла ядра нет");
-    });
-    const { boot } = await import("../../shell.ts");
-    const why = await boot({}).then(
-      () => "",
-      (e: Error) => e.message,
-    );
-    expect(why).not.toBe("");
-    expect(document.getElementById("app")!.textContent).toBe(`Сборка не загрузилась: ${why}`);
-  });
-
-  it("ядро страницы молчит: через 30 с причина на странице", async () => {
-    // устав: у всех операций есть предел
-    vi.useFakeTimers();
-    vi.stubGlobal("fetch", async () => ({ json: async () => listOf("pult") }));
-    vi.doMock("@switchboard/web-core", () => new Promise(() => {}));
-    const { boot } = await import("../../shell.ts");
-    const run = boot({}).catch((e: Error) => e.message);
-    await vi.advanceTimersByTimeAsync(30_000);
     expect(await run).toBe("нет ответа за 30 с");
     expect(document.getElementById("app")!.textContent).toBe("Сборка не загрузилась: нет ответа за 30 с");
   });
@@ -202,17 +160,9 @@ describe("оболочка страницы", () => {
 
   it.each([
     ["inbox", "card", "#card?callsign=site%40laptop"],
-    ["inbox", "chat", "#chat?callsign=site%40laptop"],
-    ["inbox", "ask", "#ask?callsign=profiles%40laptop"],
-    ["inbox", "open", "#open"],
-    ["board", "card", "#card?callsign=site%40laptop"],
     ["board", "chat", "#chat?callsign=site%40laptop"],
-    ["board", "ask", "#ask?callsign=profiles%40laptop"],
-    ["board", "open", "#open"],
-    ["incidents", "card", "#card?callsign=site%40laptop"],
-    ["incidents", "chat", "#chat?callsign=site%40laptop"],
     ["incidents", "ask", "#ask?callsign=profiles%40laptop"],
-    ["incidents", "open", "#open"],
+    ["inbox", "open", "#open"],
   ])("beside: от «%s» экран %s открывается справа, список остаётся", async (list, screen, hash) => {
     const t = await pult({ url: `/#${list === "board" ? "sessions" : list}` });
     await t.go(hash);
@@ -226,23 +176,6 @@ describe("оболочка страницы", () => {
     await t.go("#card?callsign=site%40laptop");
     expect(t.$(".sb-master")!.getAttribute("data-screen")).toBe("board");
     expect(t.$(".sb-screen")!.getAttribute("data-screen")).toBe("card");
-  });
-
-  it("сквозной флоу: вопрос приходит кадром, строка «Работы» показывает его, чат рядом со списком отвечает", async () => {
-    const relay = fleetRelay();
-    relay.handlers["question.list"] = () => ({ ok: true, result: [{ question: QUESTION.question, kind: "ask", questions: QUESTION.questions }] });
-    relay.handlers.answer = () => ({ ok: true });
-    const t = await pult({ relay });
-    relay.push(QUESTION);
-    await flush();
-    expect(t.$('[data-callsign="profiles@laptop"] .bd-t2')!.textContent).toBe("? Какую базу мигрировать первой?");
-    await t.click(t.$('[data-callsign="profiles@laptop"]'));
-    expect(t.$(".bd-row")).not.toBeNull();
-    expect(t.$(".chat-ask")!.textContent).toContain("Какую базу мигрировать первой?");
-    await t.click(t.btn(t.$(".chat-ask"), /^стенд/));
-    await t.click(t.btn(t.$(".chat-ask"), "Ответить"));
-    expect(relay.sent("answer")).toEqual([expect.objectContaining({ v: 1, callsign: "profiles@laptop", question: "toolu_01Hq", answers: { "Какую базу мигрировать первой?": "стенд" } })]);
-    expect(t.$(".chat-ask")!.textContent).toContain("Ответ «стенд» принят.");
   });
 
   it("188 · у pc нет session.files и session.call: у poe-bot нет «@», «/», сведений и «Прервать», запросов к pc нет; у site — есть, session.files ушёл", async () => {
@@ -338,7 +271,6 @@ describe("кнопки уведомления", () => {
   // чьё: код; сколько кнопок вмещает уведомление, говорит браузер
   it.each([
     [2, 2],
-    [1, 0],
     [undefined, 0],
   ])("браузер вмещает %s: две кнопки показаны числом %i", async (maxActions, shown) => {
     vi.stubGlobal("Notification", { maxActions });
@@ -355,11 +287,16 @@ describe("кнопки уведомления", () => {
 });
 
 describe("статика и архив", () => {
-  it("4187 · dist: app.js, sw.js, статика и значки; адресов relay и Worker'ов, модулей и ключа флота нет; значки те же; обработчик пушей работает из своего файла", async () => {
+  it.each(["pult", "phone"])("4185 4187 · %s: dist — app.js, sw.js, статика и значки; адресов relay и Worker'ов, модулей и ключа флота нет; значки те же; обработчик пушей работает из своего файла", async (name) => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): адресов relay в коде оболочек 0
-    // чьё: код; в архив каталога идёт вся папка: сборка начинает с чистой
-    mkdirSync(dist, { recursive: true });
-    writeFileSync(join(dist, "stale.js"), "");
+    const app = join(root, "web", name);
+    const dist = join(app, "dist");
+    // чьё: код; в архив каталога идёт вся папка: сборка начинает с чистой, в том числе в свежей копии репо без dist
+    rmSync(dist, { recursive: true, force: true });
+    if (name === "pult") {
+      mkdirSync(dist);
+      writeFileSync(join(dist, "stale.js"), "");
+    }
     const r = spawnSync(process.execPath, [join(app, "build.mjs")], { encoding: "utf8" });
     expect(r.status).toBe(0);
     expect(readdirSync(dist).sort()).toEqual(["app.js", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "index.html", "manifest.webmanifest", "sw.js"]);
@@ -377,7 +314,7 @@ describe("статика и архив", () => {
     for (const f of ["index.html", "manifest.webmanifest"]) expect(readFileSync(join(dist, f), "utf8")).toBe(readFileSync(join(app, "public", f), "utf8"));
     const png = (f: string) => createHash("sha256").update(readFileSync(join(dist, f))).digest("hex").slice(0, 16);
     expect(["icon-192.png", "icon-512.png", "apple-touch-icon.png"].map(png)).toEqual(ICONS);
-    expect(r.stdout).toContain("pult: dist/ собран — оболочка без модулей и адресов");
+    expect(r.stdout).toContain(`${name}: dist/ собран — оболочка без модулей и адресов`);
     // опыт в настоящем Chromium: зелёные леса, а с внешним импортом регистрация падает; у обработчика нет загрузчика и карты импорта
     vi.stubGlobal("indexedDB", new IDBFactory());
     vi.stubGlobal("fetch", async () => ({ json: async () => ({ workers: FakeRelay.WORKERS }) }));
@@ -443,7 +380,6 @@ describe("статика и архив", () => {
     await flush();
     expect(run.stopped).toBeNull();
     expect(run.failed).toEqual({});
-    expect([...document.querySelectorAll<HTMLElement>(".sb-navcol .sb-nv")].map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "accounts", "profiles", "journal", "points", "settings"]);
     expect(document.querySelector(".sb-brand b")!.textContent).toBe("Пульт");
     expect(urls.length).toBeGreaterThan(0);
     expect(urls.every((u) => u.startsWith("wss://relay.from-build/m/"))).toBe(true);

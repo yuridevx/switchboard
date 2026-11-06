@@ -8,7 +8,10 @@ type Pushed = { type: string; from?: string; notify: Record<string, unknown> };
 function pushesFor(clients: string[], online: string[]): Array<{ to: string; skip?: string[] }> {
   return clients.flatMap((to) => {
     if (kindOf(to) === "device") return online.includes(to) ? [] : [{ to }];
-    if (kindOf(to) === "user") return [{ to, skip: online.filter((c) => reaches(to, c)) }];
+    if (kindOf(to) === "user") {
+      const skip = online.filter((c) => reaches(to, c));
+      return [skip.length ? { to, skip } : { to }];
+    }
     return [];
   });
 }

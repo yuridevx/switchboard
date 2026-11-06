@@ -1,13 +1,5 @@
-// keeper — служба ОС Switchboard: исполнитель плана машины.
-//
-//	keeper run [--hide]   — в консоли; Ctrl+C — штатная остановка keeper (держатели и их процессы живут)
-//	keeper install        — приглашение машины — первой строкой stdin: keeper принимает его у gate и кладёт пропуск в machine.key; --worker <имя>=<https> — адреса
-//	                        в keeper.json; Windows: служба под пользователем (пароль — второй строкой stdin) или --logon — задача «при входе пользователя»;
-//	                        Linux — systemd --user с linger
-//	keeper uninstall      — убрать службу или задачу
-//	keeper hold …         — режим держателя (запускают keeper и Host)
-//	keeper version        — версия
-//	--name <имя>          — у run, install, uninstall: второй флот на этом компьютере, своя служба и своя папка
+// keeper — служба ОС машины: исполняет план машины от «Выпусков» — ставит части, держит их процессы через держатели, подменяет себя.
+// Сам ничего не решает. Тот же файл в режиме hold — держатель одного процесса: им пользуются keeper для частей и Host для сессий.
 package main
 
 import (
@@ -15,66 +7,63 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"syscall"
-
-	"switchboard/keeper/internal/holder"
-	"switchboard/keeper/internal/keeper"
-	"switchboard/keeper/internal/machine"
 )
 
 //go:embed module.json
 var manifest []byte
 
-// buildVersion — номер выпуска: его ставит сборка -ldflags "-X main.buildVersion=…".
-var buildVersion string
+const usage = "keeper: run [--hide] | install [--worker <имя>=<https>]… [--logon] | uninstall | hold … | version; у run, install, uninstall — [--name <имя>]"
 
-// version — номер выпуска или версия из module.json.
+// version — номер выпуска из module.json, встроенного в файл.
 func version() string {
-	if buildVersion != "" {
-		return buildVersion
-	}
 	var m struct{ Version string }
 	json.Unmarshal(manifest, &m)
 	return m.Version
 }
 
-// fleetName — имя второго флота на компьютере.
+func osName() string { return runtime.GOOS + " " + runtime.GOARCH }
+
+// fleetName — имя флота: пусто — первый флот компьютера.
 var fleetName string
 
-// useName — --name <имя> из аргументов: служба switchboard-keeper-<имя>, папка ~/.switchboard-<имя> в SWITCHBOARD_HOME: держатели и части наследуют её и имени не знают.
+// useName — снять --name <имя> с аргументов: у второго флота своя служба и своя папка.
 func useName(args []string) ([]string, error) {
-	rest := []string{}
+	var rest []string
 	for i := 0; i < len(args); i++ {
 		if args[i] != "--name" {
 			rest = append(rest, args[i])
 			continue
 		}
-		i++
-		if i == len(args) || !machine.ValidName(args[i]) {
+		if i+1 >= len(args) || !simpleName(args[i+1]) {
 			return nil, errors.New("--name <имя> — без путей")
 		}
-		u, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		fleetName = args[i]
-		os.Setenv("SWITCHBOARD_HOME", filepath.Join(u, ".switchboard-"+fleetName))
+		fleetName = args[i+1]
+		i++
 	}
 	return rest, nil
 }
 
-func serviceName() string {
-	if fleetName == "" {
-		return "switchboard-keeper"
-	}
-	return "switchboard-keeper-" + fleetName
+// simpleName — имя годится в имя файла или папки: не пусто, без разделителей пути и без точки в начале.
+func simpleName(s string) bool {
+	return s != "" && !strings.ContainsAny(s, `/\:`) && !strings.HasPrefix(s, ".")
 }
 
-// runArgs — команда службы и задачи: имя флота они несут в своей командной строке.
+func serviceName() string { return suffixed("switchboard-keeper") }
+
+func suffixed(s string) string {
+	if fleetName == "" {
+		return s
+	}
+	return s + "-" + fleetName
+}
+
+// runArgs — команда, которой ОС поднимает keeper этого флота.
 func runArgs() []string {
 	if fleetName == "" {
 		return []string{"run"}
@@ -82,78 +71,92 @@ func runArgs() []string {
 	return []string{"run", "--name", fleetName}
 }
 
-func start(echo io.Writer) (*keeper.Keeper, error) {
-	home, err := machine.Home()
-	if err != nil {
-		return nil, err
+// homeDir — папка машины: у флота с именем — ~/.switchboard-<имя>; без имени — SWITCHBOARD_HOME или ~/.switchboard.
+func homeDir() (string, error) {
+	if h := os.Getenv("SWITCHBOARD_HOME"); h != "" && fleetName == "" {
+		return h, nil
 	}
-	k, err := keeper.New(home, echo, keeper.Options{Version: version()})
+	u, err := os.UserHomeDir()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	k.Run()
-	return k, nil
+	return filepath.Join(u, suffixed(".switchboard")), nil
 }
 
-// runConsole — keeper в консоли; SIGINT или SIGTERM — штатная остановка; остановился сам — только после подмены себя: ОС поднимет новый файл.
-func runConsole(args []string) int {
+func main() {
+	if len(os.Args) < 2 {
+		fail(2, usage)
+	}
+	cmd, args := os.Args[1], os.Args[2:]
+	var err error
+	if cmd != "hold" && cmd != "version" {
+		if args, err = useName(args); err != nil {
+			fail(1, cmd+": "+err.Error())
+		}
+	}
+	switch cmd {
+	case "version":
+		fmt.Println(version())
+	case "hold":
+		os.Exit(runHold(args))
+	case "run":
+		os.Exit(runFleet(args))
+	case "install":
+		err = install(args)
+	case "uninstall":
+		err = unregister()
+	default:
+		fail(2, usage)
+	}
+	if err != nil {
+		fail(1, cmd+": "+err.Error())
+	}
+}
+
+func fail(code int, text string) {
+	fmt.Fprintln(os.Stderr, text)
+	os.Exit(code)
+}
+
+// runFleet — keeper этого флота до сигнала ОС или до подмены себя; служба Windows идёт через свой обработчик.
+func runFleet(args []string) int {
+	if asService() {
+		return runService()
+	}
 	for _, a := range args {
 		if a == "--hide" {
 			hideConsole()
 		}
 	}
-	k, err := start(os.Stderr)
+	k, err := startKeeper(Options{})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "keeper:", err)
+		fmt.Fprintln(os.Stderr, "keeper: "+err.Error())
 		return 1
 	}
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
 	select {
-	case <-stop:
+	case <-sig:
 		k.Stop()
 		return 0
 	case <-k.Done():
-		return 3
+		return exitUpdated
 	}
 }
 
-func main() {
-	cmd := ""
-	if len(os.Args) > 1 {
-		cmd = os.Args[1]
-	}
-	args := os.Args[min(2, len(os.Args)):]
-	switch cmd {
-	case "hold": // у держателя свои аргументы и команда процесса после --: папку он получает в окружении
-		os.Exit(holder.Main(args))
-	case "version":
-		fmt.Println(version())
-		return
-	case "run", "install", "uninstall":
-	default:
-		fmt.Fprintln(os.Stderr, "keeper "+version()+": run [--hide] | install [--worker <имя>=<https>]… [--logon] | uninstall | hold … | version; у run, install, uninstall — [--name <имя>]")
-		os.Exit(2)
-	}
-	args, err := useName(args)
+// exitUpdated — код выхода после подмены себя: не ноль, чтобы ОС подняла новый файл.
+const exitUpdated = 3
+
+// startKeeper — keeper на папке этого флота.
+func startKeeper(o Options) (*Keeper, error) {
+	home, err := homeDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "keeper:", err)
-		os.Exit(1)
+		return nil, err
 	}
-	switch cmd {
-	case "run":
-		if isService() {
-			runService()
-			return
-		}
-		os.Exit(runConsole(args))
-	case "install":
-		err = install(args)
-	case "uninstall":
-		err = unregister()
-	}
+	k, err := newKeeper(home, o)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, cmd+":", err)
-		os.Exit(1)
+		return nil, err
 	}
+	k.Run()
+	return k, nil
 }
