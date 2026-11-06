@@ -8,5 +8,5 @@ if (bad.length) {
   console.error(`gate: ${bad.length} нарушений\n${bad.join("\n")}`);
   process.exit(1);
 }
-const names = mods.reduce((sum, m) => sum + Object.keys(m.provides).length, 0);
+const names = mods.reduce((n, m) => n + Object.keys(m.provides).length, 0);
 console.log(`gate: ok · ${mods.length} модулей · ${names} имён контракта`);
