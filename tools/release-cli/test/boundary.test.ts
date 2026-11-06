@@ -876,4 +876,15 @@ describe("сверка со старым кодом", () => {
     await vi.waitFor(() => expect(r).toBeDefined());
     expect([r!.isError, r!.text]).toEqual([true, "machine.journal: timeout"]);
   });
+
+  it("fetch: архив не читается — vendor не тронут: сначала разбор, потом замена (чьё: код)", async () => {
+    const repo = tmp("parts-repo-");
+    mkdirSync(join(repo, "vendor", "web-card"), { recursive: true });
+    writeFileSync(join(repo, "vendor", "web-card", "old.ts"), "старое");
+    const { call } = await bench((f) => (f.type === "releases.fetch" ? { ok: true, result: { version: "1.1.0", url: "https://r2.test/x.tgz?s" } } : undefined));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Uint8Array(pack([{ path: "../evil", data: Buffer.from("x") }])), { status: 200 }));
+    const r = await call("fetch", { part: "web-card", dir: "." }, repo);
+    expect([r.isError, r.text]).toEqual([true, "путь вне архива: ../"]);
+    expect(readFileSync(join(repo, "vendor", "web-card", "old.ts"), "utf8")).toBe("старое");
+  });
 });

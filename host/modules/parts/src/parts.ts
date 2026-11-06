@@ -54,8 +54,8 @@ export function make() {
     const found = got.result as { version: string; url: string };
     const tgz = await download(net, found.url, (why) => `fetch_failed: ${why} на ${part} ${found.version}`, signal);
     const target = join(resolve(cwd, dir), "vendor", part);
-    rmSync(target, { recursive: true, force: true });
     const files = entries(tgz).filter((e) => e.data);
+    rmSync(target, { recursive: true, force: true });
     for (const f of files) {
       mkdirSync(dirname(join(target, f.path)), { recursive: true });
       writeFileSync(join(target, f.path), f.data!);
