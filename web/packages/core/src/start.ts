@@ -67,14 +67,18 @@ export function startApp(o: StartOptions): Running {
       await core.link.drain();
     };
     await withLimit(farewell(), STEP_MS, late("прощание модулей не успело"));
-    core.link.close("hidden");
+    // уход — не обрыв: вернёмся и подключимся, красной лампы и «данные на…» на возвращении нет
+    core.link.close("hidden", "connecting");
   }
 
   const hide = () => (leaving ??= leave());
 
   async function show() {
-    if (!leaving) return;
-    await leaving;
+    const left = leaving;
+    if (!left) return;
+    await left;
+    // за один уход возвращаются раз: страница успела скрыться и показаться, пока уход шёл
+    if (leaving !== left) return;
     leaving = null;
     if (page.stop || !page.key) return;
     const greeting = async () => void (await Promise.all(mods.list.map((m) => mods.call(m, "возвращении", () => m.def.on?.show?.()))));
