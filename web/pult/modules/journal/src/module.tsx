@@ -7,6 +7,7 @@ import css from "./journal.css";
 
 const LIMIT = 50;
 type Shown = { events: LedgerEvent[]; more: boolean; loaded: boolean; error: string };
+const START: Shown = { events: [], more: false, loaded: false, error: "" };
 
 /** Подпись дня: «Сегодня», «Вчера», «31 октября». */
 function dayOf(t: number): string {
@@ -17,18 +18,18 @@ function dayOf(t: number): string {
   return new Date(t).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
 }
 
-/** Состав флота: машины с их since и сессии; пока связи нет — пусто. */
+/** Состав флота: машины с их since и сессии; пока связи нет — пусто. На связи без единой машины — не пусто: журнал читается и тогда. */
 const fleetOf = (app: App) => {
   const r = app.roster();
   if (app.link() !== "open" || !r) return "";
-  return [...r.machines.map((m) => `${m.machine}:${m.since}`), ...r.sessions.map((s) => s.callsign)].join("\n");
+  return ["open", ...r.machines.map((m) => `${m.machine}:${m.since}`), ...r.sessions.map((s) => s.callsign)].join("\n");
 };
 
 function Journal() {
   const app = useApp();
   const [machine, setMachine] = useState("");
   const [q, setQ] = useState("");
-  const [shown, setShown] = useState<Shown>({ events: [], more: false, loaded: false, error: "" });
+  const [shown, setShown] = useState(START);
   const latest = useRef({ asked: 0, busy: false, shown });
   latest.current.shown = shown;
 
@@ -64,6 +65,7 @@ function Journal() {
 
   const pick = (m: string) => {
     setMachine(m);
+    setShown(START);
     void all(m);
   };
 

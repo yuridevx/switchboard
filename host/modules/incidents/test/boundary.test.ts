@@ -1,7 +1,7 @@
 // Леса границы «журнал и инциденты», сторона Host: настоящий HTTP на 127.0.0.1, настоящие manage и chat через контракт;
 // снаружи — SDK, держатели, relay, часы стенда, подделки слотов, профилей и пуша. Импорт — только контракты; исход — ответ, кадр, ввод SDK, roster, журнал, раздел на диске.
 // Источник свойств доставки — слово пользователя 1 нояб.: «запрос пост не должен ничего ждать / инцидент должен быть доставлен хотя бы 1 раз». Номер — эталон-источник; без пометки — чьё: код.
-import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
@@ -546,6 +546,93 @@ describe("инцидент: доставка хотя бы раз", () => {
     const q = await inputOf(st, "disk-full-2@win");
     expect(q.inputs[0].uuid).toBe(r.body.id);
     expect(disk().map((a) => a.callsign)).toEqual(["disk-full-2@win"]);
+  });
+
+  it("сессию остановили намеренно, новая не открылась — обращение без адреса: экран покажет его недоставленным", async () => {
+    const { st, post, work } = await bench();
+    mkdirSync(join(work, "нет"));
+    const r = await post({ type: "nodir", text: "x" });
+    await inputOf(st, "nodir-1@win");
+    rmSync(join(work, "нет"), { recursive: true });
+    expect(await st.relay.request({ type: "session.stop", v: 1, callsign: "nodir-1@win" })).toMatchObject({ ok: true });
+    await until(() => st.journal().find((l) => l.ev === "incident" && l.kind === "refuse" && l.id === r.body.id));
+    expect(await st.relay.request({ type: "incident.pending", v: 1, machine: "win" })).toMatchObject({ result: { appeals: [{ id: r.body.id, callsign: null, refused: { word: "bad_dir" } }] } });
+  });
+
+  it.each([
+    ["session.stop", "остановили"],
+    ["session.remove", "убрали"],
+  ])("сессия в failed, обращение в ней ждёт; %s (%s) — обращение уходит в новую сессию без нового POST", async (type) => {
+    // устав: второй сбой — failed, дальше решает агент; процесса нет, поэтому on.close не приходит — только смена состояния
+    const { st, post, disk } = await bench();
+    await post({ type: "disk-full", key: "C:", text: "Свободно 2%" });
+    const p = await inputOf(st, "disk-full-1@win");
+    take(p);
+    await until(() => disk().length === 0);
+    st.holders.failInitNext = 1;
+    p.exit(1, "первый");
+    await until(() => st.sdk.of("disk-full-1@win").length === 2 && st.holders.procs.get("disk-full-1@win")?.initializes === 1);
+    st.proc("disk-full-1@win").exit(1, "второй");
+    await until(() => st.states("disk-full-1@win").at(-1)?.state === "failed");
+    const r = await post({ type: "disk-full", key: "C:", text: "Свободно 1%" });
+    await until(() => st.journal().find((l) => l.ev === "incident" && l.kind === "refuse" && l.id === r.body.id));
+    expect(await st.relay.request({ type, v: 1, callsign: "disk-full-1@win" })).toMatchObject({ ok: true });
+    const fresh = await until(() => [...st.kernel.sessions.keys()].find((c) => st.session("host-incidents", c)?.state === "idle"));
+    const q = await inputOf(st, fresh);
+    expect(q.inputs[0].uuid).toBe(r.body.id);
+  });
+
+  it("остановка застала очередь ключа: у каждого обращения в очереди — отказ shutting_down в журнале, по одному; все на диске", async () => {
+    // контракт: отказ доставки — строка журнала ev incident с id
+    const k = new FakeHolders();
+    keepers.push(k);
+    const { st, post, disk } = await bench({ holders: k });
+    k.failInitNext = 1;
+    const first = await post({ type: "disk-full", key: "C:", text: "первое" });
+    const p = await until(() => k.procs.get("disk-full-1@win"));
+    await until(() => p.initializes === 1);
+    const second = await post({ type: "disk-full", key: "C:", text: "второе" });
+    const down = st.close();
+    stands.splice(stands.indexOf(st), 1);
+    await pause();
+    const w = p as unknown as { failInit: boolean; write: (x: unknown) => void };
+    w.failInit = false;
+    w.write({ $: "initialized" });
+    await down;
+    const refusals = st.journal().filter((l) => l.ev === "incident" && l.word === "shutting_down");
+    expect(refusals.map((l) => l.id).sort()).toEqual([first.body.id, second.body.id].sort());
+    expect(disk()).toHaveLength(2);
+  });
+
+  it("ход чужой сессии: список обращений на диске не переписывается", async () => {
+    // user_message_uuids приходит несколько раз за ход у каждой сессии машины, а запись — весь список с вложениями и fsync
+    const { st, post } = await bench();
+    await post({ type: "disk-full", key: "C:", text: "ждёт хода" });
+    await inputOf(st, "disk-full-1@win");
+    await st.open("docs@win");
+    await pause();
+    const file = join(st.home, "store", "host-incidents.json");
+    const was = statSync(file, { bigint: true });
+    const p = st.proc("docs@win");
+    turn(p, "ответ", { user_message_uuids: ["чужой"] });
+    await until(() => st.states("docs@win").at(-1)?.state === "idle");
+    await pause();
+    const now = statSync(file, { bigint: true });
+    expect([now.ino, now.mtimeNs]).toEqual([was.ino, was.mtimeNs]);
+  });
+
+  it("обращение с отказом ждёт старта Host или обращения: открытие и остановка чужих сессий его не повторяют", async () => {
+    // контракт: «обращение ждёт следующего старта Host или следующего обращения»; экран показывает время последнего отказа
+    const { st, post, disk } = await bench();
+    const r = await post({ type: "noprof", text: "x" });
+    const lines = () => st.journal().filter((l) => l.ev === "incident" && l.kind === "refuse" && l.id === r.body.id);
+    await until(() => lines().length === 1);
+    const was = disk();
+    await st.open("docs@win");
+    expect(await st.relay.request({ type: "session.stop", v: 1, callsign: "docs@win" })).toMatchObject({ ok: true });
+    await pause();
+    expect(lines()).toHaveLength(1);
+    expect(disk()).toEqual(was);
   });
 
   it("обращение без сессии: следующее обращение пробует и его — оба во вводе по порядку", async () => {

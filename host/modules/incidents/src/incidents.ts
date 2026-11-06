@@ -86,6 +86,8 @@ export function make(): Module {
     const type = cfg.types![a.type];
     let callsign = target(a);
     if (!callsign) {
+      // прежней сессии больше нет: откажет открытие — обращение без адреса, экран покажет его недоставленным
+      change(a.id, ({ callsign: _gone, ...x }) => x);
       const mark: Mark = { type: a.type, ...(a.key === undefined ? {} : { key: a.key }) };
       const r = await host.request("session.open", { machine: host.machine, name: a.type, number: true, dir: type.dir, ...(type.profile ? { profile: type.profile } : {}), ...(type.slot ? { slot: type.slot } : {}), incident: mark });
       if (!r.ok) return refused(a, "session.open", r);
@@ -101,14 +103,17 @@ export function make(): Module {
   }
 
   /** Проход по обращениям на диске: каждое — в очередь своего ключа; к своему часу обращение могло уже уйти. */
-  const drain = () => {
+  const drain = (only: (a: Appeal) => boolean = () => true) => {
     if (!ready) return;
-    for (const { id, type, key } of appeals()) {
+    for (const { id, type, key } of appeals().filter(only)) {
       const queue = JSON.stringify([type, key]);
       const next = (chains.get(queue) ?? Promise.resolve())
         .then(async () => {
           const a = appeals().find((x) => x.id === id);
-          if (a && !stopping && !waits(a)) await deliver(a);
+          if (!a || waits(a)) return;
+          // остановка: очередь дальше не идёт, но у каждого обращения в ней — отказ; один проход мог поставить его дважды
+          if (stopping) return a.refused?.word === "shutting_down" ? undefined : refused(a, "доставка", { error: "shutting_down", why: "Host останавливается" });
+          await deliver(a);
         })
         .catch((e: unknown) => host.log({ kind: "stop", ev: "incident", word: "module_error", id, why: `доставка: ${String(e)}` }));
       chains.set(queue, next);
@@ -169,13 +174,18 @@ export function make(): Module {
       open(s) {
         // новый процесс сессии: ввод прежнего пропал, обращения, что ушли в него и не взяты, доставляются снова; attach — процесс тот же
         const cs = s.info.callsign;
-        if (s.info.start !== "attach") disk().update((all = []) => all.map(({ callsign, ...x }) => (callsign === cs ? x : { ...x, callsign })));
-        drain();
+        const mine = appeals().flatMap((a) => (a.callsign === cs ? [a.id] : []));
+        if (s.info.start === "attach" || !mine.length) return;
+        disk().update((all = []) => all.map(({ callsign, ...x }) => (callsign === cs ? x : { ...x, callsign })));
+        drain((a) => mine.includes(a.id));
       },
-      close: drain,
+      // сессию остановили намеренно: она больше не цель. Смена состояния, а не close: у сессии в failed процесса нет и close не приходит
+      state(s, state) {
+        if (state === "stopped") drain((a) => a.callsign === s.info.callsign);
+      },
       event(_s, msg) {
         const taken = (msg as { user_message_uuids?: unknown }).user_message_uuids;
-        if (Array.isArray(taken)) disk().update((all = []) => all.filter((a) => !taken.includes(a.id)));
+        if (Array.isArray(taken) && appeals().some((a) => taken.includes(a.id))) disk().update((all = []) => all.filter((a) => !taken.includes(a.id)));
       },
     },
     requests: {
