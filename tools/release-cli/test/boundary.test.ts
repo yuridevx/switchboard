@@ -836,4 +836,8 @@ describe("сверка со старым кодом", () => {
     const exec: Exec = async (cmd, args, cwd) => (cmd === "node" ? { code: 1, out: "Error: Cannot find module 'zod'\n    at main.ts:1\n" } : execOk()(cmd, args, cwd));
     await expect(main(["release", "core", "--dry-run", "--out", tmp()], {}, exec, go, fakeFleet().f)).rejects.toThrow("host --check: Error: Cannot find module 'zod'");
   }, 60_000);
+
+  it("--out без значения — незнакомый аргумент: архив не уходит молча во временную папку (чьё: код)", async () => {
+    await expect(main(["release", "core", "--dry-run", "--out"], {}, execOk(), go, fakeFleet().f)).rejects.toThrow("незнакомый аргумент: --out");
+  });
 });

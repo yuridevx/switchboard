@@ -22,7 +22,7 @@ function options(rest: string[]) {
   const o: { out?: string; dry: boolean } = { dry: false };
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--dry-run") o.dry = true;
-    else if (rest[i] === "--out") o.out = rest[++i];
+    else if (rest[i] === "--out" && rest[i + 1]) o.out = rest[++i];
     else throw new Error(`незнакомый аргумент: ${rest[i]}`);
   }
   return o;
