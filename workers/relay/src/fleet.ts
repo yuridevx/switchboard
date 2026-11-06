@@ -213,8 +213,8 @@ export class Fleet extends DurableObject<Env> {
     }
     ws.serializeAttachment({ ...card, checking: true });
     const key = typeof f.key === "string" ? f.key : "";
-    // в журнал — пропуск без секрета
-    const pass = key.split(".").slice(0, -1).join(".");
+    // в журнал — пропуск без секрета: прислать его может кто угодно, длину не выбирает он
+    const pass = key.split(".").slice(0, -1).join(".").slice(0, 80);
     const shut = (word: string, why: string) => {
       console.log(`${word} ${pass} · ${why}`);
       ws.close(1008, word);

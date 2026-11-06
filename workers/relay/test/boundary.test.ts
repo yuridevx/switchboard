@@ -168,6 +168,14 @@ describe("hello", () => {
     expect(a.closed).toBeNull();
   });
 
+  it("открытая дверь: журнал берёт из пропуска не больше 80 знаков, сколько бы ни прислал чужой", async () => {
+    const x = await open();
+    x.send({ type: "hello", proto: 1, key: `${"a".repeat(1000)}.секрет` });
+    expect(await x.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
+    expect(logged("bad_key", "a".repeat(80))).toBeDefined();
+    expect(logged("bad_key", "a".repeat(81))).toBeUndefined();
+  });
+
   it.each([
     // сбой под нагрузкой может опоздать за предел стенда: причина тогда — предел
     ["throw", "gate "],
