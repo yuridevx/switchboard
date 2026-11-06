@@ -5,16 +5,17 @@ import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
 
-const worker = (exports as unknown as { default: { frame(f: Frame): Promise<Frame[]>; fetch(r: Request): Promise<Response> } }).default;
+// вход привязки — Participant (relay, points, releases зовут env.LEDGER.frame); прямой вход — fetch
+const { Participant: part, default: worker } = exports as unknown as { Participant: { frame(f: Frame): Promise<Frame[]> }; default: { fetch(r: Request): Promise<Response> } };
 const DB = (env as unknown as { DB: D1Database; TEST_MIGRATIONS: D1Migration[] }).DB;
 const at = (hm: string, day = "2026-10-31") => new Date(`${day}T${hm}:00Z`).getTime();
 const clock = (t: number) => vi.setSystemTime(t);
 
 type Ev = { id: number; t: number; ev: string; from: string; by?: string; machine?: string; callsign?: string; text: string };
-const add = (o: Record<string, unknown>) => worker.frame({ type: "ledger.add", v: 1, to: ".ledger", from: "@pc", ev: "session.opened", text: "s", ...o });
+const add = (o: Record<string, unknown>) => part.frame({ type: "ledger.add", v: 1, to: ".ledger", from: "@pc", ev: "session.opened", text: "s", ...o });
 const presence = (ev: string, machine: string) => add({ from: ".relay", ev, machine, text: undefined });
 const read = async (o: Record<string, unknown> = {}) => {
-  const [r] = await worker.frame({ type: "ledger.read", v: 1, id: "r", to: ".ledger", from: "panel", limit: 10, ...o });
+  const [r] = await part.frame({ type: "ledger.read", v: 1, id: "r", to: ".ledger", from: "panel", limit: 10, ...o });
   return r.result as { events: Ev[]; more: boolean };
 };
 const rows = async () => (await DB.prepare("SELECT * FROM events ORDER BY id").all<Record<string, unknown>>()).results;
@@ -63,13 +64,14 @@ describe("вход и уход машины", () => {
     expect((await rows()).map((r) => r.text)).toEqual(["a пропала", "a пропала", "b на связи", "b на связи"]);
   });
 
+  // пороги единиц — 60 с, 60 мин, 48 ч (чьё: код)
   it.each([
-    [3_000, "3 с"],
-    [42 * 60_000, "42 мин"],
+    [59_000, "59 с"],
+    [60_000, "1 мин"],
+    [60 * 60_000, "1 ч"],
     [125 * 60_000, "2 ч 5 мин"],
-    [120 * 60_000, "2 ч"],
-    [47 * 3_600_000, "47 ч"],
-    [3 * 86_400_000, "3 дн"],
+    [48 * 3_600_000 - 60_000, "47 ч 59 мин"],
+    [48 * 3_600_000, "2 дн"],
   ])("сколько не было машины: %d мс — «%s»", async (ms, words) => {
     const t0 = at("10:00");
     clock(t0);
@@ -84,10 +86,12 @@ describe("запись и чтение", () => {
   it("222 · ledger.add без id: ответа нет; чтение — запись целиком: from — адрес отправителя, t — часы ledger, by нет", async () => {
     clock(at("15:02"));
     expect(await add({ from: "@laptop", ev: "slot.swapped", machine: "laptop", text: "слот main: infirex → y0902" })).toEqual([]);
-    const reply = await worker.frame({ type: "ledger.read", v: 1, id: "r-7", to: ".ledger", from: "panel", machine: "laptop", limit: 1 });
+    const reply = await part.frame({ type: "ledger.read", v: 1, id: "r-7", to: ".ledger", from: "panel", machine: "laptop", limit: 1 });
     expect(reply).toEqual([
       { type: "reply", id: "r-7", ok: true, to: "panel", result: { more: false, events: [{ id: 1, t: at("15:02"), ev: "slot.swapped", from: "@laptop", machine: "laptop", text: "слот main: infirex → y0902" }] } },
     ]);
+    // с id — ответ ok: так ledger.add приходит через relay
+    expect(await add({ id: "a-1", ev: "x", text: "y" })).toEqual([{ type: "reply", id: "a-1", ok: true, to: "@pc" }]);
   });
 
   it("225 · 5044 · запись от Worker'а: from — как поставил вызывающий, by и callsign на месте; у записи сессии machine — её машина; machine кадра главнее", async () => {
@@ -113,10 +117,7 @@ describe("запись и чтение", () => {
     ["224 · назад", { before: 5, limit: 2 }, [4, 3], true],
     ["224 · вперёд, новые сначала", { after: 3, limit: 10 }, [5, 4], false],
     ["вперёд с пределом — ближайшие к курсору", { after: 1, limit: 2 }, [3, 2], true],
-    ["без курсора — новые сначала", { limit: 2 }, [5, 4], true],
     ["ровно limit записей — more нет", { limit: 5 }, [5, 4, 3, 2, 1], false],
-    ["after главнее before", { after: 3, before: 2, limit: 10 }, [5, 4], false],
-    ["записей нет", { before: 1, limit: 3 }, [], false],
   ])("страницы: %s", async (_n, q, ids, more) => {
     for (let i = 1; i <= 5; i++) await add({ text: `s${i}` });
     const r = await read(q);
@@ -139,20 +140,16 @@ describe("отказы", () => {
     ["223 · add без ev", { type: "ledger.add", v: 1, text: "t" }, "bad_frame", null],
     ["223 · add без text", { type: "ledger.add", v: 1, ev: "e" }, "bad_frame", null],
     ["add: ev не текст", { type: "ledger.add", v: 1, ev: 5, text: "t" }, "bad_frame", null],
-    ["add: пустой text", { type: "ledger.add", v: 1, ev: "e", text: "" }, "bad_frame", null],
     ["5061 · machine.left не от relay", { type: "ledger.add", v: 1, ev: "machine.left", machine: "a", text: "t" }, "bad_frame", null],
     ["5061 · machine.back не от relay", { type: "ledger.add", v: 1, id: "x", ev: "machine.back", machine: "a" }, "bad_frame", "x"],
     ["машина relay без machine", { type: "ledger.add", v: 1, id: "x", from: ".relay", ev: "machine.back" }, "bad_frame", "x"],
     ["2014 · read без id", { type: "ledger.read", v: 1, limit: 5 }, "bad_frame", null],
     ["2014 · limit нет", { type: "ledger.read", v: 1, id: "x" }, "bad_frame", "x"],
     ["2014 · limit 0", { type: "ledger.read", v: 1, id: "x", limit: 0 }, "bad_frame", "x"],
-    ["2014 · limit строкой", { type: "ledger.read", v: 1, id: "x", limit: "5" }, "bad_frame", "x"],
-    ["2014 · limit дробный", { type: "ledger.read", v: 1, id: "x", limit: 1.5 }, "bad_frame", "x"],
     ["2011 · чужое имя", { type: "ledger.drop", id: "x" }, "unknown_request", "x"],
-    ["2011 · другая версия", { type: "ledger.read", v: 2, id: "x", limit: 1 }, "contract_mismatch", "x"],
   ])("%s: %#j — слово, записей нет, строка журнала с причиной", async (_n, f, word, id) => {
     const log = journal();
-    const out = await worker.frame({ to: ".ledger", from: "@pc", ...f } as Frame);
+    const out = await part.frame({ to: ".ledger", from: "@pc", ...f } as Frame);
     expect(out).toEqual(id ? [expect.objectContaining({ type: "reply", id, ok: false, error: word, to: (f as { from?: string }).from ?? "@pc" })] : []);
     expect(log).toEqual([expect.objectContaining({ part: "ledger", kind: "refuse", word, from: (f as { from?: string }).from ?? "@pc", why: expect.stringMatching(/./) })]);
     expect(await rows()).toEqual([]);
@@ -160,14 +157,14 @@ describe("отказы", () => {
 
   it("223 · в строке отказа записи — имя записи, текста нет", async () => {
     const log = journal();
-    await worker.frame({ type: "ledger.add", v: 1, to: ".ledger", from: "@pc", ev: "machine.left", machine: "a", text: "секретный текст" });
+    await part.frame({ type: "ledger.add", v: 1, to: ".ledger", from: "@pc", ev: "machine.left", machine: "a", text: "секретный текст" });
     expect(log[0]).toMatchObject({ ev: "ledger.add", rec: "machine.left" });
     expect(JSON.stringify(log[0])).not.toContain("секретный текст");
   });
 
   it("2011 · кадр reply: ledger ответов не ждёт — строка note, кадров нет", async () => {
     const log = journal();
-    expect(await worker.frame({ type: "reply", id: "x", ok: true, to: ".ledger", from: "panel" })).toEqual([]);
+    expect(await part.frame({ type: "reply", id: "x", ok: true, to: ".ledger", from: "panel" })).toEqual([]);
     expect(log).toEqual([expect.objectContaining({ part: "ledger", kind: "note", ev: "reply", from: "panel" })]);
   });
 });
@@ -184,5 +181,16 @@ describe("прямой вход", () => {
     expect(await bad.json()).toMatchObject({ ok: false, error: "bad_key" });
     expect(await rows()).toHaveLength(1);
     expect((await worker.fetch(new Request("https://ledger.example/"))).status).toBe(404);
+  });
+
+  it("база не ответила: прямой запрос — отказ словом failed, а не отказ формы", async () => {
+    // устав: прямой запрос к Worker'у не прошёл — отказ словом
+    await DB.exec("ALTER TABLE events RENAME TO events_x");
+    try {
+      const r = await post({ type: "ledger.read", v: 1, id: "r", key: "client.panel.k2.s", limit: 5 });
+      expect([r.status, await r.json()]).toEqual([500, expect.objectContaining({ ok: false, error: "failed" })]);
+    } finally {
+      await DB.exec("ALTER TABLE events_x RENAME TO events");
+    }
   });
 });

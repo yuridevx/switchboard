@@ -8,8 +8,6 @@ import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createIncidents } from "./src/module.tsx";
 
-export { createIncidents };
-
 declare module "@switchboard/web-ui" {
   interface Marks {
     /** открытые инциденты и недоставленные обращения */

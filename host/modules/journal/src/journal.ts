@@ -1,76 +1,118 @@
-// Модуль journal: сбои из сообщений SDK — строками журнала машины; machine.journal — чтение файлов журнала host и keeper.
-import { readFile, readdir } from "node:fs/promises";
+// host-journal: сбои из сообщений SDK — строками журнала машины; machine.journal — строки host и keeper из файлов журнала машины.
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Frame, Host, LogRecord, Module } from "@switchboard/host";
-import { refuse } from "@switchboard/host";
-import { initLines, isInit, linesOf } from "./lines.ts";
+import { refuse, type Frame, type Host, type LogRecord, type Module, type SDKMessage } from "@switchboard/host";
+
+type Msg = Record<string, any>;
+type Lines = (m: Msg) => LogRecord[];
+type Line = { t: string; kind?: string; part?: string; callsign?: string; [k: string]: unknown };
+
+const first = (v: unknown) => String(v ?? "").split("\n")[0];
+
+/** init процесса: версия, модель, папка, режим; MCP и плагины, которые не поднялись, — строкой stop. */
+function init(m: Msg): LogRecord[] {
+  const lines: LogRecord[] = [
+    { ev: "sdk.init", why: `claude ${m.claude_code_version} · ${m.model} · ${m.cwd} · ${m.permissionMode}`, claude_code_version: m.claude_code_version, model: m.model, cwd: m.cwd, permissionMode: m.permissionMode },
+  ];
+  const mcp = ((m.mcp_servers ?? []) as Msg[]).filter((x) => x.status === "failed").map((x) => x.name as string);
+  const plugins = (m.plugin_errors ?? []) as Msg[];
+  const why = [
+    ...(mcp.length ? [`MCP-серверы не поднялись: ${mcp.join(", ")}`] : []),
+    ...(plugins.length ? [`плагины: ${plugins.map((p) => `${p.plugin}: ${p.type} — ${p.message}`).join(", ")}`] : []),
+  ];
+  if (why.length) lines.push({ kind: "stop", ev: "sdk.init", why: why.join("; "), ...(mcp.length ? { mcp_failed: mcp } : {}), ...(plugins.length ? { plugin_errors: plugins } : {}) });
+  return lines;
+}
+
+const stop = (ev: string, why: string, fields: Msg = {}): LogRecord => ({ kind: "stop", ev, why, ...fields });
+
+const SYSTEM: Record<string, Lines> = {
+  api_retry: ({ attempt, max_retries, retry_delay_ms, error_status }) => [
+    { ev: "sdk.api_retry", why: `попытка ${attempt} из ${max_retries}: ${error_status ?? "нет ответа"}, пауза ${retry_delay_ms / 1000} с`, attempt, max_retries, retry_delay_ms, error_status },
+  ],
+  status: (m) => (m.compact_result === "failed" ? [stop("sdk.compact", `сжатие разговора не удалось: ${first(m.compact_error)}`)] : []),
+  permission_denied: (m) => [
+    { kind: "refuse", ev: "sdk.permission_denied", word: "permission_denied", tool_name: m.tool_name, decision_reason_type: m.decision_reason_type, why: `${m.tool_name}: ${first(m.decision_reason ?? m.message)}` },
+  ],
+  worker_shutting_down: (m) => [{ ev: "sdk.worker_shutting_down", why: String(m.reason) }],
+  informational: (m) => (m.level === "warning" ? [{ ev: "sdk.informational", why: first(m.content) }] : []),
+};
+
+/** Вид сообщения SDK → строки журнала; всё прочее строк не даёт. system/init — отдельно: нужен только первый у процесса. */
+const BY_TYPE: Record<string, Lines> = {
+  system: (m) => SYSTEM[m.subtype]?.(m) ?? [],
+  // подтип ошибки — сбой и при is_error: false
+  result: (m) => (m.subtype === "success" && !m.is_error ? [] : [stop("sdk.result", `ход остановлен: ${first(m.errors?.[0] ?? m.result)}`, { word: m.startup_failure_reason ?? (m.subtype === "success" ? "is_error" : m.subtype) })]),
+  rate_limit_event({ rate_limit_info: i }) {
+    if (i?.status !== "rejected") return [];
+    const until = i.resetsAt ? new Date(i.resetsAt * 1000).toISOString() : "—";
+    return [stop("sdk.rate_limit", `лимит аккаунта ${i.rateLimitType ?? "—"}: отказ до ${until}`, { word: "rate_limit", rateLimitType: i.rateLimitType, resetsAt: i.resetsAt })];
+  },
+  auth_status: (m) => (m.error ? [stop("sdk.auth_status", `вход аккаунта не удался: ${first(m.error)}`)] : []),
+};
 
 const FILE = /^(?:host|keeper)-(\d{4}-\d{2}-\d{2})\.jsonl$/;
-
-type Record_ = LogRecord & { t: string; part?: string };
-
-function query(req: Frame) {
-  const { since, limit, kind, session, part } = req;
-  if (!Number.isInteger(limit) || (limit as number) < 1) throw refuse("bad_frame", "machine.journal: нет limit");
-  if (typeof since !== "string" || Number.isNaN(Date.parse(since))) throw refuse("bad_frame", `machine.journal: since не время — ${String(since)}`);
-  if (kind !== undefined && !Array.isArray(kind)) throw refuse("bad_frame", "machine.journal: kind — список слов");
-  if (session !== undefined && typeof session !== "string") throw refuse("bad_frame", "machine.journal: session — строка");
-  if (part !== undefined && typeof part !== "string") throw refuse("bad_frame", "machine.journal: part — строка");
-  return { since: new Date(since).toISOString(), limit: limit as number, kind: kind as string[] | undefined, session, part };
-}
-
-function parsed(text: string): Record_[] {
-  return text.split("\n").flatMap((line) => {
-    try {
-      return line ? [JSON.parse(line) as Record_] : [];
-    } catch {
-      // строка, которую ещё дописывают
-      return [];
-    }
-  });
-}
-
-/** Папка журнала: дни по порядку, стоп, когда записей уже больше limit. Файлы только читаются. */
-async function read(dir: string, q: ReturnType<typeof query>, signal: AbortSignal) {
-  const files = (await readdir(dir).catch(() => [] as string[])).filter((f) => FILE.test(f));
-  const dayOf = (f: string) => FILE.exec(f)![1];
-  const wanted = (r: Record_) => r.t > q.since && (!q.kind || q.kind.includes(r.kind ?? "note")) && (!q.session || r.callsign === q.session) && (!q.part || r.part === q.part);
-  const found: Record_[] = [];
-  for (const day of [...new Set(files.map(dayOf))].sort()) {
-    if (day < q.since.slice(0, 10)) continue;
-    for (const f of files.filter((x) => dayOf(x) === day)) found.push(...parsed(await readFile(join(dir, f), { encoding: "utf8", signal })).filter(wanted));
-    if (found.length > q.limit) break;
+/** Строка файла журнала; пустая или битая — ничего. */
+function parsed(text: string): Line[] {
+  try {
+    return text ? [JSON.parse(text) as Line] : [];
+  } catch {
+    return [];
   }
-  found.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
-  return { records: found.slice(0, q.limit), more: found.length > q.limit };
+}
+const optional = (v: unknown, ok: (v: unknown) => boolean) => v === undefined || ok(v);
+const isText = (v: unknown) => typeof v === "string";
+
+/** Строки журнала машины после since, старые первыми: файлы host и keeper с дня since. */
+function journal(dir: string, q: Frame) {
+  const { limit, kind, session, part } = q;
+  if (!Number.isInteger(limit) || (limit as number) < 1) throw refuse("bad_frame", "limit — целое больше нуля");
+  if (!isText(q.since) || Number.isNaN(Date.parse(q.since as string))) throw refuse("bad_frame", "since — время ISO");
+  if (!optional(kind, Array.isArray) || !optional(session, isText) || !optional(part, isText)) throw refuse("bad_frame", "kind — список, session и part — текст");
+  const since = new Date(q.since as string).toISOString();
+  let names: string[] = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    // папки ещё нет: строк нет
+  }
+  const wanted = (l: Line) => l.t > since && (!kind || (kind as string[]).includes(l.kind ?? "note")) && (!session || l.callsign === session) && (!part || l.part === part);
+  const dayOf = (name: string) => FILE.exec(name)?.[1];
+  // дни по порядку; записей набралось больше limit — дальше не читается
+  const days = [...new Set(names.map(dayOf))].filter((d): d is string => !!d && d >= since.slice(0, 10)).sort();
+  const found: Line[] = [];
+  for (const day of days) {
+    if (found.length > (limit as number)) break;
+    const lines = names.filter((n) => dayOf(n) === day).flatMap((n) => readFileSync(join(dir, n), "utf8").split("\n").flatMap(parsed).filter(wanted));
+    found.push(...lines.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0)));
+  }
+  return { records: found.slice(0, limit as number), more: found.length > (limit as number) };
 }
 
 export function make(): Module {
   let host: Host;
-  /** сессии, чей процесс уже отметил system/init */
-  const started = new Set<string>();
-
+  /** процессы, чей init уже записан: новый процесс сессии пишет его снова */
+  const inited = new Set<string>();
   return {
     start(h) {
       host = h;
     },
     session: () => ({ env: { CLAUDE_CODE_STARTUP_FAILURE_RESULTS: "1" } }),
     on: {
-      event(s, msg) {
-        const callsign = s.info.callsign;
-        let lines = linesOf(msg);
-        if (isInit(msg) && !started.has(callsign)) {
-          started.add(callsign);
-          lines = initLines(msg);
+      open: (s) => void inited.delete(s.info.callsign),
+      event(s, msg: SDKMessage) {
+        const m = msg as Msg;
+        const cs = s.info.callsign;
+        let lines = BY_TYPE[m.type]?.(m) ?? [];
+        if (m.type === "system" && m.subtype === "init" && !inited.has(cs)) {
+          inited.add(cs);
+          lines = init(m);
         }
-        for (const line of lines) host.log({ callsign, ...line });
-      },
-      close(s) {
-        started.delete(s.info.callsign);
+        for (const l of lines) host.log({ kind: "note", ...l, callsign: cs });
       },
     },
     requests: {
-      "machine.journal": (req, ctx) => read(join(host.dataDir, "journal"), query(req), ctx.signal),
+      "machine.journal": (q) => journal(join(host.dataDir, "journal"), q),
     },
   };
 }
