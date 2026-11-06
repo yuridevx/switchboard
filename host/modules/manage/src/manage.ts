@@ -56,7 +56,7 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
 
   const sessionOf = (f: Frame) => host.session(f.callsign as string)!;
   const isTaken = (callsign: string) => opening.has(callsign) || !!host.session(callsign);
-  const ledger = (ev: string, callsign: string, text: string, by: unknown) => host.emit({ type: "ledger.add", to: ".ledger", ev, machine: host.machine, callsign, text, ...(by ? { by } : {}) });
+  const ledger = (ev: string, callsign: string, text: string, by: unknown) => host.emit({ type: "ledger.add", to: ".ledger", ev, machine: host.machine, callsign, text, by });
 
   async function remove(s: Session, by: unknown): Promise<void> {
     const { callsign } = s.info;
@@ -113,20 +113,25 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
     const { callsign } = s.info;
     checkSpec(f, `session.update ${callsign}`);
     const spec = given(f as Part, STORED);
+    const flags = (Object.keys(SETTINGS) as Array<keyof typeof SETTINGS>).filter((k) => spec[k] !== undefined);
+    const save = (part: Part) => s.store<Part>().update((cur) => ({ ...cur, ...part }));
     const now: string[] = [];
+    // запись — после согласия SDK: отвергнутая модель проваливала бы каждый ход после resume
     if (isLive(s)) {
-      if (spec.model !== undefined) await sdk(s, "setModel", spec.model);
-      const flags = (Object.keys(SETTINGS) as Array<keyof typeof SETTINGS>).filter((k) => spec[k] !== undefined);
+      if (spec.model !== undefined) {
+        await sdk(s, "setModel", spec.model);
+        save({ model: spec.model });
+      }
       if (flags.length) await sdk(s, "applyFlagSettings", settingsOf(spec, flags));
-      now.push(...STORED.filter((k) => spec[k] !== undefined));
+      now.push(...Object.keys(spec));
+    }
+    if (Object.keys(spec).length) {
+      save(spec);
+      s.refresh();
     }
     if (f.title !== undefined) {
       await sdk(s, "renameSession", f.title);
       now.push("title");
-    }
-    if (Object.keys(spec).length) {
-      s.store<Part>().update((cur) => ({ ...cur, ...spec }));
-      s.refresh();
     }
     return { now };
   }
@@ -231,7 +236,7 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
       },
       state(s, state) {
         const by = partOf(s).remove_after_turn;
-        if (state === "idle" && by) void remove(s, by);
+        if (state === "idle" && by) return remove(s, by);
       },
     },
   };

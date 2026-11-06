@@ -15,7 +15,7 @@ type Block = { type: "text"; text: string } | { type: "image"; data: string; mim
 const say = (text: string) => ({ content: [{ type: "text" as const, text }] });
 const fail = (text: string) => ({ ...say(text), isError: true });
 
-function refusal(r: Refused, machine: string, run: string | null, started = false): string {
+function refusal(r: Refused, machine: string, run: string | null): string {
   const words: Record<string, string> = {
     no_shell: `на машине ${machine} нет такого шелла — какие есть, покажет info`,
     bad_frame: "запрос не по форме: шелл bash · pwsh · powershell, timeout — секунды больше 0; при background: true timeout обязателен",
@@ -23,7 +23,7 @@ function refusal(r: Refused, machine: string, run: string | null, started = fals
     disconnected: `связь с машиной ${machine} оборвалась, пока ход ждал; если её Host жив — итог отдаст wait по run`,
     shutting_down: `Host машины ${machine} останавливается и новых запросов не берёт`,
     unknown_request: `на машине ${machine} нет модуля shell`,
-    timeout: started ? `запуск ${run} мог начаться, смотри wait по run` : `машина ${machine} не ответила за 10 с, повтори`,
+    timeout: run ? `запуск ${run} мог начаться, смотри wait по run` : `машина ${machine} не ответила за 10 с, повтори`,
     no_run: `запуска ${run} на ${machine} нет: не было, прошли сутки после конца или Host машины перезапускался`,
     too_large: `ответ ${String(r.bytes)} байт больше кадра рации (32 МиБ): сократи вывод (grep, tail) или сожми файлы в $SB_OUT`,
   };
@@ -79,10 +79,10 @@ export function toolsOf(host: () => Host, me: string) {
         background: z.boolean().describe("обязательный выбор: false — ждать итога, true — в фоне"),
       },
       async (a, extra) => {
-        const run = randomBytes(8).toString("hex");
+        const run = randomBytes(4).toString("hex");
         if (!a.background) (extra as { signal?: AbortSignal }).signal?.addEventListener("abort", () => void host().request("shell.kill", { machine: a.machine, run }), { once: true });
         const r = await host().request("shell.run", { ...a, run, from: me });
-        if (!r.ok) return fail(refusal(r, a.machine, run, true));
+        if (!r.ok) return fail(refusal(r, a.machine, run));
         const s = r.result as Snapshot;
         return show(a.machine, run, s, a.background && s.state === "running" ? " — идёт в фоне: wait — посмотреть или дождаться, kill — погасить; о конце придёт сообщение флота" : "");
       },

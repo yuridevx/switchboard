@@ -48,11 +48,11 @@ export function make({ claudeDir: dir }: { claudeDir?: string } = {}): Module {
   function unbind(s: Session): void {
     const { callsign, session_id: sessionId } = s.info;
     const file = transcriptOf(dir ?? claudeDir(), sessionId);
-    const bound = file && lastBridge(file)?.bridgeSessionId;
-    const why = bound && reasonOf(s);
+    const bound = file ? lastBridge(file) : undefined;
+    const why = bound?.bridgeSessionId && reasonOf(s);
     if (!why) return;
-    appendFileSync(file!, JSON.stringify({ type: "bridge-session", sessionId, bridgeSessionId: "", lastSequenceNum: 0 }) + "\n");
-    host.log({ ev: "unbind", callsign, why: `привязка снята: ${why} · ${bound}` });
+    appendFileSync(file!, JSON.stringify({ type: "bridge-session", sessionId: bound!.sessionId ?? sessionId, bridgeSessionId: "", lastSequenceNum: 0 }) + "\n");
+    host.log({ ev: "unbind", callsign, why: `привязка снята: ${why} · ${bound!.bridgeSessionId}` });
   }
 
   async function enable(s: Session): Promise<void> {
@@ -85,6 +85,6 @@ export function make({ claudeDir: dir }: { claudeDir?: string } = {}): Module {
       if (s.info.start === "resume" || s.info.start === "point") unbind(s);
       return undefined;
     },
-    on: { open: (s) => void enable(s) },
+    on: { open: (s) => enable(s) },
   };
 }

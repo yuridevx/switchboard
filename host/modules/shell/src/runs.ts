@@ -49,8 +49,7 @@ export const stateWord = (s: Pick<Snapshot, "state" | "code">) => (s.state === "
 
 export function duration(ms: number): string {
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)} с`;
-  const seconds = Math.round(ms / 1000);
-  return `${Math.floor(seconds / 60)} мин ${String(seconds % 60).padStart(2, "0")} с`;
+  return `${Math.floor(ms / 60_000)} мин ${String(Math.floor(ms / 1000) % 60).padStart(2, "0")} с`;
 }
 
 function filesOf(out: string): Attachment[] {
@@ -98,7 +97,7 @@ export class Runs {
     this.host().log({ ev: "run_start", run: id, from, shell, background, timeout, line: spec.script.split("\n")[0].slice(0, LINE_MAX), pid: child.pid });
     child.once("exit", (code) => this.ended(run, code));
     child.once("error", (e) => {
-      this.host().log({ kind: "stop", ev: "run_error", run: id, why: e.message });
+      this.host().log({ ev: "run_error", run: id, why: e.message });
       this.ended(run, null);
     });
     run.limit = setTimeout(() => this.put(run, "timeout"), timeout * 1000);
@@ -124,7 +123,8 @@ export class Runs {
     clearTimeout(run.limit);
     run.ended = Date.now();
     run.code = run.end === "exit" ? code : null;
-    const size = (name: string) => statSync(join(run.dir, name)).size;
+    // скрипт мог стереть свою папку: конец запуска важнее счёта байт
+    const size = (name: string) => statSync(join(run.dir, name), { throwIfNoEntry: false })?.size ?? 0;
     this.host().log({ ev: "run_end", run: run.id, state: run.end, code: run.code, ms: run.ended - run.started, bytes: { stdout: size("stdout"), stderr: size("stderr") } });
     run.ttl = setTimeout(() => this.forget(run), TTL_MS);
     run.ttl.unref();
@@ -145,9 +145,10 @@ export class Runs {
     this.runs.delete(run.id);
     clearTimeout(run.ttl);
     try {
-      rmSync(run.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      rmSync(run.dir, { recursive: true, force: true });
     } catch (e) {
-      this.host().log({ kind: "note", ev: "run_forget", run: run.id, why: (e as Error).message });
+      // папку держит процесс, который скрипт пустил в фон
+      this.host().log({ ev: "run_forget", run: run.id, why: (e as Error).message });
     }
   }
 

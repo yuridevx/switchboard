@@ -1,16 +1,18 @@
 // Что зависит от ОС: где шелл, как ему отдать скрипт, как спросить версию и как погасить дерево процесса.
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 
 export const SHELLS = ["bash", "pwsh", "powershell"] as const;
 export type Shell = (typeof SHELLS)[number];
 
 export const WIN = process.platform === "win32";
-/** Запас на вопрос о версии: info читается с пределом 10 с. */
+/** Шелл молчит на вопрос о версии: он всё равно есть; info читается с пределом 10 с. */
 const VERSION_MS = 5_000;
 export const KILL_MS = 5_000;
-const PS_ARGS = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"];
+const PS_ARGS = ["-NoProfile", "-NonInteractive"];
+/** PowerShell 5.1 читает файл без BOM в кодировке системы и пишет вывод в ней же. */
+const PS_UTF8 = "\ufeff[Console]::OutputEncoding = $OutputEncoding = New-Object System.Text.UTF8Encoding $false\n";
 
 const onPath = (name: string) =>
   (process.env.PATH ?? "")
@@ -19,11 +21,16 @@ const onPath = (name: string) =>
     .map((d) => join(d, WIN ? `${name}.exe` : name))
     .find(existsSync);
 
-/** Git Bash: bash.exe из PATH на Windows бывает входом в WSL. */
+/** bash рядом с git: git.exe лежит в <Git>\\cmd, <Git>\\bin или <Git>\\mingw64\\bin. */
+function besideGit(git: string): string[] {
+  const up = dirname(git);
+  return dirname(up) === up ? [] : [join(up, "bin", "bash.exe"), ...besideGit(up)];
+}
+
+/** bash из PATH на Windows бывает входом в WSL: Git Bash ищем как Claude Code. */
 function gitBash(): string | undefined {
-  const set = process.env.CLAUDE_CODE_GIT_BASH_PATH;
-  if (set && existsSync(set)) return set;
-  return [process.env.ProgramFiles, process.env["ProgramFiles(x86)"]].filter((d) => d !== undefined).map((d) => join(d, "Git", "bin", "bash.exe")).find(existsSync);
+  const git = onPath("git");
+  return [process.env.CLAUDE_CODE_GIT_BASH_PATH ?? "", ...(git ? besideGit(git) : [])].find(existsSync);
 }
 
 export function pathOf(shell: Shell): string | undefined {
@@ -32,15 +39,14 @@ export function pathOf(shell: Shell): string | undefined {
   return join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 }
 
-/** Файл скрипта. PowerShell 5.1 читает файл без BOM в кодировке системы и пишет вывод в ней же. */
-export const scriptOf = (shell: Shell, script: string) => (shell === "bash" ? { name: "script.sh", text: script } : { name: "script.ps1", text: `\ufeff[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n${script}` });
+export const scriptOf = (shell: Shell, script: string) => (shell === "bash" ? { name: "script.sh", text: script } : { name: "script.ps1", text: PS_UTF8 + script });
 
-export const argsOf = (shell: Shell, file: string) => (shell === "bash" ? [file] : [...PS_ARGS, "-File", file]);
+export const argsOf = (shell: Shell, file: string) => (shell === "bash" ? [file] : [...PS_ARGS, ...(WIN ? ["-ExecutionPolicy", "Bypass"] : []), "-File", file]);
 
-export function versionOf(shell: Shell, path: string, signal: AbortSignal): Promise<string> {
-  const args = shell === "bash" ? ["--version"] : [...PS_ARGS, "-Command", "$PSVersionTable.PSVersion.ToString()"];
+export function versionOf(shell: Shell, path: string): Promise<string | null> {
+  const args = shell === "powershell" ? [...PS_ARGS, "-Command", "$PSVersionTable.PSVersion.ToString()"] : ["--version"];
   return new Promise((done) => {
-    execFile(path, args, { timeout: VERSION_MS, signal, windowsHide: true }, (_e, out) => done(/\d+(\.\d+)+/.exec(String(out))?.[0] ?? ""));
+    execFile(path, args, { timeout: VERSION_MS, windowsHide: true }, (_e, out) => done(/\d+(\.\d+)+/.exec(String(out))?.[0] ?? null));
   });
 }
 

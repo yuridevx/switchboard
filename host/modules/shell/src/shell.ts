@@ -25,16 +25,11 @@ function specOf(f: Frame): Omit<Spec, "path" | "from"> {
 export function make() {
   let host: Host;
   const runs = new Runs(() => host);
-  const stopping = new AbortController();
   let armed = false;
-  /** Сигнал Host приходит с запросом: остановка гасит запуски раньше, чем ядро дождётся ждущих. */
+  /** Ядро ждёт начатые запросы до stop(): запуски гаснут по сигналу остановки, он приходит с запросом. */
   const arm = ({ signal }: Ctx) => {
-    if (armed) return;
+    if (!armed) signal.addEventListener("abort", () => runs.halt(), { once: true });
     armed = true;
-    signal.addEventListener("abort", () => {
-      stopping.abort();
-      runs.halt();
-    }, { once: true });
   };
   const runOf = (f: Frame) => {
     const run = runs.get(f.run);
@@ -57,8 +52,7 @@ export function make() {
         const run = runs.start({ ...spec, path, from: ctx.from });
         return spec.background ? runs.snapshot(run) : runs.wait(run);
       },
-      "shell.wait"(f, ctx) {
-        arm(ctx);
+      "shell.wait"(f) {
         const run = runOf(f);
         const { timeout } = f;
         if (typeof timeout !== "number" || timeout < 0) throw badFrame("timeout: секунды ожидания, 0 — сразу");
@@ -67,13 +61,12 @@ export function make() {
       async "shell.kill"(f) {
         await runs.kill(runOf(f));
       },
-      async "shell.info"(_f, ctx) {
-        arm(ctx);
+      async "shell.info"() {
         const found = SHELLS.flatMap((shell) => {
           const path = pathOf(shell);
           return path ? [{ shell, path }] : [];
         });
-        const rows = await Promise.all(found.map(async ({ shell, path }) => [shell, { version: await versionOf(shell, path, stopping.signal), path }]));
+        const rows = await Promise.all(found.map(async ({ shell, path }) => [shell, { version: await versionOf(shell, path), path }]));
         return { shells: Object.fromEntries(rows) };
       },
     },
