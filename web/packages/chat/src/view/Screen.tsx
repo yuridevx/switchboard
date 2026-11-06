@@ -1,9 +1,10 @@
-// Экран разговора: лента или фокус, панель контекста на её месте, док над вводом и ввод со значками.
+// Экран разговора: лента или фокус, панель контекста на её месте, док над вводом и ввод со значками. part=last — живая строка шага для колонки пары.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, IconBtn, Pad, sessionLabel, sessionOf, useApp, useModule, type Params } from "@switchboard/web-ui";
+import { Btn, IconBtn, isWing, Pad, sessionLabel, sessionOf, useApp, useModule, wingOf, type Params } from "@switchboard/web-ui";
 import { exportMd, focused, type Item } from "../focus.ts";
 import { fold, type View } from "../fold.ts";
+import { toolLook } from "../tools.ts";
 import type { Talks } from "../talk.ts";
 import { Composer } from "./Composer.tsx";
 import { Dock } from "./Dock.tsx";
@@ -77,6 +78,23 @@ function Tools({ cs, view, focus, panel, setPanel }: { cs: string; view: View; f
       </a>
     </>
   );
+}
+
+/** Последний шаг ленты одной строкой: инструмент или первая строка ответа. */
+function lastStep(v: View): string {
+  for (let i = v.rows.length - 1; i >= 0; i--) {
+    const r = v.rows[i];
+    if (r.k !== "reply") continue;
+    for (let j = r.parts.length - 1; j >= 0; j--) {
+      const p = r.parts[j];
+      if (p.k === "tool" && v.tools[p.id]) {
+        const look = toolLook(v.tools[p.id]);
+        return [look.word, look.sum].filter(Boolean).join(" ");
+      }
+      if (p.k === "text") return p.text.trim().split("\n")[0];
+    }
+  }
+  return "";
 }
 
 function Feed({ cs, view, focus, over }: { cs: string; view: View; focus: boolean; over?: ReactNode }) {
@@ -182,6 +200,11 @@ export function ChatScreen({ params }: { params: Params }) {
   const rewind = app.use(() => talks.get(cs).rewind);
   const canAct = app.use(() => talks.canAct(cs));
   const label = app.use(() => sessionLabel(app, cs).text);
+  // у пары поле названо моделью участника: имя у сторон одно
+  const member = app.use(() => {
+    const s = sessionOf(app, cs);
+    return isWing(s) || wingOf(app.roster()?.sessions ?? [], cs) ? String(s?.model ?? "") : "";
+  });
   const focus = app.use(() => app.wide && talks.get(cs).focus);
   const [panel, setPanel] = useState(false);
 
@@ -193,6 +216,7 @@ export function ChatScreen({ params }: { params: Params }) {
 
   const view = useMemo(() => fold(msgs), [msgs]);
   const sends = useMemo(() => Object.fromEntries(sendList.map((s) => [s.uuid, s])), [sendList]);
+  if (params.part === "last") return <span className="chat-last">{lastStep(view)}</span>;
   const env: Env = {
     cs,
     wide: app.wide,
@@ -200,7 +224,7 @@ export function ChatScreen({ params }: { params: Params }) {
     view,
     sends,
     rewind,
-    label,
+    label: member || label,
     waiting: (id) => app.mark("asked.tool", cs, id) === true,
     act: (m, args) => void talks.act(cs, m, args),
     again: (u) => talks.again(cs, u),

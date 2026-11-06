@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
 import type { ScreenProps } from "@switchboard/web-core";
-import { BadCard, Btn, failText, isLive, Pad, profileIdsOf, sessionOf, slotOf, Tabs, useApp, useMachineLoad, type AccountsAnswer, type Result } from "@switchboard/web-ui";
+import { BadCard, Btn, failText, isLive, Pad, profileIdsOf, sessionOf, slotOf, Tabs, useApp, useMachineLoad, wingOf, type AccountsAnswer, type Result } from "@switchboard/web-ui";
+import { Feeds, PairPick } from "./pair.tsx";
 import { PairSet } from "./settings.tsx";
 
 /** Какая кнопка у сессии: запуск или стоп; машина не умеет — кнопки нет. */
@@ -53,12 +54,15 @@ function Info({ callsign }: { callsign: string }) {
   const control = useControl(callsign);
   const { busy, word, act } = useAct(callsign);
   const [names, setNames] = useState(false);
-  const facts: Array<[string, unknown]> = [["адрес", callsign], ["папка", s?.dir], ["слот", slotOf(s)?.name], ["аккаунт", s?.account], ["профиль", profileIdsOf(s).join(", ")], ["сбой", s && failText(s)]];
+  const wing = app.use(() => wingOf(app.roster()?.sessions ?? [], callsign));
+  const facts = (x: typeof s, cs: string): Array<[string, unknown]> => [["адрес", cs], ["папка", x?.dir], ["слот", slotOf(x)?.name], ["аккаунт", x?.account], ["профиль", profileIdsOf(x).join(", ")], ["сбой", s && failText(s)]];
   return (
     <Pad>
-      <dl className="card-info">
-        {facts.filter(([, v]) => v).flatMap(([k, v]) => [<dt key={k}>{k}</dt>, <dd key={`${k}=`}>{String(v)}</dd>])}
-      </dl>
+      {[[s, callsign] as const, ...(wing ? [[wing, wing.callsign] as const] : [])].map(([x, cs]) => (
+        <dl key={cs} className="card-info">
+          {facts(x, cs).filter(([, v]) => v).flatMap(([k, v]) => [<dt key={k}>{k}</dt>, <dd key={`${k}=`}>{String(v)}</dd>])}
+        </dl>
+      ))}
       {s && update && <PairSet callsign={callsign} accounts={accounts} />}
       {placed.map((p) => (
         <Btn key={p.name} className="card-act" data-screen={p.name} onClick={() => app.run(p.name, { callsign })}>
@@ -85,11 +89,16 @@ export function NarrowCard({ params }: ScreenProps) {
   const { callsign } = params;
   const [tab, setTab] = useState(params.tab === "info" ? "info" : "chat");
   const placed = app.use(() => app.placed("card.tab", { callsign }));
+  const lead = app.use(() => sessionOf(app, callsign));
+  const wing = app.use(() => wingOf(app.roster()?.sessions ?? [], callsign));
   const tabs: Array<[string, string]> = [["chat", "Чат"], ...placed.map((p): [string, string] => [p.name, p.label]), ["info", "Ещё"]];
   return (
     <>
-      <Tabs className="card-tabs" tabs={tabs} cur={tab} pick={setTab} />
-      <div className="card-place">{tab === "info" ? <Info callsign={callsign} /> : <app.Slot screen={tab} params={{ callsign }} />}</div>
+      <div className="card-tabrow">
+        <Tabs className="card-tabs" tabs={tabs} cur={tab} pick={setTab} />
+        {tab === "chat" && lead && wing ? <PairPick lead={lead} wing={wing} /> : null}
+      </div>
+      <div className="card-place">{tab === "info" ? <Info callsign={callsign} /> : tab === "chat" ? <Feeds callsign={callsign} wide={false} /> : <app.Slot screen={tab} params={{ callsign }} />}</div>
     </>
   );
 }
