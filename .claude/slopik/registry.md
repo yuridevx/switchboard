@@ -21,10 +21,10 @@
 
 | понятие | владелец | примечание | след |
 |---|---|---|---|
-| машина и имя адреса | `protocol` | `machineOf`, `nameOf` | `lastIndexOf\("@"\)` |
+| машина и имя адреса | `protocol` | `machineOf`, `nameOf` | `split\("@"\)\[[01]\]` |
 | вход службы флота: кадр → ответ, отказ словом, строка журнала | `gate` | рядом с `entrance`; реализация — ветка `slopik-door`, ждёт решения | `class Refusal` |
 | сессия запроса по callsign | `host` | реализация — ветка `slopik-session`, ждёт решения | `host\.session\(req\.callsign` |
-| имя и владелец ссылки `uses` (`имя@владелец`) | `manifest-gate` | `nameOf`, `ownerOf` | `slice(0, .*lastIndexOf("@")` |
+| имя и владелец ссылки `uses` (`имя@владелец`) | `manifest-gate` | `nameOf`, `ownerOf` | `slice\(0, .*lastIndexOf\("@"\)` |
 | отбор ссылок вне набора перед судом манифестов | `manifest-gate` | вердикт архитектора 6 нояб.: `checkSet` | |
 | кого доставать пушем | `host-push` | | |
 | подписки браузеров и доставка пуша | `push` | | |
