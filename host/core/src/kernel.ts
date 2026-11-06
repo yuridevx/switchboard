@@ -399,7 +399,9 @@ export class Kernel {
   private onFrame(f: Frame): void {
     if (f.type === "reply") return; // поздний ответ: его ждавшему уже ответил предел
     if (f.id) {
-      const work = this.serve(f).then((r) => void this.relay?.send({ ...r, type: "reply", id: f.id, to: f.from }));
+      const work = this.serve(f)
+        .then((r) => void this.relay?.send({ ...r, type: "reply", id: f.id, to: f.from }))
+        .catch((e: unknown) => this.log({ kind: "stop", ev: "reply", word: "module_error", id: f.id, from: f.from, why: `${f.type}: ответ не ушёл — ${String(e)}` }));
       this.inflight.add(work);
       void work.finally(() => this.inflight.delete(work));
       return;
