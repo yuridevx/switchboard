@@ -134,6 +134,16 @@ describe("приглашение и приём", () => {
     expect((await post({ type: "keys.invite", key: by, role: "client", name: "phone", person: "owner@example.com" })).ok).toBe(true);
   });
 
+  it("gate.redeem: приглашение только строкой — настоящее в списке не принимается, объект — bad_invite, а не сбой базы; строка ждёт дальше", async () => {
+    const inv = await invited({ role: "host", name: "laptop" });
+    for (const invite of [{ toString: null }, [inv.invite]]) {
+      logs = [];
+      expect(await post({ type: "gate.redeem", invite })).toMatchObject({ ok: false, error: "bad_invite" });
+      expect(logs).toEqual(["bad_invite приглашение не того вида: номер.секрет"]);
+    }
+    expect((await row(inv.kid))!.state).toBe("wait");
+  });
+
   it("номер занят — приглашение получает другой номер; три занятых подряд — gate_unavailable, причина в журнале", async () => {
     const by = await agent();
     await passRow("host", "busy", "aaaa");
@@ -212,6 +222,14 @@ describe("проверка пропуска", () => {
     expect(logs).toEqual(["bad_key пропуск не того вида: нужно role.name.kid.secret, роль host или client"]);
   });
 
+  it("114 · пропуск только строкой: настоящий пропуск в списке не входит; объект, который не привести к строке, — bad_key, а не сбой базы", async () => {
+    const { key } = await redeemed({ role: "host", name: "laptop" });
+    for (const bad of [{ toString: null }, [key]]) {
+      logs = [];
+      expect(await post({ type: "keys.list", key: bad })).toMatchObject({ ok: false, error: "bad_key" });
+      expect(logs).toEqual(["bad_key пропуск не того вида: нужно role.name.kid.secret, роль host или client"]);
+    }
+  });
 });
 
 describe("отзыв", () => {
@@ -384,6 +402,18 @@ describe("общий вход Worker'ов", () => {
     const g = fakeGate({ error: "bad_key" });
     await entrance(framePost({ type: "push.key", id: "1", v: 1 }), g, () => [], () => {});
     expect(g.keys).toEqual([""]);
+  });
+
+  it.each([
+    ["в списке", ["client.phone.p3a1.secret"]],
+    ["числом", 42],
+    ["объектом, который не привести к строке", { toString: null }],
+  ])("пропуск не строкой (%s): verify получает пустую строку, отказ — слово gate, а не gate_unavailable", async (_n, key) => {
+    const g = fakeGate({ error: "bad_key" });
+    const r = await entrance(framePost({ type: "push.key", id: "1", v: 1, key }), g, () => [], () => {});
+    expect(g.keys).toEqual([""]);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ type: "reply", id: "1", ok: false, error: "bad_key" });
   });
 
   it("5043 · плохой пропуск — слово gate и строка журнала; gate не ответил — gate_unavailable 503; обработчик не вызван; журнал по умолчанию — console.log", async () => {

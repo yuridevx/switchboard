@@ -322,6 +322,18 @@ describe("push.send устройству", () => {
     expect(await worker.frame(send("b-3", "phone2018", { body: "ж", title: "x".repeat(5000) }))).toMatchObject([{ error: "bad_frame" }]);
     expect(posts).toHaveLength(0);
   });
+
+  it("сначала кому, потом что: подписки нет — gone и при тексте, который не влезает; отозванный пропуск снят и при нём, причина в журнале", async () => {
+    const huge = { title: "x".repeat(5000) };
+    const log = journal();
+    expect(await worker.frame(send("h-1", "phone-none", huge))).toMatchObject([{ ok: false, error: "gone" }]);
+    expect(log).toContainEqual(expect.objectContaining({ word: "gone", why: "подписки нет", client: "phone-none", type: "question" }));
+    await worker.frame({ type: "push.subscribe", v: 1, id: "h-2", to: ".push", from: "phone-out", fromKid: "h0ut", sub: sub(await ua(), "https://push.example/out") });
+    await GATE.revoke("h0ut");
+    expect(await worker.frame(send("h-3", "phone-out", huge))).toMatchObject([{ ok: false, error: "gone" }]);
+    expect(await row("phone-out")).toBeUndefined();
+    expect(log).toContainEqual(expect.objectContaining({ word: "gone", why: "подписки нет", client: "phone-out", type: "question" }));
+  });
 });
 
 describe("push.send человеку ~email", () => {
