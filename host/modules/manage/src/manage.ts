@@ -56,6 +56,12 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
   /** открытия запросом: ядро ещё не внесло имя в список, заголовок ставится только им */
   const opening = new Set<string>();
 
+  /** callsign, которого нет на машине, отказывает ядро; кадр без него доходит сюда. */
+  const sessionOf = (f: Frame) => {
+    const s = host.session(f.callsign as string);
+    if (!s) throw refuse("bad_spec", `${f.type}: нет callsign`);
+    return s;
+  };
   const isTaken = (callsign: string) => opening.has(callsign) || !!host.session(callsign);
   const ledger = (ev: string, callsign: string, text: string, by: unknown) => host.emit({ type: "ledger.add", to: ".ledger", ev, machine: host.machine, callsign, text, by });
 
@@ -109,8 +115,8 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
     start: (h) => void (host = h),
     requests: {
       "session.open": open,
-      async "session.update"(f, ctx) {
-        const s = ctx.session();
+      async "session.update"(f) {
+        const s = sessionOf(f);
         const { callsign } = s.info;
         checkSpec(f, `session.update ${callsign}`);
         const spec = given(f as Part, STORED);
@@ -136,8 +142,8 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         return { now };
       },
 
-      "session.call"(f, ctx) {
-        const s = ctx.session();
+      "session.call"(f) {
+        const s = sessionOf(f);
         const { method, args = [] } = f;
         const where = `session.call ${s.info.callsign}`;
         if (!CALLS.has(method)) throw refuse("unknown_method", `${where}: ${String(method)} — нет в списке открытых`);
@@ -146,23 +152,23 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         return sdk(s, method as string, ...args);
       },
 
-      async "session.spec"(_f, ctx) {
-        const s = ctx.session();
+      async "session.spec"(f) {
+        const s = sessionOf(f);
         const info = (await sdk(s, "getSessionInfo")) as { customTitle?: string; summary?: string } | undefined;
         const { model = null, effort = null } = partOf(s);
         return { dir: tildePath(s.info.cwd, home), model, effort, title: info?.customTitle ?? info?.summary ?? null };
       },
 
-      async "session.start"(f, ctx) {
-        const s = ctx.session();
+      async "session.start"(f) {
+        const s = sessionOf(f);
         const { callsign } = s.info;
         const { point } = f;
         if (point !== undefined && typeof point !== "number") throw refuse("bad_spec", `session.start ${callsign}: point`);
         await raising(callsign, () => s.start({ point }));
       },
 
-      async "session.remove"(f, ctx) {
-        const s = ctx.session();
+      async "session.remove"(f) {
+        const s = sessionOf(f);
         const { after_turn: afterTurn, from } = f;
         if (afterTurn !== undefined && afterTurn !== true) throw refuse("bad_spec", `session.remove ${s.info.callsign}: after_turn`);
         // starting: после перезапуска Host ход идёт у держателя, вызов инструмента приходит до готовности
@@ -173,7 +179,7 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         return remove(s, from);
       },
 
-      "session.stop": (_f, ctx) => ctx.session().stop(),
+      "session.stop": (f) => sessionOf(f).stop(),
     },
     fields: {
       model: (s) => partOf(s).model ?? s.info.model ?? undefined,

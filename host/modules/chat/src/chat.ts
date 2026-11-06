@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { opendir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { content, refuse, type Attachment, type Ctx, type Host, type Module, type Session } from "@switchboard/host";
+import { content, refuse, type Attachment, type Frame, type Host, type Module, type Session } from "@switchboard/host";
 import { questions } from "./ask.ts";
 
 /** Окно пачки ленты. */
@@ -47,9 +47,14 @@ export function make(): Module {
   const seqs = new Map<string, number>();
   const ask = questions(() => host, (cs) => [...(viewers.get(cs) ?? [])]);
 
-  const viewer = (ctx: Ctx) => {
+  const session = (req: Frame, cs = String(req.callsign)): Session => {
+    const s = host.session(cs);
+    if (!s) throw refuse("offline", `${cs}: сессии нет на этой машине`);
+    return s;
+  };
+  const viewer = (req: Frame, ctx: { from?: string }) => {
     need(ctx.from, "без from");
-    const cs = ctx.session().info.callsign;
+    const cs = session(req).info.callsign;
     return viewers.get(cs) ?? viewers.set(cs, new Set()).get(cs)!;
   };
 
@@ -74,7 +79,7 @@ export function make(): Module {
     session: () => ({ promptSuggestions: true, includePartialMessages: true }),
     requests: {
       "session.prompt"(req, ctx) {
-        const s = ctx.session();
+        const s = session(req);
         const { text, attachments = [], uuid = randomUUID() } = req;
         need(typeof text === "string" && Array.isArray(attachments), "session.prompt: text — строка, attachments — список");
         if (down(s)) throw refuse("stopped", `${s.info.callsign}: сессия ${s.state} — поднимает session.start`);
@@ -83,19 +88,17 @@ export function make(): Module {
       },
       message(req, ctx) {
         need(typeof req.text === "string", "message: нужны to — callsign и text");
-        const to = String(req.to);
-        const s = host.session(to);
-        if (!s) throw refuse("offline", `${to}: сессии нет на этой машине`);
+        const s = session(req, String(req.to));
         if (down(s)) throw refuse("offline", `${s.info.callsign}: сессия ${s.state}`);
         const from = String(ctx.from);
         const text = s.field("parent") === from && !req.report ? task(from, req.text as string) : wrap(from, req.text as string);
         s.input(text, { from: req.report ? undefined : from, priority: "next", uuid: randomUUID(), origin: { kind: "peer", from, name: from } });
         return undefined;
       },
-      async "session.history"(req, ctx) {
+      async "session.history"(req) {
         const { before = undefined, limit } = req;
         need(typeof limit === "number" && limit >= 1 && (before === null || typeof before === "string"), "session.history: нужны limit ≥ 1 и before — uuid или null");
-        const s = ctx.session();
+        const s = session(req);
         const all = (await s.sdk("getSessionMessages", { includeSystemMessages: true })) as Array<{ uuid?: string }>;
         const end = before === null ? all.length : all.findIndex((m) => m.uuid === before);
         need(end >= 0, `session.history: записи ${String(before)} в разговоре нет`);
@@ -104,14 +107,14 @@ export function make(): Module {
       },
       "session.files"(req, ctx) {
         need(typeof req.limit === "number" && req.limit >= 1, "session.files: нужны query — строка и limit ≥ 1");
-        return files(ctx.session().info.cwd, String(req.query ?? "").toLowerCase(), req.limit as number, ctx.signal);
+        return files(session(req).info.cwd, String(req.query ?? "").toLowerCase(), req.limit as number, ctx.signal);
       },
-      "session.watch"(_req, ctx) {
-        viewer(ctx).add(ctx.from!);
+      "session.watch"(req, ctx) {
+        viewer(req, ctx).add(ctx.from!);
         return undefined;
       },
-      "session.unwatch"(_req, ctx) {
-        viewer(ctx).delete(ctx.from!);
+      "session.unwatch"(req, ctx) {
+        viewer(req, ctx).delete(ctx.from!);
         return undefined;
       },
       ...ask.requests,

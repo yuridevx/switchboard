@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { ownerOf } from "@switchboard/manifest-gate";
 import { READ_MS, accepts, hostOf, kindOf, machineOf, serviceAddress, type Frame } from "@switchboard/protocol";
 import { fleet, type FleetClient, type Roster, type WsCtor } from "@switchboard/relay";
-import type { Ctx, Host, LogRecord, Manifest, Module, OpenSpec, Probe, QueryPart, Result, Session as View } from "../contract.ts";
+import type { Host, LogRecord, Manifest, Module, OpenSpec, Probe, QueryPart, Result, Session as View } from "../contract.ts";
 import { realClock, within, type Clock } from "./clock.ts";
 import { coreOption, mergeParts, moduleFlaws, relayProblems, setProblems, usesName, type Merged } from "./gate.ts";
 import { Holders, type HolderApi, type HoldFile } from "./holders.ts";
@@ -418,13 +418,8 @@ export class Kernel {
     for (const m of listeners) if (!this.off(m)) this.run(m, undefined, "on.frame", () => m.module.on!.frame!(frame));
   }
 
-  private ctx(m: Mod, f: Frame): Ctx {
-    const session = () => {
-      const s = this.sessions.get(String(f.callsign));
-      if (!s) throw refuse("bad_spec", `${f.type}: нет callsign`);
-      return s.facade(m);
-    };
-    return { host: this.hostFacade(m), from: f.from, signal: this.abort.signal, session };
+  private ctx(m: Mod, f: Frame) {
+    return { host: this.hostFacade(m), from: f.from, signal: this.abort.signal };
   }
 
   /** Сессия, о которой кадр или запрос: callsign или адрес to. */

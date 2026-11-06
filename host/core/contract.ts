@@ -106,8 +106,8 @@ export type DecideOpts = {
   [k: string]: unknown;
 };
 
-/** Контекст запроса и кадра: свой host, отправитель (ставит relay), сигнал остановки Host; session — сессия из callsign кадра, кадр без него — отказ bad_spec. */
-export type Ctx = { host: Host; from?: string; signal: AbortSignal; session(): Session };
+/** Контекст запроса и кадра: свой host, отправитель (ставит relay) и сигнал остановки Host. */
+export type Ctx = { host: Host; from?: string; signal: AbortSignal };
 
 /**
  * Объект модуля — default export его contract.ts. Все поля необязательны.
