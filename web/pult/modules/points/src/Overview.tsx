@@ -148,7 +148,8 @@ function Only({ sessions, fleet }: { sessions: Listed[]; fleet: Fleet }) {
 
 function FireRow({ s, t, going, line, report }: { s: Listed; t: Target; going: boolean; line?: string; report(sid: string, c: Check | null): void }) {
   const check = useProbe(t.machine, t.slots && !t.problem ? probeOf(s) : null);
-  useEffect(() => report(s.sid, check), [check, s.sid]); // eslint-disable-line react-hooks/exhaustive-deps
+  // итог пробы — по ключу: объект проверки новый на каждой отрисовке, по нему окно перерисовывалось бы без конца
+  useEffect(() => report(s.sid, check), [check?.key, s.sid]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Sec data-row={nameOf(s)}>
       <b>{nameOf(s)}</b>
