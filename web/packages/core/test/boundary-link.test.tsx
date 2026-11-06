@@ -87,8 +87,11 @@ describe("связь с relay", () => {
     expect(t.$(".sb-off")!.textContent).toContain("Нет связи");
     expect(s.box.app.link()).toBe("closed");
     down = false;
-    await new Promise((r) => setTimeout(r, 60));
-    await flush(10);
+    // пауза растёт вдвое: срок попытки не задан, ждём исход с пределом
+    for (const end = Date.now() + 3000; !t.$(".sb-off")!.hidden && Date.now() < end; ) {
+      await new Promise((r) => setTimeout(r, 20));
+      await flush(1);
+    }
     expect(t.$(".sb-off")!.hidden).toBe(true);
     expect(t.$('[data-s="a"]')).not.toBeNull();
   });
