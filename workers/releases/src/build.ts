@@ -18,7 +18,9 @@ async function draftOf(cat: Catalog, parts: Part[], app: string, change: Change)
   const built = await cat.deployed(app);
   const base = built?.modules ?? into.map((p) => ({ name: p.name, version: p.versions.at(-1)! }));
   const gone = new Set([...change.without, ...(change.remove ? [change.remove] : [])]);
-  const wanted = new Map(base.filter((m) => !gone.has(m.name)).map((m) => [m.name, change.latest ? (edge(m.name) ?? m.version) : m.version]));
+  // новейшая версия модуля вышла из into приложения — на новейших он из сборки уходит: снять его version: null уже нельзя
+  const stays = (name: string) => !gone.has(name) && (!change.latest || into.some((p) => p.name === name));
+  const wanted = new Map(base.filter((m) => stays(m.name)).map((m) => [m.name, change.latest ? (edge(m.name) ?? m.version) : m.version]));
   if (change.set) wanted.set(change.set.name, change.set.version);
   const rootVersion = change.root ?? (change.latest || !built ? part.versions.at(-1)! : built.version.split("+")[0]);
   const root = (await cat.manifest(app, rootVersion))!;

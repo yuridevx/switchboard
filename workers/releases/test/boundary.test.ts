@@ -1034,6 +1034,19 @@ describe("сверка со старым кодом", () => {
     expect((await req(s, "~x", "releases.deploy", { part: "web-x", latest: true, without: ["web-x"] }))[0]).toMatchObject({ ok: false, error: "bad_frame" });
     expect(await env.BUCKET.get("test/pult/1.0.0+1.tgz")).toBeNull();
   });
+
+  it("latest: модуль, чья новейшая версия вышла из into приложения, уходит из его сборки (чьё: код)", async () => {
+    const s = fresh();
+    cloudflare({}, { any: true });
+    await put("pult", "1.0.0", { type: "web-app", workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"]]);
+    await put("phone", "1.0.0", { type: "web-app", workers: { test: "switchboard-phone" } }, [["index.html", "<!doctype html>"]]);
+    await put("web-core", "1.0.0", { type: "web", into: ["pult"], provides: { app: 1 } }, [["module.js", "x"]]);
+    await put("web-x", "1.0.0", { type: "web", into: ["pult"] }, [["module.js", "x"]]);
+    await result(req(s, "~x", "releases.deploy", { part: "pult", latest: true }));
+    await put("web-x", "1.1.0", { type: "web", into: ["phone"] }, [["module.js", "x"]]);
+    await result(req(s, "~x", "releases.deploy", { part: "pult", latest: true }));
+    expect((await built("test/pult/1.0.0+2.tgz")).modules).toEqual([{ name: "web-core", version: "1.0.0" }]);
+  });
 });
 
 describe("releases.fetch", () => {
