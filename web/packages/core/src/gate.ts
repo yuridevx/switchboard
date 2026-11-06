@@ -1,5 +1,5 @@
 // Гейт набора: определения модулей против манифестов; связи манифестов проверяет общий гейт.
-import { check, nameOf, ownerOf } from "@switchboard/manifest-gate";
+import { checkSet, nameOf } from "@switchboard/manifest-gate";
 import core from "../module.json" with { type: "json" };
 import type { AppModule, DefinedPart, Manifest } from "./types.ts";
 
@@ -37,8 +37,7 @@ function secondOwners(parts: DefinedPart[]): string[] {
 
 /** Проверить набор: пустой список — годен, иначе причины словами. */
 export function appGate(parts: DefinedPart[]): string[] {
-  const inSet = new Set([core.name, ...parts.map((p) => p.manifest.name)]);
   // владельца вне набора гейт не знает: это Host и Worker-модули, их сверяет получатель
-  const manifests = [{ ...core, uses: {} }, ...parts.map((p) => p.manifest)].map(({ name, type, version, provides, uses, config }) => ({ name, type, version, provides, config: config ?? {}, uses: Object.fromEntries(Object.entries(uses).filter(([ref]) => inSet.has(ownerOf(ref)))) }));
-  return [...parts.flatMap((p) => definitionErrors(p.manifest, p.module)), ...secondOwners(parts), ...check(manifests as Parameters<typeof check>[0])];
+  const manifests = [{ ...core, uses: {} }, ...parts.map((p) => p.manifest)].map(({ name, type, version, provides, uses, config }) => ({ name, type, version, provides, config: config ?? {}, uses }));
+  return [...parts.flatMap((p) => definitionErrors(p.manifest, p.module)), ...secondOwners(parts), ...checkSet(manifests as Parameters<typeof checkSet>[0])];
 }
