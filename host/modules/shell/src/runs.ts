@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { extname, join, relative, sep } from "node:path";
 import { kindOf } from "@switchboard/protocol";
 import type { Attachment, Host } from "@switchboard/host";
-import { argsOf, killTree, KILL_MS, scriptOf, WIN, type Shell } from "./os.ts";
+import { argsOf, killTree, scriptOf, WIN, type Shell } from "./os.ts";
 
 export const ROOT = join(tmpdir(), "switchboard-shell");
 /** Сутки от конца запуска (слово пользователя 1 нояб.). */
@@ -31,10 +31,10 @@ type Run = {
   /** чем кончится: задаёт тот, кто гасит; иначе exit */
   end: string;
   code: number | null;
-  pid?: number;
+  pid: number;
   /** сессия, которой сказать о конце фонового */
   owner?: string;
-  /** предел жизни, затем предел смерти */
+  /** предел жизни */
   limit?: NodeJS.Timeout;
   ttl?: NodeJS.Timeout;
   over: Promise<void>;
@@ -96,13 +96,15 @@ export function makeRuns(host: () => Host) {
     if (run.owner) run.told = tell(run, run.owner);
   }
 
-  /** Погасить дерево; не вышло за предел — запуск всё равно кончен, причина видна по state. */
+  /** Погасить дерево: конец запуска — конец снятия, а не выход шелла. Не вышло за предел — запуск кончен, причина в журнале. */
   function put(run: Run, end: string): void {
     if (run.ended !== undefined || run.end !== "exit") return;
     run.end = end;
     clearTimeout(run.limit);
-    if (run.pid !== undefined) killTree(run.pid);
-    run.limit = setTimeout(() => ended(run, null), KILL_MS);
+    void killTree(run.pid).then((why) => {
+      if (why) host().log({ kind: "stop", ev: "run_kill", run: run.id, why });
+      ended(run, null);
+    });
   }
 
   function snapshot(run: Run): Snapshot {
@@ -129,10 +131,12 @@ export function makeRuns(host: () => Host) {
 
       let finish = () => {};
       const over = new Promise<void>((r) => (finish = r));
-      const run: Run = { id, dir, started: Date.now(), end: "exit", code: null, pid: child.pid, owner: background && kindOf(from) === "session" ? from : undefined, over, finish };
+      const run: Run = { id, dir, started: Date.now(), end: "exit", code: null, pid: child.pid!, owner: background && kindOf(from) === "session" ? from : undefined, over, finish };
       runs.set(id, run);
       host().log({ ev: "run_start", run: id, from, shell, background, timeout, line: spec.script.split("\n")[0].slice(0, LINE_MAX), pid: child.pid });
-      child.once("exit", (code) => ended(run, code));
+      child.once("exit", (code) => {
+        if (run.end === "exit") ended(run, code);
+      });
       child.once("error", (e) => {
         host().log({ ev: "run_error", run: id, why: e.message });
         ended(run, null);

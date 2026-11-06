@@ -70,6 +70,16 @@ async function pair() {
   return { a, b };
 }
 
+/** Свой PID для ОС: у Git Bash номер Windows лежит в /proc. */
+const SAY_PID = "{ cat /proc/$BASHPID/winpid 2>/dev/null || echo $BASHPID; }";
+function isAlive(pid: number): boolean {
+  try {
+    return process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+}
+
 const said = (st: Stand, cs: string) => st.proc(cs).inputs.map((i) => JSON.stringify(i.message?.content ?? "")).join("\n");
 
 describe("контракт shell", () => {
@@ -208,15 +218,11 @@ describe("запуск", { timeout: 30_000 }, () => {
     expect(b.result).toMatchObject({ state: "exit", stdout: "got:\n" });
   });
 
-  it("273 · таймаут 1: state timeout, всё дерево мертво — фоновый ребёнок не дожил до своей метки", async () => {
+  it("273 · таймаут: state timeout; в момент конца всё дерево мертво — фоновый ребёнок уже не процесс", async () => {
     const { req } = await machine("laptop");
-    const run = rid(273);
-    const r = await req("shell.run", { run, shell: "bash", script: '(sleep 3; touch "$SB_OUT/alive") & sleep 30; wait', background: false, timeout: 1 });
+    const r = await req("shell.run", { run: rid(273), shell: "bash", script: `(${SAY_PID} > "$SB_OUT/child"; sleep 60; true) & sleep 60; wait`, background: false, timeout: 3 });
     expect(r.result).toMatchObject({ state: "timeout", code: null });
-    // убит раньше сна в 30 с; точного предела нет: под нагрузкой таймер и убийство дерева запаздывают
-    expect(r.result!.ms).toBeLessThan(15_000);
-    await new Promise((res) => setTimeout(res, 3500));
-    expect((await req("shell.wait", { run, timeout: 0 })).result!.files).toEqual([]);
+    expect(isAlive(Number(Buffer.from(r.result!.files![0].data, "base64").toString()))).toBe(false);
   });
 
   it("274 · погасить: Esc ждущего run на второй машине — туда ушёл shell.kill того же run; kill фонового — ok, killed; неизвестный run — no_run", async () => {
@@ -328,7 +334,7 @@ describe("запуск", { timeout: 30_000 }, () => {
     const mark = mkdtempSync(join(tmpdir(), "sb-281-"));
     const old = rid(281);
     await b.req("shell.run", { run: old, shell: "bash", script: "echo old", background: false });
-    const sync = a.tool("site@win", "run", { machine: "wsl", shell: "bash", script: `echo before; (sleep 2; touch "${mark.split("\\").join("/")}/alive") & sleep 30`, background: false });
+    const sync = a.tool("site@win", "run", { machine: "wsl", shell: "bash", script: `echo before; (${SAY_PID} > "${mark.split("\\").join("/")}/child"; sleep 60; true) & sleep 60`, background: false });
     const bg = await a.tool("site@win", "run", { machine: "wsl", shell: "bash", script: "echo bg; sleep 30", background: true, timeout: 60 });
     const bgRun = /run (\w+)/.exec(bg.content[0].text!)![1];
     const waiting = a.tool("site@win", "wait", { machine: "wsl", run: bgRun, timeout: 60 });
@@ -336,14 +342,14 @@ describe("запуск", { timeout: 30_000 }, () => {
     const printed = (id: string, text: string) => until(() => readFileSync(join(runDir(id), "stdout"), "utf8").includes(text));
     await printed(String(a.st.relay.frames("shell.run")[0].run), "before");
     await printed(bgRun, "bg");
+    const child = await until(() => existsSync(join(mark, "child")) && Number(readFileSync(join(mark, "child"), "utf8")));
     await b.st.close();
     expect((await sync).content[0].text).toMatch(/^wsl · stopped .*\n── stdout ──\nbefore/);
     expect((await waiting).content[0].text).toMatch(/^wsl · stopped .*\n── stdout ──\nbg/);
     await until(() => said(a.st, "site@win").includes(`run ${bgRun} на wsl остановлен: Host wsl перезапускается, итог не сохранён`));
     expect(said(a.st, "site@win")).toContain('from=\\"@wsl\\"');
     for (const id of [old, bgRun]) expect(existsSync(runDir(id))).toBe(false);
-    await new Promise((res) => setTimeout(res, 2500));
-    expect(existsSync(join(mark, "alive"))).toBe(false);
+    expect(isAlive(child as number)).toBe(false);
   });
 
   it("283 · фоновый на своей машине и на второй: снимок running сразу; в конце — сообщение владельцу; wait — итог с файлами; без timeout — bad_frame, скрипт не запущен", async () => {

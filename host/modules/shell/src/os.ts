@@ -9,7 +9,8 @@ export type Shell = (typeof SHELLS)[number];
 export const WIN = process.platform === "win32";
 /** Шелл молчит на вопрос о версии: он всё равно есть; info читается с пределом 10 с. */
 const VERSION_MS = 5_000;
-export const KILL_MS = 5_000;
+/** taskkill ходит через WMI: под нагрузкой до 20 с (опыт 6 нояб.), снятый раньше оставляет дерево живым. Меньше предела остановки Host. */
+const KILL_MS = 25_000;
 const PS_ARGS = ["-NoProfile", "-NonInteractive"];
 /** PowerShell 5.1 читает файл без BOM в кодировке системы и пишет вывод в ней же. */
 const PS_UTF8 = "\ufeff[Console]::OutputEncoding = $OutputEncoding = New-Object System.Text.UTF8Encoding $false\n";
@@ -50,15 +51,18 @@ export function versionOf(shell: Shell, path: string): Promise<string | null> {
   });
 }
 
-/** Всё дерево: на Linux запуск — своя группа процессов. */
-export function killTree(pid: number): void {
+/** Всё дерево: на Linux запуск — своя группа процессов. Ответ — когда снятие кончено; строка — дерево могло остаться. */
+export function killTree(pid: number): Promise<string | undefined> {
   if (WIN) {
-    execFile("taskkill", ["/T", "/F", "/PID", String(pid)], { timeout: KILL_MS, windowsHide: true }, () => {});
-    return;
+    // код не важен: 128 и 255 — часть дерева вышла сама, живых после них нет (опыт 6 нояб.)
+    return new Promise((done) => {
+      execFile("taskkill", ["/T", "/F", "/PID", String(pid)], { timeout: KILL_MS, windowsHide: true }, (e) => done(e?.killed ? `taskkill не успел за ${KILL_MS / 1000} с` : undefined));
+    });
   }
   try {
     process.kill(-pid, "SIGKILL");
   } catch {
     // группа уже вышла
   }
+  return Promise.resolve(undefined);
 }
