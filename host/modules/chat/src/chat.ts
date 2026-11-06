@@ -52,6 +52,14 @@ export function make(): Module {
     if (!s) throw refuse("offline", `${cs}: сессии нет на этой машине`);
     return s;
   };
+  /** Чужой текст во ввод: from — кто ответит на вопрос сессии, если он дал задачу. */
+  const peer = (s: Session, name: string, text: string, from: string | undefined) => s.input(text, { from, priority: "next", uuid: randomUUID(), origin: { kind: "peer", from: name, name } });
+  /** Человек написал в чат Telegram: кадр без id, отказ — только в журнале, человек уже видит реакцию. */
+  const human = ({ to, from, text }: Frame) => {
+    const s = host.session(String(to));
+    if (!s || down(s) || typeof text !== "string" || !from) return host.log({ kind: "refuse", ev: "rooms.message", word: "offline", callsign: String(to), from, why: `${String(to)}: сессии нет или она ${s?.state}` });
+    peer(s, from, wrap(from, text), from);
+  };
   const viewer = (req: Frame, ctx: { from?: string }) => {
     need(ctx.from, "без from");
     const cs = session(req).info.callsign;
@@ -92,7 +100,7 @@ export function make(): Module {
         if (down(s)) throw refuse("offline", `${s.info.callsign}: сессия ${s.state}`);
         const from = String(ctx.from);
         const text = s.field("parent") === from && !req.report ? task(from, req.text as string) : wrap(from, req.text as string);
-        s.input(text, { from: req.report ? undefined : from, priority: "next", uuid: randomUUID(), origin: { kind: "peer", from, name: from } });
+        peer(s, from, text, req.report ? undefined : from);
         return undefined;
       },
       async "session.history"(req) {
@@ -129,6 +137,7 @@ export function make(): Module {
         b.events.push(msg);
       },
       frame(f) {
+        if (f.type === "rooms.message") return human(f);
         // ядро зовёт сюда на всё имя из uses, а такой кадр может прислать любой участник: зрителей снимает только roster
         if (f.type !== "roster") return;
         const here = new Set((f.clients ?? []) as string[]);

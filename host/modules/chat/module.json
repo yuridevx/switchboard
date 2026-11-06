@@ -1,7 +1,7 @@
 {
   "name": "host-chat",
   "type": "sdk",
-  "version": "2.0.4",
+  "version": "2.1.0",
   "into": ["host"],
   "provides": {
     "session.prompt": 1,
@@ -24,6 +24,7 @@
     "roster@relay": 1,
     "notify@host-push": 1,
     "mode@host-manage": 1,
+    "rooms.message@rooms": 1,
     "parent@host-manage": 1
   },
   "calls": ["getSessionMessages"],

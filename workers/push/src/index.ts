@@ -2,6 +2,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { entrance } from "@switchboard/gate";
 import { CALL_MS, accepts, fail, kindOf, ok, reaches, within, type Frame } from "@switchboard/protocol";
+import type { RoomsSend, RoomsSent } from "@switchboard/rooms";
 import { CONTRACT, type Notify } from "../contract.ts";
 import type { Env } from "./env.ts";
 import { MAX_PLAIN, encrypt, publicKey, unb64u, vapid } from "./webpush.ts";
@@ -17,12 +18,15 @@ class Refusal extends Error {
   readonly word: string;
   readonly why: string;
   readonly row: Row;
+  /** Причину видит тот, кто спросил: отказ чата Telegram подсказывает модели, что делать. */
+  readonly told: boolean;
 
-  constructor(word: string, why: string, row: Row = {}) {
+  constructor(word: string, why: string, row: Row = {}, told = false) {
     super(`${word}: ${why}`);
     this.word = word;
     this.why = why;
     this.row = row;
+    this.told = told;
   }
 }
 const refuse = (word: string, why: string, row?: Row): never => {
@@ -93,6 +97,16 @@ async function deliver(env: Env, jwk: JsonWebKey, s: Sub, plain: Uint8Array, lin
   return "push_failed";
 }
 
+/** Чаты Telegram — устройства того же адреса. rooms не ответил: подписки браузеров всё равно получают пуш. */
+async function viaRooms(env: Env, push: RoomsSend): Promise<RoomsSent> {
+  try {
+    return await within(env.ROOMS.send(push), "rooms не ответил");
+  } catch (e) {
+    log({ kind: "refuse", ev: "push.send", word: "send_failed", why: String(e), client: push.to, type: push.type });
+    return { sent: 0, word: "send_failed", why: "rooms не ответил" };
+  }
+}
+
 const HANDLERS: Record<keyof typeof CONTRACT, (f: Frame, env: Env) => Promise<unknown>> = {
   async "push.key"(_f, env) {
     return { key: publicKey(JSON.parse(env.VAPID_PRIVATE)) };
@@ -118,6 +132,7 @@ const HANDLERS: Record<keyof typeof CONTRACT, (f: Frame, env: Env) => Promise<un
     if (typeof to !== "string" || typeof type !== "string" || !notify || typeof notify !== "object") return refuse("bad_frame", "в push нужны to, type и notify");
     if (!Array.isArray(skip)) return refuse("bad_frame", "skip — список адресов устройств");
     const line = { from, type };
+    const chats = await viaRooms(env, { to, skip: skip as string[], type, from: asker as string | undefined, notify });
     // SQL отбирает по концу адреса, правило «доходит ли» — у протокола
     const { results } = await env.DB.prepare("SELECT client, endpoint, p256dh, auth, kid FROM subs WHERE substr(client, -length(?1)) = ?1").bind(to).all<Sub>();
     const targets = results.filter((s) => reaches(to, s.client) && !skip.includes(s.client));
@@ -128,11 +143,15 @@ const HANDLERS: Record<keyof typeof CONTRACT, (f: Frame, env: Env) => Promise<un
       log({ kind: "refuse", ev: "push.send", word: "gone", why: `пропуск ${s.kid} отозван: подписка удалена`, client: s.client, type });
     }
     const live = targets.filter((s) => !(s.kid && revoked.has(s.kid)));
-    if (!live.length) refuse("gone", kindOf(to) === "user" ? "пушить некому: подписок нет или все на связи" : "подписки нет", { client: to, type });
+    if (!live.length) {
+      if (chats.sent) return undefined;
+      if (chats.word) throw new Refusal(chats.word, chats.why ?? "", { client: to, type }, true);
+      refuse("gone", kindOf(to) === "user" ? "пушить некому: подписок нет или все на связи" : "подписки нет", { client: to, type });
+    }
     const fitted = fit({ type, from: asker, notify }) ?? refuse("bad_frame", "уведомление не влезает в 4 096 Б и без notify.body", { client: to, type });
     const jwk = JSON.parse(env.VAPID_PRIVATE) as JsonWebKey;
     const outcomes = await Promise.all(live.map((s) => deliver(env, jwk, s, fitted.plain, { ...line, cut: fitted.cut })));
-    if (outcomes.includes("sent")) return undefined;
+    if (outcomes.includes("sent") || chats.sent) return undefined;
     return refuse(outcomes.includes("push_failed") ? "push_failed" : "gone", "");
   },
 };
@@ -153,7 +172,7 @@ async function serve(env: Env, f: Frame): Promise<Frame[]> {
   } catch (e) {
     if (!(e instanceof Refusal)) throw e;
     if (e.why) log({ kind: "refuse", ev: f.type, word: e.word, why: e.why, from, ...e.row });
-    return id ? [{ ...fail(id, e.word), to: from }] : [];
+    return id ? [{ ...fail(id, e.word), to: from, ...(e.told ? { why: e.why } : {}) }] : [];
   }
 }
 

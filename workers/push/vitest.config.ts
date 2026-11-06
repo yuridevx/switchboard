@@ -14,12 +14,27 @@ export const TEST_VAPID = {
   d: "OjZnX4wRA2wmrJ6gmJD5NCmxTu7AZS3EVMKaQot7UIQ",
 };
 
+/** Стенд rooms: исход — по имени устройства в адресе; чатов у остальных адресов нет. */
+const roomsStand = {
+  name: "switchboard-rooms",
+  modules: true,
+  script: `import { WorkerEntrypoint } from "cloudflare:workers";
+export class Rooms extends WorkerEntrypoint {
+  send({ to }) {
+    if (to.startsWith("telegram~")) return { sent: 1 };
+    if (to.startsWith("limited~")) return { sent: 0, word: "rate_limited", why: "предел Telegram, повторить через 37 с" };
+    if (to.startsWith("broken~")) throw new Error("rooms упал");
+    return { sent: 0 };
+  }
+}`,
+};
+
 export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: here("./wrangler.jsonc") },
       miniflare: {
-        workers: [gateStand()],
+        workers: [gateStand(), roomsStand],
         bindings: { VAPID_PRIVATE: JSON.stringify(TEST_VAPID), TEST_MIGRATIONS: await readD1Migrations(here("./migrations")) },
       },
     }),

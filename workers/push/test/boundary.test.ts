@@ -392,3 +392,31 @@ describe("вход", () => {
     expect(log.map((l) => [l.kind, l.ev, l.why])).toEqual([["note", "reply", "push ответов не ждёт"]]);
   });
 });
+
+describe("чаты Telegram", () => {
+  it("чат есть, подписок нет: ok, устройство без подписки — не отказ", async () => {
+    expect(await worker.frame(send("t-1", "telegram~tg1@example.com"))).toEqual([{ type: "reply", id: "t-1", ok: true, to: "@laptop" }]);
+  });
+
+  it("чат есть и подписка есть: пуш уходит и там и там, ответ ok, даже если служба браузера отказала", async () => {
+    const phone = await ua();
+    await subscribe("telegram~tg2@example.com", phone, "https://push.example/tg2");
+    const posts = service(500);
+    expect(await worker.frame(send("t-2", "telegram~tg2@example.com"))).toMatchObject([{ ok: true }]);
+    expect(posts).toHaveLength(1);
+  });
+
+  it("отказ Telegram: слово и подсказка модели в ответе", async () => {
+    expect(await worker.frame(send("t-3", "limited~tg3@example.com"))).toEqual([{ type: "reply", id: "t-3", ok: false, error: "rate_limited", to: "@laptop", why: "предел Telegram, повторить через 37 с" }]);
+  });
+
+  it("rooms упал: подписки браузеров всё равно получают пуш", async () => {
+    const log = journal();
+    const phone = await ua();
+    await subscribe("broken~tg4@example.com", phone, "https://push.example/tg4");
+    const posts = service(201);
+    expect(await worker.frame(send("t-4", "broken~tg4@example.com"))).toMatchObject([{ ok: true }]);
+    expect(posts).toHaveLength(1);
+    expect(log).toContainEqual(expect.objectContaining({ part: "push", ev: "push.send", word: "send_failed" }));
+  });
+});

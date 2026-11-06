@@ -136,6 +136,10 @@ cp.spawnSync = (cmd, args, o = {}) => {
   return orig(cmd, ["-e", code], { ...o, stdio: "ignore", input: undefined, timeout: ${child.hang ? "o.timeout === 300000 ? 300 : o.timeout" : "o.timeout"} });
 };
 syncBuiltinESMExports();
+globalThis.fetch = async (url, init) => {
+  appendFileSync(${JSON.stringify(log)}, JSON.stringify({ what: "fetch", cwd: "fetch", args: [String(url)], input: init.headers.authorization, env: {} }) + String.fromCharCode(10));
+  return new Response("{}");
+};
 `);
     return pathToFileURL(f).href;
   }
@@ -145,16 +149,16 @@ syncBuiltinESMExports();
     for (const [n, text] of Object.entries(o.files ?? {})) write(join(dev, n), text);
     const log = join(dev, "calls.jsonl");
     const env: Record<string, string | undefined> = { ...process.env, SWITCHBOARD_DEV_DIR: dev };
-    for (const k of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "RELAY_URL", "VAPID_PRIVATE", "R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "PROD_R2_SECRET_ACCESS_KEY"]) delete env[k];
+    for (const k of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "RELAY_URL", "VAPID_PRIVATE", "R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "PROD_R2_SECRET_ACCESS_KEY", "TELEGRAM_BOT_TOKEN", "PROD_TELEGRAM_BOT_TOKEN"]) delete env[k];
     if (o.token) Object.assign(env, { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "a" });
     const r = spawnSync(process.execPath, ["--import", preload(log, o.child), join(SCRIPTS, "deploy-workers.mjs"), ...args], { env, encoding: "utf8", timeout: CMD_MS });
     const calls: Call[] = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
     return { code: r.status, err: r.stderr, out: r.stdout, calls };
   }
-  const SECRETS = { VAPID_PRIVATE: "vapid", R2_SECRET_ACCESS_KEY: "r2-test", R2_ACCESS_KEY_ID: "r2-id", PROD_R2_SECRET_ACCESS_KEY: "r2-prod" };
+  const SECRETS = { VAPID_PRIVATE: "vapid", R2_SECRET_ACCESS_KEY: "r2-test", R2_ACCESS_KEY_ID: "r2-id", PROD_R2_SECRET_ACCESS_KEY: "r2-prod", TELEGRAM_BOT_TOKEN: "bot-test", PROD_TELEGRAM_BOT_TOKEN: "bot-prod" };
   const envFile = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `${k}=${v}`).join("\n");
   const moduleOf = (c: Call) => c.cwd.split(/[\\/]/).pop();
-  const WORKERS = ["gate", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
+  const WORKERS = ["gate", "rooms", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
 
   it.each([
     ["", [], ""],
@@ -172,13 +176,16 @@ syncBuiltinESMExports();
   });
 
   it.each([
-    ["теста", [], "r2-test"],
-    ["прода: секрет точек свой, ссылки выпусков — из общих имён", ["--env", "prod"], "r2-prod"],
-  ] as const)("без списка, флот %s — все Worker-модули, relay последним; база до кода, секреты после и только через stdin", (_n, env, points) => {
+    ["теста", [], "r2-test", "bot-test", "https://switchboard-rooms.yuridevx1608.workers.dev/setup"],
+    ["прода: секрет точек свой, ссылки выпусков — из общих имён", ["--env", "prod"], "r2-prod", "bot-prod", "https://rooms.pfarm.app/setup"],
+  ] as const)("без списка, флот %s — все Worker-модули, relay последним; база до кода, секреты после и только через stdin", (_n, env, points, bot, setup) => {
     // источник: комментарий кода: relay смотрит привязками на остальных; устав: секреты через stdin, никогда через argv
     const r = deploy([...env], { token: true, files: { "fleet-secrets.env": envFile(SECRETS) } });
     expect(r.code).toBe(0);
     expect(r.out).toContain(`deploy: ok · ${WORKERS.join(", ")}`);
+    const hooked = r.calls.filter((c) => c.what === "fetch");
+    expect(hooked.map((c) => [c.args[0], c.input])).toEqual([[setup, `Bearer ${bot}`]]);
+    r.calls.splice(r.calls.indexOf(hooked[0]), 1);
     expect([...new Set(r.calls.map(moduleOf))]).toEqual(WORKERS);
     const of = (m: string) => r.calls.filter((c) => moduleOf(c) === m).map((c) => c.args.slice(0, c.args[0] === "deploy" ? 1 : 3).join(" "));
     expect(of("gate")).toEqual(["d1 migrations apply", "deploy"]);
@@ -189,13 +196,14 @@ syncBuiltinESMExports();
     expect(r.calls.find((c) => c.args[0] === "d1")!.args).toEqual(["d1", "migrations", "apply", "DB", "--remote", ...env]);
     for (const c of r.calls) expect(c.args.includes("--env") ? c.args.slice(-2) : []).toEqual(env);
     expect(r.calls.filter((c) => c.args[0] === "secret").map((c) => [moduleOf(c), c.args[2], c.input])).toEqual([
+      ["rooms", "TELEGRAM_BOT_TOKEN", bot],
       ["push", "VAPID_PRIVATE", "vapid"],
       ["points", "R2_KEY_SECRET", points],
       ["releases", "CLOUDFLARE_API_TOKEN", "t"],
       ["releases", "R2_LINK_KEY_ID", "r2-id"],
       ["releases", "R2_LINK_SECRET", "r2-test"],
     ]);
-    expect(JSON.stringify(r.calls.map((c) => c.args))).not.toMatch(/vapid|r2-test|r2-id|r2-prod/);
+    expect(JSON.stringify(r.calls.map((c) => c.args))).not.toMatch(/vapid|r2-test|r2-id|r2-prod|bot-test|bot-prod/);
   });
 
   it("названные модули — в порядке выкладки; phone и pult в списке — сборка и выкладка веба; неизвестное имя пропущено", () => {

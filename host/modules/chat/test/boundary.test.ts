@@ -134,6 +134,8 @@ function compacted(s: Stand, cwd: string) {
   } as never;
 }
 
+const TG = "telegram~ann@x.y";
+
 describe("ввод сессии", () => {
   it.each([
     ["простаивает", false],
@@ -605,6 +607,32 @@ describe("вопрос человеку", () => {
     expect(q).toMatchObject({ ...frame, to: [PHONE] });
     expect(await answer(st, PHONE, { question: q.question, ...reply })).toMatchObject({ ok: true });
     expect(await r).toEqual(want);
+  });
+
+  it("2 · rooms.message: текст человека во ввод тегом с адресом чата; сессии нет — строка журнала", async () => {
+    // источник: слово пользователя — реагировать на ответы
+    const { st } = await bench();
+    await st.open(CS);
+    const p = st.proc(CS);
+    st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: CS, text: "да, без миграции" });
+    await until(() => p.inputs.length === 1);
+    expect(p.inputs[0].message.content).toBe(`<fleet-message from="${TG}">
+да, без миграции
+</fleet-message>`);
+    st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: "нет@laptop", text: "x" });
+    await until(() => st.journal().find((l) => l.ev === "rooms.message"));
+  });
+
+  it("12 · ответ из Telegram: вопрос AskUserQuestion уходит в тот же чат кнопками", async () => {
+    // чьё: код — вопрос ждёт ответа без предела, поэтому адресат должен его увидеть
+    const b = await bench();
+    await b.st.open(CS);
+    const p = b.st.proc(CS);
+    b.st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: CS, text: "выкладывай" });
+    await until(() => p.inputs.length === 1);
+    void p.askWith("AskUserQuestion", { questions: [{ question: "Куда?", options: [{ label: "тест" }, { label: "прод" }] }] }, {}, "toolu_tg");
+    const n = await until(() => b.notifies[0]);
+    expect(n).toMatchObject({ clients: [TG], frame: { type: "question", notify: { actions: [{ title: "тест" }, { title: "прод" }] } } });
   });
 
   it("159 · вопрос двум адресатам: кадр без notify, один notify с кнопками и tag; после ответа — answered и второй notify с тем же tag", async () => {

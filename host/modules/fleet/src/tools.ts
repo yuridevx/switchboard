@@ -185,7 +185,7 @@ export function toolsOf(me: string, env: () => Env) {
 
     tool(
       "send",
-      "Написать сессии флота (callsign имя@машина) или человеку: всем его устройствам ~email или одному устройство~email. Ответа адресата не ждёт.",
+      "Написать сессии флота (callsign имя@машина) или человеку: всем его устройствам ~email или одному устройство~email, в том числе чату Telegram: telegram~email — личка, имя~email — группа. Текст в Markdown. Ответа адресата не ждёт.",
       { to: z.string().describe("callsign сессии, ~email человека или устройство~email"), text: z.string().describe("текст сообщения") },
       async ({ to, text }) => {
         const { host } = env();
@@ -195,8 +195,10 @@ export function toolsOf(me: string, env: () => Env) {
         }
         const sent = host.emit({ type: "message", from: me, to, text });
         if (!sent.ok) return fail(refusal(to, sent));
-        void host.request("notify", { clients: [to], frame: { type: "message", from: me, notify: { title: me, body: text, tag: randomUUID() } } });
-        return say(`отправлено: ${to}`);
+        const r = await host.request("notify", { clients: [to], frame: { type: "message", from: me, notify: { title: me, body: text, tag: randomUUID() } } });
+        if (!r.ok) return fail(refusal(to, r));
+        const { undelivered = [] } = (r.result ?? {}) as { undelivered?: Array<{ to: string; word: string; why?: string }> };
+        return undelivered.length ? fail(undelivered.map((u) => `Не доставлено: ${u.to} — ${u.word}${u.why ? `. ${u.why}` : ""}`).join("\n")) : say(`отправлено: ${to}`);
       },
     ),
 

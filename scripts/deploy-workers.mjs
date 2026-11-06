@@ -13,7 +13,7 @@ const WRANGLER = path.join(ROOT, "node_modules", "wrangler", "bin", "wrangler.js
 /** Настоящая выкладка 5 нояб.: при 45 с wrangler выложил prefs, но не завершился под нагрузкой. */
 const LIMIT_MS = 300_000;
 /** relay смотрит привязками на остальных — последним. */
-const WORKERS = ["gate", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
+const WORKERS = ["gate", "rooms", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
 const WEB = ["phone", "pult"];
 
 const stop = (word) => {
@@ -45,6 +45,7 @@ if (!CLOUDFLARE_API_TOKEN || !CLOUDFLARE_ACCOUNT_ID) stop("нет CLOUDFLARE_API
 /** Имя секрета Worker'а → значение. Тестовая пара прав на бакет прода не имеет: точки прода — свой секрет. */
 const secrets = {
   push: { VAPID_PRIVATE: "VAPID_PRIVATE" },
+  rooms: { TELEGRAM_BOT_TOKEN: prod ? "PROD_TELEGRAM_BOT_TOKEN" : "TELEGRAM_BOT_TOKEN" },
   points: { R2_KEY_SECRET: prod ? "PROD_R2_SECRET_ACCESS_KEY" : "R2_SECRET_ACCESS_KEY" },
   releases: { CLOUDFLARE_API_TOKEN: "CLOUDFLARE_API_TOKEN", R2_LINK_KEY_ID: "R2_ACCESS_KEY_ID", R2_LINK_SECRET: "R2_SECRET_ACCESS_KEY" },
 };
@@ -59,6 +60,14 @@ function wrangler(cwd, words, after = [], input) {
   const what = `wrangler ${words.slice(0, 2).join(" ")}`;
   const status = run(WRANGLER, [...words, ...envArgs, ...after], cwd, what, input);
   if (status !== 0) stop(`${what} в ${cwd} — выход ${status}`);
+}
+
+/** Вебхук Telegram: регистрирует сам Worker — адрес и секрет знает он; вход — токен бота. */
+async function hookRooms() {
+  const url = prod ? "https://rooms.pfarm.app/setup" : "https://switchboard-rooms.yuridevx1608.workers.dev/setup";
+  const r = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${known[secrets.rooms.TELEGRAM_BOT_TOKEN]}` }, signal: AbortSignal.timeout(LIMIT_MS) });
+  if (!r.ok) stop(`rooms /setup — ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  console.log("rooms: вебхук зарегистрирован");
 }
 
 if (upload) {
@@ -81,6 +90,7 @@ for (const name of workers) {
   if (existsSync(path.join(ROOT, cwd, "migrations"))) wrangler(cwd, ["d1", "migrations", "apply", "DB", "--remote"]);
   wrangler(cwd, ["deploy"]);
   for (const [secret, from] of Object.entries(secrets[name] ?? {})) wrangler(cwd, ["secret", "put", secret], [], known[from]);
+  if (name === "rooms") await hookRooms();
 }
 for (const name of web) {
   const cwd = `web/${name}`;

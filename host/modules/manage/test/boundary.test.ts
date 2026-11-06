@@ -137,13 +137,16 @@ describe("контракт: пакеты и вклад в query()", () => {
         'Открыть сессию с задачей — fleet.open: она твоя дочь, итог каждого её хода, начатого тобой, придёт сам тегом <fleet-message from="…">. ' +
         "Проект сессии — параметр project у fleet.open и fleet.update, имя в интерфейсе — fleet.label. Профиль — параметр profile там же; что в нём, какие кусочки, слоты и ключи есть — fleet.profile; репозитории кусочков — fleet.repos. Что делала сессия — fleet.history; модель, усилие, заголовок — fleet.update; закрыть — fleet.remove (без callsign — себя, после этого хода). " +
         'Сообщения флота приходят во ввод тегом <fleet-message from="…">; вопрос другой сессии — тегом <fleet-question>, ответ на него — fleet.answer. ' +
-        "Если тебя открыла другая сессия, итог твоего хода, начатого ею, уйдёт ей сам — отвечать ей отдельно не нужно.",
+        "Если тебя открыла другая сессия, итог твоего хода, начатого ею, уйдёт ей сам — отвечать ей отдельно не нужно. " +
+          'Человек из Telegram приходит тегом с from="telegram~почта" или, из группы, from="имя~почта" и автором в начале текста; ответ — fleet.send на этот адрес, твой обычный ответ он не увидит. ' +
+          "Спрашивая людей в Telegram, задавай в AskUserQuestion один вопрос с вариантами: другие вопросы там не ответить. " +
+          "Привязать чат: keys.invite с именем telegram для лички или другим именем для группы, приглашение человек отправляет боту, в группе — /start@бот <приглашение>.",
     );
     const tools = makeFleet().tools("me@pc") as Array<{ name: string; description: string; inputSchema: Record<string, { description?: string }> }>;
     const params = (t: (typeof tools)[number]) => Object.fromEntries(Object.entries(t.inputSchema).map(([k, v]) => [k, v.description ?? null]));
     expect(tools.map((t) => [t.name, t.description, params(t)])).toEqual([
       ["list", "Кто на связи: сессии флота с состоянием, родителем, моделью, профилем, слотом, именем и проектом; машины с именами; проекты; клиенты (телефон, пульт).", {}],
-      ["send", "Написать сессии флота (callsign имя@машина) или человеку: всем его устройствам ~email или одному устройство~email. Ответа адресата не ждёт.", { to: "callsign сессии, ~email человека или устройство~email", text: "текст сообщения" }],
+      ["send", "Написать сессии флота (callsign имя@машина) или человеку: всем его устройствам ~email или одному устройство~email, в том числе чату Telegram: telegram~email — личка, имя~email — группа. Текст в Markdown. Ответа адресата не ждёт.", { to: "callsign сессии, ~email человека или устройство~email", text: "текст сообщения" }],
       ["answer", "Ответить на вопрос другой сессии (тег <fleet-question>), которой эта сессия дала задачу.", { to: "callsign сессии, задавшей вопрос", question: "id вопроса из тега", answers: "текст вопроса → ответ; несколько вариантов — через запятую" }],
       [
         "open",
@@ -797,11 +800,24 @@ describe("fleet: переписка", () => {
     const { st, call } = await bench({ push: true });
     st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [] });
     await st.open("site@laptop");
-    expect(await call("site@laptop", "send", { to, text: "Готово" })).toEqual(toolText(`отправлено: ${to}`));
-    expect(st.relay.frames("message")).toEqual([{ type: "message", v: 1, from: "site@laptop", to, text: "Готово" }]);
+    const sent = call("site@laptop", "send", { to, text: "Готово" });
     const p = await until(() => st.relay.frames("push.send")[0]);
+    st.relay.deliver({ type: "reply", id: p.id as string, from: "push", ok: true } as never);
+    expect(await sent).toEqual(toolText(`отправлено: ${to}`));
+    expect(st.relay.frames("message")).toEqual([{ type: "message", v: 1, from: "site@laptop", to, text: "Готово" }]);
     expect(p).toMatchObject({ v: 1, to: ".push", push: { to, type: "message", from: "site@laptop", notify: { title: "site@laptop", body: "Готово" } } });
     expect((p.push as { skip?: unknown }).skip).toBeUndefined();
+  });
+
+  it("отказ доставки модель видит в ответе send: слово и подсказка", async () => {
+    // источник: дизайн «Переписка с человеком» — отказ Telegram доходит до модели; текст — чьё: код
+    const { st, call } = await bench({ push: true });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [] });
+    await st.open("site@laptop");
+    const pending = call("site@laptop", "send", { to: "telegram~a@b.c", text: "x" });
+    const f = await until(() => st.relay.frames("push.send")[0]);
+    st.relay.deliver({ type: "reply", id: f.id as string, from: "push", ok: false, error: "rate_limited", why: "предел Telegram, повторить через 37 с" } as never);
+    expect(await pending).toEqual(toolText("Не доставлено: telegram~a@b.c — rate_limited. предел Telegram, повторить через 37 с", true));
   });
 
   it("335 · связи с relay нет: сессии — «Доставка не подтверждена», человеку — то же", async () => {
@@ -1861,8 +1877,10 @@ describe("fleet: остальные формы", () => {
     expect(text(await call("lead@win", "send", { to: ".relay", text: "t" }))).toBe("отправлено: .relay");
     expect(st.relay.frames("message").map((f) => [f.to, f.id])).toEqual([["@wsl", undefined], [".relay", undefined]]);
     expect(text(await call("lead@win", "send", { to: "lead@win", text: "t" }))).toBe("доставлено: lead@win");
-    await call("lead@win", "send", { to: "~a@b.c", text: "x".repeat(5000) });
+    const sent = call("lead@win", "send", { to: "~a@b.c", text: "x".repeat(5000) });
     const p = await until(() => st.relay.frames("push.send").at(-1));
+    st.relay.deliver({ type: "reply", id: p.id as string, from: "push", ok: true } as never);
+    await sent;
     expect(p.push).toMatchObject({ to: "~a@b.c", notify: { title: "lead@win", body: "x".repeat(5000), tag: expect.any(String) } });
   });
 

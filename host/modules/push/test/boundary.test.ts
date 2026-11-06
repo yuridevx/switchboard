@@ -45,6 +45,25 @@ const sends = (s: Stand) => s.relay.frames("push.send");
 const reply = (s: Stand, f: Frame, r: { ok: true; result?: unknown } | { ok: false; error: string }) => s.relay.deliver({ type: "reply", id: f.id as string, from: "push", ...r } as Frame);
 const lines = (s: Stand) => s.journal().filter((l) => l.who === "host-push");
 
+describe("что не дошло", () => {
+  it("отказ устройству: undelivered со словом и подсказкой; ok — пустой ответ", async () => {
+    const s = await bench([]);
+    const asked = notify(s, ["telegram~a@b.c"]);
+    const f = await until(() => sends(s)[0]);
+    s.relay.deliver({ type: "reply", id: f.id as string, from: "push", ok: false, error: "rate_limited", why: "через 37 с" } as Frame);
+    expect(await asked).toMatchObject({ ok: true, result: { undelivered: [{ to: "telegram~a@b.c", word: "rate_limited", why: "через 37 с" }] } });
+  });
+
+  it("gone при устройствах на связи — не потеря: человека уже достали", async () => {
+    const s = await bench([PULT]);
+    const asked = notify(s, [OWNER]);
+    const f = await until(() => sends(s)[0]);
+    reply(s, f, { ok: false, error: "gone" });
+    expect((await asked).ok).toBe(true);
+    expect((await asked as { result?: unknown }).result).toBeUndefined();
+  });
+});
+
 describe("кому пуш", () => {
   it("153 · устройства нет на связи: один push.send с полями кадра; устройству на связи пуша нет", async () => {
     const s = await bench([PULT]);
@@ -84,7 +103,7 @@ describe("исход пуша", () => {
     for (const n of [0, 1]) {
       const p = notify(s, [PHONE]);
       reply(s, await until(() => sends(s)[n]), { ok: false, error: "gone" });
-      expect(await p).toEqual({ ok: true });
+      expect(await p).toMatchObject({ ok: true, result: { undelivered: [{ to: PHONE }] } });
     }
     const gone = lines(s).filter((l) => l.word === "gone");
     expect(gone.map((l) => [l.ev, l.why])).toEqual(Array(2).fill(["push.send", `${PHONE}: подписки нет — question без пуша`]));
@@ -96,7 +115,7 @@ describe("исход пуша", () => {
     const s = await bench([]);
     const p = notify(s, [PHONE]);
     reply(s, await until(() => sends(s)[0]), { ok: false, error: "offline" });
-    expect(await p).toEqual({ ok: true });
+    expect(await p).toMatchObject({ ok: true, result: { undelivered: [{ to: PHONE }] } });
     expect(lines(s).filter((l) => l.kind === "stop").map((l) => [l.ev, l.word, l.why])).toEqual([["push.send", "offline", `push.send ${PHONE}: offline — question без пуша`]]);
     expect(sends(s)).toHaveLength(1);
   });

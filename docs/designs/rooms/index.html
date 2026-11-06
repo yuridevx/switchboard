@@ -1,0 +1,742 @@
+<title>Переписка с человеком</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@500;600&display=swap">
+<style>
+/* Раскладка: колонка 1040px, сверху вся система, ниже детали; цвета и шрифты — как у других дизайнов Switchboard. */
+:root{
+  --bg:#F2F4F8; --surface:#FFFFFF; --surface2:#E8ECF2; --ink:#131A25; --muted:#576377; --line:#D2D9E3; --line2:#E3E8EF;
+  --accent:#1E4ED0; --accent-weak:#E2E9FB; --on-accent:#FFFFFF;
+  --ok:#1C7548; --ok-weak:#DBF0E4; --wait:#955700; --wait-weak:#FAEACD; --bad:#B0222E; --bad-weak:#F7DDE0;
+  --violet:#6B3FC4; --violet-weak:#EAE3FA;
+  --chg-bg:#FFF5C2; --chg-edge:#D9B400;
+  --disp:"Unbounded","Golos Text",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --violet:#B9A0F5; --violet-weak:#2A2145;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --violet:#B9A0F5; --violet-weak:#2A2145;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:400 15.5px/1.55 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px;overflow-wrap:break-word}
+.wrap{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:22px;min-width:0}
+h1,h2,h3{text-wrap:balance;margin:0}
+h1{font:600 clamp(26px,4.6vw,40px)/1.12 var(--disp);letter-spacing:-.01em}
+h2{font:600 19px/1.25 var(--disp)}
+p{margin:0;max-width:72ch}
+code,.mono{font-family:var(--mono);font-size:.88em;overflow-wrap:anywhere}
+button{font:500 13.5px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,[data-note]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.top{display:flex;flex-direction:column;gap:14px;padding-block:8px 6px}
+.lede{font-size:17.5px;max-width:72ch}
+.howto{font-size:13px;color:var(--muted)}
+.howto kbd{font:600 12px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:var(--surface);color:var(--ink)}
+.blk{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.chg{background:var(--chg-bg);border-color:var(--chg-edge)}
+.chg.read{background:var(--surface);border-color:var(--line)}
+.blk-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.tag{font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border-radius:999px;padding:4px 8px;background:var(--chg-edge);color:#1E1A00}
+.tag::after{content:"новое"}
+.chg.read .tag{background:var(--ok-weak);color:var(--ok)}
+.chg.read .tag::after{content:"прочитано ✓"}
+.inner{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
+.chg.read .inner{background:var(--surface2);border-color:var(--line2)}
+.pad{padding:14px;display:flex;flex-direction:column;gap:10px}
+.seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.scroll{overflow-x:auto}
+
+/* диаграмма */
+svg{display:block;width:100%;height:auto;min-width:720px}
+svg text{font-family:var(--body);fill:var(--ink)}
+svg .small{font-size:11.5px;fill:var(--muted)}
+svg .code{font-family:var(--mono);font-size:11.5px}
+.zone{fill:var(--surface2);stroke:var(--line);stroke-width:1}
+.zone-l{font-size:12px;font-weight:600;fill:var(--muted)}
+.n rect{fill:var(--surface);stroke:var(--line);stroke-width:1.4;rx:9}
+.n text{font-size:13px;font-weight:500}
+.n,.e{cursor:pointer}
+.n:hover rect{stroke:var(--accent)}
+.e path{fill:none;stroke-width:2}
+.e .hit{stroke:transparent;stroke-width:15}
+.e text{font-family:var(--mono);font-size:11px;paint-order:stroke;stroke:var(--surface2);stroke-width:4px}
+.p-say path:not(.hit){stroke:var(--accent)} .p-say text{fill:var(--accent)}
+.p-reply path:not(.hit){stroke:var(--ok)} .p-reply text{fill:var(--ok)}
+.p-token path:not(.hit){stroke:var(--violet)} .p-token text{fill:var(--violet)}
+.p-data path:not(.hit){stroke:var(--muted)} .p-data text{fill:var(--muted)}
+.dimmed .n:not(.lit),.dimmed .e:not(.lit){opacity:.18}
+.sel rect,.sel.n rect{stroke:var(--accent);stroke-width:2.4}
+.e.sel path:not(.hit){stroke-width:3.4}
+.note{border:1px dashed var(--line);border-radius:10px;padding:12px 14px;min-height:62px;font-size:14px;display:flex;flex-direction:column;gap:8px}
+.note b{font-weight:600}
+.note pre{margin:0;font:400 12.5px/1.5 var(--mono);background:var(--surface2);border-radius:8px;padding:10px;overflow-x:auto;white-space:pre}
+
+/* Telegram */
+.chats{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.chat{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface);min-width:0}
+.chat-h{padding:9px 12px;font-weight:600;font-size:13.5px;background:var(--surface2);display:flex;justify-content:space-between;gap:8px}
+.topics{display:flex;gap:6px;padding:8px 10px;overflow-x:auto;border-bottom:1px solid var(--line2)}
+.topic{font:500 12px var(--mono);border:1px solid var(--line);border-radius:999px;padding:3px 9px;white-space:nowrap;background:var(--surface)}
+.topic.on{background:var(--accent-weak);border-color:var(--accent);color:var(--accent)}
+.msgs{display:flex;flex-direction:column;gap:7px;padding:10px;min-height:190px}
+.m{max-width:86%;padding:6px 10px;border-radius:10px;font-size:13.5px;background:var(--surface2);align-self:flex-start;position:relative}
+.m.me{align-self:flex-end;background:var(--accent-weak)}
+.m small{display:block;font-size:11px;color:var(--muted)}
+.m .re{position:absolute;right:-5px;bottom:-9px;font-size:12px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:0 5px}
+.m{cursor:pointer}
+
+/* звук */
+.who{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.w{border:1px solid var(--line);border-radius:10px;padding:8px 10px;text-align:center;font-size:13px;background:var(--surface);cursor:pointer}
+.w b{display:block;font-size:14px}
+.w.loud{background:var(--accent-weak);border-color:var(--accent)}
+.w.none{opacity:.45}
+
+/* конвейер и шаги */
+.strip{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-block:4px}
+.st{flex:1 0 118px;border:1.4px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px;background:var(--surface);cursor:pointer;display:flex;flex-direction:column;gap:2px;justify-content:center}
+.st:hover{border-color:var(--accent)}
+.st code{font-size:11px;color:var(--muted)}
+.st.pass{background:var(--ok-weak);border-color:var(--ok)}
+.st.stop{background:var(--bad-weak);border-color:var(--bad)}
+.st.sel{outline:2px solid var(--accent)}
+.ar{flex:0 0 26px;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer;font-size:16px}
+.ar:hover{color:var(--accent)}
+.out{font-size:14px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:12.5px;border-radius:999px;padding:4px 10px;background:var(--ok-weak);color:var(--ok);font-weight:500}
+.chip.warn{background:var(--wait-weak);color:var(--wait)}
+
+/* инструменты */
+.tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.tool{display:flex;flex-direction:column;gap:6px;min-width:0}
+.tool pre{margin:0;font:400 12.5px/1.5 var(--mono);background:var(--surface2);border-radius:8px;padding:10px;overflow-x:auto;white-space:pre}
+.words{display:flex;gap:6px;flex-wrap:wrap}
+.word{font:500 12px var(--mono);border-radius:6px;padding:2px 7px;background:var(--bad-weak);color:var(--bad);cursor:pointer}
+
+/* сравнение */
+.map{display:grid;grid-template-columns:minmax(70px,.7fr) 1fr 1fr;gap:6px;font-size:13.5px}
+.map>div{padding:7px 10px;border-radius:8px;background:var(--surface2);min-width:0}
+.map .h{background:none;font-weight:600;padding-block:2px}
+.map .soon{background:var(--wait-weak);color:var(--wait)}
+.map .good{background:var(--ok-weak);color:var(--ok)}
+
+/* эталоны */
+.et{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px}
+.e-c{border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:13.5px;display:flex;flex-direction:column;gap:3px;background:var(--surface)}
+.e-c span{font-size:12px;color:var(--muted)}
+.e-c i{font-style:normal;font:600 11px var(--mono);color:var(--accent)}
+
+/* порядок */
+.steps{display:flex;flex-direction:column;gap:8px}
+.s{display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)}
+.s>b{font:600 15px var(--disp);color:var(--accent)}
+.s div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.s span{font-size:13px;color:var(--muted)}
+.gate{font:400 13.5px/1.7 var(--mono);display:flex;flex-direction:column;gap:6px}
+.gate b{font-weight:600}
+.num{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.num div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface);font-size:12.5px;color:var(--muted)}
+.num b{display:block;font:600 16px var(--mono);color:var(--ink)}
+.fork{border:1px solid var(--wait);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
+.mark-banner{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom,0px));right:max(16px,env(safe-area-inset-right,0px));background:var(--ink);color:var(--bg);padding:8px 12px;border-radius:8px;font-size:13px}
+@media (max-width:520px){.blk{padding:14px}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Переписка с человеком</h1>
+    <p class="lede">Сессия пишет в Telegram от своего имени и получает ответ людей как обычный ввод. Весь механизм живёт в Cloudflare; на машине остаётся один модуль на два десятка строк.</p>
+    <p class="howto">Клик по ноде или стрелке — пояснение. Наведение — подсветка пути. <kbd>A</kbd> — прочитал блок, <kbd>Z</kbd> — снять.</p>
+  </header>
+
+  <section class="blk chg" data-chg="arch-2">
+    <div class="blk-h"><span class="tag"></span><h2>Вся система</h2></div>
+    <div class="seg" id="paths">
+      <button data-show="say">Апдейт человеку</button>
+      <button data-show="reply">Ответ человека</button>
+      <button data-show="token">Вход сессии</button>
+    </div>
+    <div class="scroll">
+    <svg id="arch" viewBox="0 0 1040 470" role="img" aria-label="Сессия на машине, Worker rooms в Cloudflare, чаты Telegram">
+      <defs>
+        <marker id="m-say" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--accent)"/></marker>
+        <marker id="m-reply" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--ok)"/></marker>
+        <marker id="m-token" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--violet)"/></marker>
+        <marker id="m-data" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--muted)"/></marker>
+      </defs>
+      <rect class="zone" x="8" y="14" width="244" height="442" rx="14"/><text class="zone-l" x="24" y="38">Машина</text>
+      <rect class="zone" x="282" y="14" width="440" height="442" rx="14"/><text class="zone-l" x="298" y="38">Cloudflare</text>
+      <rect class="zone" x="752" y="14" width="280" height="442" rx="14"/><text class="zone-l" x="768" y="38">Telegram</text>
+
+      <rect x="310" y="52" width="384" height="164" rx="12" style="fill:var(--accent-weak);stroke:var(--accent);stroke-width:1.2"/>
+      <text x="326" y="72" style="font-size:13px;font-weight:600;fill:var(--accent)">Worker rooms · без состояния</text>
+
+      <g class="n" data-note="session" data-p="say reply" tabindex="0"><rect x="36" y="84" width="188" height="64"/><text x="130" y="112" text-anchor="middle">Сессия</text><text class="small code" x="130" y="131" text-anchor="middle">site@laptop</text></g>
+      <g class="n" data-note="host" data-p="token reply" tabindex="0"><rect x="36" y="296" width="188" height="64"/><text x="130" y="324" text-anchor="middle">Host</text><text class="small" x="130" y="343" text-anchor="middle">модуль host-rooms</text></g>
+
+      <g class="n" data-note="mcp" data-p="say" tabindex="0"><rect x="330" y="84" width="344" height="48"/><text x="502" y="113" text-anchor="middle">/mcp · удалённый MCP</text></g>
+      <g class="n" data-note="hook" data-p="reply" tabindex="0"><rect x="330" y="150" width="344" height="48"/><text x="502" y="179" text-anchor="middle">/webhook · ответы людей</text></g>
+
+      <g class="n" data-note="gate" data-p="token reply" tabindex="0"><rect x="316" y="296" width="116" height="64"/><text x="374" y="333" text-anchor="middle">gate</text></g>
+      <g class="n" data-note="d1" data-p="say reply" tabindex="0"><rect x="444" y="296" width="116" height="64"/><text x="502" y="323" text-anchor="middle">D1</text><text class="small" x="502" y="342" text-anchor="middle">чаты, темы</text></g>
+      <g class="n" data-note="relay" data-p="reply" tabindex="0"><rect x="574" y="296" width="116" height="64"/><text x="632" y="333" text-anchor="middle">relay</text></g>
+
+      <g class="n" data-note="bot" data-p="say reply" tabindex="0"><rect x="782" y="84" width="220" height="114"/><text x="892" y="136" text-anchor="middle">Bot API</text><text class="small" x="892" y="155" text-anchor="middle">один бот на флот</text></g>
+      <g class="n" data-note="dm" data-p="say reply" tabindex="0"><rect x="782" y="270" width="220" height="64"/><text x="892" y="297" text-anchor="middle">Личка с ботом</text><text class="small" x="892" y="316" text-anchor="middle">один человек</text></g>
+      <g class="n" data-note="group" data-p="say reply" tabindex="0"><rect x="782" y="352" width="220" height="74"/><text x="892" y="384" text-anchor="middle">Группа с темами</text><text class="small" x="892" y="403" text-anchor="middle">несколько людей</text></g>
+
+      <g class="e p-say" data-note="e-say" data-p="say" tabindex="0"><path class="hit" d="M224 108H330"/><path d="M224 108H328" marker-end="url(#m-say)"/><text x="277" y="98" text-anchor="middle">say</text></g>
+      <g class="e p-say" data-note="e-send" data-p="say" tabindex="0"><path class="hit" d="M674 108H782"/><path d="M674 108H780" marker-end="url(#m-say)"/><text x="728" y="98" text-anchor="middle">sendRich…</text></g>
+      <g class="e p-say" data-note="e-out" data-p="say" tabindex="0"><path class="hit" d="M842 198V270"/><path d="M842 198V268" marker-end="url(#m-say)"/><text x="836" y="238" text-anchor="end">в тему</text></g>
+      <g class="e p-reply" data-note="e-in" data-p="reply" tabindex="0"><path class="hit" d="M942 270V198"/><path d="M942 270V200" marker-end="url(#m-reply)"/><text x="948" y="238">ответ</text></g>
+      <g class="e p-reply" data-note="e-hook" data-p="reply" tabindex="0"><path class="hit" d="M782 174H674"/><path d="M782 174H676" marker-end="url(#m-reply)"/><text x="728" y="164" text-anchor="middle">update</text></g>
+      <g class="e p-reply" data-note="e-deliver" data-p="reply" tabindex="0"><path class="hit" d="M632 216V296"/><path d="M632 216V294" marker-end="url(#m-reply)"/><text x="638" y="262">deliver</text></g>
+      <g class="e p-reply" data-note="e-ws" data-p="reply" tabindex="0"><path class="hit" d="M632 360V410H180V360"/><path d="M632 360V410H180V362" marker-end="url(#m-reply)"/><text x="406" y="402" text-anchor="middle">кадр message · соединение Host</text></g>
+      <g class="e p-reply" data-note="e-input" data-p="reply" tabindex="0"><path class="hit" d="M180 296V148"/><path d="M180 296V150" marker-end="url(#m-reply)"/><text x="186" y="228">ввод</text></g>
+      <g class="e p-token" data-note="e-token" data-p="token" tabindex="0"><path class="hit" d="M224 318H268V204H310"/><path d="M224 318H268V204H308" marker-end="url(#m-token)"/><text x="262" y="264" text-anchor="end" transform="rotate(-90 262 264)">rooms.token</text></g>
+      <g class="e p-token" data-note="e-env" data-p="token" tabindex="0"><path class="hit" d="M80 296V148"/><path d="M80 296V150" marker-end="url(#m-token)"/><text x="74" y="228" text-anchor="end">токен</text></g>
+      <g class="e p-token" data-note="e-gate" data-p="token reply" tabindex="0"><path class="hit" d="M374 216V296"/><path d="M374 216V294" marker-end="url(#m-token)"/><text x="380" y="262">verify</text></g>
+      <g class="e p-data" data-note="e-d1" data-p="say reply" tabindex="0"><path class="hit" d="M502 216V296"/><path d="M502 216V294" marker-end="url(#m-data)"/><text x="508" y="262">SQL</text></g>
+    </svg>
+    </div>
+    <div class="note" data-panel><b>Сессия пишет напрямую в Cloudflare.</b> Ответ приходит обратно через relay, тем же путём, что и любое сообщение флота.</div>
+  </section>
+
+  <section class="blk chg" data-chg="look-2">
+    <div class="blk-h"><span class="tag"></span><h2>Что видит человек</h2></div>
+    <div class="chats">
+      <div class="chat">
+        <div class="chat-h"><span>Личка с ботом</span><span>Ann</span></div>
+        <div class="topics"><span class="topic on" data-note="t-topic">site@laptop</span><span class="topic" data-note="t-topic">api@ex44</span></div>
+        <div class="msgs">
+          <div class="m" data-note="t-say"><small>site@laptop</small>Тесты прошли, 412 из 412. Выкладываю на тест?</div>
+          <div class="m me" data-note="t-ack">да, только без миграции<span class="re">👀</span></div>
+          <div class="m" data-note="t-say"><small>site@laptop</small>Выложено. Страница входа отвечает за 180 мс.</div>
+        </div>
+      </div>
+      <div class="chat">
+        <div class="chat-h"><span>Группа «Команда»</span><span>Ann · Bob · Carl</span></div>
+        <div class="topics"><span class="topic" data-note="t-general">General</span><span class="topic on" data-note="t-topic">api@ex44</span><span class="topic" data-note="t-topic">site@laptop</span></div>
+        <div class="msgs">
+          <div class="m" data-note="t-say"><small>api@ex44</small>Сборка упала на шаге миграций.</div>
+          <div class="m" data-note="t-say"><small>api@ex44</small>Нужен доступ к базе.</div>
+          <div class="m me" data-note="t-bob"><small>Bob</small>выдал, пробуй<span class="re">👀</span></div>
+          <div class="m me" data-note="t-carl"><small>Carl · не привязан</small>а что случилось?<span class="re">👎</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="note" data-panel><b>Чат — комната, тема — сессия.</b> Личка и группа устроены одинаково, поэтому код у них один.</div>
+  </section>
+
+  <section class="blk chg" data-chg="share-2">
+    <div class="blk-h"><span class="tag"></span><h2>Как делят канал: кто услышит</h2></div>
+    <div class="seg" id="sound">
+      <button data-s="quiet">say в группу</button>
+      <button data-s="dm">say в личку Bob</button>
+    </div>
+    <div class="who">
+      <div class="w" id="w-ann" data-note="w-ann"><b>Ann</b><span></span></div>
+      <div class="w" id="w-bob" data-note="w-bob"><b>Bob</b><span></span></div>
+      <div class="w" id="w-carl" data-note="w-carl"><b>Carl</b><span></span></div>
+    </div>
+    <div class="note" data-panel><b>В группе видят все, тихо. Позвать одного — написать ему в личку.</b> Состав группы и настройки уведомлений остаются у Telegram.</div>
+  </section>
+
+  <section class="blk chg" data-chg="reply-2">
+    <div class="blk-h"><span class="tag"></span><h2>Кто дойдёт до сессии</h2></div>
+    <div class="seg" id="cases">
+      <button data-c="ann">Ann в теме сессии</button>
+      <button data-c="carl">Гость Carl</button>
+      <button data-c="revoked">Пропуск отозван</button>
+      <button data-c="off">Машина не на связи</button>
+      <button data-c="stopped">Сессия остановлена</button>
+      <button data-c="general">Разговор в General</button>
+      <button data-c="fake">Чужой запрос</button>
+    </div>
+    <div class="strip" id="pipe">
+      <div class="st" data-i="0" data-note="r-sign"><b>Подпись</b><code>secret_token</code></div><div class="ar" data-note="r-a1">→</div>
+      <div class="st" data-i="1" data-note="r-thread"><b>Тема сессии</b><code>threads</code></div><div class="ar" data-note="r-a2">→</div>
+      <div class="st" data-i="2" data-note="r-person"><b>Человек</b><code>chats · revoked</code></div><div class="ar" data-note="r-a3">→</div>
+      <div class="st" data-i="3" data-note="r-machine"><b>Машина</b><code>relay.deliver</code></div><div class="ar" data-note="r-a4">→</div>
+      <div class="st" data-i="4" data-note="r-input"><b>Ввод сессии</b><code>fleet-message</code></div>
+    </div>
+    <div class="out" id="outcome"></div>
+    <div class="note" data-panel><b>Сессия работает с полными правами на машине.</b> Поэтому её ввод открыт только людям с живым пропуском флота.</div>
+  </section>
+
+  <section class="blk chg" data-chg="token-2">
+    <div class="blk-h"><span class="tag"></span><h2>Как сессия представляется Cloudflare</h2></div>
+    <div class="strip">
+      <div class="st" data-note="k-start"><b>Старт сессии</b><code>host-rooms</code></div><div class="ar" data-note="k-a1">→</div>
+      <div class="st" data-note="k-token"><b>Токен сессии</b><code>rooms.token</code></div><div class="ar" data-note="k-a2">→</div>
+      <div class="st" data-note="k-env"><b>Окружение claude</b><code>ROOMS_TOKEN</code></div><div class="ar" data-note="k-a3">→</div>
+      <div class="st" data-note="k-call"><b>Заголовок MCP</b><code>Bearer ${ROOMS_TOKEN}</code></div>
+    </div>
+    <div class="chips">
+      <span class="chip" data-note="p-connect">подключение 0,6 с, 0 токенов</span>
+      <span class="chip" data-note="p-argv">в argv только ${ROOMS_TOKEN}</span>
+      <span class="chip" data-note="p-dead">Worker лежит: сессия стартует</span>
+      <span class="chip" data-note="p-cf">обработчик Cloudflare: 213 КБ gzip</span>
+      <span class="chip" data-note="p-turn">живой ход Haiku: say вызван, $0,009</span>
+      <span class="chip" data-note="p-instr">инструкции сервера дошли до модели</span>
+    </div>
+    <div class="note" data-panel><b>Пропуск машины остаётся в ядре Host.</b> Сессия получает токен, который умеет только писать от её имени.</div>
+  </section>
+
+  <section class="blk chg" data-chg="link-2">
+    <div class="blk-h"><span class="tag"></span><h2>Как человек и группа попадают во флот</h2></div>
+    <div class="strip">
+      <div class="st" data-note="l-ask"><b>Просьба сессии</b><code>«привяжи мой телеграм»</code></div><div class="ar" data-note="l-a1">→</div>
+      <div class="st" data-note="l-invite"><b>Приглашение</b><code>keys.invite</code></div><div class="ar" data-note="l-a2">→</div>
+      <div class="st" data-note="l-start"><b>Ссылка на бота</b><code>?start= · ?startgroup=</code></div><div class="ar" data-note="l-a3">→</div>
+      <div class="st" data-note="l-redeem"><b>Пропуск принят</b><code>gate.redeem</code></div><div class="ar" data-note="l-a4">→</div>
+      <div class="st" data-note="l-room"><b>Адрес</b><code>telegram~ann@x.y · team~ann@x.y</code></div>
+    </div>
+    <div class="note" data-panel><b>Один путь для человека и группы.</b> Страницы пульта не меняются: привязку отзывает тот же экран пропусков, что и телефон.</div>
+  </section>
+
+  <section class="blk chg" data-chg="tools-2">
+    <div class="blk-h"><span class="tag"></span><h2>Что видит модель</h2></div>
+    <div class="tools">
+      <div class="inner pad tool">
+        <b><code>mcp__rooms__say</code></b>
+<pre>{ "text": "Тесты прошли. **412** из 412.",
+  "to": "team~ann@x.y" }</pre>
+        <div class="words">
+          <span class="word" data-note="w-choose">choose_room</span>
+          <span class="word" data-note="w-topics">no_topics</span>
+          <span class="word" data-note="w-rate">rate_limited</span>
+          <span class="word" data-note="w-long">too_long</span>
+          <span class="word" data-note="w-gone">gone</span>
+        </div>
+      </div>
+      <div class="inner pad tool">
+        <b>Ответ человека во вводе</b>
+<pre>&lt;fleet-message from="telegram~ann@x.y"&gt;
+да, только без миграции
+&lt;/fleet-message&gt;</pre>
+        <div class="chips"><span class="chip warn" data-note="q-ask">AskUserQuestion — в приложение</span></div>
+      </div>
+    </div>
+    <div class="note" data-panel><b>Клик по слову отказа — что делает модель.</b> Текст инструкций лежит в Worker и меняется без выкладки на машины.</div>
+  </section>
+
+  <section class="blk chg" data-chg="live">
+    <div class="blk-h"><span class="tag"></span><h2>Проверено вживую</h2></div>
+    <div class="chips">
+      <span class="chip" data-note="v-dm">личка: тема, ответ, 👀</span>
+      <span class="chip" data-note="v-group">группа: тема, ответ, General</span>
+      <span class="chip" data-note="v-link">/start@бот с приглашением</span>
+      <span class="chip" data-note="v-hook">вебхук на Cloudflare: 👀, чужой 401</span>
+      <span class="chip" data-note="v-mcp">сессия → MCP на Cloudflare → тема</span>
+      <span class="chip" data-note="v-rate">20 сообщений, 21-е — 429</span>
+      <span class="chip" data-note="v-words">отказы Telegram сняты</span>
+      <span class="chip" data-note="v-anon">анонимный админ виден как чужой</span>
+      <span class="chip warn" data-note="v-rich">Markdown: вид в приложении не проверен</span>
+      <span class="chip warn" data-note="v-two">двое людей и гость: нужен второй аккаунт</span>
+      <span class="chip warn" data-note="v-ui">диалог выбора группы: только API</span>
+    </div>
+    <div class="note" data-panel><b>Весь круг работает на настоящем Telegram и настоящем Cloudflare.</b> Жёлтое ещё не проверено.</div>
+  </section>
+
+  <section class="blk chg" data-chg="discord">
+    <div class="blk-h"><span class="tag"></span><h2>Discord потом</h2></div>
+    <div class="map">
+      <div class="h"></div><div class="h">Telegram</div><div class="h">Discord</div>
+      <div>Комната</div><div>чат</div><div class="good">канал сервера</div>
+      <div>Сессия</div><div>тема</div><div class="good">ветка</div>
+      <div>Имя</div><div>название темы</div><div class="good">username в каждом сообщении</div>
+      <div>Ответ</div><div>webhook</div><div class="soon">постоянный сокет: объект Cloudflare</div>
+    </div>
+    <div class="note"><b>Модель та же, меняется один файл и добавляется объект.</b> Сегодня для Discord ничего не строим.</div>
+  </section>
+
+  <section class="blk chg" data-chg="etalons-2">
+    <div class="blk-h"><span class="tag"></span><h2>Эталоны</h2></div>
+    <p class="howto">Стенд: Worker в miniflare, поддельные Bot API, gate и relay; Host — на своём стенде с поддельным SDK.</p>
+    <div class="et">
+      <div class="e-c"><i>1</i>Первый say создаёт тему с именем сессии, второй идёт в неё же<span>слово пользователя: от своего имени</span></div>
+      <div class="e-c"><i>2</i>Ответ в теме приходит во ввод тегом с from и ставит 👀<span>слово пользователя: реагировать на ответы</span></div>
+      <div class="e-c"><i>3</i>Двое пишут в тему: два разных from, порядок сохранён<span>слово пользователя: канал делят несколько людей</span></div>
+      <div class="e-c"><i>4</i>Гость: ввод пуст, на сообщении 👎<span>факт: сессия в режиме «разрешено всё»</span></div>
+      <div class="e-c"><i>5</i>Пропуск отозван: ввод пуст, на сообщении 👎<span>факт: отзыв — единственный выключатель человека</span></div>
+      <div class="e-c"><i>6</i>deliver вернул 0: на сообщении 🤷<span>устав: отказ словом</span></div>
+      <div class="e-c"><i>7</i>Токен с чужой подписью или отозванной машины: bad_key<span>факт: личность сессии держится на токене</span></div>
+      <div class="e-c"><i>8</i>rooms молчит: сессия стартует за 10 с без инструмента, модуль не выключен, строка в журнале<span>факт опыта: мёртвый сервер старт не ломает</span></div>
+      <div class="e-c"><i>9</i>В аргументах запуска claude нет значения токена<span>устав: секреты не через argv</span></div>
+      <div class="e-c"><i>10</i>429 от Telegram: rate_limited с секундами, повтора в коде нет<span>факт: 20 сообщений в минуту на группу</span></div>
+      <div class="e-c"><i>11</i>Приглашение принято в группе: say с to группы идёт в её тему<span>слово пользователя: канал делят несколько людей</span></div>
+      <div class="e-c"><i>12</i>Ответ из Telegram: вопрос AskUserQuestion уходит тому же, кто дал задачу<span>чьё: код — вопрос ждёт ответа без предела</span></div>
+      <div class="e-c"><i>13</i>Ответ в группе, say без to: сообщение в ту же группу<span>слово пользователя: реагировать на ответы</span></div>
+    </div>
+  </section>
+
+  <section class="blk chg" data-chg="gate-block-2">
+    <div class="blk-h"><span class="tag"></span><h2>Гейт</h2></div>
+    <div class="gate">
+      <div><b>Работа:</b> большая — новый Worker-модуль, MCP вне машины, внешний канал</div>
+      <div><b>Гейт:</b> дубликаты ответственности 2 → 1 · состояния 5 → 0 · логики 1 → 0 · смысла 3 → 0 · других 6 → 0 · лишние коммуникации 6 → 1 · циклы 0 → 0</div>
+      <div>Остаток — один и тот же второй путь к человеку: он задевает слово пользователя и вынесен в развилку.</div>
+    </div>
+    <div class="num">
+      <div><b>8 → 9</b>Worker-модули</div>
+      <div><b>14 → 15</b>модули Host</div>
+      <div><b>+1 · +1</b>запрос · инструмент MCP</div>
+      <div><b>+1</b>секрет: токен бота</div>
+      <div><b>+1</b>база D1, 2 таблицы</div>
+      <div><b>0</b>правок ядра, keeper, relay, gate, страниц</div>
+      <div><b>0</b>новых веток сбоев</div>
+    </div>
+    <div class="gate" id="gate-list"></div>
+  </section>
+
+  <section class="blk chg" data-chg="forks-2">
+    <div class="blk-h"><span class="tag"></span><h2>Развилка</h2></div>
+    <div class="scroll">
+    <svg id="fork" viewBox="0 0 1040 338" role="img" aria-label="Сверху два инструмента и два пути к человеку, снизу один">
+      <rect class="zone" x="8" y="10" width="1024" height="152" rx="14"/><text class="zone-l" x="24" y="32">Дизайн: инструмент say в Cloudflare</text>
+      <rect class="zone" x="8" y="176" width="1024" height="152" rx="14"/><text class="zone-l" x="24" y="198">Рекомендую: Telegram — ещё одно устройство человека</text>
+      <g class="n" data-note="f1-session" tabindex="0"><rect x="36" y="72" width="120" height="48"/><text x="96" y="101" text-anchor="middle">Сессия</text></g>
+      <g class="n" data-note="f1-host" tabindex="0"><rect x="260" y="44" width="130" height="44"/><text x="325" y="71" text-anchor="middle">Host</text></g>
+      <g class="n" data-note="f1-push" tabindex="0"><rect x="470" y="44" width="130" height="44"/><text x="535" y="71" text-anchor="middle">push</text></g>
+      <g class="n" data-note="f-apps" tabindex="0"><rect x="812" y="44" width="190" height="44"/><text x="907" y="71" text-anchor="middle">Телефон и пульт</text></g>
+      <g class="n" data-note="f1-rooms" tabindex="0"><rect x="470" y="104" width="130" height="44"/><text x="535" y="131" text-anchor="middle">rooms</text></g>
+      <g class="n" data-note="f-tg" tabindex="0"><rect x="812" y="104" width="190" height="44"/><text x="907" y="131" text-anchor="middle">Telegram</text></g>
+      <g class="e p-data" data-note="f1-e-send" tabindex="0"><path class="hit" d="M156 84H208V66H258"/><path d="M156 84H208V66H258" marker-end="url(#m-data)"/><text x="208" y="58" text-anchor="middle">fleet.send</text></g>
+      <g class="e p-say" data-note="f1-e-say" tabindex="0"><path class="hit" d="M156 108H208V126H468"/><path d="M156 108H208V126H468" marker-end="url(#m-say)"/><text x="330" y="116" text-anchor="middle">say · токен</text></g>
+      <g class="e p-data" data-note="f-e-notify" tabindex="0"><path class="hit" d="M390 66H468"/><path d="M390 66H468" marker-end="url(#m-data)"/><text x="429" y="56" text-anchor="middle">notify</text></g>
+      <g class="e p-data" data-note="f-e-push" tabindex="0"><path class="hit" d="M600 66H810"/><path d="M600 66H810" marker-end="url(#m-data)"/><text x="705" y="56" text-anchor="middle">пуш</text></g>
+      <g class="e p-say" data-note="f-e-bot" tabindex="0"><path class="hit" d="M600 126H810"/><path d="M600 126H810" marker-end="url(#m-say)"/><text x="705" y="116" text-anchor="middle">Bot API</text></g>
+      <g class="n" data-note="f2-session" tabindex="0"><rect x="36" y="238" width="120" height="48"/><text x="96" y="267" text-anchor="middle">Сессия</text></g>
+      <g class="n" data-note="f2-host" tabindex="0"><rect x="260" y="240" width="130" height="44"/><text x="325" y="267" text-anchor="middle">Host</text></g>
+      <g class="n" data-note="f2-push" tabindex="0"><rect x="470" y="240" width="130" height="44"/><text x="535" y="267" text-anchor="middle">push</text></g>
+      <g class="n" data-note="f-apps" tabindex="0"><rect x="812" y="210" width="190" height="44"/><text x="907" y="237" text-anchor="middle">Телефон и пульт</text></g>
+      <g class="n" data-note="f2-rooms" tabindex="0"><rect x="640" y="270" width="110" height="44"/><text x="695" y="297" text-anchor="middle">rooms</text></g>
+      <g class="n" data-note="f-tg" tabindex="0"><rect x="812" y="270" width="190" height="44"/><text x="907" y="297" text-anchor="middle">Telegram</text></g>
+      <g class="e p-data" data-note="f2-e-send" tabindex="0"><path class="hit" d="M156 262H258"/><path d="M156 262H258" marker-end="url(#m-data)"/><text x="207" y="252" text-anchor="middle">fleet.send</text></g>
+      <g class="e p-data" data-note="f-e-notify" tabindex="0"><path class="hit" d="M390 262H468"/><path d="M390 262H468" marker-end="url(#m-data)"/><text x="429" y="252" text-anchor="middle">notify</text></g>
+      <g class="e p-data" data-note="f-e-push" tabindex="0"><path class="hit" d="M600 252H640V232H810"/><path d="M600 252H640V232H810" marker-end="url(#m-data)"/><text x="725" y="222" text-anchor="middle">пуш</text></g>
+      <g class="e p-say" data-note="f2-e-bind" tabindex="0"><path class="hit" d="M600 272H620V292H638"/><path d="M600 272H620V292H638" marker-end="url(#m-say)"/><text x="616" y="312" text-anchor="middle">send</text></g>
+      <g class="e p-say" data-note="f-e-bot" tabindex="0"><path class="hit" d="M750 292H810"/><path d="M750 292H810" marker-end="url(#m-say)"/><text x="780" y="282" text-anchor="middle">Bot API</text></g>
+    </svg>
+    </div>
+    <div class="num">
+      <div><b>+1 → 0</b>модуль Host</div>
+      <div><b>+1 → 0</b>инструмент модели</div>
+      <div><b>+1 → 0</b>токен сессии</div>
+      <div><b>2 → 1</b>путь к человеку</div>
+      <div><b>нет → кнопки</b>вопросы сессии в Telegram</div>
+      <div><b>213 КБ → 0</b>зависимости Worker'а</div>
+      <div><b>2 → 4</b>перехода до Telegram</div>
+      <div data-note="f-link"><b>ссылка → текст</b>приглашение боту</div>
+    </div>
+    <div class="note" data-panel><b>Сверху модель выбирает из двух инструментов, снизу инструмент один.</b> Обратный путь и группы в обеих схемах одинаковы.</div>
+    <div class="fork">
+      <b>Инструмент в Cloudflare или Telegram как устройство человека</b>
+      <span>Рекомендую нижнюю схему: она выполняет «всё на Cloudflare, минимум на машине» полнее, потому что новому MCP не остаётся работы. Это отступает от слова «включая MCP», поэтому решаете вы. Иначе остаётся верхняя. Не скажете иначе — верхняя: дизайн выше написан под неё.</span>
+    </div>
+  </section>
+
+  <section class="blk chg" data-chg="order-2">
+    <div class="blk-h"><span class="tag"></span><h2>Порядок реализации</h2></div>
+    <div class="steps">
+      <div class="s"><b>0</b><div>Бот и живая проверка API<span>Сделано 6 нояб.: @switchboard_test_fleet_bot, темы в личке включены. Вызовы API 5 из 5 ok. Остался один взгляд человека: как Markdown выглядит в приложении</span></div></div>
+      <div class="s"><b>1</b><div>Worker rooms: D1, /mcp, /webhook, rooms.token, файл Telegram<span>Готово: эталоны 1–7, 10, 11 и 13 зелёные, 10 из 10</span></div></div>
+      <div class="s"><b>2</b><div>Модуль host-rooms в сборке Host<span>Готово: эталоны 8, 9 и 12 зелёные, правок ядра 0</span></div></div>
+      <div class="s"><b>3</b><div>Выкладка на тест: Worker, секрет, setWebhook, сборка Host<span>Готово: живой круг say → ответ → 👀 на win и на wsl, 2 из 2</span></div></div>
+      <div class="s"><b>4</b><div>Группа вживую<span>Готово: группа привязана ссылкой, двое пишут в одну тему, гость получает 👎, сессия видит 2 разных from</span></div></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  const NOTES = {
+    session:{t:"Сессия",d:"Вызывает инструмент и получает ответы людей как ввод. Телеграма не знает: у неё есть комнаты и люди."},
+    host:{t:"Host",d:"Новый модуль host-rooms при старте сессии берёт токен и добавляет строку MCP. Больше на машине ничего нет."},
+    mcp:{t:"/mcp",d:"Настоящий обработчик Cloudflare createMcpHandler в Worker без объекта. Сервер создаётся на запрос, состояние — в D1."},
+    hook:{t:"/webhook",d:"Telegram сам приносит обновления POST-запросом. Опроса нет. Ответ всегда 200: сообщение либо дошло, либо человек видит реакцию."},
+    gate:{"t":"gate","d":"Проверяет пропуск машины при выдаче токена, отозванные номера при каждом сообщении и принимает приглашения. Правок нет."},
+    d1:{"t":"D1","d":"Две таблицы: chats (id Telegram → адрес и номер пропуска) и threads (сессия и чат → тема и время разговора). В личке id чата равен id человека, поэтому и человек, и группа — строка chats. Участников групп нет: их знает Telegram."},
+    relay:{t:"relay",d:"Готовая привязка deliver: возвращает число соединений. 0 — машина не на связи или сессии нет. Правок нет."},
+    bot:{t:"Bot API",d:"Один бот на флот: тестовому и боевому флоту по своему. Токен — секрет Worker'а."},
+    dm:{t:"Личка",d:"Темы в личке с ботом есть с Bot API 9.3–9.4. Каждая сессия — своя тема, список тем выглядит как список собеседников."},
+    group:{t:"Группа",d:"Супергруппа с темами, бот — администратор с правом управлять темами. Админ видит все сообщения без отключения приватности."},
+    "e-say":{t:"say",d:"Прямой HTTPS от процесса claude. Заголовок Authorization с токеном сессии.",j:'POST https://rooms.pfarm.app/mcp\nAuthorization: Bearer site@laptop.a1b2.…\n\n{ "method": "tools/call",\n  "params": { "name": "say",\n    "arguments": { "text": "Тесты прошли" } } }'},
+    "e-send":{t:"sendRichMessage",d:"Markdown модели уходит как есть, экранировать не нужно. В группу — тихо, в личку — со звуком. Предел вызова — как у всех запросов Worker'ов.",j:'{ "chat_id": -1001234,\n  "message_thread_id": 812,\n  "rich_message": { "markdown": "Тесты прошли" },\n  "disable_notification": true }'},
+    "e-out":{t:"В тему",d:"Темы создаёт Worker при первом say сессии в этот чат: createForumTopic с именем site@laptop."},
+    "e-in":{t:"Ответ",d:"Человек пишет в тему сессии. Цитировать сообщение не нужно: всё написанное в теме адресовано сессии."},
+    "e-hook":{t:"update",d:"Заголовок X-Telegram-Bot-Api-Secret-Token сверяется с секретом, выведенным из токена бота. Тип один: message."},
+    "e-deliver":{t:"relay.deliver",d:"Привязка внутри Cloudflare. Тот же вызов, которым «Выпуски» шлют план машине. Поле report оставляет прежним того, кто дал задачу.",j:'{ "type": "message", "v": 1, "id": "7781",\n  "to": "site@laptop",\n  "from": "telegram~ann@x.y",\n  "report": true,\n  "text": "да, только без миграции" }'},
+    "e-ws":{t:"Кадр message",d:"Идёт по соединению, которое Host и так держит. Новых каналов к машине нет."},
+    "e-input":{t:"Ввод",d:"Модуль chat кладёт текст в очередь сессии тегом fleet-message. Сессия занята — прочтёт следующим ходом."},
+    "e-token":{t:"rooms.token",d:"Обычный запрос Worker'у с пропуском машины. Worker проверяет, что сессия с этой машины.",j:'→ { "type": "rooms.token", "v": 1, "to": ".rooms",\n    "callsign": "site@laptop" }\n← { "token": "site@laptop.a1b2.…",\n    "url": "https://rooms.pfarm.app/mcp" }'},
+    "e-env":{t:"Токен в окружении",d:"Значение идёт через env процесса, а в конфиге MCP стоит подстановка. Так значение не попадает в argv."},
+    "e-gate":{t:"Проверки gate",d:"verify — на rooms.token и приёме приглашения, revoked — на каждом say и каждом сообщении человека."},
+    "e-d1":{t:"SQL",d:"Найти тему сессии, человека и комнату. Сессии и сообщения в базу не пишутся."},
+    "t-topic":{t:"Тема — собеседник",d:"Имя темы — адрес сессии. Так сессия пишет от своего имени при одном боте. Отдельный бот на сессию невозможен: управляемые боты требуют подтверждения человека на каждого."},
+    "t-say":{t:"Сообщение сессии",d:"Текст, который передала модель. Подпись не нужна: имя уже в названии темы."},
+    "t-ack":{t:"👀",d:"Бот ставит реакцию вместо текста: сообщение дошло до машины. Лишних сообщений в чате нет."},
+    "t-general":{t:"General",d:"Общий разговор людей. Бот его не читает для сессий и ничего не отвечает."},
+    "t-bob":{t:"Ответ Bob",d:"Сессия видит from=telegram~bob@x.y и понимает, кто ответил."},
+    "t-carl":{t:"Гость",d:"Может читать группу, но до сессии не дойдёт. Реакция показывает это сразу."},
+    "w-ann":{t:"Ann",d:"Привязана к флоту. Может отвечать сессиям."},
+    "w-bob":{t:"Bob",d:"Привязан к флоту. Может отвечать сессиям."},
+    "w-carl":{t:"Carl",d:"Гость группы: читает, не пишет сессиям. В чужую личку сообщения не попадают."},
+    "r-sign":{t:"Подпись",d:"Запрос пришёл от Telegram: заголовок совпал с секретом webhook. Иначе 401."},
+    "r-thread":{t:"Тема сессии",d:"Пара чат и тема есть в threads. General и чужие темы бот пропускает молча: там люди говорят между собой."},
+    "r-person":{"t":"Человек","d":"Telegram-аккаунт есть в chats, и номер его пропуска не отозван в gate. Боты и анонимные админы сюда не проходят."},
+    "r-machine":{"t":"Машина","d":"relay.deliver вернул больше нуля: кадр лёг в соединение машины, поэтому 👀 значит «дошло до машины». Сессия остановлена — Host откажет и запишет это в журнал."},
+    "r-input":{t:"Ввод",d:"Текст попадает в очередь сессии. Вложения и голосовые — вне этой работы: на них бот ставит 🤷."},
+    "r-a1":{t:"Дальше",d:"Подлинный запрос Telegram разбирается."},
+    "r-a2":{t:"Дальше",d:"Тема известна, значит понятен адресат."},
+    "r-a3":{t:"Дальше",d:"Отправитель получил адрес вида telegram~ann@x.y."},
+    "r-a4":{t:"Дальше",d:"Кадр лёг в соединение Host."},
+    "k-start":{"t":"Старт сессии","d":"Модуль получает вызов session от ядра и читает токен с пределом чтения 10 с. Нет ответа — сессия стартует без инструмента, модуль остаётся включён."},
+    "k-token":{t:"Токен сессии",d:"HMAC от callsign и номера пропуска машины, ключ выведен из токена бота. Состояния у Worker'а нет, второго секрета тоже. Запись: site@laptop.a1b2.подпись"},
+    "k-env":{t:"Окружение",d:"Модуль возвращает env и mcpServers, ядро их склеивает. Владелец ключа ROOMS_TOKEN и сервера rooms — один модуль."},
+    "k-call":{t:"Заголовок",d:"Claude Code сам подставляет значение из env в заголовок при подключении."},
+    "k-a1":{t:"Запрос",d:"POST к Worker'у пропуском машины. Модуль пропуска не видит: запрос делает ядро."},
+    "k-a2":{t:"Ответ",d:"Токен и адрес. Адрес отдаёт Worker, поэтому модулю не нужны новые входы ядра."},
+    "k-a3":{t:"Подстановка",d:"В конфиге стоит строка Bearer ${ROOMS_TOKEN}."},
+    "p-connect":{t:"Опыт: подключение",d:"SDK 0.3.311, заглушка без состояния. Сессия подключилась за 598 мс без единого хода модели."},
+    "p-argv":{t:"Опыт: argv",d:"SDK передаёт http-серверы через --mcp-config в argv. Подстановка ${ROOMS_TOKEN} раскрылась: заглушка получила значение. Обычный заголовок попал бы в argv."},
+    "p-dead":{t:"Опыт: мёртвый сервер",d:"init за 833 мс, статус rooms failed, ECONNREFUSED. Сессия живёт, инструмента нет."},
+    "p-cf":{t:"Опыт: размер",d:"agents 0.33 и @modelcontextprotocol/server 2.4 под wrangler: 1 232 КБ, gzip 213 КБ."},
+    "p-turn":{t:"Опыт: живой ход",d:"Haiku нашёл mcp__rooms__say, вызвал его на локальном Worker. Токен дошёл из env до кода Worker'а. Стоимость хода $0,0087."},
+    "p-instr":{t:"Опыт: инструкции",d:"Поле instructions сервера попало в промпт: модель выполнила контрольную просьбу. Значит подсказка модели живёт в Worker, а не в Host."},
+    "l-ask":{"t":"Просьба","d":"Человек говорит любой сессии: привяжи мой телеграм или эту группу. Инструкции сервера объясняют ей следующие шаги и называют бота."},
+    "l-invite":{"t":"Приглашение","d":"Готовый инструмент keys.invite: role client, почта человека и имя: telegram для лички, имя группы латиницей для группы."},
+    "l-start":{"t":"Ссылка","d":"Личка: t.me/<бот>?start=<приглашение>. Группа: t.me/<бот>?startgroup=<приглашение>&admin=manage_topics, Telegram сам просит выбрать группу и выдать права. Точку в приглашении заменяет _: Telegram не принимает её в параметре."},
+    "l-redeem":{"t":"Приём","d":"Worker принимает приглашение в gate, сохраняет адрес и номер, а сам пропуск выбрасывает: он нужен только как запись в gate. Чужая группа без приглашения в chats не попадает, бот в ней молчит."},
+    "l-room":{"t":"Адрес","d":"telegram~ann@x.y — личка Ann, team~ann@x.y — группа, за которую она отвечает. Оба видны в списке пропусков. keys.revoke отключает с первого же сообщения."},
+    "l-a1":{t:"keys.invite",d:"Запрос к gate. Новых способов входа нет."},
+    "l-a2":{t:"Ссылка",d:"Одноразовая: gate принимает приглашение один раз."},
+    "l-a3":{"t":"/start","d":"Telegram присылает на /webhook /start или /start@бот с параметром: в личке и в группе разбор один."},
+    "l-a4":{"t":"Строка chats","d":"id чата, адрес и номер пропуска."},
+    "w-choose":{"t":"choose_room","d":"Чатов несколько, а разговора ещё не было. Вместе с отказом — их адреса. Модель выбирает или спрашивает. Разговор был — to не нужен: сообщение идёт туда, где писали последним, сессия или человек."},
+    "w-topics":{t:"no_topics",d:"В группе нет тем или у бота нет права. Текст отказа называет, что включить."},
+    "w-rate":{t:"rate_limited",d:"Telegram вернул 429. В ответе секунды ожидания, модель решает сама: подождать или сжать сообщение."},
+    "w-long":{t:"too_long",d:"Текст больше предела Telegram. Модель сокращает: апдейт должен читаться с телефона."},
+    "v-dm":{"t":"Личка","d":"Бот создал тему, написал в неё, ответ человека пришёл с номером темы 140386, реакция 👀 встала. Номера сообщений у бота и человека разные (5 и 140389), номер темы общий: в потоке нужен только он."},
+    "v-group":{"t":"Группа","d":"Тема создана, ответ пришёл с номером темы и верным from. Сообщение в General приходит без номера темы, поэтому Worker отличает его одним условием."},
+    "v-link":{"t":"Ссылка приглашения","d":"Параметр вида приглашения, 48 знаков с _, дошёл целым: /start@switchboard_test_fleet_bot <параметр>, тип обновления message."},
+    "v-hook":{"t":"Вебхук","d":"Настоящий Worker на workers.dev. POST без подписи и с неверной подписью — 401. Сообщение в тему получило 👀 через вебхук. В очереди Telegram 0, ошибок 0. Секрет выведен из токена бота."},
+    "v-mcp":{"t":"MCP на Cloudflare","d":"Сессия Haiku с токеном из env вызвала say, Worker проверил HMAC и написал в тему. Без токена и с чужой подписью — 401. Ход стоил $0,0033."},
+    "v-rate":{"t":"Предел группы","d":"Двадцать сообщений прошли, 21-е получило 429 с retry_after 37. Предел общий на все сессии в группе."},
+    "v-words":{"t":"Отказы","d":"Без права: not enough rights to create a topic. Без тем: the chat is not a forum. Удалённая тема: message thread not found. Бота удалили: 403 bot was kicked; вернули — чат снова работает. Обычный текст больше 4096: message is too long."},
+    "v-anon":{"t":"Анонимный админ","d":"Приходит как GroupAnonymousBot с id 1087968824. Такого человека нет в chats, поэтому до сессии он не доходит."},
+    "v-rich":{"t":"Вид Markdown","d":"sendRichMessage отвечает ok, но клиент со слоем 198 видит MessageMediaUnsupported, а sendMessage читает нормально. Значит, Markdown требует свежего приложения. Шаг 1 берёт sendRichMessage, если он выглядит верно на телефоне, иначе sendMessage с пределом 4096."},
+    "v-two":{"t":"Двое людей","d":"Разные from и отказ настоящему гостю проверяются в шаге 4, когда появится второй аккаунт. Анонимный админ проверил только путь отказа по неизвестному отправителю."},
+    "v-ui":{"t":"Диалог группы","d":"Проверен итог: команда, параметр, права бота. Экран выбора группы и выдачи прав в приложении не проверялся."},
+    "q-ask":{"t":"Вопросы сессии","d":"Ответ из Telegram не меняет того, кто дал задачу, поэтому AskUserQuestion уходит ему в приложение и зрителям. Иначе вопрос ушёл бы устройству, которое его не покажет, а сессия ждала бы без предела. Людей в мессенджере инструкции сервера просят спрашивать обычным say."},
+    "w-gone":{"t":"gone","d":"Telegram ответил 403: бота убрали из группы или человек его заблокировал. Вернули бота — чат снова работает, отключить насовсем можно отзывом пропуска. Человек удалил тему — message thread not found: строка темы удаляется, следующий say создаёт новую тему."},
+    "f1-session":{"t":"Сессия","d":"Два инструмента на одно действие: fleet.send пишет человеку в приложение, say — в мессенджер. Какой взять, решает модель."},
+    "f1-host":{"t":"Host","d":"Новый модуль берёт токен у Worker'а на каждом старте сессии и кладёт его в окружение claude."},
+    "f1-push":{"t":"push","d":"Достаёт человека в приложении, про Telegram не знает."},
+    "f1-rooms":{"t":"rooms","d":"/mcp и /webhook, зависимости MCP на 213 КБ, проверка токена сессии на каждом say."},
+    "f2-session":{"t":"Сессия","d":"Один инструмент: fleet.send с адресом telegram~ann@x.y, team~ann@x.y или ~ann@x.y. Он уже есть у каждой сессии. Отказ Telegram модель видит в его ответе."},
+    "f2-host":{"t":"Host","d":"Нового модуля нет. Правка на пять строк: fleet.send дожидается ответа доставки и показывает модели отказ. Текст инструмента меняется с выпуском Host."},
+    "f2-push":{"t":"push","d":"Уже решает, какие устройства человека достать, и сверяет отзыв пропуска. Получает одну привязку: устройство Telegram отдаёт в rooms."},
+    "f2-rooms":{"t":"rooms","d":"Только /webhook и метод send. Вопрос сессии с вариантами приходит в тему кнопками, нажатие уходит кадром answer. Ответ в группе идёт с from=team~ann@x.y и именем автора в тексте: написать в from значит ответить в тот же чат."},
+    "f-link":{"t":"Привязка","d":"Имя бота сессии называют инструкции MCP-сервера. Без сервера имени неоткуда взять: человек сам отправляет приглашение боту, в группе — командой /start@бот."},
+    "f-apps":{"t":"Телефон и пульт","d":"Работают как сегодня в обеих схемах."},
+    "f-tg":{"t":"Telegram","d":"Тот же бот, те же темы и реакции в обеих схемах."},
+    "f1-e-send":{"t":"fleet.send","d":"Сессия пишет человеку через Host, инструмент есть сегодня."},
+    "f1-e-say":{"t":"say","d":"Прямой HTTPS от процесса claude с токеном сессии, мимо Host."},
+    "f2-e-send":{"t":"fleet.send","d":"Единственный инструмент разговора: сессии, человеку, группе."},
+    "f-e-notify":{"t":"notify","d":"Кадр и текст уведомления: то же, что сегодня."},
+    "f-e-push":{"t":"Пуш","d":"Веб-пуш устройствам, которых нет на связи."},
+    "f-e-bot":{"t":"Bot API","d":"Сообщение в тему сессии."},
+    "f2-e-bind":{"t":"send","d":"Привязка внутри Cloudflare: адрес, отправитель и текст. Ответ несёт слово отказа Telegram."},
+  };
+  const GATE = [
+    ["ответственность","написать человеку: fleet.send и say","развилка"],
+    ["ответственность","группу отключает выход бота, человека — отзыв","отзыв пропуска для обоих"],
+    ["другой","способ входа людей — отдельные коды привязки","пропуск gate, адрес по форме"],
+    ["другой","подсказка модели в промпте Host","поле instructions MCP-сервера в Worker"],
+    ["другой","обёртка MCP своими руками","createMcpHandler от Cloudflare"],
+    ["другой","группа привязывается своим потоком","то же приглашение, ссылка startgroup"],
+    ["другой","инструмент list рядом с keys.list","адреса в отказе choose_room"],
+    ["другой","ping рядом с личкой","позвать одного — написать ему"],
+    ["состояние","участники групп в своей таблице","их знает Telegram"],
+    ["состояние","сообщения в своей базе","остаются в Telegram и в разговоре сессии"],
+    ["состояние","две таблицы на «id Telegram → адрес»","одна таблица chats"],
+    ["состояние","название группы копией у себя","адрес в пропуске"],
+    ["состояние","люди в ответе инструмента","keys.list"],
+    ["логика","комната из проекта сессии второй раз считает правило records","текущий чат — где был последний разговор"],
+    ["смысл","ещё один адрес людей","тот же ~почта и устройство"],
+    ["смысл","комната по голому имени","to адресом, как у fleet.send"],
+    ["смысл","~ann — и человек, и комната-личка","личка — устройство telegram~ann"],
+    ["коммуникация","опрос getUpdates","webhook"],
+    ["коммуникация","текстовые подтверждения в чат","реакция на сообщение"],
+    ["коммуникация","getChatMember на каждый ping","нет ping"],
+    ["коммуникация","my_chat_member и leaveChat","нет своего потока группы"],
+    ["коммуникация","вызов list перед say","адреса в отказе"],
+    ["коммуникация","второй путь к человеку","развилка"],
+  ];
+  document.getElementById("gate-list").replaceChildren(...GATE.map(([k,a,b])=>{
+    const d=document.createElement("div"); d.textContent=k+" · "+a+" → "+b; return d;
+  }));
+
+  function fill(panel, id){
+    const n=NOTES[id]; if(!n||!panel) return;
+    panel.replaceChildren();
+    const b=document.createElement("b"); b.textContent=n.t;
+    const p=document.createElement("span"); p.textContent=n.d;
+    panel.append(b,p);
+    if(n.j){const pre=document.createElement("pre"); pre.textContent=n.j; panel.append(pre);}
+  }
+  document.querySelectorAll("[data-note]").forEach(el=>{
+    if(!el.hasAttribute("tabindex")) el.tabIndex=0;
+    const go=()=>{
+      const blk=el.closest(".blk");
+      blk.querySelectorAll(".sel").forEach(x=>x.classList.remove("sel"));
+      el.classList.add("sel");
+      fill(blk.querySelector("[data-panel]"), el.dataset.note);
+    };
+    el.addEventListener("click",go);
+    el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}});
+  });
+
+  const arch=document.getElementById("arch");
+  function light(p){
+    arch.classList.toggle("dimmed",!!p);
+    arch.querySelectorAll("[data-p]").forEach(x=>x.classList.toggle("lit",!!p&&x.dataset.p.split(" ").includes(p)));
+  }
+  let shown=null;
+  arch.querySelectorAll("[data-p]").forEach(x=>{
+    x.addEventListener("pointerenter",()=>light(x.dataset.p.split(" ")[0]));
+    x.addEventListener("pointerleave",()=>light(shown));
+  });
+  const pathBtns=[...document.querySelectorAll("#paths button")];
+  pathBtns.forEach(b=>{
+    b.setAttribute("aria-pressed","false");
+    b.addEventListener("pointerenter",()=>light(b.dataset.show));
+    b.addEventListener("pointerleave",()=>light(shown));
+    b.addEventListener("click",()=>{
+      shown=shown===b.dataset.show?null:b.dataset.show;
+      pathBtns.forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.show===shown)));
+      light(shown);
+    });
+  });
+
+  const SOUND={
+    quiet:{ann:["видит, тихо",""],bob:["видит, тихо",""],carl:["видит, тихо",""]},
+    dm:{ann:["не видит","none"],bob:["звук","loud"],carl:["не видит","none"]},
+  };
+  const sBtns=[...document.querySelectorAll("#sound button")];
+  function sound(k){
+    sBtns.forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.s===k)));
+    for(const w of ["ann","bob","carl"]){
+      const el=document.getElementById("w-"+w),[t,c]=SOUND[k][w];
+      el.className="w "+c; el.querySelector("span").textContent=t;
+    }
+  }
+  sBtns.forEach(b=>b.addEventListener("click",()=>sound(b.dataset.s)));
+  sound("quiet");
+
+  const CASES={
+    ann:{stop:null,out:"👀 на сообщении. Сессия видит from=\"telegram~ann@x.y\"."},
+    carl:{stop:2,out:"👎 на сообщении. Ввод сессии пуст."},
+    revoked:{stop:2,out:"👎 на сообщении. Отзыв работает с первого же сообщения."},
+    off:{stop:3,out:"🤷 на сообщении. Человек видит, что сессия не услышала."},
+    stopped:{stop:4,out:"👀 на сообщении: кадр дошёл до машины. Ввод пуст, отказ — в журнале Host."},
+    general:{stop:1,out:"Бот молчит: это разговор людей."},
+    fake:{stop:0,out:"401. В чате ничего не появляется."},
+  };
+  const steps=[...document.querySelectorAll("#pipe .st")];
+  const cBtns=[...document.querySelectorAll("#cases button")];
+  function run(k){
+    const {stop,out}=CASES[k];
+    cBtns.forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.c===k)));
+    steps.forEach((s,i)=>{
+      s.classList.toggle("pass",stop===null||i<stop);
+      s.classList.toggle("stop",i===stop);
+    });
+    document.getElementById("outcome").textContent=out;
+  }
+  cBtns.forEach(b=>b.addEventListener("click",()=>run(b.dataset.c)));
+  run("carl");
+})();
+</script>
+
+<script>
+/* ===== Метки «прочитал» (устав): A — прочитал, Z — снять ===== */
+(function(){
+  let hovered = null, coll = null, ready = false;
+  const queue = [];
+  const blockOf = t => (t && t.closest) ? t.closest("[data-chg]") : null;
+  document.addEventListener("pointerover", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("pointerdown", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("focusin", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  function paint(id, on){ document.querySelectorAll('[data-chg="' + id + '"]').forEach(b => b.classList.toggle("read", on)); }
+  function idsOf(b){ const ids = [b.getAttribute("data-chg")]; b.querySelectorAll("[data-chg]").forEach(n => ids.push(n.getAttribute("data-chg"))); return ids; }
+  async function mark(ids, on){
+    ids.forEach(id => paint(id, on));
+    if (!coll) return;
+    for (const id of ids){
+      try { if (on) await coll.doc(id).set({read:true, at:Date.now()}); else await coll.doc(id).delete(); }
+      catch (_) { banner("Метка не сохранилась — обновите страницу"); }
+    }
+  }
+  function act(on){ if (!hovered) return; const ids = idsOf(hovered); if (ready) mark(ids, on); else queue.push([ids, on]); }
+  const A = new Set(["a","A","а","А"]), Z = new Set(["z","Z","я","Я"]);
+  document.addEventListener("keydown", e => {
+    const t = e.target;
+    if (t && t.matches && t.matches("input:not([type=range]):not([type=checkbox]),textarea,select,[contenteditable],[contenteditable=true]")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (A.has(e.key) || e.code === "KeyA"){ e.preventDefault(); act(true); }
+    else if (Z.has(e.key) || e.code === "KeyZ"){ e.preventDefault(); act(false); }
+  });
+  let bannerEl = null;
+  function banner(text){
+    if (!bannerEl){ bannerEl = document.createElement("div"); bannerEl.className = "mark-banner"; bannerEl.setAttribute("role","status"); document.body.appendChild(bannerEl); }
+    bannerEl.textContent = text;
+  }
+  // localhost: метки хранит локальный сервер страницы
+  if (location.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+    coll = { doc: id => ({
+      set: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:true})}).then(r => { if (!r.ok) throw new Error(); }),
+      delete: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:false})}).then(r => { if (!r.ok) throw new Error(); }),
+    }) };
+    fetch("/api/state").then(r => r.json()).then(d => {
+      document.querySelectorAll("[data-chg]").forEach(b => b.classList.toggle("read", !!d.marks[b.getAttribute("data-chg")]));
+    }).catch(() => banner("Метки не загрузились — сервер страницы недоступен"));
+    ready = true;
+    return;
+  }
+  (async function init(){
+    let db = null;
+    try { db = (window.claude && window.claude.use) ? await window.claude.use("db") : null; } catch (_) { db = null; }
+    if (db){
+      try {
+        coll = db.collection("accepted");
+        coll.onSnapshot(snap => {
+          const on = new Set();
+          snap.docs.forEach(d => { const v = d.data(); if (v && v.read) on.add(d.id); });
+          document.querySelectorAll("[data-chg]").forEach(b => { const id = b.getAttribute("data-chg"); b.classList.toggle("read", on.has(id)); });
+        }, () => banner("Метки не загрузились — хранилище недоступно"));
+      } catch (_) { coll = null; }
+    }
+    ready = true;
+    if (!coll) banner("Метки «прочитал» не сохраняются — хранилище недоступно");
+    while (queue.length){ const [ids, on] = queue.shift(); mark(ids, on); }
+  })();
+})();
+</script>

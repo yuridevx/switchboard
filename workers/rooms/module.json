@@ -1,0 +1,21 @@
+{
+  "name": "rooms",
+  "type": "worker",
+  "version": "1.0.0",
+  "provides": {
+    "rooms.send": 1,
+    "rooms.message": 1
+  },
+  "uses": {
+    "gate.verify@gate": 1,
+    "gate.revoked@gate": 1,
+    "gate.redeem@gate": 1,
+    "relay.deliver@relay": 1
+  },
+  "config": {
+    "TELEGRAM_BOT_TOKEN": "secret",
+    "GATE": "binding",
+    "RELAY": "binding",
+    "DB": "binding"
+  }
+}

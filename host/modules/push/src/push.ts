@@ -3,6 +3,7 @@ import { refuse, type Host, type Module } from "@switchboard/host";
 import { kindOf, reaches, type Frame } from "@switchboard/protocol";
 
 type Pushed = { type: string; from?: string; notify: Record<string, unknown> };
+type Undelivered = { to: string; word: string; why?: string };
 
 /** push.send по адресам, которых нет на связи: устройство — ему, человек — со skip его устройств на связи. */
 function pushesFor(clients: string[], online: string[]): Array<{ to: string; skip?: string[] }> {
@@ -19,11 +20,13 @@ function pushesFor(clients: string[], online: string[]): Array<{ to: string; ski
 export function make(): Module {
   let host: Host;
 
-  async function send(push: { to: string; skip?: string[] }, frame: Pushed) {
+  /** null — дошло или есть кому: gone при устройствах на связи не потеря. */
+  async function send(push: { to: string; skip?: string[] }, frame: Pushed): Promise<Undelivered | null> {
     const r = await host.request("push.send", { push: { ...push, type: frame.type, from: frame.from, notify: frame.notify } });
-    if (r.ok) return;
+    if (r.ok) return null;
     if (r.error === "gone") host.log({ ev: "push.send", word: "gone", why: `${push.to}: подписки нет — ${frame.type} без пуша` });
     else host.log({ kind: "stop", ev: "push.send", word: r.error, why: `push.send ${push.to}: ${r.error} — ${frame.type} без пуша` });
+    return r.error === "gone" && push.skip?.length ? null : { to: push.to, word: r.error, ...(r.why ? { why: String(r.why) } : {}) };
   }
 
   return {
@@ -36,7 +39,8 @@ export function make(): Module {
         if (!Array.isArray(clients) || typeof f?.type !== "string" || !f.notify || typeof f.notify !== "object") throw refuse("bad_frame", "notify: clients — список адресов, frame — с type и notify");
         const roster = host.roster();
         if (!roster) return void host.log({ ev: "notify", why: `${f.type} → ${clients.join(", ")}: roster ещё не пришёл — пуша нет` });
-        await Promise.all(pushesFor(clients, roster.clients).map((p) => send(p, f)));
+        const undelivered = (await Promise.all(pushesFor(clients, roster.clients).map((p) => send(p, f)))).filter((u) => u !== null);
+        return undelivered.length ? { undelivered } : undefined;
       },
     },
   };

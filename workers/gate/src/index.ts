@@ -23,6 +23,9 @@ export class Gate extends WorkerEntrypoint<Env> implements GateApi {
   list(role?: Pass["role"]) {
     return list(this.env.DB, role);
   }
+  redeem(code: string) {
+    return redeem(this.env.DB, code);
+  }
 }
 
 /** Значение запроса или отказ словом: поле error. */

@@ -1,0 +1,16 @@
+// Worker rooms: чаты Telegram как устройства людей. Без состояния, записи — в своей базе D1. Секрет TELEGRAM_BOT_TOKEN — wrangler secret put из stdin.
+{
+  "name": "switchboard-rooms",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "services": [
+    { "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" },
+    // ответ человека — в объект relay его машины
+    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Relay" }
+  ],
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "d1_databases": [{ "binding": "DB", "database_name": "switchboard-rooms", "database_id": "0cf0fd91-f8b9-40d1-a04a-45bdd79d9c4f", "migrations_dir": "migrations" }]
+}

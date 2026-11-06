@@ -35,6 +35,8 @@ export interface GateApi {
   revoked(ids: string[]): Promise<string[]>;
   /** Строки пропусков, как keys.list: с role — только принятые этой роли. Вход relay берёт отсюда машины флота. */
   list(role?: "host" | "client"): Promise<Pass[]>;
+  /** Приём приглашения тем, кто принимает его за чат: rooms. Та же запись, что gate.redeem по адресу. */
+  redeem(invite: string): Promise<{ key: string } | { error: "bad_invite" }>;
 }
 
 /**

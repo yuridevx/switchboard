@@ -367,6 +367,7 @@ function fakeGate(r: VerifyResult | "throw"): GateApi & { keys: string[] } {
   const keys: string[] = [];
   return {
     keys,
+    redeem: async () => ({ error: "bad_invite" }),
     async verify(k) {
       keys.push(k);
       if (r === "throw") throw new Error("база gate не ответила");
