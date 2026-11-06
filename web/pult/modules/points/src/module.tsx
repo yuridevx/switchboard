@@ -1,28 +1,27 @@
-// pult-points — только связка экранов с ядром: обзор, вкладка карточки, метка «пожара».
-import type { App } from "@switchboard/web-ui";
-import type { AppModule } from "@switchboard/web-core";
-import { machineOf } from "@switchboard/protocol";
-import { Overview } from "./Overview.tsx";
+// pult-points: связка экранов точек с ядром страницы.
+import type { App, AppModule } from "@switchboard/web-core";
 import css from "./points.css";
-import { pointsStore } from "./store.ts";
+import { Overview } from "./Overview.tsx";
+import { createFleet } from "./store.ts";
 import { Tab } from "./Tab.tsx";
 
 export function createPoints(app: App): AppModule {
-  const store = pointsStore(app);
+  const fleet = createFleet(app);
   return {
-    state: store,
-    on: { roster: store.roster },
+    state: fleet,
+    on: { roster: fleet.onRoster },
+    marks: { fire: fleet.fire },
     screens: {
       points: { nav: "Точки", group: "Флот", label: "Точки", view: Overview, head: () => ({ title: "Точки" }) },
       "session.points": {
         place: "card.tab",
         path: "session-points",
         label: "Точки",
-        show: (p) => app.can(machineOf(p.callsign ?? "") ?? "", "session.r2") === true,
         view: Tab,
+        show: (p) => app.can(p.callsign?.split("@")[1] ?? "", "session.r2") === true,
+        head: (p) => ({ title: `Точки ${p.callsign}` }),
       },
     },
-    marks: { fire: store.fire },
     css,
   };
 }

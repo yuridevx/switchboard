@@ -1,122 +1,153 @@
-// Подъём сессии из точки: перенос, откат, копия. Шаги по порядку: блоки → папка → файлы разговора → сессия → точка подъёма → отпустить прежнюю.
-// Файлы трогаются только когда все блоки на руках.
+// Поднять сессию из точки: перенос, копия, откат и смена папки — один путь: проверка → блоки → папка и файлы → сессия → точка подъёма.
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import type { Ctx, Frame, Host, Session } from "@switchboard/host";
+import { promisify } from "node:util";
+import { zstdDecompress } from "node:zlib";
 import { claudeDir, clientPath, refuse } from "@switchboard/host";
-import { download, joined, type PointFile } from "./blocks.ts";
-import { capture, conversationOf, projectDir, type Took } from "./capture.ts";
-import { type GitSummary, place, probe } from "./git.ts";
+import type { Ctx, Frame, Host, Result, Session } from "@switchboard/host";
+import { bring, BUNDLE, folderOf, type Folder, type Summary } from "./git.ts";
+import { projectDir, r2Fetch, sha256, type PointExtra, type PointFile, type Why } from "./snap.ts";
 
-const PACK = "git.bundle";
-const LIVE = new Set(["starting", "idle", "busy", "waiting", "stopping"]);
+const unpack = promisify(zstdDecompress);
 
-type Row = { sid: string; callsign?: string; files: PointFile[]; git?: GitSummary };
+type Row = { sid: string; callsign?: string; files: PointFile[]; git?: Summary };
+type Check = Omit<Folder, "folder"> & { folder: Folder["folder"] | "keep" };
 
-/** Как модуль кладёт сессию под правило после подъёма и убирает её без точки на закрытии. */
-export type Marks = { mark(s: Session, base?: number): void; leave(callsign: string): void; took(s: Session): void };
+/** Что подъёму даёт модуль: пометка поднятой сессии, точка по очереди сессии, сессия без точки на закрытии. */
+type Rule = { mark(s: Session, base?: number): void; save(s: Session, why: Why, extra?: PointExtra): Promise<{ id: number }>; drop(callsign: string): void };
 
-const here = (host: Host, sid: string) => host.sessions().map((x) => host.session(x.callsign)!).find((s) => s.info.session_id === sid);
+/** Что поднимаем и куда: всё проверено, на машине ещё ничего не тронуто. */
+type Plan = { sid: string; point: number; copy: boolean; dir: string; row: Row; owner: string; links: Record<string, string>; previous?: Session; check: Check };
 
-/** Старые копии разговора в других папках проектов — в сторону: resume ищет файл по всем папкам. */
-function setAside(sid: string, target: string): void {
+/** Отказ чужим словом как есть. */
+const must = (r: Result) => {
+  if (!r.ok) throw refuse(r.error, r.why as string | undefined);
+  return r.result;
+};
+
+const hereOf = (host: Host) => host.sessions().flatMap((x) => host.session(x.callsign) ?? []);
+
+async function plan(host: Host, req: Frame): Promise<Plan> {
+  const { sid, point } = req as unknown as { sid: string; point: number };
+  const copy = req.copy === true;
+  if (!Number.isInteger(point)) throw refuse("bad_point", "points.raise без номера точки");
+  const dir = typeof req.dir === "string" ? clientPath(req.dir) : null;
+  if (!dir) throw refuse("bad_dir", `папка ${req.dir}: нужен путь от ~ или полный`);
+  const got = must(await host.request("points.get", { to: ".points", ids: [point] })) as { owner: string; points: Row[]; links: Record<string, string> };
+  const row = got.points[0];
+  if (row.sid !== sid) throw refuse("bad_point", `точка ${point} — другой сессии`);
+  const previous = hereOf(host).find((s) => s.info.session_id === sid);
+  if (!copy && previous && previous.state !== "stopped" && previous.state !== "failed") throw refuse("running", `${previous.info.callsign} ещё идёт`);
+  const near = host.sessions().filter((x) => resolve(x.cwd) === resolve(dir) && x.state !== "stopped" && x.callsign !== previous?.info.callsign).map((x) => x.callsign);
+  const check = req.files === "keep" ? { folder: "keep" as const, files: 0, branch: null, sessions: [] } : await folderOf(dir, row.git, near);
+  return { sid, point, copy, dir, row, owner: got.owner, links: got.links, previous, check };
+}
+
+async function block(hash: string, url: string, host: Host): Promise<Buffer> {
+  const res = await r2Fetch(host, url);
+  const packed = Buffer.from(await res.arrayBuffer());
+  const part = await unpack(packed).catch(() => {
+    throw refuse("bad_point", `блок ${hash} не открылся`);
+  });
+  if (sha256(part) !== hash) throw refuse("bad_point", `блок ${hash} не тот`);
+  return part;
+}
+
+/** Все файлы точки в памяти: файлы на машине трогаются, только когда все блоки на руках. */
+async function download(host: Host, p: Plan): Promise<Map<string, Buffer>> {
+  const out = new Map<string, Buffer>();
+  for (const f of p.row.files) {
+    const parts: Buffer[] = [];
+    for (const hash of f.b) parts.push(await block(hash, p.links[hash], host));
+    out.set(f.p, Buffer.concat(parts));
+  }
+  return out;
+}
+
+/** Прежние копии разговора в других папках проектов уходят в сторону: resume находит файл по sid во всех папках. */
+function setAside(sid: string, target: string) {
   const projects = join(claudeDir(), "projects");
-  if (!existsSync(projects)) return;
-  for (const name of readdirSync(projects)) {
+  for (const name of existsSync(projects) ? readdirSync(projects) : []) {
     const old = join(projects, name, `${sid}.jsonl`);
     if (join(projects, name) !== target && existsSync(old)) renameSync(old, `${old}.aside-${Date.now()}`);
   }
 }
 
-function writeFiles(target: string, files: PointFile[], parts: Map<string, Buffer>): void {
-  for (const f of files) {
-    if (f.p === PACK) continue;
-    const path = resolve(target, f.p);
-    if (!path.startsWith(resolve(target) + sep)) throw refuse("bad_point", `путь файла точки вне папки проекта: ${f.p}`);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(`${path}.tmp`, joined(f, parts));
-    renameSync(`${path}.tmp`, path);
+/** Файлы точки в папку проекта: путь из реестра не выходит из неё, файл появляется целиком. */
+function writeFiles(target: string, files: Map<string, Buffer>, sid: string, source: string) {
+  const paths = [...files.keys()].filter((p) => p !== BUNDLE).map((p) => [p, resolve(target, p.startsWith(sid) ? source + p.slice(sid.length) : p)]);
+  for (const [p, file] of paths) if (!file.startsWith(resolve(target) + sep)) throw refuse("bad_point", `путь файла точки вне папки проекта: ${p}`);
+  for (const [p, file] of paths) {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(`${file}.tmp`, files.get(p)!);
+    renameSync(`${file}.tmp`, file);
   }
 }
 
-export async function raise(host: Host, marks: Marks, req: Frame, ctx: Ctx): Promise<unknown> {
-  const { sid, point } = req as unknown as { sid: string; point: number };
-  if (typeof point !== "number") throw refuse("bad_point", "points.raise без номера точки");
-  const dir = clientPath(String(req.dir ?? ""));
-  if (!dir) throw refuse("bad_dir", `папка ${String(req.dir)}: нужен путь от ~ или полный`);
+/**
+ * Папка и файлы точки. source — имя файла, с которого open начнёт разговор: копия в папку этой же сессии ложится под своим именем,
+ * файл сессии остаётся её файлом (опыт на настоящем claude: resume с forkSession берёт файл под другим именем, разговор — разговор точки).
+ */
+async function lay(host: Host, p: Plan): Promise<{ branch: string | null; source: string }> {
+  const files = await download(host, p);
+  const target = projectDir(p.dir);
+  const own = p.copy && p.previous !== undefined && resolve(p.previous.info.cwd) === resolve(p.dir);
+  const source = own ? randomUUID() : p.sid;
+  const branch = p.row.git && (p.check.folder === "empty" || p.check.folder === "same") ? await bring(p.dir, p.row.git, p.check.folder, files.get(BUNDLE)) : null;
+  if (!p.copy) setAside(p.sid, target);
+  writeFiles(target, files, p.sid, source);
+  return { branch, source };
+}
 
-  const asked = await host.request("points.get", { to: ".points", ids: [point] });
-  if (!asked.ok) throw refuse(asked.error, `реестр не отдал точку ${point}`);
-  const { owner, points, links } = asked.result as { owner: string; points: Row[]; links: Record<string, string> };
-  const row = points[0];
-  if (row.sid !== sid) throw refuse("bad_point", `точка ${point} — другой сессии`);
-
-  const copy = req.copy === true;
-  const keep = req.files === "keep";
-  const previous = here(host, sid);
-  if (!copy && previous && LIVE.has(previous.state)) throw refuse("running", `${previous.info.callsign} ещё идёт`);
-
-  const neighbours = host.sessions().filter((x) => resolve(x.cwd) === resolve(dir) && x.state !== "stopped" && x.callsign !== previous?.info.callsign).map((x) => x.callsign);
-  const check = keep ? { folder: "keep", files: 0, branch: null, sessions: [] } : await probe(row.git, dir, neighbours);
-  if (req.dryRun === true) return check;
-  if (check.folder === "other") throw refuse("bad_dir", `${dir}: другой репозиторий`);
-
-  const parts = await download(row.files, links);
-  const pack = row.files.find((f) => f.p === PACK);
-  const branch = row.git && !keep ? await place(row.git, dir, check.folder, pack && joined(pack, parts)) : null;
-  const target = projectDir(dir);
-  if (!copy) setAside(sid, target);
-  writeFiles(target, row.files, parts);
-
-  const callsign = await bring(host, req, row, { dir, copy, point, owner, previous });
-  const s = host.session(callsign);
-  if (!s) throw refuse("open_failed", `${callsign} не поднялась`);
-  host.log({ ev: "raise", callsign, sid, point, copy, why: `${callsign}: поднята из точки ${point}` });
-
-  if (copy) {
-    // файл источника нужен был только open: разговор копии claude пишет сам; у живой сессии этой машины файл её
-    if (!here(host, sid)) rmSync(conversationOf(dir, sid), { force: true });
-    marks.mark(s, point);
-    return { callsign, point: null, folder: check.folder, branch };
+/** Сессия на этой машине: откат — запуск той же; иначе новая; сорвалось при переносе — прежняя снова идёт на своей машине. */
+async function launch(host: Host, req: Frame, p: Plan, source: string): Promise<string> {
+  if (p.previous && !p.copy) {
+    must(await host.request("session.start", { callsign: p.previous.info.callsign, point: p.point }));
+    return p.previous.info.callsign;
   }
-  marks.mark(s);
-  let took: Took;
-  try {
-    took = await capture(host, s, { why: "raise", base: point, expect: owner, ...(ctx.from ? { by: ctx.from } : {}) });
-  } catch (e) {
-    // сессию уже подняли в другом месте: поднятая здесь лишняя
-    marks.leave(callsign);
+  const pick = Object.fromEntries((["slot", "profile"] as const).flatMap((k) => (typeof req[k] === "string" ? [[k, req[k]]] : [])));
+  const name = typeof req.name === "string" ? req.name : basename(p.dir);
+  const r = await host.request("session.open", { machine: host.machine, name, dir: req.dir, mkdir: true, resume: source, point: p.point, ...(p.copy ? { fork: true } : {}), ...pick });
+  if (!r.ok && !p.copy && p.owner !== host.machine && p.row.callsign) await host.request("session.start", { callsign: p.row.callsign });
+  return (must(r) as { callsign: string }).callsign;
+}
+
+/** Файл разговора нужен был только open: разговор копии claude пишет сам. */
+function dropSource(p: Plan, source: string) {
+  const target = projectDir(p.dir);
+  rmSync(join(target, `${source}.jsonl`), { force: true });
+  rmSync(join(target, source), { recursive: true, force: true });
+}
+
+/** Прежняя машина отпускает сессию; не на связи — вернётся и отдаст дописанное сама. */
+async function release(host: Host, p: Plan) {
+  const { callsign } = p.row;
+  if (p.owner === host.machine || !callsign) return;
+  const r = await host.request("session.remove", { callsign });
+  if (!r.ok) host.log({ kind: "refuse", ev: "session.remove", word: r.error, callsign, why: `прежний хозяин не отпустил ${callsign}` });
+}
+
+/** Подъём. Копия кладёт первую точку сама, на первом конце хода. */
+export async function raise(req: Frame, { host, from }: Ctx, rule: Rule): Promise<unknown> {
+  const p = await plan(host, req);
+  if (req.dryRun === true) return p.check;
+  if (p.check.folder === "other") throw refuse("bad_dir", `${p.dir}: другой репозиторий`);
+  const { branch, source } = await lay(host, p);
+  const callsign = await launch(host, req, p, source).finally(() => {
+    if (p.copy) dropSource(p, source);
+  });
+  const s = host.session(callsign)!;
+  host.log({ kind: "note", ev: "raise", callsign, sid: p.sid, point: p.point, copy: p.copy, why: `${callsign}: поднята из точки ${p.point}` });
+  const raised = { callsign, folder: p.check.folder, branch };
+  rule.mark(s, p.copy ? p.point : undefined);
+  if (p.copy) return { ...raised, point: null };
+  const put = await rule.save(s, "raise", { base: p.point, expect: p.owner, ...(from ? { by: from } : {}) }).catch(async (e) => {
+    // точки нет — поднятая здесь лишняя: реестр её не знает
+    rule.drop(callsign);
     await host.request("session.remove", { callsign });
     throw e;
-  }
-  marks.took(s);
-
-  if (owner !== host.machine && row.callsign) {
-    const released = await host.request("session.remove", { callsign: row.callsign });
-    if (!released.ok) host.log({ kind: "refuse", ev: "session.remove", word: released.error, callsign: row.callsign, why: `прежний хозяин не отпустил ${row.callsign}` });
-  }
-  return { callsign, point: took.point, folder: check.folder, branch };
-}
-
-/** Сессия на этой машине: откат — запуск той же; иначе новая; сорвалось — прежний хозяин запускается снова. */
-async function bring(host: Host, req: Frame, row: Row, o: { dir: string; copy: boolean; point: number; owner: string; previous: Session | undefined }): Promise<string> {
-  if (o.previous && !o.copy) {
-    const started = await host.request("session.start", { callsign: o.previous.info.callsign, point: o.point });
-    if (!started.ok) throw refuse(started.error, `${o.previous.info.callsign} не поднялась из точки`);
-    return o.previous.info.callsign;
-  }
-  const opened = await host.request("session.open", {
-    machine: host.machine,
-    name: typeof req.name === "string" ? req.name : basename(o.dir),
-    dir: req.dir,
-    mkdir: true,
-    resume: row.sid,
-    point: o.point,
-    ...(o.copy ? { fork: true } : {}),
-    ...(typeof req.slot === "string" ? { slot: req.slot } : {}),
-    ...(typeof req.profile === "string" ? { profile: req.profile } : {}),
   });
-  if (opened.ok) return (opened.result as { callsign: string }).callsign;
-  if (!o.copy && o.owner !== host.machine && row.callsign) await host.request("session.start", { callsign: row.callsign });
-  throw refuse(opened.error, `не поднялась: ${opened.error}`);
+  await release(host, p);
+  return { ...raised, point: put.id };
 }

@@ -1,64 +1,61 @@
-// Куда поднимается точка: машина, её слоты и проба папки. Общее для окон подъёма, переноса, копии и «пожара».
+// Куда поднимать: машина, её слоты, проба папки и новая сессия в проекте исходной. Одно на все окна подъёма.
 import { useState } from "react";
-import { type Result, machinesWith, Note, PickOne, Row, slotChoice, type SlotInfo, SlotPick, useApp, useLoad } from "@switchboard/web-ui";
-import { type Check, folderCheck, type Probe, wordText } from "./words.ts";
+import type { App } from "@switchboard/web-core";
+import { machinesWith, Opts, PickOne, Row, slotChoice, SlotPick, useApp, useLoad, useMachineLoad } from "@switchboard/web-ui";
+import { checkOf, refused, type Check, type Probe } from "./words.ts";
 
-export const PENDING: Check = { key: "pending", text: "проверяю папку…" };
+/** До стольких машин все — кнопками; больше — ближние кнопками, остальные списком. */
+const FEW_MACHINES = 6;
 
-/** Машина подъёма и её слот. Слот уходит в запрос, только когда есть из чего выбирать. */
-export function useTarget(first: (machines: string[]) => string, preferred = "") {
+type Slots = Record<string, { wait: number | null }>;
+
+/** near — кнопками при любом числе машин; нет — только выбранная, остальные списком. */
+export function useTarget(o: { owner?: string; near?: string[]; slot?: string } = {}) {
   const app = useApp();
   const machines = app.use(() => machinesWith(app, "points.raise"));
-  const [picked, setPicked] = useState("");
-  const [slotName, setSlotName] = useState(preferred);
-  const machine = picked || first(machines);
-  const answer = useLoad(() => app.read<{ slots?: Record<string, SlotInfo> }>("machine.accounts", { machine }), [machine]);
-  const slots = answer.loading ? undefined : answer.data?.slots;
-  const slot = slotChoice(Object.keys(slots ?? {}), slotName);
-  return { machines, machine, pick: setPicked, slots, slot, setSlot: setSlotName, slotsError: answer.loading ? "" : answer.error, ready: !answer.loading && !answer.error };
+  const [picked, setPicked] = useState<string>();
+  const [slotPicked, setSlot] = useState<string>();
+  const machine = picked ?? machines.find((m) => m !== o.owner) ?? machines[0] ?? "";
+  const accounts = useMachineLoad<{ slots: Slots }>(machine, "machine.accounts");
+  const slots = accounts.stale ? undefined : accounts.data?.slots;
+  const names = Object.keys(slots ?? {});
+  const problem = accounts.error ? `machine.accounts: ${accounts.error}` : slots && !names.length ? `На ${machine} нет слотов: войдите в аккаунт на этой машине` : "";
+  return { machines, machine, near: o.near && machines.length <= FEW_MACHINES ? machines : (o.near ?? []), pick: setPicked, slots, slot: slotChoice(names, slotPicked ?? o.slot), setSlot, problem };
 }
 
 export type Target = ReturnType<typeof useTarget>;
 
-/** Строка выбора машины; ближние (проект, своя) — кнопками. */
-export function MachineRow({ label, t, near = [] }: { label: string; t: Target; near?: string[] }) {
+export function Machines({ t, label = "Машина" }: { t: Target; label?: string }) {
   return (
     <Row label={label}>
-      <div className="sb-opts">
-        <PickOne all={t.machines} near={near} cur={t.machine} on={t.pick} select={{ "data-f": "target", "aria-label": "Другая машина" }} />
-      </div>
+      <Opts>
+        <PickOne all={t.machines} near={t.near} cur={t.machine} on={t.pick} select={{ "data-f": "target", "aria-label": "Другая машина" }} />
+      </Opts>
     </Row>
   );
 }
 
-/** Слот; в окне одной сессии — вместе с итогом пробы, пока она идёт, строки нет. */
-export function SlotRow({ t, label, check }: { t: Target; label?: string; check?: Check }) {
-  return t.slots && check?.key !== "pending" ? <SlotPick slots={t.slots} value={t.slot} on={t.setSlot} label={label} /> : null;
-}
+export const Slot = ({ t, label }: { t: Target; label?: string }) => (t.slots ? <SlotPick slots={t.slots} value={t.slot} on={t.setSlot} label={label} /> : null);
 
-export function CheckLine({ check }: { check: Check }) {
-  if (check.key === "pending") return null;
-  return (
-    <Note data-check={check.key} tone={check.tone}>
-      {check.text}
-    </Note>
-  );
-}
-
-const NOT_ASKED = Promise.resolve({ ok: false, error: "" } as const);
-
-/** Проба папки: только читает. Без неё слоты не пришли — запрос не уходит. */
-export function useProbe(t: Target, body: { sid: string; point?: number; dir: string } | null): Check {
+/** Проба папки на машине: null — ответа ещё нет. */
+export function useProbe(machine: string, body: Record<string, unknown> | null): Check | null {
   const app = useApp();
-  const noSlots = !!t.slots && !Object.keys(t.slots).length;
-  const ready = t.ready && !noSlots && !!body && body.point !== undefined;
-  const asked = useLoad(() => (ready ? app.read<Probe>("points.raise", { machine: t.machine, ...body, files: "point", dryRun: true }) : (NOT_ASKED as Promise<Result<Probe>>)), [ready, t.machine, JSON.stringify(body)]);
-  if (t.slotsError) return { key: "error", text: `machine.accounts: ${t.slotsError}`, tone: "bad" };
-  if (noSlots) return { key: "error", text: `На ${t.machine} нет слотов: войдите в аккаунт на этой машине`, tone: "bad" };
-  if (!ready || asked.loading) return PENDING;
-  if (asked.error) return { key: "error", text: wordText(asked.error), tone: "bad" };
-  return asked.data ? folderCheck(asked.data, t.machine) : PENDING;
+  const key = JSON.stringify([machine, body]);
+  const { data, error, loading } = useLoad<Probe>(() => (body ? app.read<Probe>("points.raise", { machine, ...body, dryRun: true }) : new Promise(() => {})), [key]);
+  if (loading) return null;
+  return error ? { key: "error", text: refused(error, { target: machine }), tone: "bad" } : data ? checkOf(data, machine) : null;
 }
 
-/** Запуск возможен: проверка пришла и папка годится. */
-export const runnable = (c: Check) => c.key !== "pending" && c.key !== "error" && c.key !== "other";
+const projectOf = (app: App, callsign: string) => app.mark("project.of", callsign) as { id: string } | null | undefined;
+
+/** Новая сессия встаёт в проект исходной. */
+export function joinProject(app: App, from: string, callsign: string) {
+  const project = projectOf(app, from);
+  if (project && from !== callsign) app.run("board.assign", { callsign, project: project.id });
+}
+
+/** Машины проекта сессии. */
+export function nearOf(app: App, callsign: string): string[] {
+  const project = projectOf(app, callsign);
+  return project ? ((app.mark("project.machines", project.id) as string[] | undefined) ?? []) : [];
+}
