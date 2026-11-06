@@ -27,8 +27,8 @@ function init(m: Msg): LogRecord[] {
 const stop = (ev: string, why: string, fields: Msg = {}): LogRecord => ({ kind: "stop", ev, why, ...fields });
 
 const SYSTEM: Record<string, Lines> = {
-  api_retry: ({ attempt, max_retries, retry_delay_ms, error_status }) => [
-    { ev: "sdk.api_retry", why: `попытка ${attempt} из ${max_retries}: ${error_status ?? "нет ответа"}, пауза ${retry_delay_ms / 1000} с`, attempt, max_retries, retry_delay_ms, error_status },
+  api_retry: ({ attempt, max_retries, retry_delay_ms, error_status, error }) => [
+    { ev: "sdk.api_retry", why: `попытка ${attempt} из ${max_retries}: ${error_status ?? "нет ответа"}, пауза ${retry_delay_ms / 1000} с`, attempt, max_retries, retry_delay_ms, error_status, error },
   ],
   status: (m) => (m.compact_result === "failed" ? [stop("sdk.compact", `сжатие разговора не удалось: ${first(m.compact_error)}`)] : []),
   permission_denied: (m) => [

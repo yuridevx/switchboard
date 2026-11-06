@@ -69,10 +69,10 @@ describe("сбои из сообщений SDK", () => {
     s.proc("wiki@laptop").send(msg.result({ subtype: "error_during_execution", is_error: true, startup_failure_reason: "cwd_unavailable", errors: ["папки нет"] }));
     await until(() => mine(s).length === 5);
     const siteLines = mine(s).filter((l) => l.callsign === "site@laptop");
-    expect(siteLines.filter((l) => l.ev === "sdk.api_retry").map((l) => [l.kind, l.attempt, l.error_status])).toEqual([
-      ["note", 1, 529],
-      ["note", 2, 529],
-      ["note", 3, 529],
+    expect(siteLines.filter((l) => l.ev === "sdk.api_retry").map((l) => [l.kind, l.attempt, l.error_status, l.error])).toEqual([
+      ["note", 1, 529, "overloaded"],
+      ["note", 2, 529, "overloaded"],
+      ["note", 3, 529, "overloaded"],
     ]);
     expect(siteLines.find((l) => l.ev === "sdk.result")).toMatchObject({ kind: "stop", word: "error_during_execution", why: "ход остановлен: API Error: 529 Overloaded" });
     expect(mine(s).find((l) => l.callsign === "wiki@laptop")).toMatchObject({ kind: "stop", ev: "sdk.result", word: "cwd_unavailable" });
