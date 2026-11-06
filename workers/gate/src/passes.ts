@@ -67,15 +67,15 @@ export async function redeem(db: D1Database, code: unknown) {
   const [, kid, old] = m;
   const secret = newSecret();
   const row = await db
-    .prepare("UPDATE passes SET state = 'ok', hash = ?, at = ? WHERE id = ? AND state = 'wait' AND hash = ? RETURNING role, name")
+    .prepare("UPDATE passes SET state = 'ok', hash = ?, at = ? WHERE id = ? AND state = 'wait' AND hash = ? RETURNING role, name, addr")
     .bind(await sha256(secret), Date.now(), kid, await sha256(old))
-    .first<{ role: string; name: string }>();
+    .first<{ role: string; name: string; addr: string }>();
   if (!row) {
     console.log(`bad_invite приглашения ${kid} нет, оно принято или отозвано`);
     return BAD_INVITE;
   }
   console.log(`redeem ${row.role}.${row.name}.${kid} · принят`);
-  return { key: `${row.role}.${row.name}.${kid}.${secret}` };
+  return { key: `${row.role}.${row.name}.${kid}.${secret}`, addr: row.addr, kid };
 }
 
 export async function revoke(db: D1Database, kid: string) {

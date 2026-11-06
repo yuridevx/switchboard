@@ -21,7 +21,7 @@ export function refusal(a: Answer<unknown>): { word: RoomsWord; why: string } {
   if (a.error_code === 429) return { word: "rate_limited", why: `предел Telegram, повторить через ${a.parameters?.retry_after ?? "?"} с` };
   if (a.error_code === 403) return { word: "gone", why: `бота нет в чате: ${text}` };
   if (a.error_code === 413 || /too long/i.test(text)) return { word: "too_long", why: "текст больше предела Telegram: сократи" };
-  if (threadGone(a)) return { word: "gone", why: "человек удалил тему: следующее сообщение создаст новую" };
+  if (threadGone(a)) return { word: "gone", why: "тема удалена и не создаётся заново" };
   if (/not a forum|not enough rights/i.test(text)) return { word: "no_topics", why: `включите темы в группе и дайте боту право управлять ими: ${text}` };
   return { word: "send_failed", why: text };
 }
@@ -29,13 +29,13 @@ export function refusal(a: Answer<unknown>): { word: RoomsWord; why: string } {
 export const newTopic = (token: string, chat: number, name: string) => bot<{ message_thread_id: number }>(token, "createForumTopic", { chat_id: chat, name });
 
 /** Markdown модели уходит как есть: Telegram сам разбирает его в rich-сообщении. */
-export const post = (token: string, chat: number, thread: number, markdown: string, silent: boolean, buttons: string[]) =>
+export const post = (token: string, chat: number, thread: number, markdown: string, silent: boolean, buttons: Array<{ text: string; data: string }>) =>
   bot<{ message_id: number }>(token, "sendRichMessage", {
     chat_id: chat,
     message_thread_id: thread,
     rich_message: { markdown },
     disable_notification: silent,
-    ...(buttons.length ? { reply_markup: { inline_keyboard: buttons.map((text, i) => [{ text, callback_data: String(i) }]) } } : {}),
+    ...(buttons.length ? { reply_markup: { inline_keyboard: buttons.map(({ text, data }) => [{ text, callback_data: data }]) } } : {}),
   });
 
 export const say = (token: string, chat: number, text: string) => bot(token, "sendMessage", { chat_id: chat, text });
@@ -46,4 +46,4 @@ export const ackButton = (token: string, id: string, text?: string) => bot(token
 
 export const dropButtons = (token: string, chat: number, message: number) => bot(token, "editMessageReplyMarkup", { chat_id: chat, message_id: message });
 
-export const hook = (token: string, url: string, secret: string) => bot(token, "setWebhook", { url, secret_token: secret, allowed_updates: ["message", "callback_query"], drop_pending_updates: true });
+export const hook = (token: string, url: string, secret: string) => bot(token, "setWebhook", { url, secret_token: secret, allowed_updates: ["message", "callback_query"] });

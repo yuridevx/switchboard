@@ -6,6 +6,12 @@ export const PASS = /^(host|client)\.([\w-]+)\.([\w-]+)\.([\w-]+)$/;
 /** Группы: номер, секрет. */
 export const INVITE = /^([a-z0-9]{4})\.([\w-]{43})$/;
 
+/** Приглашение в тексте: в ссылке точка заменена на _, Telegram не принимает её в параметре. Не оно — null. */
+export function inviteOf(text: string): string | null {
+  const m = /^([a-z0-9]{4})[._]([\w-]{43})$/.exec(text.trim());
+  return m ? `${m[1]}.${m[2]}` : null;
+}
+
 const NAME = /^[\w-]+$/;
 const PERSON = /^[^\s@~]+@[^\s@~]+$/;
 const KID_LETTERS = "abcdefghijklmnopqrstuvwxyz0123456789";

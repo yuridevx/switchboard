@@ -1983,6 +1983,12 @@ describe("fleet: остальные формы", () => {
       expect(await read([used("AskUserQuestion", { questions: [{ question: "Куда?" }] }, "q1"), result("q1", answer), result("чужой", "вывод Bash")])).toBe(`2026-11-06 17:40 ? Куда?\n2026-11-06 17:40 ← ${answer}`);
     });
 
+    it("недоставленное не показывается как отправленное", async () => {
+      // источник: факт — на тестовом флоте 5 из 95 вызовов send людям с is_error
+      const lost = { type: "user", uuid: "r", timestamp: t, message: { content: [{ type: "tool_result", tool_use_id: "s1", is_error: true, content: "Не доставлено" }] } };
+      expect(await read([used("mcp__fleet__send", { to: TG, text: "не дошло" }, "s1"), lost, used("mcp__fleet__send", { to: TG, text: "дошло" }, "s2")])).toBe(`2026-11-06 17:40 → ${TG}: дошло`);
+    });
+
     it("5 · limit — последние строки, одно чтение всего разговора", async () => {
       // источник: устав — у всех операций лимит; факт — чтение и так берёт файл целиком
       const { st, call } = await bench({ machine: "win" });

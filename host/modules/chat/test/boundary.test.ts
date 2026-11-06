@@ -47,10 +47,10 @@ const ASK = {
 const pick = (label: string) => ({ "Какую базу мигрировать первой?": label });
 const REFUSAL = "The user doesn't want to proceed with this tool use.";
 
-type Bench = { st: Stand; notifies: Frame[]; seen: string[]; mode: string | undefined; parent: string | undefined; modules: Array<{ module: Module; manifest: Manifest }> };
+type Bench = { st: Stand; undelivered?: Array<{ to: string; word: string; why?: string }>; notifies: Frame[]; seen: string[]; mode: string | undefined; parent: string | undefined; modules: Array<{ module: Module; manifest: Manifest }> };
 
 async function bench(o: { holders?: stand.FakeHolders; home?: string; mode?: string; pauseMs?: number; machine?: string } = {}): Promise<Bench> {
-  const b = { notifies: [] as Frame[], seen: [] as string[], mode: "mode" in o ? o.mode : "bypassPermissions", parent: undefined } as Bench;
+  const b = { undelivered: undefined as Bench["undelivered"], notifies: [] as Frame[], seen: [] as string[], mode: "mode" in o ? o.mode : "bypassPermissions", parent: undefined } as Bench;
   b.modules = await parts();
   const st = await standHost({
     holders: o.holders,
@@ -59,7 +59,7 @@ async function bench(o: { holders?: stand.FakeHolders; home?: string; mode?: str
     machine: o.machine,
     modules: [
       module("host-manage", { fields: { mode: () => b.mode, parent: () => b.parent } }, { provides: { "session.open": 2, "session.update": 1, "session.remove": 1, wing: 1, model: 1, effort: 1 } }),
-      module("host-push", { requests: { notify: (req) => (b.notifies.push(req), { pushed: [] }) } }),
+      module("host-push", { requests: { notify: (req) => (b.notifies.push(req), b.undelivered ? { undelivered: b.undelivered } : undefined) } }),
       module("host-spy", { on: { event: (_s, m) => void b.seen.push(m.type) } }),
       ...b.modules,
     ],
@@ -646,6 +646,70 @@ describe("вопрос человеку", () => {
     const n = await until(() => b.notifies[0]);
     expect(n).toMatchObject({ clients: [TG], frame: { type: "message", from: CS, notify: { title: CS } } });
     expect(p.inputs).toHaveLength(0);
+  });
+
+  it("9 · вопрос не дошёл ни до кого: снят с причиной, модель узнаёт словом", async () => {
+    // источник: слово пользователя — вопрос, не дошедший ни до кого, отказом модели; вопрос ждёт ответа без предела
+    const b = await bench();
+    await b.st.open(CS);
+    const p = b.st.proc(CS);
+    b.st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: CS, text: "спроси" });
+    await until(() => p.inputs.length === 1);
+    b.undelivered = [{ to: TG, word: "rate_limited", why: "через 37 с" }];
+    const r = await p.askWith("AskUserQuestion", { questions: [{ question: "Куда?", options: [{ label: "тест" }] }] }, {}, "toolu_lost");
+    expect(r).toEqual({ behavior: "deny", message: `Вопрос не дошёл до людей и снят: ${TG}: rate_limited, через 37 с` });
+    expect(b.st.journal().find((l) => l.ev === "question" && l.word === "undelivered")).toMatchObject({ kind: "refuse", callsign: CS });
+    expect(await request(b.st, "question.list", {})).toMatchObject({ ok: true, result: [] });
+  });
+
+  it("вопрос дошёл хоть до кого-то: ждёт", async () => {
+    const b = await bench();
+    await b.st.open(CS);
+    const p = b.st.proc(CS);
+    b.st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: CS, text: "спроси" });
+    await until(() => p.inputs.length === 1);
+    await request(b.st, "session.watch", { from: PHONE });
+    b.undelivered = [{ to: TG, word: "gone" }];
+    void p.askWith("AskUserQuestion", { questions: [{ question: "Куда?" }] }, {}, "toolu_ok");
+    await until(() => b.notifies[0]);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(await request(b.st, "question.list", {})).toMatchObject({ result: [{ question: "toolu_ok" }] });
+  });
+
+  it("кнопка: ответ на этот вопрос; вопрос снят — слово в чат, во ввод ничего", async () => {
+    // источник: факт — подпись кнопки в режиме «разрешено всё» не должна попасть во ввод командой
+    const b = await bench();
+    await b.st.open(CS);
+    const p = b.st.proc(CS);
+    b.st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: CS, text: "спроси" });
+    await until(() => p.inputs.length === 1);
+    const r = p.askWith("AskUserQuestion", { questions: [{ question: "Куда?", options: [{ label: "тест" }] }] }, {}, "toolu_btn");
+    await until(() => b.notifies[0]);
+    b.st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: CS, text: "тест", question: "toolu_btn" });
+    expect(await r).toMatchObject({ behavior: "allow", updatedInput: { answers: { "Куда?": "тест" } } });
+    expect(b.notifies.at(-1)).toMatchObject({ clients: [TG], frame: { type: "answered" } });
+    b.notifies.length = 0;
+    b.st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: CS, text: "тест", question: "toolu_btn" });
+    expect(await until(() => b.notifies[0])).toMatchObject({ clients: [TG], frame: { type: "message", notify: { body: "Этот вопрос уже снят." } } });
+    expect(p.inputs).toHaveLength(1);
+  });
+
+  it("ответ текстом: «ответ принят» не приходит самому ответившему, в группе автор не попадает в ответ", async () => {
+    // источник: факт — след ответа текстом уже есть: само сообщение; предел 20 сообщений в минуту на группу
+    const TEAM = "team~ann@x.y";
+    const b = await bench();
+    await b.st.open(CS);
+    const p = b.st.proc(CS);
+    b.st.relay.deliver({ type: "rooms.message", v: 1, from: TEAM, to: CS, text: "спроси", author: "Ann" });
+    await until(() => p.inputs.length === 1);
+    expect(p.inputs[0].message.content).toBe(wrap(TEAM, "Ann: спроси"));
+    const r = p.askWith("AskUserQuestion", { questions: [{ question: "Куда?" }] }, {}, "toolu_txt");
+    await until(() => b.notifies[0]);
+    b.notifies.length = 0;
+    b.st.relay.deliver({ type: "rooms.message", v: 1, from: TEAM, to: CS, text: "тест", author: "Ann" });
+    expect(await r).toMatchObject({ updatedInput: { answers: { "Куда?": "тест" } } });
+    await new Promise((res) => setTimeout(res, 30));
+    expect(b.notifies).toEqual([]);
   });
 
   it("16 · несколько вопросов: текст из чата отвечает на все пункты, вопросы и варианты видны в теле", async () => {

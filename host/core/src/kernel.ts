@@ -414,7 +414,10 @@ export class Kernel {
     const owner = this.owners.get(f.type);
     const handler = owner?.module.frames?.[f.type];
     if (!handler && !listeners.length && f.type !== "roster") this.log({ kind: "refuse", ev: "frame", word: "unknown_request", why: `кадр ${f.type}: владельца нет` });
-    if (this.shutting) return;
+    if (this.shutting) {
+      if (f.type !== "roster") this.log({ kind: "refuse", ev: "frame", word: "shutting_down", from: f.from, why: `кадр ${f.type}: Host останавливается` });
+      return;
+    }
     const s = this.about(f);
     if (handler && !this.off(owner!, s)) this.run(owner!, s, `frames.${f.type}`, () => handler(f, this.ctx(owner!, f)));
     for (const m of listeners) if (!this.off(m)) this.run(m, undefined, "on.frame", () => m.module.on!.frame!(frame));

@@ -3,13 +3,10 @@
 /** Имена и версии, которые push обслуживает. */
 export const CONTRACT = { "push.key": 1, "push.send": 1, "push.subscribe": 1, "push.subscribed": 1 } as const;
 
-/** Что показать: заголовок, текст и кнопки. push его не разбирает, только укорачивает body. */
-export type Notify = {
-  title?: string;
-  body?: string;
-  actions?: Array<{ title: string; frame?: unknown }>;
-  [field: string]: unknown;
-};
+import type { Notify, RoomsSend } from "@switchboard/rooms";
+
+/** Что показать: push его не разбирает, только укорачивает body. */
+export type { Notify };
 
 /** push.key — открытый ключ VAPID. Ответ: { key } — несжатая точка P-256 в base64url. */
 export type PushKey = { type: "push.key"; id: string; to: ".push" };
@@ -34,7 +31,7 @@ export type PushSend = {
   type: "push.send";
   id: string;
   to: ".push";
-  push: { to: string; skip?: string[]; type: string; from?: string; notify: Notify };
+  push: RoomsSend;
 };
 
 /** Слова отказа push (кроме общих bad_frame, unknown_request, contract_mismatch). */

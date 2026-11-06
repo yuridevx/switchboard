@@ -410,6 +410,18 @@ describe("чаты Telegram", () => {
     expect(await worker.frame(send("t-3", "limited~tg3@example.com"))).toEqual([{ type: "reply", id: "t-3", ok: false, error: "rate_limited", to: "@laptop", why: "предел Telegram, повторить через 37 с" }]);
   });
 
+  it("rooms получает адрес, skip, тип, отправителя и уведомление без потерь", async () => {
+    const [r] = await worker.frame(send("t-5", "echo~tg5@example.com", NOTIFY, ["pult~tg5@example.com"]));
+    expect(JSON.parse(String(r.why))).toEqual({ to: "echo~tg5@example.com", skip: ["pult~tg5@example.com"], type: "question", from: "profiles@laptop", notify: NOTIFY });
+  });
+
+  it("мёртвая подписка и предел Telegram: модель получает слово Telegram с секундами", async () => {
+    const phone = await ua();
+    await subscribe("limited~tg6@example.com", phone, "https://push.example/tg6");
+    service(410);
+    expect(await worker.frame(send("t-6", "limited~tg6@example.com"))).toEqual([{ type: "reply", id: "t-6", ok: false, error: "rate_limited", to: "@laptop", why: "предел Telegram, повторить через 37 с" }]);
+  });
+
   it("rooms упал: подписки браузеров всё равно получают пуш", async () => {
     const log = journal();
     const phone = await ua();

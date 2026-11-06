@@ -36,7 +36,7 @@ export interface GateApi {
   /** Строки пропусков, как keys.list: с role — только принятые этой роли. Вход relay берёт отсюда машины флота. */
   list(role?: "host" | "client"): Promise<Pass[]>;
   /** Приём приглашения тем, кто принимает его за чат: rooms. Та же запись, что gate.redeem по адресу. */
-  redeem(invite: string): Promise<{ key: string } | { error: "bad_invite" }>;
+  redeem(invite: string): Promise<{ key: string; addr: string; kid: string } | { error: "bad_invite" }>;
 }
 
 /**
@@ -44,10 +44,11 @@ export interface GateApi {
  * ответ — reply {id, ok, result | error}.
  *   keys.invite {key, role, name, person?} → {kid, invite, addr}; person обязателен у client
  *   keys.list {key, role?} → {passes: Pass[], you}; с role — только принятые этой роли; you — адрес предъявленного пропуска
- *   gate.redeem {invite} → {key}; пропуска не нужно
+ *   gate.redeem {invite} → {key, addr, kid}; пропуска не нужно
  * Слова отказа: bad_key — пропуск; bad_request — поля не того вида; name_taken — у адреса есть живой пропуск;
  * bad_invite — приглашения нет, оно принято или отозвано; gate_unavailable — база не ответила.
  */
 export const CONTRACT = { "keys.invite": 1, "keys.list": 1, "gate.redeem": 1 } as const;
 export { entrance } from "./src/entrance.ts";
+export { inviteOf } from "./src/format.ts";
 export { gateStand } from "./src/stand.ts";

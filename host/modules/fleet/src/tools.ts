@@ -8,7 +8,7 @@ import { z } from "zod";
 
 type Env = { host: Host; records: Settings };
 type Refused = Extract<Result, { ok: false }>;
-type Block = { type?: string; text?: string; name?: string; id?: string; tool_use_id?: string; content?: unknown; input?: { to?: string; text?: string; questions?: Array<{ question?: string }> } };
+type Block = { type?: string; text?: string; name?: string; id?: string; tool_use_id?: string; is_error?: boolean; content?: unknown; input?: { to?: string; text?: string; questions?: Array<{ question?: string }> } };
 type Record_ = { type?: string; timestamp?: string; peer?: { from: string; text: string }; message?: { content?: string | Block[] } };
 type Row = NonNullable<ReturnType<Host["roster"]>>["sessions"][number];
 
@@ -92,11 +92,12 @@ const when = (r: Record_) => (r.timestamp ?? "").slice(0, 16).replace("T", " ");
 /** Разговор с людьми строками: ← от человека, → человеку, ? вопрос; ответ на вопрос — отдельной строкой ←. */
 function peopleLines(records: Record_[]): string[] {
   const questions = new Set<string>();
+  const undelivered = new Set(records.flatMap((r) => blocksOf(r).flatMap((b) => (b.type === "tool_result" && b.is_error ? [b.tool_use_id] : []))));
   return records.flatMap((r) => {
     if (r.type !== "user" && r.type !== "assistant") return [];
     if (r.peer) return isPerson(r.peer.from) ? [`${when(r)} ← ${r.peer.from}: ${r.peer.text}`] : [];
     return blocksOf(r).flatMap((b) => {
-      if (b.type === "tool_use" && b.name === SEND && isPerson(b.input?.to)) return [`${when(r)} → ${b.input?.to}: ${b.input?.text}`];
+      if (b.type === "tool_use" && b.name === SEND && isPerson(b.input?.to) && !undelivered.has(b.id)) return [`${when(r)} → ${b.input?.to}: ${b.input?.text}`];
       if (b.type === "tool_use" && b.name === ASK) {
         questions.add(b.id ?? "");
         return [`${when(r)} ? ${(b.input?.questions ?? []).map((q) => q.question).join(" · ")}`];

@@ -132,7 +132,8 @@ const HANDLERS: Record<keyof typeof CONTRACT, (f: Frame, env: Env) => Promise<un
     if (typeof to !== "string" || typeof type !== "string" || !notify || typeof notify !== "object") return refuse("bad_frame", "в push нужны to, type и notify");
     if (!Array.isArray(skip)) return refuse("bad_frame", "skip — список адресов устройств");
     const line = { from, type };
-    const chats = await viaRooms(env, { to, skip: skip as string[], type, from: asker as string | undefined, notify });
+    // чаты и подписки независимы: зависший Telegram не держит пуш браузерам
+    const chats = viaRooms(env, { to, skip: skip as string[], type, from: asker as string | undefined, notify });
     // SQL отбирает по концу адреса, правило «доходит ли» — у протокола
     const { results } = await env.DB.prepare("SELECT client, endpoint, p256dh, auth, kid FROM subs WHERE substr(client, -length(?1)) = ?1").bind(to).all<Sub>();
     const targets = results.filter((s) => reaches(to, s.client) && !skip.includes(s.client));
@@ -143,16 +144,15 @@ const HANDLERS: Record<keyof typeof CONTRACT, (f: Frame, env: Env) => Promise<un
       log({ kind: "refuse", ev: "push.send", word: "gone", why: `пропуск ${s.kid} отозван: подписка удалена`, client: s.client, type });
     }
     const live = targets.filter((s) => !(s.kid && revoked.has(s.kid)));
-    if (!live.length) {
-      if (chats.sent) return undefined;
-      if (chats.word) throw new Refusal(chats.word, chats.why ?? "", { client: to, type }, true);
-      refuse("gone", kindOf(to) === "user" ? "пушить некому: подписок нет или все на связи" : "подписки нет", { client: to, type });
-    }
-    const fitted = fit({ type, from: asker, notify }) ?? refuse("bad_frame", "уведомление не влезает в 4 096 Б и без notify.body", { client: to, type });
+    const fitted = live.length ? fit({ type, from: asker, notify }) : null;
     const jwk = JSON.parse(env.VAPID_PRIVATE) as JsonWebKey;
-    const outcomes = await Promise.all(live.map((s) => deliver(env, jwk, s, fitted.plain, { ...line, cut: fitted.cut })));
-    if (outcomes.includes("sent") || chats.sent) return undefined;
-    return refuse(outcomes.includes("push_failed") ? "push_failed" : "gone", "");
+    const outcomes = fitted ? await Promise.all(live.map((s) => deliver(env, jwk, s, fitted.plain, { ...line, cut: fitted.cut }))) : [];
+    const { sent, word, why } = await chats;
+    if (sent || outcomes.includes("sent")) return undefined;
+    if (word) throw new Refusal(word, why ?? "", { client: to, type }, true);
+    if (live.length && !fitted) refuse("bad_frame", "уведомление не влезает в 4 096 Б и без notify.body", { client: to, type });
+    if (outcomes.length) return refuse(outcomes.includes("push_failed") ? "push_failed" : "gone", "");
+    return refuse("gone", kindOf(to) === "user" ? "пушить некому: подписок нет или все на связи" : "подписки нет", { client: to, type });
   },
 };
 

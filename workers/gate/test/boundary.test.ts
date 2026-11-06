@@ -5,7 +5,7 @@ import { exports, env as rawEnv } from "cloudflare:workers";
 import { applyD1Migrations, createExecutionContext, type D1Migration } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_FRAME, type Frame } from "@switchboard/protocol";
-import { entrance, type GateApi, type Pass, type VerifyResult } from "../contract.ts";
+import { entrance, inviteOf, type GateApi, type Pass, type VerifyResult } from "../contract.ts";
 import worker, { Gate } from "../src/index.ts";
 
 type Stand = GateApi & { setHosts(names: string[]): Promise<void> };
@@ -63,7 +63,7 @@ describe("приглашение и приём", () => {
     expect(logs).toContainEqual(`invite ${kid} phone~owner@example.com · выдал ${waiting.by}`);
 
     const r1 = await post({ type: "gate.redeem", invite: inv.result.invite });
-    expect(Object.keys(r1.result)).toEqual(["key"]);
+    expect(Object.keys(r1.result)).toEqual(["key", "addr", "kid"]);
     expect(r1.result.key).toMatch(new RegExp(`^client\\.phone\\.${kid}\\.[A-Za-z0-9_-]{43}$`));
     const taken = (await row(kid))!;
     expect(taken.state).toBe("ok");
@@ -175,6 +175,17 @@ describe("приглашение и приём", () => {
     expect(await post({ type: "keys.invite", key: by, ...fields })).toMatchObject({ ok: false, error: "bad_request" });
     expect(logs).toContainEqual(`bad_request keys.invite от ${who.addr} · ${why}`);
     expect((await rows()).length).toBe(before);
+  });
+});
+
+describe("приглашение в тексте", () => {
+  it("с точкой и с подчёркиванием из ссылки — одно приглашение; другой текст — null", () => {
+    // источник: факт — Telegram не принимает точку в параметре ссылки
+    const secret = "s".repeat(43);
+    expect(inviteOf(`abcd.${secret}`)).toBe(`abcd.${secret}`);
+    expect(inviteOf(`abcd_${secret}\n`)).toBe(`abcd.${secret}`);
+    expect(inviteOf("обычное сообщение")).toBeNull();
+    expect(inviteOf(`abcd.${secret}x`)).toBeNull();
   });
 });
 

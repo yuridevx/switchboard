@@ -1,29 +1,37 @@
 // Worker rooms: чаты Telegram как устройства людей. Наружу — rooms.send; внутрь — вебхук Telegram → кадр в Host через relay. Состояния нет: всё в D1.
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { kindOf, reaches, type Frame, within } from "@switchboard/protocol";
-import type { RoomsApi, RoomsSend, RoomsSent } from "../contract.ts";
+import { inviteOf } from "@switchboard/gate";
+import { isPerson, kindOf, reaches, within, type Frame } from "@switchboard/protocol";
+import type { RoomsApi, RoomsMessage, RoomsSend, RoomsSent } from "../contract.ts";
 import type { Env } from "./env.ts";
 import { ackButton, dropButtons, hook, newTopic, post, react, refusal, say, threadGone } from "./telegram.ts";
 
 type Row = Record<string, unknown>;
 type Chat = { chat: number; addr: string; kid: string };
 type Person = { id: number; first_name?: string; is_bot?: boolean };
-type Message = { message_id: number; chat: { id: number; type: string }; message_thread_id?: number; from?: Person; text?: string; caption?: string };
+type Message = {
+  message_id: number;
+  chat: { id: number; type: string; is_forum?: boolean };
+  message_thread_id?: number;
+  from?: Person;
+  text?: string;
+  caption?: string;
+  reply_markup?: { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> };
+};
 type Button = { id: string; from: Person; data?: string; message?: Message };
 type Update = { message?: Message; callback_query?: Button };
+/** Работа после ответа вебхуку. */
+type After = (work: Promise<unknown>) => void;
 
 const SEEN = "👀"; // дошло до машины
 const NOBODY = "🤷"; // машина не на связи или такое сообщение сессии не передать
 const REFUSED = "👎"; // отправитель не привязан к флоту
 
-/** Приглашение: в ссылке точка заменена на _: Telegram не принимает её в параметре. */
-const INVITE = /^(?:\/start(?:@\w+)?\s+)?([a-z0-9]{4})[._]([\w-]{43})\s*$/;
-
 const log = (row: Row) => console.log(JSON.stringify({ t: new Date().toISOString(), part: "rooms", ...row }));
 
 const private_ = (chat: number) => chat > 0;
 
-/** Реакцию сразу после прихода сообщения Telegram молча теряет, отвечая ok: без паузы 0 из 3, с паузой 400 мс 2 из 2 (6 нояб.). */
+/** Реакцию сразу после сообщения Telegram принимает с ok, но не показывает: 0 и 100 мс — 0 из 6, от 250 мс — 9 из 9 (6 нояб.). */
 const REACT_MS = 1000;
 
 /** Реакция — единственный ответ человеку: отказ Telegram в журнале. */
@@ -44,14 +52,17 @@ async function alive(env: Env, chats: Chat[]): Promise<Chat[]> {
   if (!chats.length) return [];
   const revoked = new Set(await within(env.GATE.revoked(chats.map((c) => c.kid)), "gate не ответил на revoked"));
   for (const c of chats.filter((x) => revoked.has(x.kid))) {
-    await env.DB.batch([env.DB.prepare("DELETE FROM chats WHERE chat = ?").bind(c.chat), env.DB.prepare("DELETE FROM threads WHERE chat = ?").bind(c.chat), env.DB.prepare("DELETE FROM asks WHERE chat = ?").bind(c.chat)]);
+    await env.DB.batch([env.DB.prepare("DELETE FROM chats WHERE chat = ?").bind(c.chat), env.DB.prepare("DELETE FROM threads WHERE chat = ?").bind(c.chat)]);
     log({ kind: "refuse", ev: "revoked", word: "gone", why: `пропуск ${c.kid} отозван: ${c.addr} отвязан`, client: c.addr });
   }
   return chats.filter((c) => !revoked.has(c.kid));
 }
 
-/** Текст сообщения: у обычного — тело модели, у вопроса и его исхода — ещё заголовок. */
-const shown = ({ type, notify }: RoomsSend): string => (type === "message" ? String(notify.body ?? "") : [notify.title && `**${notify.title}**`, notify.body].filter(Boolean).join("\n\n"));
+/** Текст сообщения: у обычного — тело модели, у вопроса и его исхода — ещё заголовок. Разрешение и форму в чате не ответить. */
+function shown({ type, notify }: RoomsSend): string {
+  if (type === "message") return String(notify.body ?? "");
+  return [notify.title && `**${notify.title}**`, notify.body, notify.app && "Ответить можно в пульте."].filter(Boolean).join("\n\n");
+}
 
 /** Тема сессии в чате: первая запись сессии создаёт её. Обе записи одновременно — вторая тема остаётся пустой, в базе одна. */
 async function topic(env: Env, chat: number, callsign: string) {
@@ -64,22 +75,25 @@ async function topic(env: Env, chat: number, callsign: string) {
   return { thread: row!.thread };
 }
 
-/** Одно сообщение одному чату. null — ушло, иначе отказ. */
-async function deliver(env: Env, c: Chat, push: RoomsSend, callsign: string): Promise<RoomsSent | null> {
+/** Одно сообщение одному чату. null — ушло, иначе отказ. Человек удалил тему — строка устарела: новая тема и ещё одна попытка, повторить могла бы только модель. */
+async function deliver(env: Env, c: Chat, push: RoomsSend, callsign: string, again = true): Promise<RoomsSent | null> {
   const got = await topic(env, c.chat, callsign);
   if (got.refused) return { sent: 0, ...got.refused };
-  const actions = push.notify.actions ?? [];
+  const { actions = [], tag } = push.notify;
   const silent = !private_(c.chat) && push.type !== "question";
-  const a = await post(env.TELEGRAM_BOT_TOKEN, c.chat, got.thread!, shown(push), silent, actions.map((x) => x.title));
-  if (!a.ok) {
-    const no = refusal(a);
-    if (threadGone(a)) await env.DB.prepare("DELETE FROM threads WHERE callsign = ? AND chat = ?").bind(callsign, c.chat).run();
-    log({ kind: "refuse", ev: "rooms.send", word: no.word, why: no.why, client: c.addr, from: callsign });
-    return { sent: 0, ...no };
+  const buttons = tag ? actions.map((x, i) => ({ text: x.title, data: `${i}:${tag}` })) : [];
+  const a = await post(env.TELEGRAM_BOT_TOKEN, c.chat, got.thread!, shown(push), silent, buttons);
+  if (a.ok) {
+    log({ kind: "note", ev: "sent", client: c.addr, from: callsign, type: push.type });
+    return null;
   }
-  if (actions.length) await env.DB.prepare("INSERT OR REPLACE INTO asks (chat, message, actions) VALUES (?, ?, ?)").bind(c.chat, a.result!.message_id, JSON.stringify(actions)).run();
-  log({ kind: "note", ev: "sent", client: c.addr, from: callsign, type: push.type });
-  return null;
+  if (threadGone(a)) {
+    await env.DB.prepare("DELETE FROM threads WHERE callsign = ? AND chat = ?").bind(callsign, c.chat).run();
+    if (again) return deliver(env, c, push, callsign, false);
+  }
+  const no = refusal(a);
+  log({ kind: "refuse", ev: "rooms.send", word: no.word, why: no.why, client: c.addr, from: callsign });
+  return { sent: 0, ...no };
 }
 
 /** Человеку ~email — только его личка: группа не его устройство, а общий чат. */
@@ -92,103 +106,113 @@ async function send(env: Env, push: RoomsSend): Promise<RoomsSent> {
   return { sent: targets.length - refused.length, ...(refused[0] ? { word: refused[0].word, why: refused[0].why } : {}) };
 }
 
-/** Приглашение принято: чат стал устройством. Пропуск не хранится: номер — всё, что нужно для отзыва. */
-async function link(env: Env, m: Message, invite: string): Promise<void> {
+/** Приглашение принято: чат стал устройством. Пропуск не хранится: номер — всё, что нужно для отзыва. Группа без тем отказывается до приёма: приглашение не сгорает. */
+async function link(env: Env, m: Message, invite: string, after: After): Promise<void> {
   const chat = m.chat.id;
   const token = env.TELEGRAM_BOT_TOKEN;
-  const got = await within(env.GATE.redeem(invite), "gate не ответил на redeem");
-  if ("error" in got) {
-    log({ kind: "refuse", ev: "link", word: got.error, why: `приглашение чата ${chat} не принято` });
-    await mark(env, chat, m.message_id, REFUSED);
+  if (!private_(chat) && !m.chat.is_forum) {
+    log({ kind: "refuse", ev: "link", word: "no_topics", why: `группа ${chat} без тем` });
+    await say(token, chat, "Включите темы в настройках группы и отправьте приглашение снова.");
     return;
   }
-  const who = await within(env.GATE.verify(got.key), "gate не ответил на verify");
-  if ("error" in who) throw new Error(`принятый пропуск не прошёл verify: ${who.error}`);
-  await env.DB.prepare("INSERT OR REPLACE INTO chats (chat, addr, kid, at) VALUES (?, ?, ?, ?)").bind(chat, who.addr, who.kid, Date.now()).run();
-  log({ kind: "note", ev: "link", client: who.addr, kid: who.kid });
-  await say(token, chat, `Привязано: ${who.addr}`);
+  const got = await within(env.GATE.redeem(invite), "gate не ответил на redeem");
+  if ("error" in got || !isPerson(got.addr)) {
+    log({ kind: "refuse", ev: "link", word: "error" in got ? got.error : "not_person", why: `приглашение чата ${chat} не принято` });
+    after(mark(env, chat, m.message_id, REFUSED));
+    return;
+  }
+  await env.DB.prepare("INSERT OR REPLACE INTO chats (chat, addr, kid) VALUES (?, ?, ?)").bind(chat, got.addr, got.kid).run();
+  log({ kind: "note", ev: "link", client: got.addr, kid: got.kid });
+  await say(token, chat, `Привязано: ${got.addr}`);
 }
 
 const chatOf = (env: Env, id: number) => env.DB.prepare("SELECT chat, addr, kid FROM chats WHERE chat = ?").bind(id).first<Chat>();
 
-/** Отправитель и чат с живыми пропусками: адрес чата и адрес человека. Чужой — null. */
-async function sender(env: Env, chat: number, person: Person): Promise<{ place: string; who: string } | null> {
+/** Адрес чата, если у чата и отправителя живые пропуска. Чужой — null. */
+async function sender(env: Env, chat: number, person: Person): Promise<string | null> {
   const [room, own] = await Promise.all([chatOf(env, chat), chatOf(env, person.id)]);
   if (!room || !own) return null;
   const left = await alive(env, room.chat === own.chat ? [room] : [room, own]);
-  return left.length === (room.chat === own.chat ? 1 : 2) ? { place: room.addr, who: own.addr } : null;
+  return left.length === (room.chat === own.chat ? 1 : 2) ? room.addr : null;
 }
 
 const callsignOf = async (env: Env, chat: number, thread: number | undefined) =>
   thread === undefined ? null : ((await env.DB.prepare("SELECT callsign FROM threads WHERE chat = ? AND thread = ?").bind(chat, thread).first<{ callsign: string }>())?.callsign ?? null);
 
-const toHost = (env: Env, f: Frame) => within(env.RELAY.deliver(f), "relay не ответил");
+const toHost = (env: Env, f: RoomsMessage) => within(env.RELAY.deliver(f as unknown as Frame), "relay не ответил");
+
+/** Текст для сессии: вложений она не получает, подпись к ним идёт с пометкой. */
+const textOf = (m: Message) => m.text ?? (m.caption ? `${m.caption}\n(вложение не передано)` : undefined);
 
 /** Сообщение человека. General и чужие темы в группе — разговор людей: бот молчит. */
-async function onMessage(env: Env, m: Message): Promise<void> {
+async function onMessage(env: Env, m: Message, after: After): Promise<void> {
   const chat = m.chat.id;
-  const token = env.TELEGRAM_BOT_TOKEN;
-  const text = m.text ?? m.caption;
-  const invite = text?.match(INVITE);
-  if (invite) return link(env, m, `${invite[1]}.${invite[2]}`);
+  const invite = m.text ? inviteOf(m.text.replace(/^\/start(?:@\w+)?\s+/, "")) : null;
+  if (invite) return link(env, m, invite, after);
   const callsign = await callsignOf(env, chat, m.message_thread_id);
   if (!callsign) {
-    if (private_(chat)) await mark(env, chat, m.message_id, NOBODY);
+    if (private_(chat)) after(mark(env, chat, m.message_id, NOBODY));
     return;
   }
-  const by = m.from?.is_bot ? null : await sender(env, chat, m.from ?? { id: 0 });
-  if (!by) {
+  const from = m.from?.is_bot ? null : await sender(env, chat, m.from ?? { id: 0 });
+  if (!from) {
     log({ kind: "refuse", ev: "message", word: "not_linked", why: `${m.from?.id} не привязан`, callsign });
-    await mark(env, chat, m.message_id, REFUSED);
+    after(mark(env, chat, m.message_id, REFUSED));
     return;
   }
+  const text = textOf(m);
   if (!text) {
     log({ kind: "refuse", ev: "message", word: "not_text", why: "вложения сессии не передаются", callsign });
-    await mark(env, chat, m.message_id, NOBODY);
+    after(mark(env, chat, m.message_id, NOBODY));
     return;
   }
-  // автор — именем: адрес в тексте модель принимает за адрес ответа, а ответ идёт в from
-  const said = private_(chat) ? text : `${m.from?.first_name ?? by.who}: ${text}`;
-  const n = await toHost(env, { type: "rooms.message", v: 1, to: callsign, from: by.place, text: said });
-  await mark(env, chat, m.message_id, n ? SEEN : NOBODY);
+  const n = await toHost(env, { type: "rooms.message", v: 1, to: callsign, from, text, ...(private_(chat) ? {} : { author: m.from?.first_name }) });
+  after(mark(env, chat, m.message_id, n ? SEEN : NOBODY));
 }
 
-/** Нажатая кнопка вопроса: кадр дал тот, кто спросил, служба его не разбирает. Запрос: id нужен Host, ответ никто не ждёт. Первый ответ выигрывает у Host. */
+/** Нажатая кнопка вопроса: подпись и номер вопроса приходят с самой кнопкой, хранить нечего. Вопрос уже снят — скажет Host. */
 async function onButton(env: Env, b: Button): Promise<void> {
   const token = env.TELEGRAM_BOT_TOKEN;
   const m = b.message;
   const callsign = m && (await callsignOf(env, m.chat.id, m.message_thread_id));
-  const by = m && (await sender(env, m.chat.id, b.from));
-  if (!m || !callsign || !by) {
+  const from = m && (await sender(env, m.chat.id, b.from));
+  if (!m || !callsign || !from) {
     log({ kind: "refuse", ev: "button", word: "not_linked", why: `${b.from.id} не привязан или темы нет` });
     await ackButton(token, b.id, "Нет привязки к флоту");
     return;
   }
-  const row = await env.DB.prepare("SELECT actions FROM asks WHERE chat = ? AND message = ?").bind(m.chat.id, m.message_id).first<{ actions: string }>();
-  const frame = row && (JSON.parse(row.actions) as Array<{ frame?: Frame }>)[Number(b.data)]?.frame;
-  if (!frame) {
+  const question = /^\d+:(.+)$/.exec(b.data ?? "")?.[1];
+  const label = m.reply_markup?.inline_keyboard?.flat().find((x) => x.callback_data === b.data)?.text;
+  if (!question || !label) {
     await ackButton(token, b.id, "Вопрос уже снят");
     return;
   }
-  const n = await toHost(env, { ...frame, id: crypto.randomUUID(), to: callsign, from: by.place });
+  const n = await toHost(env, { type: "rooms.message", v: 1, to: callsign, from, text: label, question });
   if (!n) {
     await ackButton(token, b.id, "Машина не на связи");
     return;
   }
-  await env.DB.prepare("DELETE FROM asks WHERE chat = ? AND message = ?").bind(m.chat.id, m.message_id).run();
   await dropButtons(token, m.chat.id, m.message_id);
   await ackButton(token, b.id);
 }
 
-/** Вебхук: 401 — не Telegram; остальное 200: повтор доставки дал бы двойной ввод, исход человек видит реакцией. */
-async function webhook(req: Request, env: Env): Promise<Response> {
+/** Сбой gate, relay или базы: человек видит исход, повтора нет. */
+async function failed(env: Env, u: Update, e: unknown, after: After): Promise<void> {
+  log({ kind: "stop", ev: "webhook", word: "failed", why: String(e) });
+  if (u.message) after(mark(env, u.message.chat.id, u.message.message_id, NOBODY));
+  else if (u.callback_query) await ackButton(env.TELEGRAM_BOT_TOKEN, u.callback_query.id, "Машина не на связи");
+}
+
+/** Вебхук: 401 — не Telegram; остальное 200: повтор доставки дал бы двойной ввод. Реакция — после ответа, чтобы ответ не опаздывал. */
+async function webhook(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   if (req.method !== "POST" || req.headers.get("x-telegram-bot-api-secret-token") !== (await hookSecret(env))) return new Response(null, { status: 401 });
   const u = (await req.json()) as Update;
+  const after: After = (work) => ctx.waitUntil(work);
   try {
-    if (u.message) await onMessage(env, u.message);
+    if (u.message) await onMessage(env, u.message, after);
     else if (u.callback_query) await onButton(env, u.callback_query);
   } catch (e) {
-    log({ kind: "stop", ev: "webhook", word: "failed", why: String(e) });
+    await failed(env, u, e, after);
   }
   return new Response(null, { status: 200 });
 }
@@ -208,9 +232,9 @@ export class Rooms extends WorkerEntrypoint<Env> implements RoomsApi {
 }
 
 export default {
-  fetch(req: Request, env: Env): Promise<Response> | Response {
+  fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> | Response {
     const { pathname } = new URL(req.url);
-    if (pathname === "/webhook") return webhook(req, env);
+    if (pathname === "/webhook") return webhook(req, env, ctx);
     if (pathname === "/setup") return setup(req, env);
     return new Response("switchboard rooms: /webhook\n", { status: 404 });
   },

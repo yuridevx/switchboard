@@ -22,6 +22,7 @@ const roomsStand = {
 export class Rooms extends WorkerEntrypoint {
   send({ to }) {
     if (to.startsWith("telegram~")) return { sent: 1 };
+    if (to.startsWith("echo~")) return { sent: 0, word: "gone", why: JSON.stringify(arguments[0]) };
     if (to.startsWith("limited~")) return { sent: 0, word: "rate_limited", why: "предел Telegram, повторить через 37 с" };
     if (to.startsWith("broken~")) throw new Error("rooms упал");
     return { sent: 0 };

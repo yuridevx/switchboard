@@ -7,7 +7,8 @@ const REFUSAL = "The user doesn't want to proceed with this tool use.";
 const PLAN_ALWAYS = [{ type: "setMode", mode: "acceptEdits", destination: "session" }];
 
 type Kind = "ask" | "form" | "url" | "perm";
-type Answer = { by: string; body: Frame };
+type Answer = { by: string; body: Frame; quiet?: boolean };
+type Reached = { ok: boolean; result?: unknown };
 type Pending = { id: string; kind: Kind; fields: Record<string, unknown>; to: string[]; clients: string[]; settle(a: Answer): void };
 type Q = { questions?: Array<{ question?: string; multiSelect?: boolean; options?: Array<{ label?: string; description?: string }> }> };
 
@@ -31,12 +32,19 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
   /** Кому: давший задачу и зрители сейчас; разрешение и форму решает только человек. */
   const audience = (s: Session, kind: Kind) => [...new Set([s.info.from, ...viewers(s.info.callsign)])].filter((a): a is string => !!a && (isPerson(a) || (kind === "ask" && kindOf(a) === "session")));
 
-  function notify(s: Session, p: Pending, notify: Record<string, unknown>, type: string) {
-    if (p.clients.length) void host().request("notify", { clients: p.clients, frame: { type, from: s.info.callsign, question: p.id, notify: { ...notify, tag: p.id } } });
+  function notify(s: Session, p: Pending, notify: Record<string, unknown>, type: string, clients = p.clients): Promise<Reached> | undefined {
+    return clients.length ? host().request("notify", { clients, frame: { type, from: s.info.callsign, question: p.id, notify: { ...notify, tag: p.id } } }) : undefined;
+  }
+
+  /** Кому не дошло: все адресаты — значит, вопрос ждал бы ответа без предела и без следа. */
+  function missed(p: Pending, r: Reached): string | null {
+    const { undelivered = [] } = (r.result ?? {}) as { undelivered?: Array<{ to: string; word: string; why?: string }> };
+    if (!p.to.length || !p.to.every((a) => undelivered.some((u) => u.to === a))) return null;
+    return undelivered.map((u) => `${u.to}: ${u.word}${u.why ? `, ${u.why}` : ""}`).join("; ");
   }
 
   /** Задать вопрос и ждать первого ответа; сигнал отмены снимает его. */
-  function ask<T>(s: Session, id: string, kind: Kind, fields: Record<string, unknown>, signal: AbortSignal, answer: (a: Answer) => T, cancelled: T): Promise<T> {
+  function ask<T>(s: Session, id: string, kind: Kind, fields: Record<string, unknown>, signal: AbortSignal, answer: (a: Answer) => T, cancelled: T, lost: (why: string) => T): Promise<T> {
     const cs = s.info.callsign;
     const to = audience(s, kind);
     host().log({ kind: "note", ev: "question", callsign: cs, question: id, asked: kind, to, ...(to.length ? {} : { why: "адресатов нет: ждёт question.list" }) });
@@ -54,26 +62,36 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
         const { answers, action, content } = a.body;
         close(defined({ by: a.by, answers, action, content }));
         const said = answers ? Object.values(answers as Record<string, string>).join(", ") : String(action ?? "");
-        notify(s, p, { title: `${cs} · ответ принят`, body: `${a.by}: ${said}` }, "answered");
+        void notify(s, p, { title: `${cs} · ответ принят`, body: `${a.by}: ${said}` }, "answered", a.quiet ? p.clients.filter((c) => c !== a.by) : p.clients);
         resolve(answer(a));
       };
       const abort = () => {
         close({ cancelled: true });
-        notify(s, p, { title: cs, body: "вопрос снят" }, "answered");
+        void notify(s, p, { title: cs, body: "вопрос снят" }, "answered");
         resolve(cancelled);
       };
       signal.addEventListener("abort", abort);
       of(cs).set(id, p);
       if (to.length) host().emit({ type: "question", from: cs, to, question: id, kind, ...p.fields });
+      let sent: Promise<Reached> | undefined;
       const first = p.fields.questions as Q["questions"];
       if (kind === "ask") {
         const one = first?.length === 1 && !first[0].multiSelect ? first[0] : undefined;
         const actions = one?.options?.map((o) => ({ title: o.label, frame: { type: "answer", v: 1, callsign: cs, question: id, answers: { [one.question!]: o.label } } }));
-        notify(s, p, { title: `${cs} спрашивает`, body: actions?.length ? (first?.[0]?.question ?? "") : asLines(first).join("\n"), ...(actions?.length ? { actions } : {}) }, "question");
-      } else if (kind === "perm") notify(s, p, { title: `${cs} просит разрешения`, body: String(fields.title ?? fields.tool) }, "question");
-      else notify(s, p, { title: `${cs} · форма`, body: String(fields.message ?? fields.url ?? "") }, "question");
+        sent = notify(s, p, { title: `${cs} спрашивает`, body: actions?.length ? (first?.[0]?.question ?? "") : asLines(first).join("\n"), ...(actions?.length ? { actions } : {}) }, "question");
+      } else if (kind === "perm") sent = notify(s, p, { title: `${cs} просит разрешения`, body: String(fields.title ?? fields.tool), app: true }, "question");
+      else sent = notify(s, p, { title: `${cs} · форма`, body: String(fields.message ?? fields.url ?? ""), app: true }, "question");
+      void sent?.then((r) => {
+        const why = of(cs).has(id) ? missed(p, r) : null;
+        if (!why) return;
+        close({ cancelled: true });
+        host().log({ kind: "refuse", ev: "question", word: "undelivered", callsign: cs, question: id, why });
+        resolve(lost(`Вопрос не дошёл до людей и снят: ${why}`));
+      });
     });
   }
+
+  const denied = (message: string): PermissionResult => ({ behavior: "deny", message });
 
   const perm = (s: Session, input: Record<string, unknown>, opts: DecideOpts): Promise<PermissionResult> => {
     const tool = opts.tool ?? "";
@@ -82,13 +100,13 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
       if (body.action === "deny") return { behavior: "deny", message: body.message ? `${REFUSAL} Reason: ${body.message}` : REFUSAL };
       const always = body.always ? (tool === "ExitPlanMode" ? PLAN_ALWAYS : opts.suggestions) : undefined;
       return { behavior: "allow", updatedInput: input, ...(always?.length ? { updatedPermissions: always } : {}) } as PermissionResult;
-    }, { behavior: "deny", message: "cancelled" });
+    }, { behavior: "deny", message: "cancelled" }, denied);
   };
 
   return {
     decide: {
       AskUserQuestion: (s: Session, input: Record<string, unknown>, opts: DecideOpts): Promise<PermissionResult> =>
-        ask<PermissionResult>(s, opts.toolUseID, "ask", { questions: input.questions }, opts.signal, ({ body }) => ({ behavior: "allow", updatedInput: { ...input, answers: body.answers } }), { behavior: "deny", message: "cancelled" }),
+        ask<PermissionResult>(s, opts.toolUseID, "ask", { questions: input.questions }, opts.signal, ({ body }) => ({ behavior: "allow", updatedInput: { ...input, answers: body.answers } }), { behavior: "deny", message: "cancelled" }, denied),
       "*": (s: Session, input: Record<string, unknown>, opts: DecideOpts): PermissionResult | Promise<PermissionResult> => {
         const mode = s.field("mode");
         if (mode !== "bypassPermissions") return perm(s, input, opts);
@@ -100,7 +118,7 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
       const req = r as unknown as Record<string, unknown>;
       const url = req.mode === "url";
       const fields = { server: req.serverName, message: req.message, ...(url ? { url: req.url } : { schema: req.requestedSchema }) };
-      return ask<ElicitationResult>(s, opts.requestId, url ? "url" : "form", fields, opts.signal, ({ body }) => defined({ action: body.action ?? "accept", content: body.content }) as ElicitationResult, { action: "cancel" });
+      return ask<ElicitationResult>(s, opts.requestId, url ? "url" : "form", fields, opts.signal, ({ body }) => defined({ action: body.action ?? "accept", content: body.content }) as ElicitationResult, { action: "cancel" }, () => ({ action: "cancel" }));
     },
     requests: {
       answer(req: Frame, { from }: { from?: string }) {
@@ -122,12 +140,13 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
       },
       "question.list": (req: Frame) => [...(open.get(String(req.callsign))?.values() ?? [])].map((p) => ({ question: p.id, kind: p.kind, ...p.fields })),
     },
-    /** Текст человека из чата, пока сессия спрашивает его: ответ на вопрос, у каждого пункта один текст. Нет такого вопроса — false. */
-    reply(s: Session, from: string, text: string): boolean {
-      const p = [...of(s.info.callsign).values()].find((x) => x.kind === "ask" && x.to.includes(from));
-      if (!p) return false;
+    /** Ответ человека из чата: с question — нажатая кнопка этого вопроса, без него — текст, пока сессия спрашивает этот адрес. У каждого пункта один текст; след ответа текстом — само сообщение, поэтому ему «ответ принят» не нужен. Нет такого вопроса — false. */
+    reply(s: Session, from: string, text: string, question?: string): boolean {
+      const asked = of(s.info.callsign);
+      const p = question === undefined ? [...asked.values()].find((x) => x.kind === "ask" && x.to.includes(from)) : asked.get(question);
+      if (p?.kind !== "ask" || !p.to.includes(from)) return false;
       const answers = Object.fromEntries(((p.fields.questions ?? []) as NonNullable<Q["questions"]>).map((q) => [q.question, text]));
-      p.settle({ by: from, body: { type: "answer", answers } });
+      p.settle({ by: from, body: { type: "answer", answers }, quiet: question === undefined });
       return true;
     },
     /** Вопрос другой сессии этой машине: сессиям-адресатам — во ввод. */

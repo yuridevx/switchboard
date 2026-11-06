@@ -138,6 +138,17 @@ describe("старт и остановка Host", () => {
     expect(st2.kernel.sessions.get("site@laptop")!.state).toBe("busy");
   });
 
+  it("кадр в окно остановки: модуль его не получает, строка журнала с причиной", async () => {
+    // чьё: код — чистый перезапуск без следа оставил бы кадр потерянным молча
+    const seen = vi.fn();
+    const st = await stand({ holders: await keeper(), modules: [module("host-x", { frames: { "x.frame": seen } }, { provides: { "x.frame": 1 } })] });
+    const down = st.kernel.shutdown("ввод закрыт");
+    st.relay.deliver({ type: "x.frame", v: 1, from: "telegram~a@b.c" });
+    await down;
+    expect(seen).not.toHaveBeenCalled();
+    expect(lines(st, "frame")).toEqual([expect.objectContaining({ kind: "refuse", word: "shutting_down", from: "telegram~a@b.c" })]);
+  });
+
   it("731 · сигнал ОС и закрытие ввода вместе — одна остановка: stop() модуля один раз, одна строка exit", async () => {
     // источник: чьё: код — повторный сигнал отдаёт ту же остановку
     const stop = vi.fn();
