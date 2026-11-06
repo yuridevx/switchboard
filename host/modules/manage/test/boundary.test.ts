@@ -2179,8 +2179,8 @@ describe("пара", () => {
     expect(text(await call("boss@win", "open", { name: "audit", dir: home, text: "Проверь", wing: { model: "haiku" } }))).toBe("открыта: audit@win; задача во вводе, итог хода придёт сам");
     await until(() => field("audit-wing@win", "wing") === true);
     expect(field("audit-wing@win", "parent")).toBe("audit@win");
-    await until(() => st.proc("audit@win").inputs.length >= 1);
-    expect(st.proc("audit@win").inputs.map((i) => i.message.content)).toContain(task("boss@win", "Проверь"));
+    // первым вводом может прийти весть о ведомом: ждём саму задачу
+    await until(() => st.proc("audit@win").inputs.some((i) => i.message.content === task("boss@win", "Проверь")));
 
     const w = world({ opening: (f) => { if (f.wing_of) throw refuse("no_profile", "нет кусочка"); } });
     const b = await bench({ machine: "win", w });
