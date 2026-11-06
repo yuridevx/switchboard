@@ -1,0 +1,70 @@
+﻿diff --git a/tools/records/src/settings.ts b/tools/records/src/settings.ts
+index 8eafffc..c59b3ea 100644
+--- a/tools/records/src/settings.ts
++++ b/tools/records/src/settings.ts
+@@ -16,18 +16,23 @@ export function settings(o: { read: Ask; ask: Ask; prefix: string; scope?: strin
+   const load = () => o.read<{ values: Record<string, unknown> }>("prefs.get", { prefix: `${o.prefix}.`, ...area });
+ 
+   async function run() {
+-    while (queue.length) {
+-      const r = await load();
+-      const edits = [...queue];
+-      const next = { ...(r.ok ? r.result.values : values) };
+-      for (const e of edits) next[e.name] = e.fn(next[e.name] as never);
+-      for (const name of new Set(edits.map((e) => e.name))) {
+-        const w = r.ok ? await o.ask("prefs.set", { name, value: next[name], ...area }) : r;
+-        for (const e of edits) if (e.name === name) e.done(w.ok ? null : w.error);
++    try {
++      while (queue.length) {
++        const r = await load();
++        const edits = [...queue];
++        const next = { ...(r.ok ? r.result.values : values) };
++        for (const e of edits) next[e.name] = e.fn(next[e.name] as never);
++        for (const name of new Set(edits.map((e) => e.name))) {
++          const w = r.ok ? await o.ask("prefs.set", { name, value: next[name], ...area }) : r;
++          for (const e of edits) if (e.name === name) e.done(w.ok ? null : w.error);
++        }
++        values = next;
++        queue.splice(0, edits.length);
++        o.changed?.();
+       }
+-      values = next;
+-      queue.splice(0, edits.length);
+-      o.changed?.();
++    } finally {
++      // в том же такте, что и выход из цикла: правка сразу за ответом прошлой застала бы законченный цикл и осталась без записи
++      cycle = undefined;
+     }
+   }
+ 
+@@ -51,7 +56,7 @@ export function settings(o: { read: Ask; ask: Ask; prefix: string; scope?: strin
+     edit<T>(section: string, fn: (old: T | undefined) => T): Promise<string | null> {
+       const answer = new Promise<string | null>((done) => queue.push({ name: key(section), fn: fn as Edit["fn"], done }));
+       o.changed?.();
+-      cycle ??= run().finally(() => (cycle = undefined));
++      cycle ??= run();
+       return answer;
+     },
+     /** Дождаться цикла записи: остановка не теряет правку. */
+diff --git a/tools/records/test/boundary.test.ts b/tools/records/test/boundary.test.ts
+index 9d73fb0..3c9824d 100644
+--- a/tools/records/test/boundary.test.ts
++++ b/tools/records/test/boundary.test.ts
+@@ -245,6 +245,17 @@ describe("цикл настроек", () => {
+     expect(sets(s.log)).toHaveLength(2);
+   });
+ 
++  it("правка сразу за ответом прошлой доходит до службы, и settled её ждёт", async () => {
++    // источник: сверка со старым кодом 6 нояб.; чьё: код
++    const s = service();
++    const c = settings({ read: s.ask, ask: s.ask, prefix: "x" });
++    await c.edit("a", () => 1);
++    const next = c.edit("b", () => 2);
++    await c.settled();
++    expect(s.values).toEqual({ "x.a": 1, "x.b": 2 });
++    expect(await next).toBeNull();
++  });
++
+   it("чтение не встаёт за зависшим циклом: зависший ответ не держит новое чтение после обрыва связи; правка остаётся поверх", async () => {
+     // источник: комментарий кода, сверка 6 нояб.; чьё: код
+     const s = service();

@@ -10,3 +10,21 @@
 | Сложность выросла при меньших токенах | На обзоре флота токены −21 %, но `OpenScreen` — сложность 22 → 68 и 104 → 303 строки: слияние в один компонент. `Head` карточки — сложность 35 | Разобрать `OpenScreen` на части без смены вида, замер `tools/demolish size` |
 | Границы входа и профиля | В круге 3 не взяты: host-logins, host-profiles, host-fleet, pult-accounts, pult-profiles, pult-open держит дизайн «Профиль из кусочков»; договор session.profile, machine.profiles, slot.*, инструменты open и update заморожен | Взять, когда решит пользователь; `OpenScreen` разбирается там же |
 | Дочитанный `lost` на принятых границах | Полное чтение дали conversation, points, screens: вернулось до 37 поведений на границу, которых леса не видели; у alerts, names, gate, github, sessions, journal чтение было выборочным | Группами, с держателем или причиной снятия |
+
+## Передано от switchboard-43, 6 нояб.
+
+Материалы — `.claude/slopik/handoff/`: `retro.md`, `night-log.md`, `lost/<граница>.md`, `linux-all.sh`, `keeper-linux.sh`, `flows.sh`.
+
+**Цели глубокого режима.** Второй свежий проход сверки: releases (22 находки), conversation (11), points (4), screens (4), relay (4), webbase (2), core (4 и 5, не сошлась): потери вероятны.
+
+**Плавающие тесты на чистом WSL.** incidents+core 3 из 8 на голове, 2 из 8 на 106e8e6, почти всё `freePort`; 701 и 69 в ядре по разу; `scripts/test`: `kill(pid,0)` на зомби, образец `isDead` в шелле 273; `scripts/design`: порт 4892 фиксирован.
+
+**Находки.** `kernel.ts` зовёт `on.frame` на любое имя из `uses`: другие модули могут быть открыты как лента чата; `raise.ts:106` cwd при откате в другую папку; `tools/records` `edit` сразу за ответом не запишется (`lost/snyato-chain-edit.patch`); `taskkill /T` гасит детей раньше родителя; сокет relay без предела открытия; остановка keeper 5 с; два снимка делят `refs/points/snap`; `console.error` глушён в `boundary-points.test.ts`.
+
+**Выкладка на тест, порядок проверен вживую.** Worker'ы, relay последним; `{part:"host",latest:true}`; `{part:"web-core",latest:true}`; keeper через `pin` на wsl, потом win, в обе стороны; затем `deploy` и `pin:null`. На тесте Host 1.3.9+1, пульт 2.2.6+3, телефон 2.2.7+3, keeper 1.2.4.
+
+**Прод не трогали.** Там живёт `hello` с `key` объектом без пропуска, роняющий объект машины; в плане прода мусорная строка `ubuntu-db`. Только слово пользователя.
+
+**Не сливать.** `demolish3-lost-github`, `demolish3-lost-alerts2`, `demolish3-lost-send`, `demolish3-lost-gate`: основания в `night-log.md`.
+
+**Уборка.** 39 worktree `agent-*` на ветках `demolish3-*` и `.claude/worktrees/demolish3` чистые, их можно снять вместе с ветками.
