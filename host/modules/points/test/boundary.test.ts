@@ -200,6 +200,21 @@ describe("эталоны points", () => {
     expect(b.remote).toEqual([expect.objectContaining({ type: "session.start", callsign: "site@laptop" })]);
   });
 
+  it("8118 · перенос ведущего пары: has_wing уже на пробе, ничего не тронуто; копия на другую машину идёт", async () => {
+    // источник: перенос снимает сессию на прежней машине, а ведомый живёт только рядом с ведущим — чьё: код
+    b = await bench({ home, machine: "pc" });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(8) });
+    b.st.relay.deliver({ type: "roster", machines: [], sessions: [{ callsign: "site@laptop", state: "idle" }, { callsign: "site-wing@laptop", state: "idle", parent: "site@laptop", wing: true }], clients: [] } as Frame);
+    const dir = join(home, "Projects", "site");
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, dryRun: true })).toMatchObject({ ok: false, error: "has_wing" });
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir })).toMatchObject({ ok: false, error: "has_wing" });
+    expect(b.manage).toHaveLength(0);
+    expect(b.remote).toHaveLength(0);
+    const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, copy: true, dir: join(home, "Projects", "site-copy") });
+    expect(r.ok).toBe(true);
+    expect(b.manage[0]).toMatchObject({ type: "session.open", fork: true, point: 318 });
+  });
+
   it("215 · копия: open с fork и point; исходный файл в папке копии удалён; точка под новым sid с base 318 — на первом конце хода", async () => {
     b = await bench({ home, machine: "pc" });
     b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(8) });

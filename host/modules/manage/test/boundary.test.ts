@@ -89,7 +89,7 @@ async function bench(o: { machine?: string; stateHome?: string; home?: string; h
             "profile.view": (r) => ({ pieces: r.profile }),
           },
         },
-        { provides: { "session.profile": 2, "machine.profiles": 2, "profile.view": 1 } },
+        { provides: { "session.profile": 2, "machine.profiles": 2, "profile.view": 1, profile: 2 } },
       );
   const relay = new FakeRelay();
   relay.holdRoster = !!o.holdRoster;
@@ -147,7 +147,7 @@ describe("контракт: пакеты и вклад в query()", () => {
       ["answer", "Ответить на вопрос другой сессии (тег <fleet-question>), которой эта сессия дала задачу.", { to: "callsign сессии, задавшей вопрос", question: "id вопроса из тега", answers: "текст вопроса → ответ; несколько вариантов — через запятую" }],
       [
         "open",
-        "Открыть сессию с задачей на любой машине флота. Она твоя дочь: итог каждого её хода, начатого тобой, придёт сам. Без параметра slot: на машине один слот — он, слотов нет — отказ (войдите в аккаунт на машине), два и больше — отказ со списком слотов.",
+        "Открыть сессию с задачей на любой машине флота. Она твоя дочь: итог каждого её хода, начатого тобой, придёт сам. Без параметра slot: на машине один слот — он, слотов нет — отказ (войдите в аккаунт на машине), два и больше — отказ со списком слотов. wing — открыть пару: вторую сессию на той же машине и в той же папке, задачу ей ставит только эта сессия.",
         {
           name: "имя сессии: буквы, цифры, . _ -",
           dir: "папка: от ~ или полный путь",
@@ -158,13 +158,14 @@ describe("контракт: пакеты и вклад в query()", () => {
           effort: null,
           slot: "имя слота машины или ключа флота",
           project: "имя проекта: сессия встанет в его конец, нет такого — создастся; без него — в проект открывшей",
+          wing: "настройки ведомого: профиль, модель, усилие, слот",
         },
       ],
       ["history", "Что делала сессия: последние записи разговора — ввод, ответы, вызванные инструменты.", { callsign: null, limit: "сколько записей; по умолчанию 20" }],
       [
         "update",
-        "Сменить сессии слот, профиль, модель, усилие, заголовок разговора или проект. Живой сессии модель и усилие — сразу, слот и профиль — перезапуском между ходами, разговор продолжается. Слот меняется первым, профиль вторым: отказ не меняет остального.",
-        { callsign: null, slot: "имя слота машины этой сессии или ключа флота", profile: "заменить список кусочков: нижний выигрывает, пустой — без кусочков", model: null, effort: null, title: null, project: "имя проекта: конец его списка, нет такого — создастся; пустая строка — без проекта" },
+        "Сменить сессии слот, профиль, модель, усилие, заголовок разговора или проект. Живой сессии модель и усилие — сразу, слот и профиль — перезапуском между ходами, разговор продолжается. Слот меняется первым, профиль вторым: отказ не меняет остального. wing — настройки ведомого этой сессии: нет его — откроет; null — снимет.",
+        { callsign: null, slot: "имя слота машины этой сессии или ключа флота", profile: "заменить список кусочков: нижний выигрывает, пустой — без кусочков", model: null, effort: null, title: null, project: "имя проекта: конец его списка, нет такого — создастся; пустая строка — без проекта", wing: "настройки ведомого: профиль, модель, усилие, слот; null — снять ведомого" },
       ],
       [
         "profile",
@@ -1821,10 +1822,10 @@ describe("fleet: остальные формы", () => {
     expect(schema.send).toMatchObject({ required: ["to", "text"], properties: { to: { type: "string" }, text: { type: "string" } } });
     expect(schema.answer).toMatchObject({ required: ["to", "question", "answers"], properties: { answers: { type: "object", additionalProperties: { type: "string" } } } });
     expect(schema.open.required).toEqual(["name", "dir", "text"]);
-    expect(new Set(Object.values(types("open")))).toEqual(new Set(["string", "array"]));
+    expect(new Set(Object.values(types("open")))).toEqual(new Set(["string", "array", "object"]));
     expect(schema.history).toMatchObject({ required: ["callsign"], properties: { limit: { type: "integer", minimum: 1 } } });
     expect(schema.update.required).toEqual(["callsign"]);
-    expect(new Set(Object.values(types("update")))).toEqual(new Set(["string", "array"]));
+    expect(new Set(Object.values(types("update")))).toEqual(new Set(["string", "array", undefined]));
     expect(schema.label.required).toEqual(["to", "text"]);
     expect(schema.remove.required).toBeUndefined();
   });
@@ -1965,5 +1966,273 @@ describe("remote: остальные формы", () => {
     } finally {
       proto.enableRemoteControl = old;
     }
+  });
+});
+
+describe("пара", () => {
+  const WING = "lead-wing@win";
+  /** Ведомый открыт: ведущий запросом с пульта, ведомый со своими настройками. */
+  async function pair(o: { slot?: string } = {}) {
+    const b = await bench({ machine: "win" });
+    const lead = await b.st.open("lead@win");
+    const r = await b.req({ type: "session.open", machine: "win", v: 2, wing_of: "lead@win", model: "haiku", effort: "low", ...(o.slot ? { slot: o.slot } : {}) });
+    expect(r).toMatchObject({ ok: true, result: { callsign: WING } });
+    const wing = b.st.kernel.sessions.get(WING)!;
+    await until(() => wing.state === "idle");
+    return { ...b, lead, wing };
+  }
+  /** Строка списка сессий: так roster несёт пару. */
+  const rosterOf = (b: { st: Stand }, extra: object[] = []) =>
+    b.st.relay.deliver({
+      type: "roster",
+      machines: [{ machine: "win", since: 1, proto: 1, contract: {} }],
+      sessions: [
+        { callsign: "lead@win", state: "idle", model: "opus", profile: [{ id: "t/p/lead", state: "ok" }], slot: { name: "main" } },
+        { callsign: WING, state: "idle", parent: "lead@win", wing: true, model: "haiku", profile: [{ id: "t/p/design", state: "ok" }], slot: { name: "kimi" } },
+        ...extra,
+      ],
+      clients: [],
+    } as Frame);
+  const prefs = (st: Stand) => setInterval(() => {
+    for (const f of st.relay.frames("prefs.get")) if (!f.done) ((f.done = true), st.relay.deliver({ type: "reply", id: f.id as string, ok: true, result: { values: {} } } as Frame));
+  }, 5);
+  const list = async (b: Awaited<ReturnType<typeof pair>>, me: string) => {
+    timers.push(prefs(b.st));
+    return JSON.parse(text(await b.call(me, "list"))) as { sessions: Array<Record<string, unknown>> };
+  };
+
+  it("8101 · session.open с wing_of и своими настройками: две сессии, у ведомого parent — ведущий и wing, настройки его", async () => {
+    // источник: слово пользователя 6 нояб. «Для обеих можно выбирать и профиль и настройки все»
+    const { st, w, field } = await pair({ slot: "kimi" });
+    await until(() => field(WING, "wing") === true);
+    expect(field(WING, "parent")).toBe("lead@win");
+    expect(field("lead@win", "wing")).toBeUndefined();
+    expect(st.query(WING).options).toMatchObject({ model: "haiku", effort: "low" });
+    expect(st.query("lead@win").options.model).toBeUndefined();
+    expect(w.seen.filter(([k]) => k === "slot").at(-1)![1]).toMatchObject({ slot: "kimi", wing_of: "lead@win" });
+  });
+
+  it("8103 · ведущий отправляет задачу send: ведомый получает её первым сообщением хода", async () => {
+    const b = await pair();
+    rosterOf(b);
+    expect(text(await b.call("lead@win", "send", { to: WING, text: "Сделай тест" }))).toBe(`доставлено: ${WING}`);
+    await until(() => b.st.proc(WING).inputs.length === 1);
+    expect(b.st.proc(WING).inputs[0].message.content).toBe(task("lead@win", "Сделай тест"));
+  });
+
+  it("8104 · ход ведомого кончился: итог пришёл ведущему без отдельного запроса", async () => {
+    const b = await pair();
+    await until(() => b.st.proc("lead@win").inputs.length === 1);
+    await b.call("lead@win", "send", { to: WING, text: "Сделай" });
+    await until(() => b.st.proc(WING).inputs.length === 1);
+    turn(b.st.proc(WING), "работаю", { result: "Сделано, 12 из 12" });
+    await until(() => b.st.proc("lead@win").inputs.length === 2);
+    expect(b.st.proc("lead@win").inputs[1].message.content).toBe(wrap(WING, "Сделано, 12 из 12"));
+  });
+
+  it("8105 · второй wing_of — has_wing; ведомый у ведомого и имя с папкой — bad_spec; ведущего нет на машине — offline", async () => {
+    const { st, req } = await pair();
+    const open = (f: object) => req({ type: "session.open", machine: "win", v: 2, ...f });
+    expect(await open({ wing_of: "lead@win" })).toMatchObject({ ok: false, error: "has_wing" });
+    expect(await open({ wing_of: WING })).toMatchObject({ ok: false, error: "bad_spec" });
+    expect(await open({ wing_of: "lead@win", name: "x" })).toMatchObject({ ok: false, error: "bad_spec" });
+    expect(await open({ wing_of: "gone@win" })).toMatchObject({ ok: false, error: "offline" });
+    expect(st.sdk.of(WING)).toHaveLength(1);
+  });
+
+  it("8106 · удалить ведущего: ведомый тоже убран, первым; ведомый один уходит один; снятие после хода — тем же путём", async () => {
+    const a = await pair();
+    expect(await a.req({ type: "session.remove", callsign: "lead@win" })).toMatchObject({ ok: true });
+    expect([a.st.kernel.sessions.has(WING), a.st.kernel.sessions.has("lead@win")]).toEqual([false, false]);
+    expect(a.st.relay.frames("ledger.add").filter((f) => f.ev === "session.removed").map((f) => f.callsign)).toEqual([WING, "lead@win"]);
+
+    const b = await pair();
+    expect(await b.req({ type: "session.remove", callsign: WING })).toMatchObject({ ok: true });
+    expect([b.st.kernel.sessions.has(WING), b.st.kernel.sessions.has("lead@win")]).toEqual([false, true]);
+
+    const c = await pair();
+    c.st.proc("lead@win").send(msg.state("running"));
+    await until(() => c.lead.state === "busy");
+    expect(await c.req({ type: "session.remove", callsign: "lead@win", after_turn: true })).toMatchObject({ ok: true, result: { after_turn: true } });
+    expect(c.st.kernel.sessions.has(WING)).toBe(true);
+    c.st.proc("lead@win").send(msg.result());
+    c.st.proc("lead@win").send(msg.state("idle"));
+    await until(() => !c.st.kernel.sessions.has("lead@win"));
+    expect(c.st.kernel.sessions.has(WING)).toBe(false);
+  });
+
+  it("8107 · ведомый поднялся у идущей сессии: ведущему одно сообщение, отправитель его ввода прежний; после перезапуска ведомого нового нет", async () => {
+    // источник: слепой архитектор — без report: true ведущий стал бы задавать вопросы ведомому
+    const b = await bench({ machine: "win" });
+    const lead = await b.st.open("lead@win");
+    await b.req({ type: "session.prompt", callsign: "lead@win", text: "задача", from: OWNER });
+    await until(() => b.st.proc("lead@win").inputs.length === 1);
+    expect(lead.info.from).toBe(OWNER);
+    await b.req({ type: "session.open", machine: "win", v: 2, wing_of: "lead@win", model: "haiku", slot: "kimi" });
+    const p = b.st.proc("lead@win");
+    await until(() => p.inputs.length === 2);
+    expect(p.inputs[1].message.content).toBe(wrap(WING, `ведомый ${WING} поднят: haiku, kimi. Задачу ему — fleet.send, итог его хода придёт сам.`));
+    expect(lead.info.from).toBe(OWNER);
+    expect(b.st.sdk.of("lead@win")).toHaveLength(1);
+    await b.st.session("host-manage", WING)!.restart();
+    await until(() => b.st.sdk.of(WING).length === 2 && b.st.kernel.sessions.get(WING)!.state === "idle");
+    await later();
+    expect(p.inputs).toHaveLength(2);
+  });
+
+  it("8113 · session.open с wing_of без имени и папки: имя <ведущий>-wing, папка и машина ведущего", async () => {
+    const { st, wing, lead } = await pair();
+    expect(wing.info.callsign).toBe("lead-wing@win");
+    expect(wing.info.cwd).toBe(lead.info.cwd);
+    expect(st.relay.frames("ledger.add").find((f) => f.ev === "session.opened" && f.callsign === WING)).toBeDefined();
+  });
+
+  it("8114 · стоп ведущего посреди хода ведомого, затем старт: стоят оба, итог прерванного хода дошёл, поднялись оба", async () => {
+    // источник: слово пользователя 5 нояб. «снаружи выглядит как одна сессия»
+    const b = await pair();
+    const lp = b.st.proc("lead@win");
+    await until(() => lp.inputs.length === 1);
+    await b.call("lead@win", "send", { to: WING, text: "Сделай" });
+    const wp = b.st.proc(WING);
+    await until(() => wp.inputs.length === 1);
+    wp.send(msg.state("running"));
+    await until(() => b.wing.state === "busy");
+    expect(await b.req({ type: "session.stop", callsign: "lead@win" })).toMatchObject({ ok: true });
+    expect(wp.interrupts).toBe(1);
+    expect([b.lead.state, b.wing.state]).toEqual(["stopped", "stopped"]);
+    expect(lp.inputs).toHaveLength(2);
+    expect(lp.inputs[1].message.content).toBe(wrap(WING, "ход кончился: error_during_execution"));
+    expect(await b.req({ type: "session.start", callsign: "lead@win" })).toMatchObject({ ok: true });
+    await until(() => b.lead.state === "idle" && b.wing.state === "idle");
+    expect(await b.req({ type: "session.stop", callsign: WING })).toMatchObject({ ok: true });
+    expect([b.lead.state, b.wing.state]).toEqual(["idle", "stopped"]);
+  });
+
+  it("8115 · процесс ведомого умер посреди хода ведущего: один resume, ведущему слово об обрыве, ход не повторён", async () => {
+    const b = await pair();
+    const lp = b.st.proc("lead@win");
+    await until(() => lp.inputs.length === 1);
+    await b.call("lead@win", "send", { to: WING, text: "Сделай" });
+    const wp = b.st.proc(WING);
+    await until(() => wp.inputs.length === 1);
+    wp.send(msg.state("running"));
+    await until(() => b.wing.state === "busy");
+    wp.exit(1, "умер");
+    await until(() => b.st.sdk.of(WING).length === 2 && b.wing.state === "idle");
+    await until(() => lp.inputs.length === 2);
+    expect(lp.inputs[1].message.content).toBe(wrap(WING, `ход ведомого ${WING} оборвался: процесс вышел, ход не повторяется`));
+    await later();
+    expect(b.st.proc(WING).inputs).toHaveLength(0);
+    expect(lp.inputs).toHaveLength(2);
+  });
+
+  it("8118 · откат ведущего на точку на той же машине: ведущий с точкой, ведомый поднят без точки", async () => {
+    const b = await pair();
+    await b.req({ type: "session.stop", callsign: "lead@win" });
+    expect(await b.req({ type: "session.start", callsign: "lead@win", point: 3 })).toMatchObject({ ok: true });
+    await until(() => b.wing.state === "idle");
+    expect([b.lead.info.start, b.lead.info.point]).toEqual(["point", 3]);
+    expect(b.wing.info.start).toBe("resume");
+    expect(b.wing.info.point).toBeUndefined();
+  });
+
+  it("8109 · другая сессия: list — пара одна сессия, ведомого и его адреса нет, настройки внутри ведущего", async () => {
+    // источник: слово пользователя 6 нояб. «пара прозрачна на уровне MCP: видна только сессия владельца»
+    const b = await pair();
+    rosterOf(b, [{ callsign: "other@win", state: "idle", model: "opus" }]);
+    const raw = text(await (async () => (timers.push(prefs(b.st)), b.call("other@win", "list")))());
+    expect(raw).not.toContain(WING);
+    const seen = JSON.parse(raw) as { sessions: Array<Record<string, unknown>> };
+    expect(seen.sessions.map((s) => s.callsign)).toEqual(["lead@win", "other@win"]);
+    expect(seen.sessions[0].pair).toEqual({ state: "idle", model: "haiku", profile: ["t/p/design"], slot: "kimi" });
+    expect(seen.sessions[1].pair).toBeUndefined();
+  });
+
+  it("8110 · другая сессия: send, answer, history на адрес ведомого — pair_inside, ведомый ничего не получил", async () => {
+    const b = await pair();
+    rosterOf(b);
+    const word = `Не выполнено: ${WING} — pair_inside. Это ведомый внутри пары, работать с ним можно только через его ведущего`;
+    expect(await b.call("other@win", "send", { to: WING, text: "x" })).toEqual(toolText(word, true));
+    expect(await b.call("other@win", "answer", { to: WING, question: "q", answers: {} })).toEqual(toolText(word, true));
+    expect(await b.call("other@win", "history", { callsign: WING })).toEqual(toolText(word, true));
+    await later();
+    expect(b.st.proc(WING).inputs).toHaveLength(0);
+  });
+
+  it("8111 · другая сессия: update ведущего с wing { model }: модель ведомого сменилась, ведущего — нет; ведомого нет — откроет; null — снимет", async () => {
+    const b = await pair();
+    rosterOf(b);
+    expect(text(await b.call("other@win", "update", { callsign: "lead@win", wing: { model: "sonnet" } }))).toBe("ведомому сразу: model");
+    expect(b.st.query(WING).calls.filter((c) => c.name === "setModel").map((c) => c.args)).toEqual([["sonnet"]]);
+    expect(b.st.query("lead@win").calls.filter((c) => c.name === "setModel")).toHaveLength(0);
+    expect(text(await b.call("other@win", "update", { callsign: "lead@win", wing: null }))).toBe("ведомый снят");
+    expect(b.st.kernel.sessions.has(WING)).toBe(false);
+    b.st.relay.deliver({ type: "roster", machines: [], sessions: [{ callsign: "lead@win", state: "idle" }], clients: [] } as Frame);
+    expect(await b.call("other@win", "update", { callsign: "lead@win", wing: null })).toEqual(toolText("Не выполнено: lead@win — ведомого нет", true));
+    expect(text(await b.call("other@win", "update", { callsign: "lead@win", wing: { model: "haiku" } }))).toBe("ведомый открыт");
+    expect(b.st.kernel.sessions.has(WING)).toBe(true);
+  });
+
+  it("8111 · open с wing: пара одним вызовом — ведущий, ведомый, задача; ведомый не открылся — ведущий остаётся, задача не ушла, ответ называет слово", async () => {
+    const { st, call, home, field } = await bench({ machine: "win" });
+    await st.open("boss@win");
+    expect(text(await call("boss@win", "open", { name: "audit", dir: home, text: "Проверь", wing: { model: "haiku" } }))).toBe("открыта: audit@win; задача во вводе, итог хода придёт сам");
+    await until(() => field("audit-wing@win", "wing") === true);
+    expect(field("audit-wing@win", "parent")).toBe("audit@win");
+    await until(() => st.proc("audit@win").inputs.length >= 1);
+    expect(st.proc("audit@win").inputs.map((i) => i.message.content)).toContain(task("boss@win", "Проверь"));
+
+    const w = world({ opening: (f) => { if (f.wing_of) throw refuse("no_profile", "нет кусочка"); } });
+    const b = await bench({ machine: "win", w });
+    await b.st.open("boss@win");
+    expect(await b.call("boss@win", "open", { name: "audit", dir: b.home, text: "Проверь", wing: { profile: ["t/p/x"] } })).toEqual(toolText("открыта: audit@win, ведомый не открыт — no_profile. нет кусочка; задача не ушла", true));
+    expect(b.st.kernel.sessions.has("audit@win")).toBe(true);
+    expect(b.st.kernel.sessions.has("audit-wing@win")).toBe(false);
+    await later();
+    expect(b.st.proc("audit@win").inputs).toHaveLength(0);
+  });
+
+  it("8112 · ведущий: list и history своего ведомого — видит его и его ленту", async () => {
+    const b = await pair();
+    rosterOf(b);
+    const seen = await list(b, "lead@win");
+    expect(seen.sessions.map((s) => s.callsign)).toEqual(["lead@win", WING]);
+    expect(seen.sessions[0].pair).toMatchObject({ model: "haiku" });
+    expect(b.st.relay.frames("session.history")).toHaveLength(0);
+    b.st.sdk.functions = { getSessionInfo: async () => ({}), importSessionToStore: async () => {}, getSessionMessages: async () => [{ type: "user", uuid: "u1", message: { content: "Сделай" } }] };
+    expect(text(await b.call("lead@win", "history", { callsign: WING }))).toBe("user: Сделай");
+  });
+
+  it("8116 · запуск ведомого: сервера инструментов и добавки нет, CLAUDE_CODE_HARBOR_KITE=0 есть; у ведущего всё на месте; после перезапуска то же", async () => {
+    // источник: слово пользователя 6 нояб. «видна только сессия владельца»
+    const b = await pair();
+    const check = () => {
+      const o = b.st.query(WING).options as { mcpServers?: Record<string, unknown>; systemPrompt?: { append?: string }; env: Record<string, string> };
+      expect(o.mcpServers?.fleet).toBeUndefined();
+      expect(o.systemPrompt?.append ?? "").not.toContain(prompt(WING));
+      expect(o.env.CLAUDE_CODE_HARBOR_KITE).toBe("0");
+    };
+    check();
+    const l = b.st.query("lead@win").options as { mcpServers: Record<string, unknown>; systemPrompt: { append: string } };
+    expect(l.mcpServers.fleet).toMatchObject({ type: "sdk", name: "fleet" });
+    expect(l.systemPrompt.append).toContain(prompt("lead@win"));
+    await b.st.session("host-manage", WING)!.restart();
+    await until(() => b.st.sdk.of(WING).length === 2);
+    check();
+  });
+
+  it("8117 · другая сессия и ведущий: update, remove, label на адрес ведомого — pair_inside, ведомый не изменился", async () => {
+    const b = await pair();
+    rosterOf(b);
+    const word = `Не выполнено: ${WING} — pair_inside. Это ведомый внутри пары, работать с ним можно только через его ведущего`;
+    for (const me of ["other@win", "lead@win"]) {
+      expect(await b.call(me, "update", { callsign: WING, model: "x" })).toEqual(toolText(word, true));
+      expect(await b.call(me, "remove", { callsign: WING })).toEqual(toolText(word, true));
+      expect(await b.call(me, "label", { to: WING, text: "имя" })).toEqual(toolText(word, true));
+    }
+    expect(b.st.kernel.sessions.has(WING)).toBe(true);
+    expect(b.st.query(WING).calls.filter((c) => c.name === "setModel")).toHaveLength(0);
+    expect(b.st.relay.frames("prefs.set")).toHaveLength(0);
+    expect(makeFleet().tools("me@pc").map((t) => t.name)).toHaveLength(10);
   });
 });
