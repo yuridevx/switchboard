@@ -28,3 +28,5 @@
 **Не сливать.** `demolish3-lost-github`, `demolish3-lost-alerts2`, `demolish3-lost-send`, `demolish3-lost-gate`: основания в `night-log.md`.
 
 **Уборка.** 39 worktree `agent-*` на ветках `demolish3-*` и `.claude/worktrees/demolish3` чистые, их можно снять вместе с ветками.
+
+**Переданные решения.** Ветки `slopik-door` и `slopik-session` — цели первого цикла, различия решает архитектор. Граница входов и профилей — заявка switchboard-a5: снимается, когда соседняя сессия закончит свой «делай». Прод: дыра `hello` с `key` объектом без пропуска; выкладка только прямым словом пользователя, порядок в скиле `deliver`.
