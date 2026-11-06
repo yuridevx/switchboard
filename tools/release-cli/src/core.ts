@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { loadRepo } from "@switchboard/manifest-gate";
-import { lf, MANIFEST, pack, packageFiles, sha256hex, type TarFile } from "@switchboard/release";
+import { MANIFEST, pack, packageFiles, sha256hex, type TarFile } from "@switchboard/release";
 import type { Done } from "./spawn.ts";
 
 export type Exec = (cmd: string, args: string[], cwd: string) => Promise<Done>;
@@ -45,7 +45,7 @@ function filesOf(root: string) {
   );
   const setup = ["npm", "ci", "--omit=dev", ...QUIET];
   files.push(
-    { path: MANIFEST, data: lf(readFileSync(join(root, core.dir, MANIFEST))) },
+    { path: MANIFEST, data: readFileSync(join(root, core.dir, MANIFEST)) },
     { path: "host", data: Buffer.from(ENTRY), mode: 0o755 },
     { path: "package.json", data: json({ name: "switchboard-host-release", version: core.version, private: true, type: "module", workspaces: ["packages/*"] }) },
     { path: "app.json", data: Buffer.from(`${JSON.stringify({ run: ["node", "host"], setup, detach_children: true })}

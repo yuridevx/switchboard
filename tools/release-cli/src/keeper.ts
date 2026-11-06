@@ -2,7 +2,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { lf, MANIFEST, pack, sha256hex } from "@switchboard/release";
+import { MANIFEST, pack, sha256hex } from "@switchboard/release";
 import type { Done } from "./spawn.ts";
 
 export type Go = (args: string[], cwd: string, env: Record<string, string>) => Promise<Done>;
@@ -14,7 +14,7 @@ const TARGETS = [
 
 export async function buildKeeper(root: string, go: Go) {
   const dir = join(root, "os", "keeper");
-  const manifest = lf(readFileSync(join(dir, MANIFEST)));
+  const manifest = readFileSync(join(dir, MANIFEST));
   const tmp = mkdtempSync(join(tmpdir(), "switchboard-keeper-"));
   const files = [{ path: MANIFEST, data: manifest }];
   for (const [os, path] of TARGETS) {

@@ -10,16 +10,11 @@ export type PackedModule = { name: string; version: string; tgz: Buffer; sha: st
 
 const NOT_PACKAGE = /^(\.|node_modules$|dist$|tests?$|tsconfig\.json$|vitest\.config\.ts$)|\.test\./;
 const WRANGLER = "wrangler.jsonc";
-/** Как git отличает двоичный файл: нулевой байт в начале. */
-const TEXT_PROBE = 8000;
-
-/** Переводы строк клона в архив не идут: текст — с LF, двоичное — как есть. */
-export const lf = (data: Buffer): Buffer => (data.subarray(0, TEXT_PROBE).includes(0) ? data : Buffer.from(data.toString("latin1").replaceAll("\r\n", "\n"), "latin1"));
 
 function walk(dir: string, keep: (name: string) => boolean = () => true, at = ""): TarFile[] {
   return readdirSync(join(dir, at), { withFileTypes: true }).filter((e) => keep(e.name)).flatMap((e) => {
     const path = at ? `${at}/${e.name}` : e.name;
-    return e.isDirectory() ? walk(dir, keep, path) : [{ path, data: lf(readFileSync(join(dir, path))) }];
+    return e.isDirectory() ? walk(dir, keep, path) : [{ path, data: readFileSync(join(dir, path)) }];
   });
 }
 
@@ -38,7 +33,7 @@ function workersOf(dir: string): Record<string, string> {
 /** bundle — файл модуля страницы от вызывающего; без него у страницы должен быть готовый module.js. */
 export function packModule(dir: string, o: { bundle?: (dir: string) => Buffer } = {}): PackedModule {
   if (!existsSync(join(dir, MANIFEST))) throw new Error(`no_module_json: в ${dir} нет module.json`);
-  const manifest = lf(readFileSync(join(dir, MANIFEST)));
+  const manifest = readFileSync(join(dir, MANIFEST));
   const m = JSON.parse(manifest.toString("utf8")) as ModuleJson;
   const stop = (why: string): never => {
     throw new Error(`${m.name}: ${why}`);

@@ -8,7 +8,7 @@ export { entries, manifestOf, MANIFEST, pack } from "./src/tar.ts";
 export type { TarEntry, TarFile } from "./src/tar.ts";
 export { presign, sha256hex, shaLine } from "./src/sign.ts";
 export type { LinkKey } from "./src/sign.ts";
-export { lf, packageFiles, packModule } from "./src/folder.ts";
+export { packageFiles, packModule } from "./src/folder.ts";
 export type { ModuleJson, PackedModule } from "./src/folder.ts";
 export { differs, download, refused, upload } from "./src/transfer.ts";
 export type { Answer, Net } from "./src/transfer.ts";
