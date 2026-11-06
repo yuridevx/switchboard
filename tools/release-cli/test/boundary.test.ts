@@ -887,4 +887,15 @@ describe("сверка со старым кодом", () => {
     expect([r.isError, r.text]).toEqual([true, "путь вне архива: ../"]);
     expect(readFileSync(join(repo, "vendor", "web-card", "old.ts"), "utf8")).toBe("старое");
   });
+
+  it("описания — контракт для модели: что значит force, как добавить часть, что не трогает загрузка (чьё: код)", () => {
+    const about = Object.fromEntries(make().tools("/").map((t) => [t.name, t.description]));
+    expect(about.set).toContain("force с on: false — убить дерево процесса, не дожидаясь выхода");
+    expect(about.set).toContain("remove — убрать часть из плана (data/ остаётся)");
+    expect(about.set).toContain("Новая часть — первый set с ней");
+    expect(about.set).toContain("Уже так — ok");
+    expect(about.upload).toContain("stable не трогает: модуль выкладывает deploy");
+    expect(about.list).toContain("Каталог не ответил — вместо parts стоит error, машины показаны без закреплений");
+    expect(about.deploy).toContain("машина не на связи возьмёт его при подключении");
+  });
 });
