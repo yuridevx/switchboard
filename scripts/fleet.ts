@@ -20,7 +20,7 @@ if (!prod && process.env.FLEET !== "test") {
   process.exit(2);
 }
 if (prod) {
-  process.env.SWITCHBOARD_WORKERS = JSON.stringify(Object.fromEntries(["relay", "gate", "push", "points", "ledger", "github", "prefs", "releases"].map((n) => [n, `https://${n}.pfarm.app/`])));
+  process.env.SWITCHBOARD_WORKERS = JSON.stringify(Object.fromEntries(["relay", "gate", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases"].map((n) => [n, `https://${n}.pfarm.app/`])));
 }
 const PAGES = ["pult", "phone"].map((app) => pageOf(prod ? "prod" : "test", app));
 const VIEWPORT = { width: 1280, height: 800 };

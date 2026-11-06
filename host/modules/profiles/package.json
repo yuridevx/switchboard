@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@switchboard/host": "1.0.0",
-    "@switchboard/protocol": "1.0.0"
+    "@switchboard/protocol": "1.0.0",
+    "@switchboard/records": "1.0.0"
   }
 }

@@ -38,7 +38,7 @@ try {
     const rm = await l.request({ type: "session.remove", v: 1, callsign });
     console.log("старая сессия убрана:", rm.ok ? "ok" : rm);
   }
-  const open = await l.request({ type: "session.open", v: 1, machine, name, dir, model });
+  const open = await l.request({ type: "session.open", v: 2, v: 1, machine, name, dir, model });
   console.log("session.open:", JSON.stringify(open).slice(0, 300));
   if (!open.ok) process.exit(1);
   await until("idle после открытия", () => last() === "idle", 90000);

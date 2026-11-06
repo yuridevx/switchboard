@@ -226,6 +226,8 @@ export async function bench(o: {
     }
     queueMicrotask(() => relay.deliver({ type: "reply", id: f.id as string, from: f.to ?? "x", ...r } as Frame));
   };
+  const fake = module("host-manage", fakeManage([]), {}).manifest;
+  const manageManifest = { ...fake, provides: { ...fake.provides, "session.open": 2 } };
   const st = await standHost({
     home: o.home,
     machine,
@@ -234,7 +236,7 @@ export async function bench(o: {
     relayStand: relay,
     start: false,
     modules: [
-      { manifest: module("host-manage", fakeManage([]), {}).manifest, module: fakeManage(manage, { failOpen: o.failOpen, failStop: o.failStop }) },
+      { manifest: manageManifest, module: fakeManage(manage, { failOpen: o.failOpen, failStop: o.failStop }) },
       { manifest: manifest as Manifest, module: await load() },
     ],
   });

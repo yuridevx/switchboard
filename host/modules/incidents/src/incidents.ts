@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { MAX_FRAME } from "@switchboard/protocol";
 import { content, isRefusal, refuse, type Attachment, type Host, type Module, type Session } from "@switchboard/host";
 
-type IncidentType = { profile?: string; dir: string; slot?: string };
+type IncidentType = { profile?: string[]; dir: string; slot?: string };
 type Config = { port?: number; to?: string; types?: Record<string, IncidentType> };
 type Mark = { type: string; key?: string };
 /** Обращение на диске: ждёт, пока ход сессии его не взял. callsign — сессия, в чей ввод ушло. */

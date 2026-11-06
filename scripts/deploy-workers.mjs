@@ -13,7 +13,7 @@ const WRANGLER = path.join(ROOT, "node_modules", "wrangler", "bin", "wrangler.js
 /** Настоящая выкладка 5 нояб.: при 45 с wrangler выложил prefs, но не завершился под нагрузкой. */
 const LIMIT_MS = 300_000;
 /** relay смотрит привязками на остальных — последним. */
-const WORKERS = ["gate", "push", "points", "ledger", "github", "prefs", "releases", "relay"];
+const WORKERS = ["gate", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
 const WEB = ["phone", "pult"];
 
 const stop = (word) => {

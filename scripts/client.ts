@@ -7,7 +7,7 @@ export const WORKERS: Record<string, string> = process.env.SWITCHBOARD_WORKERS
   ? JSON.parse(process.env.SWITCHBOARD_WORKERS)
   : {
       relay: "https://switchboard.yuridevx1608.workers.dev/",
-      ...Object.fromEntries(["gate", "push", "points", "ledger", "github", "prefs", "releases"].map((n) => [n, `https://switchboard-${n}.yuridevx1608.workers.dev/`])),
+      ...Object.fromEntries(["gate", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases"].map((n) => [n, `https://switchboard-${n}.yuridevx1608.workers.dev/`])),
     };
 
 /** адрес объектов relay — для сценариев, которые открывают сокет сами */

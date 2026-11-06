@@ -26,7 +26,7 @@ export class FakeRelay {
   /** чьё соединение спросило запрос с этим id */
   asked = new Map<string, FakeSock>();
   /** Worker'ы стенда для startApp({ workers }) */
-  static readonly WORKERS = Object.fromEntries(["gate", "relay", "push", "points", "ledger", "github", "prefs", "releases"].map((n) => [n, `https://${n}.test/`]));
+  static readonly WORKERS = Object.fromEntries(["gate", "relay", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases"].map((n) => [n, `https://${n}.test/`]));
 
   /** fetch приложения: keys.list у gate — машины roster; прочее — обработчик по type, как у кадра через relay. */
   readonly fetch = (async (url: string | URL | Request, init?: RequestInit) => {

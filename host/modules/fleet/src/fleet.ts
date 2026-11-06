@@ -36,6 +36,10 @@ export function make() {
       records = settings({ read: (name, body) => h.read(name, body) as never, ask: (name, body) => h.request(name, body) as never, prefix: FLEET_PREFIX, scope: "global" });
     },
     stop: () => records.settled(),
+    requests: {
+      // просмотр профиля не знает сессии: в тексте имя-пример
+      "fleet.prompt": () => ({ text: prompt(`сессия@${host.machine}`) }),
+    },
     session: ({ info: { callsign } }) => ({
       mcpServers: { fleet: createSdkMcpServer({ name: "fleet", tools: tools(callsign) }) },
       append: prompt(callsign),

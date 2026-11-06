@@ -1,0 +1,30 @@
+// Worker fleetkeys: ключи API на весь флот, записи — в своей базе D1. Секретов Worker'а нет: значения ключей — строки базы, покой шифрует платформа.
+// database_id базы теста и прода вписывает выпуск: база создаётся до первого CI.
+{
+  "name": "switchboard-fleetkeys",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  // прямой вход: POST кадра с пропуском — обёртка entrance из контракта gate
+  "services": [
+    { "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" },
+    // кадр смены ключа — в объект relay каждой машины, как план выпусков
+    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Relay" }
+  ],
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "d1_databases": [{ "binding": "DB", "database_name": "switchboard-fleetkeys", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
+  "env": {
+    "prod": {
+      // свой домен прода: адрес Worker'а в сборках страниц
+      "routes": [{ "pattern": "fleetkeys.pfarm.app", "custom_domain": true }],
+      "workers_dev": false,
+      "services": [
+        { "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" },
+        { "binding": "RELAY", "service": "switchboard-prod", "entrypoint": "Relay" }
+      ],
+      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-fleetkeys-prod", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }]
+    }
+  }
+}

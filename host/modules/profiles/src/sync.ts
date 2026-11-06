@@ -1,12 +1,13 @@
-// Память и скилы профилей между машинами: только папки memory/ и skills/, git и токен приложения GitHub. Токен — в окружении команды, не в аргументах.
+// Кусочки между машинами: весь клон с учётом .gitignore, git и токен приложения GitHub. Токен — в окружении команды, не в аргументах.
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CALL_MS, within } from "@switchboard/protocol";
 
 type Run = { code: number; out: string };
 export type Git = (args: string[], o: { cwd: string; env: Record<string, string> }) => Promise<Run>;
-export type RepoState = { state: "ok" | "conflict" | "error"; op?: string; files?: string[]; since?: number; error?: string };
+/** wait — машина ещё не сводила этот репозиторий; dir — клон; at — последнее сведение, мс. */
+export type RepoState = { state: "ok" | "wait" | "conflict" | "error"; op?: string; files?: string[]; error?: string; dir?: string; at?: number };
 
 /** Настоящий git с пределом на команду: процесс убит, а его потомок может держать вывод — ответа не ждём. */
 export const gitWithin = (ms: number): Git => (args, o) => {
@@ -41,25 +42,12 @@ const auth = (token: string) => ({
   GIT_CONFIG_VALUE_0: `Authorization: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
 });
 
-/** Папки профилей клона, в которых есть memory или skills. */
-const profileDirs = (clone: string, kind: string) =>
-  readdirSync(clone, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && e.name !== ".git" && existsSync(join(clone, e.name, kind)))
-    .map((e) => `${e.name}/${kind}`);
-
-/** Одна синхронизация: коммиты памяти и скилов, затем общая сеть; нет клона — клон. token — запрос к github. */
+/** Одно сведение: коммит всего клона, затем общая сеть; нет клона — клон. Идёт слияние — его сводит сессия, клон не трогаем: git add завершил бы слияние с метками. token — запрос к github. */
 export async function syncRepo(git: Git, repo: string, clone: string, machine: string, token: () => Promise<string>, note: (why: string) => void): Promise<RepoState> {
   const run = async (op: string, cwd: string, args: string[], env: Record<string, string> = {}) => {
     const r = await git([...NEVER_ASK, ...args], { cwd, env: { GIT_TERMINAL_PROMPT: "0", ...env } });
     if (r.code !== 0 && op) throw new Stuck(op, r.out.trim());
     return r;
-  };
-  const stamp = new Date().toTimeString().slice(0, 5);
-  const commit = async (kind: string, title: string) => {
-    const dirs = profileDirs(clone, kind);
-    if (!dirs.length) return;
-    await run("git add", clone, ["add", "--", ...dirs]);
-    if ((await run("", clone, ["diff", "--cached", "--quiet"])).code !== 0) await run("git commit", clone, ["commit", "-m", `${title}: ${machine} ${stamp}`]);
   };
   const pass = async () => {
     try {
@@ -68,6 +56,7 @@ export async function syncRepo(git: Git, repo: string, clone: string, machine: s
       throw new Stuck("github.token", (e as Error).message);
     }
   };
+  const conflict = async (): Promise<RepoState> => ({ state: "conflict", op: "git pull --no-rebase", files: (await run("", clone, ["diff", "--name-only", "--diff-filter=U"])).out.split("\n").filter(Boolean) });
 
   try {
     if (!existsSync(join(clone, ".git"))) {
@@ -77,17 +66,16 @@ export async function syncRepo(git: Git, repo: string, clone: string, machine: s
       note(`${repo}: клон`);
       return { state: "ok" };
     }
-    await commit("memory", "память");
-    await commit("skills", "скилы");
+    if (existsSync(join(clone, ".git", "MERGE_HEAD"))) return await conflict();
+    await run("git add", clone, ["add", "-A"]);
+    if ((await run("", clone, ["diff", "--cached", "--quiet"])).code !== 0) await run("git commit", clone, ["commit", "-m", `сведение: ${machine} ${new Date().toTimeString().slice(0, 5)}`]);
     const env = await pass();
     const pull = await run("", clone, ["pull", "--no-rebase", "--no-edit"], env);
     if (pull.code !== 0) {
       if (!/CONFLICT/.test(pull.out)) throw new Stuck("git pull --no-rebase", pull.out.trim());
-      const files = (await run("", clone, ["diff", "--name-only", "--diff-filter=U"])).out.split("\n").filter(Boolean);
-      return { state: "conflict", op: "git pull --no-rebase", files };
+      return await conflict();
     }
     await run("git push", clone, ["push"], env);
-    await run("", clone, ["log", "-1", "--format=%s"]);
     return { state: "ok" };
   } catch (e) {
     return { state: "error", op: e instanceof Stuck ? e.op : "sync", error: (e as Error).message };

@@ -80,6 +80,8 @@ export type StartKind = "spawn" | "resume" | "attach" | "point";
  * Вклад закреплён на время query(): зовётся на каждом старте процесса сессии.
  */
 export type QueryPart = {
+  /** значения данных, а не кода: ключ env или settings здесь не конфликтует ни с кем, выше стоящий выигрывает, отброшенное — в журнале */
+  defaults?: QueryDefaults;
   /** серверы MCP: createSdkMcpServer внутри процесса Host */
   mcpServers?: Record<string, McpServerConfig>;
   /** свои ключи окружения процесса claude, например папка входа слота */
@@ -95,6 +97,9 @@ export type QueryPart = {
   /** прочие опции query(): includePartialMessages, enableFileCheckpointing, maxThinkingTokens… */
   [option: string]: unknown;
 };
+
+/** Данные вклада: tier — уровень, account (ключ флота) сильнее profile (кусочки); порядок уровней один, лежит в ядре, ключ модуля сильнее обоих. */
+export type QueryDefaults = { tier: "account" | "profile"; env?: Record<string, string>; settings?: Record<string, unknown> };
 
 /** Третий аргумент decide — опции canUseTool SDK: toolUseID — id вызова, signal — ход прервали. */
 export type DecideOpts = {

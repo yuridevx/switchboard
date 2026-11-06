@@ -1,5 +1,5 @@
 // Живой сценарий скилов профиля: репозиторий профилей сведён на машинах, у процесса сессии с профилем есть его скил
-// как «<папка>:<скил>». Репозиторий — в host.json машин (раздел host-profiles). env: FLOW_CLIENT_KEY,
+// как «<папка>:<скил>». Репозиторий — в ключе fleet.profiles.repos настроек флота. env: FLOW_CLIENT_KEY,
 // FLOW_MACHINES (через запятую), FLOW_DIR, FLOW_REPO (владелец/имя), FLOW_PROFILE (папка со skills/), FLOW_SKILL.
 import { type Roster } from "@switchboard/relay";
 import { client } from "./client.ts";
@@ -28,15 +28,15 @@ const state = (cs: string, s: string, ms = 120000) => wait(() => rec(cs)?.state 
 await wait(() => l.state === "open" && MS.every((m) => (l.roster as Roster | null)?.machines.some((x) => x.machine === m)), 120000);
 
 for (const m of MS) {
-  const p = await req({ type: "machine.profiles", machine: m, sync: true });
+  const p = await req({ type: "machine.profiles", v: 2, machine: m, sync: true });
   const repo = p.result?.repos?.[REPO];
   check(`${m}: репозиторий сведён, профиль в списке`, p.ok && repo?.state === "ok" && !!p.result.profiles[ID], { repo, profiles: Object.keys(p.result?.profiles ?? {}).filter((k) => k.startsWith(REPO)) });
 
   const cs = `skills@${m}`;
   await req({ type: "session.remove", callsign: cs });
-  await req({ type: "session.open", machine: m, name: "skills", dir: process.env.FLOW_DIR, model: "claude-haiku-4-5", profile: ID });
+  await req({ type: "session.open", v: 2, machine: m, name: "skills", dir: process.env.FLOW_DIR, model: "claude-haiku-4-5", profile: [ID] });
   await state(cs, "idle");
-  check(`${m}: сессия с профилем, состояние ok`, rec(cs)?.profile?.id === ID && rec(cs)?.profile?.state === "ok", rec(cs)?.profile);
+  check(`${m}: сессия с профилем, состояние ok`, rec(cs)?.profile?.[0]?.id === ID && rec(cs)?.profile?.[0]?.state === "ok", rec(cs)?.profile);
   // список команд процесса claude: скилы плагина профиля — «<папка>:<скил>»
   const c = await req({ type: "session.call", callsign: cs, method: "supportedCommands" });
   const mine = ((c.result ?? []) as { name: string }[]).map((x) => x.name).filter((n) => n.startsWith(`${NAME}:`));

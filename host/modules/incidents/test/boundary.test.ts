@@ -74,10 +74,11 @@ const profiles = (hold?: Promise<void>) =>
   module("host-profiles", {
     openingReads: ["profile"],
     async opening(s, req) {
-      if (typeof req.profile !== "string") return;
+      if (!Array.isArray(req.profile)) return;
       await hold;
-      if (req.profile.endsWith("/missing")) throw refuse("no_profile", `профиля ${req.profile} нет`);
-      s.store<{ id: string }>().set({ id: req.profile });
+      const id = req.profile.join(" + ");
+      if (id.endsWith("/missing")) throw refuse("no_profile", `профиля ${id} нет`);
+      s.store<{ id: string }>().set({ id });
     },
     session(s) {
       const p = s.store<{ id: string }>().get();
@@ -101,10 +102,11 @@ async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: num
           port,
           to: TO,
           types: {
-            "disk-full": { profile: "you/profiles/disk-full", dir: work },
-            "build-red": { profile: "you/profiles/ci", dir: work },
+            "disk-full": { profile: ["you/profiles/disk-full"], dir: work },
+            two: { profile: ["you/profiles/base", "you/profiles/ci"], dir: work },
+            "build-red": { profile: ["you/profiles/ci"], dir: work },
             nodir: { dir: join(work, "нет") },
-            noprof: { profile: "you/profiles/missing", dir: work },
+            noprof: { profile: ["you/profiles/missing"], dir: work },
             named: { dir: work, slot: "bot" },
             plain: { dir: work },
           },
@@ -140,6 +142,13 @@ const inputOf = async (st: Stand, cs: string, n = 1) => {
 };
 
 describe("инцидент: приём", () => {
+  it("8035 · тип с профилем из двух кусочков — сессия открыта, оба кусочка в её запросе", async () => {
+    const { st, post, options } = await bench();
+    expect((await post({ type: "two", key: "x", text: "сбой" })).status).toBe(202);
+    await inputOf(st, "two-1@win");
+    expect(options("two-1@win").systemPrompt.append).toContain("Плейбук you/profiles/base + you/profiles/ci");
+  });
+
   it("303 · POST нового типа и ключа — 202 с id сразу; сессия disk-full-1 с профилем и папкой типа; во вводе <incident> с id и блок вложения от человека из to; поле roster incident", async () => {
     const { st, work, post, options } = await bench();
     const r = await post({ type: "disk-full", key: "C:", text: "Свободно 2%", attachments: [PNG] });
@@ -269,7 +278,7 @@ describe("инцидент: приём", () => {
     expect(s.state).toBe("idle");
     await until(() => st.states("docs@win").at(-1)?.failed?.["host-incidents"]);
     // выключенный модуль не мешает обычному открытию: запрос без поля incident
-    expect(await st.relay.request({ type: "session.open", v: 1, machine: "win", name: "other", dir: tmpdir() })).toMatchObject({ ok: true });
+    expect(await st.relay.request({ type: "session.open", v: 2, machine: "win", name: "other", dir: tmpdir() })).toMatchObject({ ok: true });
   });
 
   it("3103 · port не задан — сервера нет, модуль работает; порт задан — строка о приёме", async () => {

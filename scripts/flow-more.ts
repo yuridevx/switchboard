@@ -41,7 +41,7 @@ const t0 = new Date().toISOString();
 // --- пуш: давший задачу ушёл со связи, сессия спрашивает ---
 const NQ = `nq@${M1}`;
 await req({ type: "session.remove", callsign: NQ });
-await req({ type: "session.open", machine: M1, name: "nq", dir, model: "claude-haiku-4-5" });
+await req({ type: "session.open", v: 2, machine: M1, name: "nq", dir, model: "claude-haiku-4-5" });
 await state(NQ, "idle");
 const phone = client(process.env.FLOW_PUSH_KEY!);
 await wait(() => phone.state === "open", 15000);
@@ -87,7 +87,7 @@ await req({ type: "session.remove", callsign: NQ });
 const PM = `pm@${M1}`;
 const PM2 = `pm@${M2}`;
 for (const cs of [PM, PM2]) await req({ type: "session.remove", callsign: cs });
-await req({ type: "session.open", machine: M1, name: "pm", dir, model: "claude-haiku-4-5" });
+await req({ type: "session.open", v: 2, machine: M1, name: "pm", dir, model: "claude-haiku-4-5" });
 await state(PM, "idle");
 await turn(PM, "Повтори дословно одно слово: «маяк». Ничего не сохраняй в память.");
 const mark = await req({ type: "session.r2", callsign: PM, on: true });
@@ -120,13 +120,13 @@ check("снятие пометки удаляет точки из R2", off.ok &&
 await req({ type: "session.remove", callsign: moved });
 
 // --- профили без репозиториев ---
-const pr = await req({ type: "machine.profiles", machine: M1 });
+const pr = await req({ type: "machine.profiles", v: 2, machine: M1 });
 check("machine.profiles без репозиториев", pr.ok && typeof pr.result.profiles === "object", pr.result ?? pr.error);
 const PF = `pf@${M1}`;
 await req({ type: "session.remove", callsign: PF });
-await req({ type: "session.open", machine: M1, name: "pf", dir, model: "claude-haiku-4-5" });
+await req({ type: "session.open", v: 2, machine: M1, name: "pf", dir, model: "claude-haiku-4-5" });
 await state(PF, "idle");
-const np = await req({ type: "session.profile", callsign: PF, profile: "nosuch" });
+const np = await req({ type: "session.profile", v: 2, callsign: PF, profile: ["team/nosuch/x"] });
 check("session.profile неизвестного профиля — no_profile", !np.ok && np.error === "no_profile", np.error ?? np.result);
 await req({ type: "session.remove", callsign: PF });
 

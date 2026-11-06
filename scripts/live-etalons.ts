@@ -40,8 +40,8 @@ const until = async (ok: () => boolean, ms = 20000) => {
 const opened = (l: Link) => until(() => l.state === "open");
 
 // 144 — секреты и адреса; адрес — у каждого Worker'а флота: прямой вход (пакет «Открытый флот»)
-const PUBLIC = ["switchboard", "switchboard-gate", "switchboard-push", "switchboard-points", "switchboard-ledger", "switchboard-github", "switchboard-releases"];
-const SECRETS: Record<string, string[]> = { switchboard: [], "switchboard-gate": [], "switchboard-push": ["VAPID_PRIVATE"], "switchboard-points": ["R2_KEY_SECRET"], "switchboard-ledger": [], "switchboard-github": [], "switchboard-releases": ["CLOUDFLARE_API_TOKEN", "R2_LINK_KEY_ID", "R2_LINK_SECRET"] };
+const PUBLIC = ["switchboard", "switchboard-gate", "switchboard-push", "switchboard-points", "switchboard-ledger", "switchboard-github", "switchboard-fleetkeys", "switchboard-releases"];
+const SECRETS: Record<string, string[]> = { switchboard: [], "switchboard-gate": [], "switchboard-push": ["VAPID_PRIVATE"], "switchboard-points": ["R2_KEY_SECRET"], "switchboard-ledger": [], "switchboard-github": [], "switchboard-fleetkeys": [], "switchboard-releases": ["CLOUDFLARE_API_TOKEN", "R2_LINK_KEY_ID", "R2_LINK_SECRET"] };
 for (const [w, want] of Object.entries(SECRETS)) {
   const sec = ((await api(`/workers/scripts/${w}/secrets`)).result as Array<{ name: string }>).map((s) => s.name).sort();
   const sub = (await api(`/workers/scripts/${w}/subdomain`)).result as { enabled: boolean; previews_enabled: boolean };

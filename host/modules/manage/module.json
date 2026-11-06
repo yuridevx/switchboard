@@ -6,7 +6,7 @@
     "host"
   ],
   "provides": {
-    "session.open": 1,
+    "session.open": 2,
     "session.update": 1,
     "session.call": 1,
     "session.spec": 1,

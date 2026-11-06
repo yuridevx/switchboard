@@ -35,10 +35,10 @@ await req({ type: "session.remove", callsign: CS });
 const t0 = new Date().toISOString();
 
 // --- открытие и краевые входы ---
-const open = await req({ type: "session.open", machine, name: "mg", dir, model: "claude-haiku-4-5", effort: "low" });
+const open = await req({ type: "session.open", v: 2, machine, name: "mg", dir, model: "claude-haiku-4-5", effort: "low" });
 check("session.open", open.ok, open.error);
 await state(CS, "idle");
-const dup = await req({ type: "session.open", machine, name: "mg", dir });
+const dup = await req({ type: "session.open", v: 2, machine, name: "mg", dir });
 check("то же имя — name_taken", !dup.ok && dup.error === "name_taken", dup.error);
 for (const [what, word, f] of [
   ["плохое имя", "bad_name", { name: "a b/c", dir }],
@@ -46,7 +46,7 @@ for (const [what, word, f] of [
   ["относительная папка", "bad_dir", { name: "mg3", dir: "x/y" }],
   ["усилие не из списка", "bad_spec", { name: "mg4", dir, effort: "ultra" }],
 ] as const) {
-  const r = await req({ type: "session.open", machine, ...f });
+  const r = await req({ type: "session.open", v: 2, machine, ...f });
   check(`session.open: ${what} — ${word}`, !r.ok && r.error === word, r.error ?? r.result);
 }
 const spec = await req({ type: "session.spec", callsign: CS });
@@ -121,10 +121,10 @@ check("после стопа и старта разговор цел", /рим|r
 const dirs = await req({ type: "machine.dirs", machine, path: "~" });
 check("machine.dirs ~", dirs.ok && Array.isArray(dirs.result.dirs) && dirs.result.dirs.length > 0, dirs.ok ? dirs.result.dirs.length : dirs.error);
 const nd = `~/sb-mkdir-${Date.now()}/a/b`;
-const noDir = await req({ type: "session.open", machine, name: `mk-${Date.now()}`, dir: nd });
+const noDir = await req({ type: "session.open", v: 2, machine, name: `mk-${Date.now()}`, dir: nd });
 check("session.open: папки нет, просьбы создать нет — bad_dir", !noDir.ok && noDir.error === "bad_dir", noDir.error);
 const madeName = `mk-${Date.now()}`;
-const made = await req({ type: "session.open", machine, name: madeName, dir: nd, mkdir: true });
+const made = await req({ type: "session.open", v: 2, machine, name: madeName, dir: nd, mkdir: true });
 check("session.open mkdir: цепочка создана, сессия открыта", made.ok, made.error);
 if (made.ok) await req({ type: "session.remove", callsign: made.result.callsign });
 const nf = await req({ type: "machine.dirs", machine, path: "~/нет-" + Date.now() });

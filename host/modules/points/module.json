@@ -14,7 +14,7 @@
     "points.put@points": 2,
     "points.get@points": 2,
     "points.delete@points": 1,
-    "session.open@host-manage": 1,
+    "session.open@host-manage": 2,
     "session.start@host-manage": 1,
     "session.stop@host-manage": 1,
     "session.remove@host-manage": 1,

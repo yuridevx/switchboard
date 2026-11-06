@@ -57,7 +57,7 @@ async function bench(o: { holders?: stand.FakeHolders; home?: string; mode?: str
     pauseMs: o.pauseMs,
     machine: o.machine,
     modules: [
-      module("host-manage", { fields: { mode: () => b.mode, parent: () => b.parent } }, { provides: { "session.open": 1, "session.update": 1, "session.remove": 1 } }),
+      module("host-manage", { fields: { mode: () => b.mode, parent: () => b.parent } }, { provides: { "session.open": 2, "session.update": 1, "session.remove": 1 } }),
       module("host-push", { requests: { notify: (req) => (b.notifies.push(req), { pushed: [] }) } }),
       module("host-spy", { on: { event: (_s, m) => void b.seen.push(m.type) } }),
       ...b.modules,

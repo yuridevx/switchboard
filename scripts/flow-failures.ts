@@ -59,7 +59,7 @@ async function cleanRestart(): Promise<boolean> {
 await wait(() => l.state === "open", 15000);
 const CS = `fx@${machine}`;
 await req({ type: "session.remove", callsign: CS });
-await req({ type: "session.open", machine, name: "fx", dir, model: "claude-haiku-4-5" });
+await req({ type: "session.open", v: 2, machine, name: "fx", dir, model: "claude-haiku-4-5" });
 await state(CS, "idle");
 await req({ type: "session.prompt", callsign: CS, text: "Запомни число 4711. Ответь: ок." });
 await state(CS, "busy", 60000);
