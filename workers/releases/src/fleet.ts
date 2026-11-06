@@ -52,8 +52,13 @@ export async function planOf(cat: Catalog, row: Row, machine: string): Promise<P
 export async function sendPlans(env: Env, cat: Catalog, row: Row, machines: string[]) {
   for (const machine of machines) {
     const to = `.keeper@${machine}`;
-    const frame: Frame = { type: "releases.plan", v: 1, to, from: ME, ...(await planOf(cat, row, machine)) };
-    await within(env.RELAY.deliver(frame), "relay не ответил").catch((e) => line({ kind: "refuse", ev: "releases.plan", word: "offline", why: `relay.deliver → ${to}: ${e}` }));
+    // строка флота уже записана: план не ушёл — выкладка состоялась, причина строкой, остальные машины свой получат
+    try {
+      const frame: Frame = { type: "releases.plan", v: 1, to, from: ME, ...(await planOf(cat, row, machine)) };
+      await within(env.RELAY.deliver(frame), "relay не ответил");
+    } catch (e) {
+      line({ kind: "refuse", ev: "releases.plan", word: "offline", why: `relay.deliver → ${to}: ${e}` });
+    }
   }
 }
 

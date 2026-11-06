@@ -20,7 +20,7 @@ function plan({ cat, row, f }: Asked) {
 
 async function rowOf(cat: Catalog, p: Part) {
   const stable = await cat.stableOf(p);
-  const versions = p.root ? await cat.builds(p.name) : p.kind === "cloud" ? (await cat.cloud(p.script!)).tags : p.versions;
+  const versions = p.kind !== "cloud" ? await cat.onMachine(p) : p.root ? await cat.builds(p.name) : (await cat.cloud(p.script!)).tags;
   return { where: p.kind as "machine" | "cloud", edge: versions.at(-1) ?? null, stable, versions: versions.slice(-SHOWN) };
 }
 
@@ -38,9 +38,11 @@ async function list({ cat, row, f }: Asked): Promise<Listed> {
   const part = f.part as string | undefined;
   const parts = part ? [await cat.part(part)] : await cat.all();
   const shown = parts.filter((p) => p.kind === "machine" || p.kind === "cloud");
-  const rows = await Promise.all(shown.map(async (p) => [p.name, await rowOf(cat, p)]));
+  const rows = await Promise.all(shown.map(async (p) => [p.name, await rowOf(cat, p)] as const));
+  // часть машины без единой версии — неизвестное имя: каталог не выдумывает строк; Worker без версий — выложен мимо или ещё нет
+  const known = rows.filter(([, r]) => r.where === "cloud" || r.versions.length);
   const machines = Object.entries(row.plans).map(([machine, plan]) => ({ machine, plan: part ? Object.fromEntries(Object.entries(plan).filter(([name]) => name === part)) : plan }));
-  return { parts: Object.fromEntries(rows), ...(!part && { modules: await modulesOf(cat, parts) }), machines, rev: row.rev };
+  return { parts: Object.fromEntries(known), ...(!part && { modules: await modulesOf(cat, parts) }), machines, rev: row.rev };
 }
 
 async function upload({ cat, f }: Asked) {
@@ -70,7 +72,8 @@ async function fetchLink({ cat, f }: Asked) {
 function entryOf(was: PlanEntry | undefined, f: Frame): PlanEntry {
   const pin = f.pin === undefined ? was?.pin : (f.pin as string | null);
   const on = (f.on ?? was?.on) as boolean | undefined;
-  const force = (f.force ?? was?.force) as boolean | undefined;
+  // включённая часть силы не держит: следующая остановка без force — штатная
+  const force = (f.force ?? (f.on === true ? undefined : was?.force)) as boolean | undefined;
   const env = (f.env ?? was?.env) as Record<string, string> | undefined;
   return { ...(pin && { pin }), ...(on === false && { on }), ...(force && { force }), ...(env && Object.keys(env).length && { env }) };
 }
@@ -93,7 +96,7 @@ async function set({ env, cat, row, f }: Asked) {
   if (f.remove && !was) refuse("no_part", `${part} нет в плане ${machine}`);
   if (typeof f.pin === "string" && !(await cat.sha(part, f.pin))) refuse("no_release", `у ${part} нет версии ${f.pin}`);
   const entry = f.remove ? undefined : entryOf(was, f);
-  if (entry && !was && !everywhere && !entry.pin && !row.stable[part]) refuse("no_release", `у ${part} нет stable — закрепи версию`);
+  if (entry && !entry.pin && !row.stable[part]) refuse("no_release", `у ${part} нет stable — закрепи версию`);
   const stored = entry && (Object.keys(entry).length || !everywhere) ? entry : undefined;
   if (JSON.stringify(stored) === JSON.stringify(was)) return { machine, rev: row.rev };
   const { [part]: _old, ...others } = row.plans[machine] ?? {};
@@ -114,11 +117,12 @@ const REQUESTS: Record<keyof typeof CONTRACT, (r: Asked) => unknown> = {
 };
 
 async function answer(env: Env, f: Frame): Promise<Frame[]> {
-  if (f.type === "reply") return void line({ kind: "note", ev: "reply" }), [];
-  if (!f.id) return void line({ kind: "refuse", ev: f.type, word: "bad_frame", why: "запрос без id" }), [];
-  const reply = { type: "reply", id: f.id, to: f.from };
+  const from = f.from;
+  if (f.type === "reply") return void line({ kind: "note", ev: "reply", from, why: "releases ответов не ждёт" }), [];
+  if (!f.id) return void line({ kind: "refuse", ev: f.type, word: "bad_frame", why: "запрос без id", from }), [];
+  const reply = { type: "reply", id: f.id, to: from };
   const no = (word: string, why: string, extra?: Record<string, unknown>) => {
-    line({ kind: "refuse", ev: f.type, word, why, ...extra });
+    line({ kind: "refuse", ev: f.type, word, why, from, ...extra });
     return [{ ...reply, ok: false, error: word, why }];
   };
   const refused = accepts(f, CONTRACT);

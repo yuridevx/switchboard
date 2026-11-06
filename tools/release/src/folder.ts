@@ -14,7 +14,9 @@ const WRANGLER = "wrangler.jsonc";
 function walk(dir: string, keep: (name: string) => boolean = () => true, at = ""): TarFile[] {
   return readdirSync(join(dir, at), { withFileTypes: true }).filter((e) => keep(e.name)).flatMap((e) => {
     const path = at ? `${at}/${e.name}` : e.name;
-    return e.isDirectory() ? walk(dir, keep, path) : [{ path, data: readFileSync(join(dir, path)) }];
+    if (e.isDirectory()) return walk(dir, keep, path);
+    const full = join(dir, path);
+    return [{ path, data: readFileSync(full), mode: statSync(full).mode & 0o111 ? 0o755 : 0o644 }];
   });
 }
 
@@ -46,9 +48,8 @@ export function packModule(dir: string, o: { bundle?: (dir: string) => Buffer } 
   };
   const os = (): TarFile[] => {
     if (!has("dist/app.json") && !has("app.json")) throw new Error(`no_app_json: у приложения ОС ${m.name} нет app.json — ни в dist/, ни в корне`);
-    if (!has("dist")) return packageFiles(dir);
-    const mode = (f: TarFile) => (statSync(join(dir, "dist", f.path)).mode & 0o111 ? 0o755 : 0o644);
-    return [{ path: MANIFEST, data: manifest }, ...walk(join(dir, "dist")).map((f) => ({ ...f, mode: mode(f) }))];
+    if (!has("dist/app.json")) return packageFiles(dir);
+    return [{ path: MANIFEST, data: manifest }, ...walk(join(dir, "dist"))];
   };
   const shell = (): TarFile[] => {
     const head = named();

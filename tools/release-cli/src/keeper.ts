@@ -17,13 +17,16 @@ export async function buildKeeper(root: string, go: Go) {
   const manifest = readFileSync(join(dir, MANIFEST));
   const tmp = mkdtempSync(join(tmpdir(), "switchboard-keeper-"));
   const files = [{ path: MANIFEST, data: manifest }];
-  for (const [os, path] of TARGETS) {
-    const out = join(tmp, path);
-    const r = await go(["build", "-buildvcs=false", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", out, "."], dir, { GOOS: os, GOARCH: "amd64", CGO_ENABLED: "0" });
-    if (r.code !== 0) throw new Error(`go build ${os}/amd64: ${r.out.trim()}`);
-    files.push({ path, data: readFileSync(out), mode: 0o755 } as (typeof files)[number]);
+  try {
+    for (const [os, path] of TARGETS) {
+      const out = join(tmp, path);
+      const r = await go(["build", "-buildvcs=false", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", out, "."], dir, { GOOS: os, GOARCH: "amd64", CGO_ENABLED: "0" });
+      if (r.code !== 0) throw new Error(`go build ${os}/amd64: ${r.out.trim()}`);
+      files.push({ path, data: readFileSync(out), mode: 0o755 } as (typeof files)[number]);
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
   }
-  rmSync(tmp, { recursive: true });
   const tgz = pack(files);
   return { name: "keeper", version: (JSON.parse(manifest.toString("utf8")) as { version: string }).version, tgz, sha: sha256hex(tgz) };
 }

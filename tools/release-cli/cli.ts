@@ -22,7 +22,7 @@ function options(rest: string[]) {
   const o: { out?: string; dry: boolean } = { dry: false };
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--dry-run") o.dry = true;
-    else if (rest[i] === "--out") o.out = rest[++i];
+    else if (rest[i] === "--out" && rest[i + 1]) o.out = rest[++i];
     else throw new Error(`незнакомый аргумент: ${rest[i]}`);
   }
   return o;
@@ -107,11 +107,12 @@ export async function main(argv: string[], env: Record<string, string | undefine
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  // выход не ждёт потомка: снятый по пределу процесс мог оставить его с нашими трубами вывода
   main(process.argv.slice(2), process.env).then(
-    (code) => (process.exitCode = code),
+    (code) => process.exit(code),
     (e: Error) => {
       console.error(e.message);
-      process.exitCode = 1;
+      process.exit(1);
     },
   );
 }

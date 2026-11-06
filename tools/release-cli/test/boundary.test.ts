@@ -1,6 +1,6 @@
 // Леса границы «Каталог модулей», среда Node: формат выпуска (контракт release), CLI выпуска (main и packFromRepo) и инструменты
 // сессии parts (контракт host-parts) на стенде Host. Снаружи — «Выпуски», R2, go, npm и node: подделки. Номер — эталон-источник; без номера — чьё: код.
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -828,5 +828,74 @@ describe("инструменты сессии parts", () => {
       ac.abort();
       expect((await stopped).text).toBe("fetch_failed: Error: aborted на x 1.0.0");
     });
+  });
+});
+
+describe("сверка со старым кодом", () => {
+  it("host --check упал без ответа-объекта — причина в отказе (чьё: код; вывод упавшего процесса — единственная причина)", async () => {
+    const exec: Exec = async (cmd, args, cwd) => (cmd === "node" ? { code: 1, out: "Error: Cannot find module 'zod'\n    at main.ts:1\n" } : execOk()(cmd, args, cwd));
+    await expect(main(["release", "core", "--dry-run", "--out", tmp()], {}, exec, go, fakeFleet().f)).rejects.toThrow("host --check: Error: Cannot find module 'zod'");
+  }, 60_000);
+
+  it("--out без значения — незнакомый аргумент: архив не уходит молча во временную папку (чьё: код)", async () => {
+    await expect(main(["release", "core", "--dry-run", "--out"], {}, execOk(), go, fakeFleet().f)).rejects.toThrow("незнакомый аргумент: --out");
+  });
+
+  it("go build упал — временная папка сборки снята (чьё: код)", async () => {
+    const own = tmp();
+    for (const name of ["TMPDIR", "TMP", "TEMP"]) vi.stubEnv(name, own);
+    try {
+      await expect(main(["release", "keeper", "--dry-run"], {}, execOk(), async () => ({ code: 1, out: "syntax error\n" }), fakeFleet().f)).rejects.toThrow("go build");
+      expect(readdirSync(own)).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("приложение ОС: app.json в корне, в dist/ его нет — архив из папки с app.json (чьё: код; описание инструмента: «dist/ с app.json или папка с app.json»)", () => {
+    const d = tmp();
+    mkdirSync(join(d, "dist"));
+    writeFileSync(join(d, "module.json"), '{"name":"d3","type":"os","version":"1.0.0"}');
+    writeFileSync(join(d, "app.json"), "{}");
+    writeFileSync(join(d, "dist", "main.js"), "1");
+    expect(files(packModule(d).tgz).map((e) => e.path)).toEqual(["module.json", "app.json"]);
+  });
+
+  it("log без part — весь журнал машины: part в контракте machine.journal необязателен (чьё: код)", async () => {
+    const t = make().tools("/").find((x) => x.name === "log")!;
+    expect((t.inputSchema as unknown as { part: { safeParse(v: unknown): { success: boolean } } }).part.safeParse(undefined).success).toBe(true);
+    const { st, call } = await bench((f) => (f.type === "machine.journal" ? { ok: true, result: { records: [], more: false } } : undefined));
+    await call("log", { machine: "win" });
+    expect(st.relay.frames("machine.journal").at(-1)).not.toHaveProperty("part");
+  });
+
+  it("log: машина молчит — timeout за предел чтения, сессия не ждёт две минуты (чьё: код)", async () => {
+    const { call } = await bench((f) => (f.type === "machine.journal" ? null : undefined));
+    let r: Awaited<ReturnType<typeof call>>;
+    await later(10_100, async () => void call("log", { machine: "win", part: "host" }).then((x) => (r = x)));
+    await vi.waitFor(() => expect(r).toBeDefined());
+    expect([r!.isError, r!.text]).toEqual([true, "machine.journal: timeout"]);
+  });
+
+  it("fetch: архив не читается — vendor не тронут: сначала разбор, потом замена (чьё: код)", async () => {
+    const repo = tmp("parts-repo-");
+    mkdirSync(join(repo, "vendor", "web-card"), { recursive: true });
+    writeFileSync(join(repo, "vendor", "web-card", "old.ts"), "старое");
+    const { call } = await bench((f) => (f.type === "releases.fetch" ? { ok: true, result: { version: "1.1.0", url: "https://r2.test/x.tgz?s" } } : undefined));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Uint8Array(pack([{ path: "../evil", data: Buffer.from("x") }])), { status: 200 }));
+    const r = await call("fetch", { part: "web-card", dir: "." }, repo);
+    expect([r.isError, r.text]).toEqual([true, "путь вне архива: ../"]);
+    expect(readFileSync(join(repo, "vendor", "web-card", "old.ts"), "utf8")).toBe("старое");
+  });
+
+  it("описания — контракт для модели: что значит force, как добавить часть, что не трогает загрузка (чьё: код)", () => {
+    const about = Object.fromEntries(make().tools("/").map((t) => [t.name, t.description]));
+    expect(about.set).toContain("force с on: false — убить дерево процесса, не дожидаясь выхода");
+    expect(about.set).toContain("remove — убрать часть из плана (data/ остаётся)");
+    expect(about.set).toContain("Новая часть — первый set с ней");
+    expect(about.set).toContain("Уже так — ok");
+    expect(about.upload).toContain("stable не трогает: модуль выкладывает deploy");
+    expect(about.list).toContain("Каталог не ответил — вместо parts стоит error, машины показаны без закреплений");
+    expect(about.deploy).toContain("машина не на связи возьмёт его при подключении");
   });
 });

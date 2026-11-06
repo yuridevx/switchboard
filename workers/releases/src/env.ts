@@ -31,4 +31,5 @@ export const refuse = (word: Word, why: string, extra?: Record<string, unknown>)
   throw new Refusal(word, why, extra);
 };
 
-export const line = (record: Record<string, unknown>) => console.log(JSON.stringify(record));
+/** Workers Logs: одна строка JSON в общем формате журналов флота. */
+export const line = (record: Record<string, unknown>) => console.log(JSON.stringify({ t: new Date().toISOString(), part: "releases", ...record }));

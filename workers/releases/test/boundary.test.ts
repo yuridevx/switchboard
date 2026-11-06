@@ -991,6 +991,143 @@ describe("смена границы модулей: снять модуль и �
   });
 });
 
+describe("сверка со старым кодом", () => {
+  const set = (s: Stub, x: Record<string, unknown>) => req(s, "~x", "releases.set", { machine: "win", ...x });
+  const built = async (key: string) => JSON.parse(entries(Buffer.from(await (await env.BUCKET.get(key))!.arrayBuffer())).find((x) => x.path === "build.json")!.data!.toString("utf8"));
+
+  it("on: true снимает и силу: следующий on: false остановит часть штатно (чьё: код)", async () => {
+    const s = fresh();
+    await fakeCf(NONE);
+    await inR2("capture", "1.4.0");
+    await req(s, "~x", "releases.deploy", { part: "capture" });
+    await set(s, { part: "capture", on: false, force: true });
+    await set(s, { part: "capture", on: true });
+    expect((await result(req(s, "~x", "releases.list", { part: "capture" }))).machines).toEqual([{ machine: "win", plan: { capture: {} } }]);
+    expect(brief(plans(await set(s, { part: "capture", on: false }))[0]).parts.find((p) => p.part === "capture")).toEqual({ part: "capture", version: "1.4.0", on: false });
+    // on: true вместе с force — сила остаётся: её просили этим же кадром
+    await set(s, { part: "capture", on: true, force: true });
+    expect((await result(req(s, "~x", "releases.list", { part: "capture" }))).machines[0].plan.capture).toEqual({ force: true });
+  });
+
+  it("снять закрепление у части без stable — no_release: запись без версии убрала бы часть с машины (чьё: код)", async () => {
+    const s = fresh();
+    await fakeCf(NONE);
+    await inR2("capture", "1.4.0");
+    await set(s, { part: "capture", pin: "1.4.0" });
+    expect((await set(s, { part: "capture", pin: null }))[0]).toMatchObject({ ok: false, error: "no_release", why: "у capture нет stable — закрепи версию" });
+    expect((await result(req(s, ".keeper@win", "releases.plan"))).parts.map((x: any) => [x.part, x.version])).toEqual([["capture", "1.4.0"]]);
+  });
+
+  it("модуль в приложение, которого нет в каталоге, — no_build словом (чьё: код)", async () => {
+    const s = fresh();
+    cloudflare({}, { any: true });
+    await put("web-y", "1.0.0", { type: "web", into: ["ghost"] }, [["module.js", "x"]]);
+    expect((await req(s, "~x", "releases.deploy", { part: "web-y" }))[0]).toMatchObject({ ok: false, error: "no_build" });
+    expect((await req(s, "~x", "releases.deploy", { part: "web-y", latest: true }))[0]).toMatchObject({ ok: false, error: "no_build" });
+  });
+
+  it("without не называет то, что выкладывается: bad_frame, сборки нет (чьё: код)", async () => {
+    const s = fresh();
+    cloudflare({}, { any: true });
+    await put("pult", "1.0.0", { type: "web-app", workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"]]);
+    await put("web-x", "1.0.0", { type: "web", into: ["pult"] }, [["module.js", "x"]]);
+    expect((await req(s, "~x", "releases.deploy", { part: "web-x", latest: true, without: ["web-x"] }))[0]).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(await env.BUCKET.get("test/pult/1.0.0+1.tgz")).toBeNull();
+  });
+
+  it("latest: модуль, чья новейшая версия вышла из into приложения, уходит из его сборки (чьё: код)", async () => {
+    const s = fresh();
+    cloudflare({}, { any: true });
+    await put("pult", "1.0.0", { type: "web-app", workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"]]);
+    await put("phone", "1.0.0", { type: "web-app", workers: { test: "switchboard-phone" } }, [["index.html", "<!doctype html>"]]);
+    await put("web-core", "1.0.0", { type: "web", into: ["pult"], provides: { app: 1 } }, [["module.js", "x"]]);
+    await put("web-x", "1.0.0", { type: "web", into: ["pult"] }, [["module.js", "x"]]);
+    await result(req(s, "~x", "releases.deploy", { part: "pult", latest: true }));
+    await put("web-x", "1.1.0", { type: "web", into: ["phone"] }, [["module.js", "x"]]);
+    await result(req(s, "~x", "releases.deploy", { part: "pult", latest: true }));
+    expect((await built("test/pult/1.0.0+2.tgz")).modules).toEqual([{ name: "web-core", version: "1.0.0" }]);
+  });
+
+  it("проверка набора: приложение ОС — той версии, что в планах машин, а не новейшей из каталога (чьё: код)", async () => {
+    const s = fresh();
+    cloudflare({}, { any: true });
+    await inCatalog("host", "1.2.0", { type: "sdk-core", provides: { "host.module": 1 }, uses: {}, config: {} });
+    await inCatalog("keeper", "1.0.0", { type: "os", provides: { "keeper.state": 1 }, uses: {}, config: {} });
+    await inCatalog("keeper", "2.0.0", { type: "os", provides: { "keeper.state": 2 }, uses: {}, config: {} });
+    await req(s, "~x", "releases.deploy", { part: "keeper", version: "1.0.0" });
+    const mod = (v: string, state: number) => inCatalog("host-x", v, { type: "sdk", into: ["host"], provides: {}, uses: { "host.module@host": 1, "keeper.state@keeper": state }, config: {} });
+    // новый keeper только загружен: на машинах прежний контракт
+    await mod("1.0.0", 2);
+    expect((await req(s, "~x", "releases.deploy", { part: "host-x" }))[0]).toMatchObject({ ok: false, error: "check_failed", why: expect.stringContaining("keeper.state@keeper v2 — у владельца v1") });
+    await mod("1.0.1", 1);
+    expect((await result(req(s, "~x", "releases.deploy", { part: "host-x", version: "1.0.1" }))).parts.host.to).toBe("1.2.0+1");
+    // закрепление на машине — тоже планы
+    await set(s, { part: "keeper", pin: "2.0.0" });
+    expect((await req(s, "~x", "releases.deploy", { part: "host-x", version: "1.0.1" }))[0]).toMatchObject({ ok: false, error: "check_failed" });
+  });
+
+  it("корень машины без сборок флота: list и выкладка берут версии каталога (чьё: код; первый выпуск нового флота)", async () => {
+    const s = fresh();
+    await inCatalog("host", "1.2.0", { type: "sdk-core", provides: {}, uses: {}, config: {} });
+    await inR2("keeper", "1.0.0");
+    await fakeCf({});
+    expect((await result(req(s, "~x", "releases.list", { part: "host" }))).parts.host).toEqual({ where: "machine", edge: "1.2.0", stable: null, versions: ["1.2.0"] });
+    expect((await result(req(s, "~x", "releases.list"))).parts.host.edge).toBe("1.2.0");
+    expect((await result(req(s, "~x", "releases.deploy", { part: "*" }))).parts.host).toEqual({ from: null, to: "1.2.0" });
+    await E.DB.exec("UPDATE fleet SET stable = '{}' WHERE one = 1");
+    expect((await result(req(s, "~x", "releases.deploy", { part: "host" }))).parts.host).toEqual({ from: null, to: "1.2.0" });
+  });
+
+  it("«*» у оболочки — новейшая метка Cloudflare: сборка, которую Cloudflare не принял, выкладку не держит (чьё: код)", async () => {
+    const s = fresh();
+    await put("pult", "1.0.0", { type: "web-app", workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"]]);
+    const { sent } = cloudflare({ "switchboard-pult": { tags: ["1.0.0+1", "1.0.0+2"], live: "1.0.0+1" } });
+    // сборка лежит, выкладка оборвалась: метки 1.0.0+3 в Cloudflare нет
+    await env.BUCKET.put("test/pult/1.0.0+3.tgz", "x");
+    await env.BUCKET.put("test/pult/1.0.0+3.sha256", shaLine(sha256hex("x"), "1.0.0+3"));
+    expect((await result(req(s, "~x", "releases.deploy", { part: "*" }))).parts.pult).toEqual({ from: "1.0.0+1", to: "1.0.0+2" });
+    expect(sent.live.get("switchboard-pult")).toBe("switchboard-pult-v1.0.0+2");
+  });
+
+  it("list о части, которой нет, — пусто, а не строка с нулями (чьё: код)", async () => {
+    const s = fresh();
+    await fakeCf({});
+    await inR2("keeper", "1.0.0");
+    expect((await result(req(s, "~x", "releases.list", { part: "typo" }))).parts).toEqual({});
+    expect((await result(req(s, "~x", "releases.list", { part: "keeper" }))).parts.keeper.edge).toBe("1.0.0");
+  });
+
+  it("строка журнала — в общем формате журналов и с тем, кто спросил (чьё: код; так пишут все Worker'ы флота)", async () => {
+    const s = fresh();
+    const log = journal();
+    await req(s, "~x", "releases.nope");
+    await s.frame({ type: "reply", id: "x", ok: true, to: ".releases", from: "~y" });
+    expect(log).toEqual([
+      expect.objectContaining({ t: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), part: "releases", kind: "refuse", ev: "releases.nope", word: "unknown_request", from: "~x" }),
+      expect.objectContaining({ t: expect.any(String), part: "releases", kind: "note", ev: "reply", from: "~y" }),
+    ]);
+  });
+
+  it("план не собрался после записи — выкладка состоялась, ответ ok, причина строкой (чьё: код)", async () => {
+    await fakeCf(NONE);
+    await inR2("host", "1.1.82");
+    await hosts("win");
+    let reads = 0;
+    const BUCKET = {
+      list: (o?: R2ListOptions) => E.BUCKET.list(o),
+      get: async (k: string, o?: R2GetOptions) => {
+        if (k.endsWith(".sha256") && ++reads > 1) throw new Error("R2 молчит");
+        return E.BUCKET.get(k, o as never);
+      },
+    };
+    const broken = new Proxy(E, { get: (t, k) => (k === "BUCKET" ? BUCKET : Reflect.get(t, k)) }) as Env;
+    const log = journal();
+    const [r] = await frame(broken, { type: "releases.deploy", v: 1, id: "r", to: ".releases", from: "~x", part: "host" });
+    expect(r).toMatchObject({ ok: true, result: { parts: { host: { from: null, to: "1.1.82" } } } });
+    expect(log).toContainEqual(expect.objectContaining({ kind: "refuse", ev: "releases.plan", word: "offline", why: expect.stringContaining("R2 молчит") }));
+  });
+});
+
 describe("releases.fetch", () => {
   // источник всех эталонов блока: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): releases.fetch даёт ссылку
   // на чтение архива; другой репо берёт из каталога контракт и стенд

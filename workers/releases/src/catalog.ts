@@ -94,6 +94,11 @@ export function catalog(env: Env, row: Row) {
 
   const cloud = once(async (script: string) => cloudOf(await stateOf(env, script)));
   const builds = once((name: string) => ready(`${env.FLEET}/${name}/`));
+  /** Номера части машины: сборки флота, а до первой сборки — версии каталога. */
+  const onMachine = async (p: Part) => {
+    const own = await builds(p.name);
+    return own.length ? own : p.versions;
+  };
 
   /** Все части каталога; папки флотов версий не держат и частями не считаются. */
   const all = async () => {
@@ -116,6 +121,7 @@ export function catalog(env: Env, row: Row) {
     part,
     cloud,
     builds,
+    onMachine,
     key,
     stableOf,
     deployed,

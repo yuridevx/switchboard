@@ -41,7 +41,7 @@ function packagesOf(root: string) {
 function filesOf(root: string) {
   const { core, packages } = packagesOf(root);
   const files: TarFile[] = packages.flatMap((m) =>
-    packageFiles(join(root, m.dir)).map((f) => ({ path: `packages/${m.pkg!.slice(SCOPE.length)}/${f.path}`, data: f.path === "package.json" ? released(f.data) : f.data })),
+    packageFiles(join(root, m.dir)).map((f) => ({ ...f, path: `packages/${m.pkg!.slice(SCOPE.length)}/${f.path}`, data: f.path === "package.json" ? released(f.data) : f.data })),
   );
   const setup = ["npm", "ci", "--omit=dev", ...QUIET];
   files.push(
@@ -58,7 +58,7 @@ function filesOf(root: string) {
 function checked(r: Done, version: string): { sdk: string } {
   const fail = (why: unknown) => new Error(`host --check: ${why}`);
   const line = r.out.split("\n").findLast((l) => l.startsWith("{"));
-  if (!line) throw fail("host --check без ответа");
+  if (!line) throw fail(r.out.trim() || "host --check без ответа");
   let answer: { ok?: boolean; why?: string; version?: string; sdk: string };
   try {
     answer = JSON.parse(line);
