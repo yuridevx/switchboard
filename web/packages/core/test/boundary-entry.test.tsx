@@ -166,7 +166,7 @@ describe("пропуск и приглашение", () => {
 
   it.each([
     ["bad_invite", { ok: false, error: "bad_invite" }, "Оно уже принято, отозвано или набрано с ошибкой. Попросите агента выдать новое."],
-    ["gate_unavailable", { ok: false, error: "gate_unavailable" }, "gate не ответил: gate_unavailable. Откройте ссылку ещё раз позже."],
+    ["contract_mismatch", { ok: false, error: "contract_mismatch" }, "gate отказал: contract_mismatch. Попросите агента выдать новое."],
   ] as const)("приглашение не принято %s: своё слово, адрес очищен, связи нет", async (word, answer, text) => {
     const relay = new FakeRelay(oneMachine());
     relay.handlers["gate.redeem"] = () => answer;
@@ -180,15 +180,36 @@ describe("пропуск и приглашение", () => {
     expect(relay.socks).toHaveLength(0);
   });
 
-  it("gate не отвечает на приём приглашения: сеть упала — gate_unavailable; молчит — через 30 с то же", async () => {
-    const down = await stand([mod().part], { store: memoryStore(), url: `/#invite=${INVITE}`, options: { fetch: (() => Promise.reject(new Error("нет сети"))) as never } });
-    expect(down.run.stopped).toBe("gate_unavailable");
+  it.each([
+    ["ответил отказом слова gate_unavailable", async () => Response.json({ type: "reply", id: "redeem", ok: false, error: "gate_unavailable" })],
+    ["сеть упала", () => Promise.reject(new Error("нет сети"))],
+    ["5xx", async () => new Response("<html>Bad gateway</html>", { status: 502 })],
+  ])("приглашение не дошло до gate: %s — причина, приглашение в адресе, «Повторить» перезагружает, новый заход принимает", async (_n, fetch) => {
+    // источник: приёмка главной сессии 6 нояб. — приглашение не теряется молча, человек видит причину и может повторить
+    const reload = reloads();
+    const t = await stand([mod().part], { store: memoryStore(), url: `/#invite=${INVITE}`, options: { fetch: fetch as never } });
+    expect(t.run.stopped).toBe("gate_unavailable");
+    expect(t.$(".sb-big")!.textContent).toBe("Нет связи с gate");
+    expect(t.$(".sb-full")!.textContent).toContain("gate не ответил: gate_unavailable. Приглашение не потеряно.");
+    expect(shape(t.$(".sb-full")!)).toEqual(["div.sb-ring.wait", "div.sb-big", "p.", "button.sb-cta", "button.sb-b"]);
+    expect(location.hash).toBe(`#invite=${INVITE}`);
+    await t.click(t.button("Повторить"));
+    expect(reload).toHaveBeenCalledOnce();
+    expect(t.$("[data-act=wipe]")).not.toBeNull();
+    const store = memoryStore();
+    await stand([mod().part], { relay: invited(), store, url: `/${location.hash}` });
+    expect(store.data.key).toBe(KEY);
+    expect(location.hash).toBe("");
+  });
+
+  it("gate молчит на приём приглашения: через 30 с то же, приглашение в адресе", async () => {
     vi.useFakeTimers();
     const { run } = begin([mod().part], { store: memoryStore(), url: `/#invite=${INVITE}`, options: { fetch: (() => new Promise(() => {})) as never } });
     await vi.advanceTimersByTimeAsync(29_999);
     expect(run.stopped).toBeNull();
     await vi.advanceTimersByTimeAsync(1);
     expect(run.stopped).toBe("gate_unavailable");
+    expect(location.hash).toBe(`#invite=${INVITE}`);
   });
 
   describe("чужое приглашение при имеющемся пропуске", () => {

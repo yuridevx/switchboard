@@ -383,6 +383,12 @@ describe("статика и архив", () => {
     expect(document.querySelector(".sb-brand b")!.textContent).toBe("Пульт");
     expect(urls.length).toBeGreaterThan(0);
     expect(urls.every((u) => u.startsWith("wss://relay.from-build/m/"))).toBe(true);
+    // поиск на порядке настоящей сборки: модули идут по order(), первым с разделом — Журнал; строки — в порядке оболочки
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
+    await flush();
+    const rows = [...document.querySelectorAll(".sb-palit")].filter((r) => ["раздел", "Флот"].includes(r.querySelector(".k")?.textContent ?? "")).map((r) => r.querySelector(".l")!.textContent);
+    expect(document.querySelector(".sb-palit.first .l")!.textContent).toBe("Вам");
+    expect(rows).toEqual(["Вам", "Работа", "Инциденты", "Аккаунты", "Профили", "Журнал", "Точки", "Настройки", "Настройки: выпуски", "Настройки: пропуска", "Настройки: github и устройство"]);
   }, 120_000);
 });
 

@@ -4,6 +4,8 @@ import type { Page } from "./page.ts";
 import type { Route } from "./route.ts";
 
 const LIMIT_MS = 30_000;
+/** Отказ, которого gate не давал: сеть, 5xx, молчание. */
+export const UNREACHED = "gate_unavailable";
 
 /** Номер приглашения и пропуска: их и показываем, секрет — никогда. */
 export const inviteNumber = (invite: string) => invite.split(".")[0];
@@ -31,7 +33,7 @@ export function createPass(page: Page, route: Route, stop: (word: string, invite
       const r = (await res.json()) as { ok: true; result: { key: string } } | { ok: false; error: string };
       return r.ok ? { key: r.result.key } : { word: r.error };
     };
-    return withLimit(ask(), LIMIT_MS, () => ({ word: "gate_unavailable" })).catch(() => ({ word: "gate_unavailable" }));
+    return withLimit(ask(), LIMIT_MS, () => ({ word: UNREACHED })).catch(() => ({ word: UNREACHED }));
   }
 
   /** Принять и перезагрузиться; отказ — под кнопкой. */
@@ -53,13 +55,16 @@ export function createPass(page: Page, route: Route, stop: (word: string, invite
       if (!invite) return had ?? (stop("no_key"), null);
       page.invite = invite;
       if (page.platform.ios && !page.platform.standalone) return stop("install"), null;
-      route.clear();
       if (had) {
+        route.clear();
         if (had.split(".")[2] === inviteNumber(invite)) return had;
         page.key = had;
         return stop("replace"), null;
       }
       const r = await redeem(invite);
+      // gate не ответил: приглашение не потрачено, ждёт в адресе повтора
+      if ("word" in r && r.word === UNREACHED) return stop(r.word, true), null;
+      route.clear();
       if ("word" in r) return stop(r.word, true), null;
       await store.set("key", r.key);
       page.saved = true;

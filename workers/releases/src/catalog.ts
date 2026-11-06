@@ -1,96 +1,129 @@
-// Каталог в R2: версии части, сборки флота, манифесты и архивы. Версия готова, когда лежит её хэш.
-import { entries, BUILD_FILE, byVersion, isBuild, isVersion, manifestOf, parseSha, shaKey, tgzKey, type BuildList } from "@switchboard/release";
+// Каталог в R2 глазами одного запроса: части, их версии и манифесты, выложенные сборки. Вид части выводится из манифеста, списков нет.
 import type { Manifest } from "@switchboard/manifest-gate";
+import { BUILD_FILE, entries, manifestOf, presign, type BuildList } from "@switchboard/release";
+import { stateOf, type CloudState } from "./cloud.ts";
 import type { Env } from "./env.ts";
+import type { Row } from "./fleet.ts";
 
-/** Начала архива хватает на манифест: он первая запись. */
-const HEAD_BYTES = 64 * 1024;
+const BUCKET = "switchboard-releases";
+/** Манифест — первая запись архива: хватает начала. */
+const HEAD_BYTES = 65_536;
+const ROOTS = ["sdk-core", "web-app"];
+const MACHINE = ["os", "sdk-core"];
+const CLOUD = ["worker", "web-app"];
 
-export type Listed = Manifest & { into?: string[]; workers?: Record<string, string> };
-/** Запись каталога: часть или модуль с новейшей версией. */
-export type Entry = { name: string; versions: string[]; newest: string; manifest: Listed | null };
+export const NAME = /^[a-z0-9][a-z0-9-]*$/;
+export const isVersion = (v: unknown): v is string => typeof v === "string" && /^\d+\.\d+\.\d+$/.test(v);
+export const isBuild = (v: unknown): v is string => typeof v === "string" && /^\d+\.\d+\.\d+\+\d+$/.test(v);
+/** Сборка «+n» новее своего ядра. */
+const numbers = (v: string) => [...v.split(/[.+]/).map(Number), 0];
+export const byVersion = (a: string, b: string) => {
+  const y = numbers(b);
+  return numbers(a).reduce((order, n, i) => order || n - (y[i] ?? 0), 0);
+};
 
-const SUFFIX = /^(.+)\.(tgz|sha256)$/;
+export type ModuleManifest = Manifest & { workers?: Record<string, string> };
+export type Part = {
+  name: string;
+  /** готовые версии каталога: лежит хэш */
+  versions: string[];
+  /** манифест новейшей версии; у архива без манифеста — null */
+  manifest: ModuleManifest | null;
+  kind: "machine" | "cloud" | "module" | null;
+  /** корень сборки: его версии — сборки флота */
+  root: boolean;
+  /** имя Worker'а части в этом флоте */
+  script?: string;
+};
+export type Cloud = { tags: string[]; stable: string | null; idOf(tag: string): string | undefined; live: string | null };
+export type Catalog = ReturnType<typeof catalog>;
 
-/** Список R2 до конца: хранилище отдаёт кусками. */
-async function listAll(env: Env, options: R2ListOptions): Promise<{ keys: string[]; prefixes: string[] }> {
-  const keys: string[] = [];
-  const prefixes: string[] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    const page = await env.BUCKET.list({ ...options, ...(cursor ? { cursor } : {}) });
-    keys.push(...page.objects.map((o) => o.key));
-    prefixes.push(...page.delimitedPrefixes);
-    if (!page.truncated) return { keys, prefixes };
-    cursor = page.cursor;
+const once = <T>(load: (key: string) => Promise<T>) => {
+  const seen = new Map<string, Promise<T>>();
+  return (key: string): Promise<T> => {
+    if (!seen.has(key)) seen.set(key, load(key));
+    return seen.get(key)!;
+  };
+};
+
+function cloudOf({ versions, live }: CloudState): Cloud {
+  const tagged = versions.filter((v) => isVersion(v.tag) || isBuild(v.tag));
+  return {
+    tags: tagged.map((v) => v.tag!).sort(byVersion),
+    stable: tagged.find((v) => v.id === live)?.tag ?? null,
+    idOf: (tag) => tagged.find((v) => v.tag === tag)?.id,
+    live,
+  };
+}
+
+export function catalog(env: Env, row: Row) {
+  async function listing(prefix?: string) {
+    const out = { keys: [] as string[], prefixes: [] as string[] };
+    let cursor: string | undefined;
+    do {
+      const page = await env.BUCKET.list({ prefix, delimiter: "/", ...(cursor && { cursor }) });
+      out.keys.push(...page.objects.map((o) => o.key));
+      out.prefixes.push(...page.delimitedPrefixes);
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+    return out;
   }
-}
 
-/** Готовые версии под префиксом: и архив, и хэш; вложенные папки не считаются. */
-async function readyUnder(env: Env, prefix: string, known: (v: string) => boolean): Promise<string[]> {
-  const { keys } = await listAll(env, { prefix: `${prefix}/` });
-  const seen = new Map<string, Set<string>>();
-  for (const key of keys) {
-    const m = SUFFIX.exec(key.slice(prefix.length + 1));
-    if (!m || !known(m[1])) continue;
-    if (!seen.has(m[1])) seen.set(m[1], new Set());
-    seen.get(m[1])!.add(m[2]);
-  }
-  return [...seen].filter(([, kinds]) => kinds.size === 2).map(([v]) => v).sort(byVersion);
-}
+  const ready = async (prefix: string) => {
+    const hashes = (await listing(prefix)).keys.filter((k) => k.endsWith(".sha256"));
+    return hashes.map((k) => k.slice(prefix.length, -".sha256".length)).filter((v) => isVersion(v) || isBuild(v)).sort(byVersion);
+  };
 
-export const catalogVersions = (env: Env, part: string) => readyUnder(env, part, isVersion);
-export const buildVersions = (env: Env, part: string) => readyUnder(env, `${env.FLEET}/${part}`, isBuild);
+  /** Ключ версии без расширения: сборки лежат под именем флота. */
+  const key = (part: string, version: string) => (isBuild(version) ? `${env.FLEET}/${part}/${version}` : `${part}/${version}`);
 
-/** Папка версии: сборки лежат под именем флота. */
-export const baseOf = (env: Env, part: string, version: string) => (isBuild(version) ? `${env.FLEET}/${part}` : part);
-export const archiveKey = (env: Env, part: string, version: string) => tgzKey(baseOf(env, part, version), version);
+  const manifest = once(async (at: string): Promise<ModuleManifest | null> => {
+    const o = await env.BUCKET.get(`${at}.tgz`, { range: { offset: 0, length: HEAD_BYTES } });
+    const raw = o && manifestOf(new Uint8Array(await o.arrayBuffer()));
+    return raw ? ({ provides: {}, uses: {}, config: {}, ...raw } as ModuleManifest) : null;
+  });
 
-/** Хэш готовой версии; не готова — null. */
-export async function shaOf(env: Env, part: string, version: string): Promise<string | null> {
-  const o = await env.BUCKET.get(shaKey(baseOf(env, part, version), version));
-  return o ? parseSha(await o.text()) : null;
-}
+  const part = once(async (name: string): Promise<Part> => {
+    const versions = await ready(`${name}/`);
+    const edge = versions.at(-1);
+    const m = edge ? await manifest(`${name}/${edge}`) : null;
+    const script = m?.workers?.[env.FLEET];
+    const kind = !m || MACHINE.includes(m.type) ? "machine" : m.into ? "module" : CLOUD.includes(m.type) && script ? "cloud" : null;
+    return { name, versions, manifest: m, kind, root: !!m && ROOTS.includes(m.type), script };
+  });
 
-export async function archive(env: Env, part: string, version: string): Promise<Buffer> {
-  const o = await env.BUCKET.get(archiveKey(env, part, version));
-  return Buffer.from(await o!.arrayBuffer());
-}
+  const cloud = once(async (script: string) => cloudOf(await stateOf(env, script)));
+  const builds = once((name: string) => ready(`${env.FLEET}/${name}/`));
 
-/** Манифест версии по началу архива; архив без манифеста (прежняя сборка Host) — null. */
-export async function manifestAt(env: Env, part: string, version: string): Promise<Listed | null> {
-  const o = await env.BUCKET.get(tgzKey(part, version), { range: { offset: 0, length: HEAD_BYTES } });
-  if (!o) return null;
-  const m = await manifestOf(new Uint8Array(await o.arrayBuffer()));
-  return m ? ({ provides: {}, uses: {}, config: {}, ...m } as Listed) : null;
-}
+  /** Все части каталога; папки флотов версий не держат и частями не считаются. */
+  const all = async () => {
+    const names = (await listing()).prefixes.map((p) => p.slice(0, -1));
+    return (await Promise.all(names.map(part))).filter((p) => p.versions.length);
+  };
 
-/** Запись каталога одного имени; версий нет — null. */
-export async function entryOf(env: Env, name: string): Promise<Entry | null> {
-  const versions = await catalogVersions(env, name);
-  const newest = versions.at(-1);
-  return newest ? { name, versions, newest, manifest: await manifestAt(env, name, newest) } : null;
-}
+  /** Выложенное у части: номер из строки флота, у части Cloudflare — метка выложенной версии. */
+  const stableOf = async (p: Part) => (p.kind === "cloud" ? (await cloud(p.script!)).stable : (row.stable[p.name] ?? null));
 
-/** Все имена бакета, одновременно. Папка другого флота готовых версий не содержит и отпадает. */
-export async function scan(env: Env): Promise<Map<string, Entry>> {
-  const { prefixes } = await listAll(env, { delimiter: "/" });
-  const found = await Promise.all(prefixes.map((p) => entryOf(env, p.slice(0, -1))));
-  return new Map(found.flatMap((e) => (e ? [[e.name, e] as const] : [])));
-}
+  /** Список выложенной сборки; выложена не сборка — null. */
+  const deployed = once(async (app: string): Promise<BuildList | null> => {
+    const stable = await stableOf(await part(app));
+    const o = isBuild(stable) ? await env.BUCKET.get(`${key(app, stable)}.tgz`) : null;
+    return o && JSON.parse(entries(new Uint8Array(await o.arrayBuffer())).find((e) => e.path === BUILD_FILE)!.data!.toString("utf8"));
+  });
 
-/** Список выложенной сборки. */
-export async function buildListOf(env: Env, app: string, version: string): Promise<BuildList> {
-  const file = entries(await archive(env, app, version)).find((e) => e.path === BUILD_FILE);
-  return JSON.parse(file!.data!.toString("utf8")) as BuildList;
-}
-
-export const isRoot = (m: Listed | null) => m?.type === "sdk-core" || m?.type === "web-app";
-export const isModule = (m: Listed | null) => !!m?.into?.length && (m.type === "sdk" || m.type === "web");
-/** Часть Cloudflare этого флота: Worker или оболочка страницы с именем Worker'а. */
-export const scriptOf = (env: Env, m: Listed | null) => (m?.type === "worker" || m?.type === "web-app" ? m.workers?.[env.FLEET] : undefined);
-/** Вид части: модули сборки и библиотеки частями не бывают. */
-export function whereOf(env: Env, m: Listed | null): "machine" | "cloud" | null {
-  if (scriptOf(env, m)) return "cloud";
-  return !m || m.type === "os" || m.type === "sdk-core" ? "machine" : null;
+  return {
+    all,
+    part,
+    cloud,
+    builds,
+    key,
+    stableOf,
+    deployed,
+    manifest: (name: string, version: string) => manifest(key(name, version)),
+    /** Архив версии. */
+    archive: async (name: string, version: string) => new Uint8Array(await (await env.BUCKET.get(`${key(name, version)}.tgz`))!.arrayBuffer()),
+    /** Хэш готовой версии; нет — null. */
+    sha: async (name: string, version: string) => (await (await env.BUCKET.get(`${key(name, version)}.sha256`))?.text())?.split(/\s+/)[0] ?? null,
+    link: (method: string, path: string) => presign({ accessKeyId: env.R2_LINK_KEY_ID, secretAccessKey: env.R2_LINK_SECRET }, { method, host: `${env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`, path: `/${BUCKET}/${path}` }),
+  };
 }

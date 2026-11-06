@@ -1,36 +1,32 @@
 // Карточка инструмента: шапка из таблицы инструментов, тело по виду. Всё, что пришло от инструмента, — только текстом.
 import { useState } from "react";
 import { diffLines } from "diff";
-import { ArrowDownToLine, Bell, Bot, CalendarClock, Check, ChevronDown, ChevronRight, Circle, CircleCheck, CircleDot, ClipboardList, FilePen, FilePlus, FileText, FolderSearch, GitBranch, Globe, ListChecks, Loader2, MessageCircleQuestion, NotebookPen, Radar, Search, Sparkles, Square, Terminal, Wrench, X } from "lucide-react";
 import { Btn, DisclosureBtn, HtmlFrame, langOfPath, Markdown, useApp, useHighlighted, useNow } from "@switchboard/web-ui";
 import type { Msg, Task, Todo, Tool } from "../fold.ts";
 import { deniedWhy, isAgent, isDenied, isShell, startedInBackground, toolLook, toolState } from "../tools.ts";
-import { Dis, Rows, useEnv } from "./Rows.tsx";
+import { useEnv } from "./env.ts";
+import { Icon } from "./icons.tsx";
+import { Dis, Rows } from "./Rows.tsx";
 
-const ICONS: Record<string, typeof Wrench> = { radar: Radar, bell: Bell, "notebook-pen": NotebookPen, bot: Bot, "message-circle-question": MessageCircleQuestion, "clipboard-list": ClipboardList, "calendar-clock": CalendarClock, "file-pen": FilePen, "file-plus": FilePlus, "file-text": FileText, "folder-search": FolderSearch, "git-branch": GitBranch, globe: Globe, "list-checks": ListChecks, search: Search, sparkles: Sparkles, square: Square, terminal: Terminal, wrench: Wrench };
-
-type Line = { kind: "add" | "del" | "same"; text: string };
 /** Общий кусок длиннее этого сворачивается: по две строки с каждой стороны. */
 const SAME_MAX = 6;
+type Line = { kind: "add" | "del" | "same"; text: string };
 
 function diffOf(before: string, after: string): Line[] {
   const out: Line[] = [];
   for (const part of diffLines(before, after)) {
     const lines = part.value.replace(/\n$/, "").split("\n");
     const kind: Line["kind"] = part.added ? "add" : part.removed ? "del" : "same";
-    if (kind === "same" && lines.length > SAME_MAX) {
-      const hidden = lines.length - 4;
-      out.push(...lines.slice(0, 2).map((text) => ({ kind, text })), { kind, text: `⋯ ${hidden} без изменений` }, ...lines.slice(-2).map((text) => ({ kind, text })));
-    } else out.push(...lines.map((text) => ({ kind, text })));
+    if (kind === "same" && lines.length > SAME_MAX) out.push(...lines.slice(0, 2).map((text) => ({ kind, text })), { kind, text: `⋯ ${lines.length - 4} без изменений` }, ...lines.slice(-2).map((text) => ({ kind, text })));
+    else out.push(...lines.map((text) => ({ kind, text })));
   }
   return out;
 }
 
-function Diff({ before = "", after = "" }: { before?: string; after?: string }) {
-  const lines = diffOf(before, after);
+function Diff({ before, after }: { before: string; after: string }) {
   return (
     <div className="chat-diff">
-      {lines.map((l, i) => (
+      {diffOf(before, after).map((l, i) => (
         <div key={i} className={l.kind}>
           <i>{l.kind === "add" ? "+" : l.kind === "del" ? "−" : ""}</i>
           <span>{l.text}</span>
@@ -49,19 +45,9 @@ const editsOf = (input: Msg): Array<{ before: string; after: string }> => {
 };
 
 function changeCount(input: Msg) {
-  let add = 0;
-  let del = 0;
-  for (const e of editsOf(input)) {
-    for (const l of diffOf(e.before, e.after)) {
-      if (l.kind === "add") add++;
-      if (l.kind === "del") del++;
-    }
-  }
-  return { add, del };
+  const lines = editsOf(input).flatMap((e) => diffOf(e.before, e.after));
+  return { add: lines.filter((l) => l.kind === "add").length, del: lines.filter((l) => l.kind === "del").length };
 }
-
-const NEEDS_FRAME = /\.(html?|svg)$/i;
-const IS_DOC = /^\s*<!doctype html/i;
 
 function Result({ tool }: { tool: Tool }) {
   const r = tool.result;
@@ -76,9 +62,14 @@ function Result({ tool }: { tool: Tool }) {
   );
 }
 
-function ErrorText({ tool }: { tool: Tool }) {
-  return tool.result?.error && !isDenied(tool) ? <pre className="tb-pre bad">{tool.result.text}</pre> : null;
+/** Итог инструмента: отказ человека — его причиной. */
+function Output({ tool }: { tool: Tool }) {
+  if (!isDenied(tool)) return <Result tool={tool} />;
+  const why = deniedWhy(tool);
+  return why ? <pre className="tb-pre">{why}</pre> : null;
 }
+
+const ErrorText = ({ tool }: { tool: Tool }) => (tool.result?.error && !isDenied(tool) ? <pre className="tb-pre bad">{tool.result.text}</pre> : null);
 
 function ReadBody({ tool }: { tool: Tool }) {
   const r = tool.result;
@@ -86,31 +77,23 @@ function ReadBody({ tool }: { tool: Tool }) {
   const highlighted = useHighlighted(code, langOfPath(tool.input?.file_path));
   if (!r || r.error || !code) return <Result tool={tool} />;
   return (
-    <>
-      <pre className="tb-pre">
-        <code className="hljs">{highlighted}</code>
-      </pre>
-      {r.pics.map((src, i) => (
-        <img key={i} className="tb-img" src={src} alt={`картинка ${i + 1}`} />
-      ))}
-    </>
+    <pre className="tb-pre">
+      <code className="hljs">{highlighted}</code>
+    </pre>
   );
 }
 
-const STATUS_ICON: Record<string, typeof Circle> = { completed: CircleCheck, in_progress: CircleDot };
+const STATUS_ICON: Record<string, string> = { completed: "circle-check", in_progress: "circle-dot" };
 
 export function TodoList({ todos }: { todos: Todo[] }) {
   return (
     <ul className="chat-todos">
-      {todos.map((t, i) => {
-        const I = STATUS_ICON[t.status] ?? Circle;
-        return (
-          <li key={i} data-status={t.status}>
-            <I size={14} />
-            <span>{t.status === "in_progress" ? (t.activeForm ?? t.content) : t.content}</span>
-          </li>
-        );
-      })}
+      {todos.map((t, i) => (
+        <li key={i} data-status={t.status}>
+          <Icon name={STATUS_ICON[t.status] ?? "circle"} size={14} />
+          <span>{t.status === "in_progress" ? (t.activeForm ?? t.content) : t.content}</span>
+        </li>
+      ))}
     </ul>
   );
 }
@@ -121,12 +104,12 @@ function AskBody({ tool }: { tool: Tool }) {
   return (
     <>
       <div className="tb-md">
-      {((input.questions ?? []) as Msg[]).map((q, i) => (
-        <div key={i} className="tb-q">
-          <b>{q.question}</b>
-          <span>{answers[q.question] ?? ((q.options ?? []) as Msg[]).map((o) => o.label).join(" · ")}</span>
-        </div>
-      ))}
+        {((input.questions ?? []) as Msg[]).map((q, i) => (
+          <div key={i} className="tb-q">
+            <b>{q.question}</b>
+            <span>{answers[q.question] ?? ((q.options ?? []) as Msg[]).map((o) => o.label).join(" · ")}</span>
+          </div>
+        ))}
       </div>
       <ErrorText tool={tool} />
     </>
@@ -158,6 +141,22 @@ function AgentBody({ tool, task }: { tool: Tool; task?: Task }) {
   );
 }
 
+function DiffBody({ tool }: { tool: Tool }) {
+  const input = tool.input ?? {};
+  const doc = typeof input.content === "string" && (/\.(html?|svg)$/i.test(String(input.file_path)) || /^\s*<!doctype html/i.test(input.content)) ? input.content : "";
+  return (
+    <>
+      {input.replace_all ? <div className="tb-hint">все вхождения</div> : null}
+      {input.cell_id ? <div className="tb-hint">{`ячейка ${input.cell_id}`}</div> : null}
+      {doc ? <HtmlFrame html={doc} title={String(input.file_path ?? "Просмотр HTML")} /> : null}
+      {editsOf(input).map((e, i) => (
+        <Diff key={i} before={e.before} after={e.after} />
+      ))}
+      <ErrorText tool={tool} />
+    </>
+  );
+}
+
 function Body({ tool, task, kind }: { tool: Tool; task?: Task; kind: string }) {
   const input = tool.input ?? {};
   switch (kind) {
@@ -169,20 +168,8 @@ function Body({ tool, task, kind }: { tool: Tool; task?: Task; kind: string }) {
           <Output tool={tool} />
         </>
       );
-    case "diff": {
-      const doc = typeof input.content === "string" && (NEEDS_FRAME.test(String(input.file_path)) || IS_DOC.test(input.content)) ? input.content : "";
-      return (
-        <>
-          {input.replace_all ? <div className="tb-hint">все вхождения</div> : null}
-          {input.cell_id ? <div className="tb-hint">{`ячейка ${input.cell_id}`}</div> : null}
-          {doc ? <HtmlFrame html={doc} title={String(input.file_path ?? "Просмотр HTML")} /> : null}
-          {editsOf(input).map((e, i) => (
-            <Diff key={i} before={e.before} after={e.after} />
-          ))}
-          <ErrorText tool={tool} />
-        </>
-      );
-    }
+    case "diff":
+      return <DiffBody tool={tool} />;
     case "read":
       return <ReadBody tool={tool} />;
     case "todos":
@@ -222,111 +209,87 @@ function Body({ tool, task, kind }: { tool: Tool; task?: Task; kind: string }) {
   }
 }
 
-/** Итог инструмента: отказ человека — его причиной. */
-function Output({ tool }: { tool: Tool }) {
-  if (isDenied(tool)) {
-    const why = deniedWhy(tool);
-    return why ? <pre className="tb-pre">{why}</pre> : null;
-  }
-  return <Result tool={tool} />;
-}
-
-const stateWord = (state: string, name?: string): [string, string] | null => {
-  if (state === "wait") return [name === "ExitPlanMode" ? "ждёт одобрения" : "ждёт разрешения", "wait"];
-  if (state === "error") return ["ошибка", "bad"];
-  if (state === "denied") return ["отклонено", ""];
-  if (state === "stopped") return ["остановлено", "wait"];
-  if (state === "bg") return ["в фоне", "run"];
-  return null;
-};
+const WORDS: Record<string, [string, string]> = { error: ["ошибка", "bad"], denied: ["отклонено", ""], stopped: ["остановлено", "wait"], bg: ["в фоне", "run"] };
 
 function Status({ state, tool }: { state: string; tool: Tool }) {
-  if (state === "running") {
+  if (state === "running")
     return (
       <em className="tc-st run">
-        <Loader2 size={13} />
+        <Icon name="loader-circle" />
         {tool.secs ? `${Math.round(tool.secs)} с` : ""}
       </em>
     );
-  }
-  if (state === "ok") {
+  if (state === "ok")
     return tool.name === "TodoWrite" ? null : (
       <em className="tc-st ok" aria-label="готово">
-        <Check size={14} />
+        <Icon name="check" size={14} />
       </em>
     );
-  }
-  const w = stateWord(state, tool.name);
-  return w ? <em className={w[1] ? `tc-st ${w[1]}` : "tc-st"}>
-      {state === "error" ? <X size={13} /> : state === "bg" ? <Loader2 size={13} /> : null}
-      {w[0]}
-    </em> : null;
+  const [word, tone] = state === "wait" ? [tool.name === "ExitPlanMode" ? "ждёт одобрения" : "ждёт разрешения", "wait"] : WORDS[state];
+  return (
+    <em className={tone ? `tc-st ${tone}` : "tc-st"}>
+      {state === "error" ? <Icon name="x" /> : state === "bg" ? <Icon name="loader-circle" /> : null}
+      {word}
+    </em>
+  );
 }
 
 function TaskBar({ tool, task }: { tool: Tool; task?: Task }) {
-  const app = useApp();
   const env = useEnv();
-  const canAct = app.use(() => env.canAct());
-  const now = useNow(task && !task.end ? 1000 : 0);
-  if (task && !task.end) {
-    const agent = isAgent(tool);
-    const secs = Math.max(0, Math.round((now - task.started) / 1000));
-    const about = agent ? (task.summary ?? (task.last ? `сейчас: ${task.last}` : "")) : "";
-    return (
-      <div className="tc-bar">
-        <span>
-          {`идёт ${secs} с`}
-          {about ? ` · ${about}` : null}
-          {agent && task.steps ? ` · шагов ${task.steps}` : null}
-        </span>
-        {canAct && !task.bg ? (
-          <Btn type="button" className="chat-mini" onClick={() => env.act("backgroundTasks", [tool.id])}>
-            <ArrowDownToLine size={13} />
-            В фон
-          </Btn>
-        ) : null}
-        {canAct ? (
-          <Btn type="button" className="chat-mini" onClick={() => env.act("stopTask", [task.id])}>
-            <Square size={11} />
-            Стоп
-          </Btn>
-        ) : null}
-      </div>
-    );
-  }
-  if (!task && isShell(tool) && !tool.result && canAct) {
+  const running = !!task && !task.end;
+  const now = useNow(running ? 1000 : 0);
+  const toBg = (
+    <Btn type="button" className="chat-mini" onClick={() => env.act("backgroundTasks", [tool.id])}>
+      <Icon name="arrow-down-to-line" />В фон
+    </Btn>
+  );
+  if (!running) {
+    if (task || !isShell(tool) || tool.result || !env.canAct) return null;
     return (
       <div className="tc-bar">
         <span />
-        <Btn type="button" className="chat-mini" onClick={() => env.act("backgroundTasks", [tool.id])}>
-          <ArrowDownToLine size={13} />
-          В фон
-        </Btn>
+        {toBg}
       </div>
     );
   }
-  return null;
+  const agent = isAgent(tool);
+  const about = agent ? (task.summary ?? (task.last ? `сейчас: ${task.last}` : "")) : "";
+  return (
+    <div className="tc-bar">
+      <span>
+        {`идёт ${Math.max(0, Math.round((now - task.started) / 1000))} с`}
+        {about ? ` · ${about}` : null}
+        {agent && task.steps ? ` · шагов ${task.steps}` : null}
+      </span>
+      {env.canAct && !task.bg ? toBg : null}
+      {env.canAct ? (
+        <Btn type="button" className="chat-mini" onClick={() => env.act("stopTask", [task.id])}>
+          <Icon name="square" />
+          Стоп
+        </Btn>
+      ) : null}
+    </div>
+  );
 }
 
 export function ToolCard({ id }: { id: string }) {
-  const app = useApp();
   const env = useEnv();
-  const tool = app.use(() => env.view().tools[id]);
-  const task = app.use(() => (tool?.task ? env.view().tasks[tool.task] : undefined));
-  const waiting = app.use(() => env.waiting(id));
+  const app = useApp();
+  const tool = env.view.tools[id];
   const [choice, setChoice] = useState<boolean | null>(null);
+  const waiting = app.use(() => env.waiting(id));
   if (!tool) return null;
+  const task = tool.task ? env.view.tasks[tool.task] : undefined;
   const look = toolLook(tool);
   const state = toolState(tool, task, waiting);
   const usual = look.body === "agent" ? !(task?.bg ? task.final : tool.result) : look.body === "plan" ? !waiting : look.open;
   const open = choice ?? usual;
-  const Icon = ICONS[look.icon] ?? Wrench;
   const counted = look.body === "diff" && tool.name !== "Write" && tool.name !== "NotebookEdit" ? changeCount(tool.input ?? {}) : null;
   return (
     <div className="chat-tool" data-tool={tool.name ?? ""} data-state={state}>
       <DisclosureBtn className="tc-h" open={!!open} onClick={() => setChoice(!open)}>
         <span className="tc-i">
-          <Icon size={15} />
+          <Icon name={look.icon} size={15} />
         </span>
         <b>{look.word}</b>
         <span className="tc-sum" title={look.sum}>
@@ -340,7 +303,7 @@ export function ToolCard({ id }: { id: string }) {
         {startedInBackground(tool, task) ? <span className="tc-chip">в фоне</span> : null}
         {tool.input?.subagent_type ? <span className="tc-chip">{tool.input.subagent_type}</span> : null}
         <Status state={state} tool={tool} />
-        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <Icon name={open ? "chevron-down" : "chevron-right"} size={14} />
       </DisclosureBtn>
       {state === "wait" ? null : <TaskBar tool={tool} task={task} />}
       {tool.note ? <div className="tc-note">{tool.note}</div> : null}

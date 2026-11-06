@@ -1,49 +1,44 @@
-// web-chat — разговор с сессией: определение модуля. Состояние — store.ts, свёртка — fold.ts, вид — view/.
-import { machineOf } from "@switchboard/protocol";
-import type { AppModule, Frame, Roster } from "@switchboard/web-core";
+// Модуль разговора с сессией: стор разговоров, кадры ленты и сообщений, экран chat, метки unread и models.
 import { isLive, sessionLabel, sessionLine, sessionOf, stateLabel, type App } from "@switchboard/web-ui";
+import type { AppModule } from "@switchboard/web-core";
 import css from "./chat.css";
-import { createChats } from "./store.ts";
+import { createTalks, machineOf } from "./talk.ts";
 import { ChatScreen } from "./view/Screen.tsx";
 
 export function createChat(app: App): AppModule {
-  const chats = createChats(app);
+  const talks = createTalks(app);
   return {
-    state: chats,
-    css,
-    store: ["drafts"],
-    frames: {
-      "session.events": (f: Frame) => chats.onEvents(f),
-      message: (f: Frame, ctx) => chats.onMessage(f as never, ctx.open),
-    },
-    on: {
-      link: (state, machine) => chats.onLink(state, machine),
-      roster: (r: Roster) => chats.onRoster(r),
-    },
+    state: talks,
+    frames: talks.frames as AppModule["frames"],
+    on: { roster: talks.roster, link: talks.link },
     screens: {
       chat: {
         label: "Лента",
         view: ChatScreen,
-        head(params) {
-          const cs = params.callsign;
-          const s = sessionOf(app, cs);
+        head({ callsign }) {
+          const s = sessionOf(app, callsign);
           const st = stateLabel(s?.state);
-          return { title: sessionLabel(app, cs).text, mono: true, sub: s ? sessionLine(s, true) : `${machineOf(cs)} не на связи`, ...(s ? { pill: { text: st.text, tone: st.tone } } : {}) };
+          return { title: sessionLabel(app, callsign).text, mono: true, sub: s ? sessionLine(s, true) : `${machineOf(callsign)} не на связи`, ...(s ? { pill: { text: st.text, tone: st.tone } } : {}) };
         },
       },
     },
     marks: {
-      unread: (cs) => chats.conv(cs).unread ?? undefined,
-      models: (cs) => chats.conv(cs).models,
+      unread: (cs: string) => talks.get(cs).unread ?? undefined,
+      models(cs: string) {
+        const m = talks.get(cs).models;
+        return Array.isArray(m) ? m : undefined;
+      },
     },
     commands: {
       "models.load": {
         run(p) {
-          if (isLive(sessionOf(app, p.callsign)?.state)) void chats.loadModels(p.callsign);
+          if (isLive(sessionOf(app, p.callsign)?.state)) void talks.models(p.callsign);
         },
       },
     },
-    start: () => chats.start(),
-    stop: () => chats.stop(),
+    store: ["drafts"],
+    css,
+    start: talks.start,
+    stop: talks.stop,
   };
 }

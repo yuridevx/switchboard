@@ -1,33 +1,34 @@
-// Процесс сборки с пределом: снят по пределу — вывод и причина в ответе.
+// Процесс сборки с пределом: вывод и причина — в ответе.
 import { spawn } from "node:child_process";
 
-export type Ran = { code: number; out: string };
+export type Done = { code: number | null; out: string };
 
 const LIMIT_MS = 10 * 60_000;
-/** Вывод держит потомок: после снятия ответ ждём недолго. */
-const AFTER_KILL_MS = 2_000;
+/** Снятый процесс оставляет потомка с тем же выводом: close может не прийти, ответ ждём недолго. */
+const GRACE_MS = 2_000;
 
-export function run(cmd: string, args: string[], cwd: string, o: { limitMs?: number; env?: Record<string, string> } = {}): Promise<Ran> {
-  const limit = o.limitMs ?? LIMIT_MS;
+export function run(cmd: string, args: string[], cwd: string, o: { limitMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<Done> {
+  const { limitMs = LIMIT_MS, env } = o;
   return new Promise((done) => {
-    const c = spawn(cmd, args, { cwd, env: { ...process.env, ...o.env }, shell: process.platform === "win32" && cmd === "npm", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    // npm на Windows — файл .cmd: без оболочки он не запускается
+    const child = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], shell: cmd === "npm" && process.platform === "win32" });
     let out = "";
-    let why = "";
-    const finish = (code: number) => {
-      clearTimeout(timer);
-      done({ code, out: out + why });
+    const add = (chunk: Buffer) => void (out += chunk);
+    child.stdout.on("data", add);
+    child.stderr.on("data", add);
+    const limit = setTimeout(() => {
+      out += `\n${cmd} не завершился за ${limitMs / 1000} с`;
+      child.kill();
+      setTimeout(() => end(null), GRACE_MS).unref();
+    }, limitMs);
+    const end = (code: number | null) => {
+      clearTimeout(limit);
+      done({ code, out });
     };
-    const timer = setTimeout(() => {
-      why = `${cmd}: не завершился за ${limit / 1000} с`;
-      c.kill();
-      setTimeout(() => finish(1), AFTER_KILL_MS).unref();
-    }, limit);
-    c.stdout.on("data", (d) => (out += d));
-    c.stderr.on("data", (d) => (out += d));
-    c.on("error", (e) => {
-      why = String(e);
-      finish(1);
+    child.on("error", (e) => {
+      out += String(e);
+      end(null);
     });
-    c.on("close", (code) => finish(why ? 1 : (code ?? 1)));
+    child.on("close", end);
   });
 }
