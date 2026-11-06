@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: intake-worker
+expected_outcome: |
+  До кода отвечает, чьё это дело, и не предлагает седьмую копию входа, Refusal и журнала.

@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: trap-send
+expected_outcome: |
+  Не сводит: контракт send требует файла без зависимостей. Законный выход с фактом.
