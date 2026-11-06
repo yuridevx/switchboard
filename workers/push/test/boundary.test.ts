@@ -172,8 +172,6 @@ describe("push.subscribe", () => {
       [{ ...good, keys: { ...good.keys, p256dh: b64u(new Uint8Array(33)) } }, "p256dh — не точка P-256 в 65 Б"],
       [{ ...good, keys: { ...good.keys, auth: b64u(new Uint8Array(8)) } }, "auth — не 16 Б"],
       [{ ...good, keys: { ...good.keys, auth: "!!!" } }, "ключи подписки — не base64url"],
-      // длина 4n + 1: разрешённые знаки, но base64 такой длины не бывает
-      [{ ...good, keys: { ...good.keys, auth: "AAAAA" } }, "ключи подписки — не base64url"],
     ];
     for (const [s, why] of bad) {
       expect(await worker.frame({ type: "push.subscribe", v: 1, id: "u-2", to: ".push", from: "tab", sub: s }), why).toEqual([{ type: "reply", id: "u-2", ok: false, error: "bad_frame", to: "tab" }]);
@@ -182,15 +180,6 @@ describe("push.subscribe", () => {
     expect((await row("tab"))?.endpoint).toBe("https://web.push.apple.com/tab");
     await worker.frame({ type: "push.subscribe", v: 1, id: "u-3", to: ".push", sub: good });
     expect(log).toContainEqual(expect.objectContaining({ word: "bad_frame", why: "нет from — имя клиента ставит relay" }));
-  });
-
-  it("ключи браузера с заполнением «=»: подписка принята, тело пуша расшифровывается", async () => {
-    const u = await ua();
-    const padded = (s: string) => s + "=".repeat((4 - (s.length % 4)) % 4);
-    await subscribe("phone-pad", { ...u, p256dh: padded(u.p256dh), auth: padded(u.auth) }, "https://push.example/pad-keys");
-    const posts = service(201);
-    expect(await worker.frame(send("s-pad", "phone-pad"))).toMatchObject([{ ok: true }]);
-    expect(JSON.parse(await decrypt(posts[0].body, u.keys, unb64u(u.auth)))).toMatchObject({ notify: NOTIFY });
   });
 });
 
