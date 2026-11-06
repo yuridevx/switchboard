@@ -1,6 +1,6 @@
 // Контракт модуля Host chat: разговор с сессией. Версия 2. Запросы адресованы callsign сессии, message — полем to.
 // Ввод:
-//   rooms.message (кадр без id, имя Worker'а rooms) { to, from, text } — человек написал в чат Telegram: во ввод тегом <fleet-message>; сессии нет или она остановлена — строка журнала
+//   rooms.message (кадр без id, имя Worker'а rooms) { to, from, text } — человек написал в чат Telegram: во ввод тегом <fleet-message>; пока сессия спрашивает этот адрес, текст — ответ на вопрос; сессия остановлена — запрос notify в тот же чат; сессии нет — строка журнала
 //   session.prompt { callsign, uuid?, text, attachments?: [{ name, media_type, data(base64) }] } → { uuid }; слова: bad_attachment, stopped
 //   message { to, text, report? } — сообщение другой сессии во ввод тегом <fleet-message>; report — итог хода дочери, кто дал задачу, остаётся прежним; слово offline
 // Чтение:

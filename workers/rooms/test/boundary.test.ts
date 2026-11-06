@@ -27,6 +27,7 @@ let revoked: string[];
 let redeems: Record<string, { key: string } | { error: string }>;
 let answers: Record<string, { ok: boolean; result?: unknown; error_code?: number; description?: string; parameters?: unknown }>;
 let nextThread: number;
+let waits: Array<{ ms: number; before: number }>;
 
 const fakeEnv = () =>
   ({
@@ -76,6 +77,8 @@ beforeEach(async () => {
   await applyD1Migrations(DB, MIGRATIONS);
   await DB.batch(["chats", "threads", "asks"].map((t) => DB.prepare(`DELETE FROM ${t}`)));
   [calls, frames, revoked, deliverN, redeems, answers, nextThread] = [[], [], [], 1, {}, {}, 100];
+  waits = [];
+  vi.stubGlobal("scheduler", { wait: async (ms: number) => void waits.push({ ms, before: calls.length }) });
   telegram();
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -214,6 +217,22 @@ describe("ответ человека", () => {
     (u.message.from as { is_bot?: boolean }).is_bot = true;
     await hook(u);
     expect(frames).toEqual([]);
+  });
+
+  it("14 · реакция — после паузы: мгновенную Telegram молча теряет", async () => {
+    // источник: факт — без паузы видна 0 из 3, с паузой 400 мс 2 из 2, ответ ok в обоих случаях
+    await hook(said(GROUP, CARL, "гость", 102));
+    expect(waits).toEqual([{ ms: 1000, before: 0 }]);
+    expect(reactions()).toEqual(["👎"]);
+  });
+
+  it("отказ реакции — строка журнала", async () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((l) => void lines.push(String(l)));
+    answers.setMessageReaction = { ok: false, error_code: 400, description: "Bad Request: REACTION_INVALID" };
+    await hook(said(ANN, ANN, "x", 101));
+    expect(lines.some((l) => l.includes('"ev":"react"') && l.includes("REACTION_INVALID"))).toBe(true);
+    vi.restoreAllMocks();
   });
 
   it("5 · пропуск человека отозван: кадра нет, 👎, строка удалена", async () => {

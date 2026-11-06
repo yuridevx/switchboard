@@ -14,9 +14,12 @@ type Q = { questions?: Array<{ question?: string; multiSelect?: boolean; options
 const isClient = (a: string) => kindOf(a) === "device" || kindOf(a) === "user";
 const defined = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
+/** Вопросы и варианты строками. */
+const asLines = (questions: Q["questions"]) => (questions ?? []).flatMap((q) => [`${q.question ?? ""}${q.multiSelect ? " (можно несколько — через запятую)" : ""}`, ...(q.options ?? []).map((o) => `· ${o.label}${o.description ? ` — ${o.description}` : ""}`)]);
+
 /** Вопрос дочери во вводе сессии-адресата. */
 function asText(f: Frame): string {
-  const lines = ((f.questions ?? []) as NonNullable<Q["questions"]>).flatMap((q) => [`${q.question ?? ""}${q.multiSelect ? " (можно несколько — через запятую)" : ""}`, ...(q.options ?? []).map((o) => `· ${o.label}${o.description ? ` — ${o.description}` : ""}`)]);
+  const lines = asLines(f.questions as Q["questions"]);
   return `<fleet-question from="${f.from}" question="${f.question}">\n${lines.join("\n")}\nОтветь инструментом fleet.answer: to — ${f.from}, question — ${f.question}, answers — { "текст вопроса": "вариант" }.\n</fleet-question>`;
 }
 
@@ -67,7 +70,7 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
       if (kind === "ask") {
         const one = first?.length === 1 && !first[0].multiSelect ? first[0] : undefined;
         const actions = one?.options?.map((o) => ({ title: o.label, frame: { type: "answer", v: 1, callsign: cs, question: id, answers: { [one.question!]: o.label } } }));
-        notify(s, p, { title: `${cs} спрашивает`, body: first?.[0]?.question ?? "", ...(actions?.length ? { actions } : {}) }, "question");
+        notify(s, p, { title: `${cs} спрашивает`, body: actions?.length ? (first?.[0]?.question ?? "") : asLines(first).join("\n"), ...(actions?.length ? { actions } : {}) }, "question");
       } else if (kind === "perm") notify(s, p, { title: `${cs} просит разрешения`, body: String(fields.title ?? fields.tool) }, "question");
       else notify(s, p, { title: `${cs} · форма`, body: String(fields.message ?? fields.url ?? "") }, "question");
     });
@@ -119,6 +122,14 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
         return undefined;
       },
       "question.list": (req: Frame) => [...(open.get(String(req.callsign))?.values() ?? [])].map((p) => ({ question: p.id, kind: p.kind, ...p.fields })),
+    },
+    /** Текст человека из чата, пока сессия спрашивает его: ответ на вопрос, у каждого пункта один текст. Нет такого вопроса — false. */
+    reply(s: Session, from: string, text: string): boolean {
+      const p = [...of(s.info.callsign).values()].find((x) => x.kind === "ask" && x.to.includes(from));
+      if (!p) return false;
+      const answers = Object.fromEntries(((p.fields.questions ?? []) as NonNullable<Q["questions"]>).map((q) => [q.question, text]));
+      p.settle({ by: from, body: { type: "answer", answers } });
+      return true;
     },
     /** Вопрос другой сессии этой машине: сессиям-адресатам — во ввод. */
     frame(f: Frame) {

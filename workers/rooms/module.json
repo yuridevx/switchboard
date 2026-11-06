@@ -1,7 +1,7 @@
 {
   "name": "rooms",
   "type": "worker",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "provides": {
     "rooms.send": 1,
     "rooms.message": 1

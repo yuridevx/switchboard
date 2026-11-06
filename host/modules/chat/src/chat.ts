@@ -54,11 +54,16 @@ export function make(): Module {
   };
   /** Чужой текст во ввод: from — кто ответит на вопрос сессии, если он дал задачу. */
   const peer = (s: Session, name: string, text: string, from: string | undefined) => s.input(text, { from, priority: "next", uuid: randomUUID(), origin: { kind: "peer", from: name, name } });
-  /** Человек написал в чат Telegram: кадр без id, отказ — только в журнале, человек уже видит реакцию. */
+  /** Человек написал в чат Telegram. Кадр без id: остановленная сессия отвечает в тот же чат, пока сессия спрашивает — текст и есть ответ. */
   const human = ({ to, from, text }: Frame) => {
     const s = host.session(String(to));
-    if (!s || down(s) || typeof text !== "string" || !from) return host.log({ kind: "refuse", ev: "rooms.message", word: "offline", callsign: String(to), from, why: `${String(to)}: сессии нет или она ${s?.state}` });
-    peer(s, from, wrap(from, text), from);
+    if (!s || !from || typeof text !== "string") return host.log({ kind: "refuse", ev: "rooms.message", word: "offline", callsign: String(to), from, why: `${String(to)}: сессии нет` });
+    const cs = s.info.callsign;
+    if (down(s)) {
+      host.log({ kind: "refuse", ev: "rooms.message", word: "offline", callsign: cs, from, why: `${cs}: сессия ${s.state}` });
+      return void host.request("notify", { clients: [from], frame: { type: "message", from: cs, notify: { title: cs, body: `Сессия ${s.state}: сообщение не принято, запустите её в пульте.` } } });
+    }
+    if (!ask.reply(s, from, text)) peer(s, from, wrap(from, text), from);
   };
   const viewer = (req: Frame, ctx: { from?: string }) => {
     need(ctx.from, "без from");

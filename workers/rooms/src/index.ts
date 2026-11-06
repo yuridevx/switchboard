@@ -23,6 +23,16 @@ const log = (row: Row) => console.log(JSON.stringify({ t: new Date().toISOString
 
 const private_ = (chat: number) => chat > 0;
 
+/** Реакцию сразу после прихода сообщения Telegram молча теряет, отвечая ok: без паузы 0 из 3, с паузой 400 мс 2 из 2 (6 нояб.). */
+const REACT_MS = 1000;
+
+/** Реакция — единственный ответ человеку: отказ Telegram в журнале. */
+async function mark(env: Env, chat: number, message: number, emoji: string): Promise<void> {
+  await scheduler.wait(REACT_MS);
+  const a = await react(env.TELEGRAM_BOT_TOKEN, chat, message, emoji);
+  if (!a.ok) log({ kind: "refuse", ev: "react", word: "send_failed", why: a.description, chat, message, emoji });
+}
+
 /** Секрет вебхука выводится из токена бота: второго секрета нет. */
 async function hookSecret(env: Env): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`webhook|${env.TELEGRAM_BOT_TOKEN}`));
@@ -89,7 +99,7 @@ async function link(env: Env, m: Message, invite: string): Promise<void> {
   const got = await within(env.GATE.redeem(invite), "gate не ответил на redeem");
   if ("error" in got) {
     log({ kind: "refuse", ev: "link", word: got.error, why: `приглашение чата ${chat} не принято` });
-    await react(token, chat, m.message_id, REFUSED);
+    await mark(env, chat, m.message_id, REFUSED);
     return;
   }
   const who = await within(env.GATE.verify(got.key), "gate не ответил на verify");
@@ -123,24 +133,24 @@ async function onMessage(env: Env, m: Message): Promise<void> {
   if (invite) return link(env, m, `${invite[1]}.${invite[2]}`);
   const callsign = await callsignOf(env, chat, m.message_thread_id);
   if (!callsign) {
-    if (private_(chat)) await react(token, chat, m.message_id, NOBODY);
+    if (private_(chat)) await mark(env, chat, m.message_id, NOBODY);
     return;
   }
   const by = m.from?.is_bot ? null : await sender(env, chat, m.from ?? { id: 0 });
   if (!by) {
     log({ kind: "refuse", ev: "message", word: "not_linked", why: `${m.from?.id} не привязан`, callsign });
-    await react(token, chat, m.message_id, REFUSED);
+    await mark(env, chat, m.message_id, REFUSED);
     return;
   }
   if (!text) {
     log({ kind: "refuse", ev: "message", word: "not_text", why: "вложения сессии не передаются", callsign });
-    await react(token, chat, m.message_id, NOBODY);
+    await mark(env, chat, m.message_id, NOBODY);
     return;
   }
   // автор — именем: адрес в тексте модель принимает за адрес ответа, а ответ идёт в from
   const said = private_(chat) ? text : `${m.from?.first_name ?? by.who}: ${text}`;
   const n = await toHost(env, { type: "rooms.message", v: 1, to: callsign, from: by.place, text: said });
-  await react(token, chat, m.message_id, n ? SEEN : NOBODY);
+  await mark(env, chat, m.message_id, n ? SEEN : NOBODY);
 }
 
 /** Нажатая кнопка вопроса: кадр дал тот, кто спросил, служба его не разбирает. Запрос: id нужен Host, ответ никто не ждёт. Первый ответ выигрывает у Host. */

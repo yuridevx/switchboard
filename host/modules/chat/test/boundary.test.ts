@@ -623,6 +623,34 @@ describe("вопрос человеку", () => {
     await until(() => st.journal().find((l) => l.ev === "rooms.message"));
   });
 
+  it("15 · остановленная сессия отвечает в тот же чат: иначе человек видит только 👀", async () => {
+    // источник: факт — relay считает доставленным кадр в соединение Host, 👀 ставится и остановленной сессии
+    const b = await bench();
+    const s = await b.st.open(CS);
+    const p = b.st.proc(CS);
+    await s.stop();
+    b.st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: CS, text: "ты тут?" });
+    const n = await until(() => b.notifies[0]);
+    expect(n).toMatchObject({ clients: [TG], frame: { type: "message", from: CS, notify: { title: CS } } });
+    expect(p.inputs).toHaveLength(0);
+  });
+
+  it("16 · несколько вопросов: текст из чата отвечает на все пункты, вопросы и варианты видны в теле", async () => {
+    // источник: слово пользователя — реагировать на ответы; вопрос ждёт ответа без предела
+    const b = await bench();
+    await b.st.open(CS);
+    const p = b.st.proc(CS);
+    b.st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: CS, text: "выкладывай" });
+    await until(() => p.inputs.length === 1);
+    const r = p.askWith("AskUserQuestion", { questions: [{ question: "Куда?", options: [{ label: "тест" }] }, { question: "Когда?", options: [{ label: "сейчас" }] }] }, {}, "toolu_two");
+    const n = await until(() => b.notifies[0]);
+    expect((n.frame as { notify: Record<string, unknown> }).notify).toMatchObject({ body: "Куда?\n· тест\nКогда?\n· сейчас" });
+    expect((n.frame as { notify: Record<string, unknown> }).notify).not.toHaveProperty("actions");
+    b.st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: CS, text: "тест, сейчас" });
+    expect(await r).toMatchObject({ behavior: "allow", updatedInput: { answers: { "Куда?": "тест, сейчас", "Когда?": "тест, сейчас" } } });
+    expect(p.inputs).toHaveLength(1);
+  });
+
   it("12 · ответ из Telegram: вопрос AskUserQuestion уходит в тот же чат кнопками", async () => {
     // чьё: код — вопрос ждёт ответа без предела, поэтому адресат должен его увидеть
     const b = await bench();
