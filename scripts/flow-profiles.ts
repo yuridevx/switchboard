@@ -65,9 +65,11 @@ check("machine.profiles: кусочек в списке и сессия на н�
 const run = `прогон-${Date.now().toString(36)}`;
 const color = `бирюзовый-${Date.now() % 10000}`;
 await turn(A, `Сохрани в свою автоматическую память (memory) факт: цвет для метки «${run}» — «${color}». Запиши файлом памяти, подтверди одним словом.`);
+const before = Date.now();
 const pushed = await wait(async () => {
   const r = await req({ type: "machine.profiles", v: 2, machine: M1, sync: true });
-  return r.result?.repos?.[process.env.FLOW_REPO!]?.state === "ok" && /память/.test(r.result.repos[process.env.FLOW_REPO!].last ?? "");
+  const repo = r.result?.repos?.[process.env.FLOW_REPO!];
+  return repo?.state === "ok" && repo.at >= before;
 }, 120000);
 const st1 = (await req({ type: "machine.profiles", v: 2, machine: M1 })).result?.repos?.[process.env.FLOW_REPO!];
 check(`${M1}: память профиля закоммичена и отправлена`, pushed, st1);
