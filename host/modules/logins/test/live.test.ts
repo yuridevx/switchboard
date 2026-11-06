@@ -1,6 +1,7 @@
 // Живые эталоны ключа флота: настоящий claude читает то, что собрал модуль, поддельный совместимый API пишет запросы. Без SWITCHBOARD_LIVE=1 пропускается.
 // Флот не задет: своя папка, свой адрес на localhost, вход Claude не нужен.
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -135,6 +136,16 @@ async function run(b: Awaited<ReturnType<typeof built>>, extra: Record<string, u
   return { session, result, texts };
 }
 
+/** Настоящая команда claude: вывод вместе, как у ядра. */
+const cliOf = (args: string[], env: Record<string, string | undefined>) =>
+  new Promise<{ code: number | null; out: string }>((resolve) => {
+    const p = spawn(claudeBin(), args, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    let out = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (out += d));
+    p.on("close", (code) => resolve({ code, out }));
+  });
+
 const betas = (r: Req) => String(r.headers["anthropic-beta"] ?? "");
 const tokenOf = (r: Req) => String(r.headers["x-api-key"] ?? r.headers.authorization ?? "").replace(/^Bearer /, "");
 
@@ -195,7 +206,7 @@ describe.skipIf(!LIVE)("живые эталоны ключа флота: нас�
     const b = await built("job", "orca");
     api.o.status = 429;
     // SDK бросает то, что claude написал в ленте результата
-    const word = await run({ ...b, env: { ...b.env, CLAUDE_CODE_MAX_RETRIES: "0" } }).then(() => "", (e: Error) => e.message);
+    const word = await run({ ...b, env: { ...b.env, CLAUDE_CODE_MAX_RETRIES: "0" } as typeof b.env }).then(() => "", (e: Error) => e.message);
     expect(word).toMatch(/429/);
     expect(word).toContain("слишком много запросов");
   }, 120_000);
@@ -230,8 +241,7 @@ describe.skipIf(!LIVE)("живые эталоны ключа флота: нас�
 
   it("8032 · настоящий разовый запуск: рабочий ключ — модель и время; неверный — слово ответа", async () => {
     await bench({ orca: { env: ENV(), settings: {}, key: "sk-good" } });
-    const { claudeCli } = await import("../../../core/src/release.ts");
-    st!.sdk.cli = claudeCli(claudeBin(), 60_000) as never;
+    st!.sdk.cli = cliOf as never;
     api.o.want = "sk-good";
     const ask = async () => (await st!.relay.request({ v: 1, machine: "laptop", type: "machine.key_check", name: "orca" } as Frame)) as Frame & { result: { ok: boolean; word: string } };
     const good = await ask();
