@@ -2,6 +2,7 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { clientPath, isRefusal, refuse, tildePath } from "@switchboard/host";
+import { nameOf } from "@switchboard/protocol";
 import type { Frame, Host, Module, OpenSpec, QueryPart, Session } from "@switchboard/host";
 
 /** Раздел сессии. Режим лежит только не по умолчанию. */
@@ -199,7 +200,7 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         enableFileCheckpointing: true,
         permissionMode: part.mode ?? MODE,
         ...given(part, ["model", "effort"]),
-        ...(opening.has(callsign) ? { title: callsign.split("@")[0] } : {}),
+        ...(opening.has(callsign) ? { title: nameOf(callsign) } : {}),
         settings: settingsOf(part, ["fast", "style", "thinking"]),
         hooks: {
           // модель сменили в claude.ai: выбор — то, что просили; resume только повторяет прежнюю
