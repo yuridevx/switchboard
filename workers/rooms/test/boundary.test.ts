@@ -66,7 +66,8 @@ async function hook(update: unknown, header?: string) {
 const send = (push: Partial<RoomsSend> & { to: string }): Promise<RoomsSent> => new (Rooms as unknown as { new (c: unknown, e: unknown): Rooms })({ waitUntil() {} }, fakeEnv()).send({ type: "message", from: SITE, notify: { title: SITE, body: "Тесты прошли" }, ...push });
 
 let n = 0;
-const said = (chat: number, from: number, text: string, thread?: number, type = chat > 0 ? "private" : "supergroup") => ({ message: { message_id: ++n, chat: { id: chat, type }, from: { id: from }, text, ...(thread ? { message_thread_id: thread } : {}) } });
+const NAMES: Record<number, string> = { [ANN]: "Ann", [BOB]: "Bob" };
+const said = (chat: number, from: number, text: string, thread?: number, type = chat > 0 ? "private" : "supergroup") => ({ message: { message_id: ++n, chat: { id: chat, type }, from: { id: from, first_name: NAMES[from] }, text, ...(thread ? { message_thread_id: thread } : {}) } });
 const link = (chat: number, addr: string, kid: string) => DB.prepare("INSERT INTO chats (chat, addr, kid, at) VALUES (?, ?, ?, 0)").bind(chat, addr, kid).run();
 const row = (table: string) => DB.prepare(`SELECT * FROM ${table}`).all<Record<string, unknown>>().then((r) => r.results);
 const reactions = () => of("setMessageReaction").map((c) => (c.body.reaction as Array<{ emoji: string }>)[0].emoji);
@@ -190,14 +191,14 @@ describe("ответ человека", () => {
 
   it("13 · ответ в группе: from — адрес группы, автор в тексте: написать в from значит ответить туда же", async () => {
     await hook(said(GROUP, ANN, "вижу", 102));
-    expect(frames[0]).toMatchObject({ from: TEAM, text: `${ANN_DM}: вижу` });
+    expect(frames[0]).toMatchObject({ from: TEAM, text: "Ann: вижу" });
   });
 
   it("3 · двое пишут в тему: два автора, порядок сохранён", async () => {
     // источник: слово пользователя — канал делят несколько людей
     await hook(said(GROUP, ANN, "раз", 102));
     await hook(said(GROUP, BOB, "два", 102));
-    expect(frames.map((f) => f.text)).toEqual([`${ANN_DM}: раз`, `${BOB_DM}: два`]);
+    expect(frames.map((f) => f.text)).toEqual(["Ann: раз", "Bob: два"]);
   });
 
   it("4 · гость и анонимный админ: кадра нет, на сообщении 👎", async () => {

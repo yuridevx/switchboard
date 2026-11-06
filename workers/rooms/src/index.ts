@@ -137,7 +137,8 @@ async function onMessage(env: Env, m: Message): Promise<void> {
     await react(token, chat, m.message_id, NOBODY);
     return;
   }
-  const said = private_(chat) ? text : `${by.who}: ${text}`;
+  // автор — именем: адрес в тексте модель принимает за адрес ответа, а ответ идёт в from
+  const said = private_(chat) ? text : `${m.from?.first_name ?? by.who}: ${text}`;
   const n = await toHost(env, { type: "rooms.message", v: 1, to: callsign, from: by.place, text: said });
   await react(token, chat, m.message_id, n ? SEEN : NOBODY);
 }
