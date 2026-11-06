@@ -20,14 +20,37 @@ export function make() {
 
   const tools = (me: string) => toolsOf(me, () => ({ host, records }));
 
+  /** Родителю без смены того, кто дал ему задачу. */
+  function tell(s: Session, parent: string, text: string, lost: string): void {
+    const { callsign } = s.info;
+    void host.request("message", { to: parent, text, report: true, from: callsign }).then((r) => {
+      if (!r.ok) host.log({ kind: "note", ev: "report", word: r.error, callsign, why: `${lost}: ${r.error}` });
+    });
+  }
+
+  const parentOf = (s: Session) => s.field("parent") as string | undefined;
+
   /** Ход кончился, а начал его родитель, — итог ему сам. */
   function report(s: Session, end: TurnEnd): void {
-    const { callsign, from } = s.info;
-    const parent = s.field("parent") as string | undefined;
-    if (!parent || parent !== from || kindOf(parent) !== "session") return;
-    void host.request("message", { to: parent, text: outcome(end), report: true, from: callsign }).then((r) => {
-      if (!r.ok) host.log({ kind: "note", ev: "report", word: r.error, callsign, why: `итог хода родителю ${parent} не доставлен: ${r.error}` });
-    });
+    const parent = parentOf(s);
+    if (parent && parent === s.info.from && kindOf(parent) === "session") tell(s, parent, outcome(end), `итог хода родителю ${parent} не доставлен`);
+  }
+
+  /** Ведомый поднялся впервые: ведущий узнаёт, кто он. Пара сразу и пара позже идут одним путём. */
+  function introduce(s: Session): void {
+    const parent = parentOf(s);
+    if (s.info.start !== "spawn" || !s.field("wing") || !parent) return;
+    const slot = (s.field("slot") as { name?: string } | undefined)?.name;
+    const pieces = ((s.field("profile") as Array<{ id: string }> | undefined) ?? []).map((p) => p.id);
+    const said = [s.field("model"), s.field("effort"), slot, ...pieces].filter(Boolean);
+    tell(s, parent, `ведомый ${s.info.callsign} поднят${said.length ? `: ${said.join(", ")}` : ""}. Задачу ему — fleet.send, итог его хода придёт сам.`, `весть о ведомом родителю ${parent} не доставлена`);
+  }
+
+  /** Процесс ведомого умер посреди хода ведущего: итога не будет, ход не повторяется. */
+  function broken(s: Session): void {
+    const parent = parentOf(s);
+    if (!s.field("wing") || !parent || parent !== s.info.from || (s.state !== "busy" && s.state !== "waiting")) return;
+    tell(s, parent, `ход ведомого ${s.info.callsign} оборвался: процесс вышел, ход не повторяется`, `слово об обрыве родителю ${parent} не доставлено`);
   }
 
   const module: Module = {
@@ -40,16 +63,20 @@ export function make() {
       // просмотр профиля не знает сессии: в тексте имя-пример
       "fleet.prompt": () => ({ text: prompt(`сессия@${host.machine}`) }),
     },
-    session: ({ info: { callsign } }) => ({
-      mcpServers: { fleet: createSdkMcpServer({ name: "fleet", tools: tools(callsign) }) },
-      append: prompt(callsign),
+    session(s) {
+      const { callsign } = s.info;
       // сессии говорят друг с другом только через fleet (слово пользователя 1 нояб.)
-      env: { CLAUDE_CODE_HARBOR_KITE: "0" },
-    }),
+      const env = { CLAUDE_CODE_HARBOR_KITE: "0" };
+      // ведомый снаружи не виден: задача приходит вводом, итог уходит сам, инструменты вынесли бы его адрес наружу
+      if (s.field("wing")) return { env };
+      return { mcpServers: { fleet: createSdkMcpServer({ name: "fleet", tools: tools(callsign) }) }, append: prompt(callsign), env };
+    },
     on: {
       event(s, msg) {
         if (msg.type === "result") report(s, msg as TurnEnd);
       },
+      open: introduce,
+      close: broken,
     },
   };
 

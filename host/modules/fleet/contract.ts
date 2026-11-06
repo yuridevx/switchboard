@@ -5,6 +5,9 @@
 //   Кадр message клиенту { from, to, text } — без ответа; текст пуша — запросом notify модулю push.
 // Итог хода: ход кончился, отправитель последнего ввода — родитель сессии (поле parent от manage этой машины) и это сессия —
 //   текст result родителю запросом message с report: true: кто дал задачу родителю, не меняется.
+// Пара: ведомый виден и адресуем только своему ведущему и только в list, send, answer, history; остальным — pair_inside, а в list ведущий несёт поле pair с настройками ведомого без адреса.
+//   open и update + wing { profile, model, effort, slot }; update wing: null снимает ведомого. Ведомому нет сервера fleet и добавки к промпту.
+//   Ведущему запросом message с report: true — весть о ведомом (on.open при start spawn) и слово об обрыве (on.close посреди хода, начатого ведущим).
 // Хранить нечего.
 import { make } from "./src/fleet.ts";
 

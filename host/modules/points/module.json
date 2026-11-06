@@ -19,6 +19,7 @@
     "session.stop@host-manage": 1,
     "session.remove@host-manage": 1,
     "session.spec@host-manage": 1,
+    "wing@host-manage": 1,
     "roster@relay": 1
   },
   "calls": [

@@ -37,6 +37,9 @@ async function plan(host: Host, req: Frame): Promise<Plan> {
   const got = must(await host.request("points.get", { to: ".points", ids: [point] })) as { owner: string; points: Row[]; links: Record<string, string> };
   const row = got.points[0];
   if (row.sid !== sid) throw refuse("bad_point", `точка ${point} — другой сессии`);
+  const lead = !copy && got.owner !== host.machine ? row.callsign : undefined;
+  // перенос снимает сессию на прежней машине, а ведомый живёт только рядом с ведущим
+  if (lead && host.roster()?.sessions.some((x) => x.wing && x.parent === lead)) throw refuse("has_wing", `${lead}: сначала снимите ведомого`);
   const previous = hereOf(host).find((s) => s.info.session_id === sid);
   if (!copy && previous && previous.state !== "stopped" && previous.state !== "failed") throw refuse("running", `${previous.info.callsign} ещё идёт`);
   const near = host.sessions().filter((x) => resolve(x.cwd) === resolve(dir) && x.state !== "stopped" && x.callsign !== previous?.info.callsign).map((x) => x.callsign);

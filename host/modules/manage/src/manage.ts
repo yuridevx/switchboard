@@ -5,7 +5,7 @@ import { clientPath, isRefusal, refuse, tildePath } from "@switchboard/host";
 import type { Frame, Host, Module, OpenSpec, QueryPart, Session } from "@switchboard/host";
 
 /** Раздел сессии. Режим лежит только не по умолчанию. */
-type Part = { model?: string; effort?: string; fast?: boolean; style?: string; thinking?: boolean; parent?: string; mode?: string; remove_after_turn?: string };
+type Part = { model?: string; effort?: string; fast?: boolean; style?: string; thinking?: boolean; parent?: string; wing?: boolean; mode?: string; remove_after_turn?: string };
 
 const MODE = "bypassPermissions";
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -63,10 +63,19 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
     return s;
   };
   const isTaken = (callsign: string) => opening.has(callsign) || !!host.session(callsign);
+  /** Ведомый этой сессии: у него одного wing и parent — она. */
+  const wingOf = (lead: Session) =>
+    host.sessions().flatMap((x) => host.session(x.callsign) ?? []).find((s) => {
+      const { wing, parent } = partOf(s);
+      return wing && parent === lead.info.callsign;
+    });
   const ledger = (ev: string, callsign: string, text: string, by: unknown) => host.emit({ type: "ledger.add", to: ".ledger", ev, machine: host.machine, callsign, text, by });
 
+  /** Снаружи пара — одна сессия: ведущий уходит вместе с ведомым, ведомый первым. */
   async function remove(s: Session, by: unknown): Promise<void> {
     const { callsign } = s.info;
+    const wing = wingOf(s);
+    if (wing) await remove(wing, by);
     await s.remove();
     ledger("session.removed", callsign, `${callsign} забыта`, by);
   }
@@ -91,20 +100,35 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
     return cwd;
   }
 
+  /** Ведущий запроса wing_of: на этой машине, сам не ведомый, ведомого у него нет. */
+  function leadOf(f: Frame): Session {
+    const { wing_of: id, name, dir } = f;
+    if (typeof id !== "string") throw refuse("bad_spec", "session.open: wing_of — callsign ведущего");
+    if (name !== undefined || dir !== undefined) throw refuse("bad_spec", `session.open ведомого ${id}: имя и папку выводит машина`);
+    const lead = host.session(id);
+    if (!lead) throw refuse("offline", `session.open: ведущего ${id} нет на ${host.machine}`);
+    if (partOf(lead).wing) throw refuse("bad_spec", `session.open: ${id} сам ведомый`);
+    const wing = wingOf(lead);
+    if (wing) throw refuse("has_wing", `session.open: у ${id} уже есть ведомый ${wing.info.callsign}`);
+    return lead;
+  }
+
   async function open(f: Frame): Promise<unknown> {
-    const { name, number } = f;
+    const lead = f.wing_of === undefined ? undefined : leadOf(f);
+    const { number } = f;
+    const name = lead ? `${lead.info.callsign.split("@")[0]}-wing` : f.name;
     if (typeof name !== "string" || !NAME.test(name)) throw refuse("bad_name", `session.open: имя ${JSON.stringify(name)}`);
     if (number !== undefined && !isFlag(number)) throw refuse("bad_spec", `session.open ${name}: number`);
     checkSpec(f, `session.open ${name}`);
     const callsign = callsignOf(f, name);
     for (const [key, type] of Object.entries(OPEN_TYPES)) if (f[key] !== undefined && typeof f[key] !== type) throw refuse("bad_spec", `session.open ${callsign}: ${key}`);
-    const cwd = folderOf(f, callsign);
+    const cwd = lead ? lead.info.cwd : folderOf(f, callsign);
 
     opening.add(callsign);
     try {
       const s = await raising(callsign, () => host.open({ ...f, callsign, cwd, opening: f } as unknown as OpenSpec));
       const slot = (s.field("slot") as { name?: string } | undefined)?.name ?? null;
-      ledger("session.opened", callsign, `${callsign} создана · ${String(f.dir)}${slot ? ` · слот ${slot}` : ""}`, f.from);
+      ledger("session.opened", callsign, `${callsign} создана · ${lead ? tildePath(cwd, home) : String(f.dir)}${slot ? ` · слот ${slot}` : ""}`, f.from);
       return { callsign, session_id: s.info.session_id, slot };
     } finally {
       opening.delete(callsign);
@@ -165,6 +189,9 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         const { point } = f;
         if (point !== undefined && typeof point !== "number") throw refuse("bad_spec", `session.start ${callsign}: point`);
         await raising(callsign, () => s.start({ point }));
+        const wing = wingOf(s);
+        // точка — только ведущего: разговор ведомого своей точки не называл
+        if (wing) await raising(wing.info.callsign, () => wing.start());
       },
 
       async "session.remove"(f) {
@@ -179,17 +206,23 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         return remove(s, from);
       },
 
-      "session.stop": (f) => sessionOf(f).stop(),
+      async "session.stop"(f) {
+        const s = sessionOf(f);
+        await wingOf(s)?.stop();
+        await s.stop();
+      },
     },
     fields: {
       model: (s) => partOf(s).model ?? s.info.model ?? undefined,
       effort: (s) => partOf(s).effort,
       parent: (s) => partOf(s).parent,
+      wing: (s) => partOf(s).wing,
       mode: (s) => partOf(s).mode ?? MODE,
     },
     opening(s, req) {
-      const parent = req.from as string | undefined;
-      const part = { ...given(req as Part, STORED), ...(parent ? { parent } : {}) };
+      const lead = req.wing_of as string | undefined;
+      const parent = lead ?? (req.from as string | undefined);
+      const part = { ...given(req as Part, STORED), ...(parent ? { parent } : {}), ...(lead ? { wing: true } : {}) };
       if (Object.keys(part).length) s.store<Part>().set(part);
     },
     session(s): QueryPart {
