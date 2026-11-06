@@ -158,6 +158,16 @@ describe("hello", () => {
     expect(await phone.quiet()).toEqual([]);
   });
 
+  it("открытая дверь: key объектом, который не приводится к строке, — 1008 bad_key, как чужой пропуск; Host машины на связи", async () => {
+    // источник: устав — ошибка словом; слово пользователя 6 нояб. — вход без пропуска реален, отказ словом обязателен
+    const a = await laptop();
+    const x = await open();
+    x.send({ type: "hello", proto: 1, key: { toString: 1 } });
+    expect(await x.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
+    expect(await a.quiet()).toEqual([]);
+    expect(a.closed).toBeNull();
+  });
+
   it.each([
     // сбой под нагрузкой может опоздать за предел стенда: причина тогда — предел
     ["throw", "gate "],

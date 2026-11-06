@@ -212,7 +212,7 @@ export class Fleet extends DurableObject<Env> {
       return ws.close(1008, BAD_FRAME);
     }
     ws.serializeAttachment({ ...card, checking: true });
-    const key = String(f.key);
+    const key = typeof f.key === "string" ? f.key : "";
     // в журнал — пропуск без секрета
     const pass = key.split(".").slice(0, -1).join(".");
     const shut = (word: string, why: string) => {
