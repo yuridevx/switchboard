@@ -1,21 +1,19 @@
 // Вкладка «Точки» карточки: пометка «в R2», линия и ветки, карточка точки, окна.
 import { Fragment, useEffect, useState } from "react";
-import { ago, Btn, Check, day, H4, hhmm, In, machinesWith, Note, Opts, OptsLabel, Page, PageHead, Row, RowBtn, Sec, sessionOf, useApp, useLoad, useModule } from "@switchboard/web-ui";
+import { ago, Btn, Check, day, H4, hhmm, In, Note, Opts, OptsLabel, Outcome, type OutcomeNote, Page, PageHead, Row, RowBtn, Sec, sessionOf, useApp, useLoad, useModule } from "@switchboard/web-ui";
 import type { ScreenProps } from "@switchboard/web-core";
 import type { ListedPoint, Point, PointsListSession } from "@switchboard/points";
 import { Dialog, type Kind } from "./Dialog.tsx";
 import type { Fleet } from "./store.ts";
-import { countOf, refused } from "./words.ts";
+import { countOf, megabytes, refused } from "./words.ts";
 
 type Words = Record<number, string[][] | undefined>;
-
-const size = (bytes: number) => `${(bytes / 1_048_576).toFixed(1).replace(".", ",")} МБ`;
 
 function gitLine(git: { state?: string; files?: number; branch?: string } | undefined) {
   if (!git) return "";
   const n = git.files ?? 0;
   const state = git.state === "dirty" ? `${countOf(n, "файл", "файла", "файлов")} ${n % 10 === 1 && n % 100 !== 11 ? "не закоммичен" : "не закоммичено"}` : "чисто";
-  return `git: ${state} · ${git.branch}`;
+  return `git: ${state}${git.branch ? ` · ${git.branch}` : ""}`;
 }
 
 function PointCard({ p, head, words, act }: { p: ListedPoint; head: boolean; words?: string[][]; act?: { copy?(): void; back?(): void } }) {
@@ -77,7 +75,9 @@ function Unmark({ callsign, go, close }: { callsign: string; go(): void; close()
   );
 }
 
-function Marked({ callsign, note, say }: { callsign: string; note: string; say(text: string): void }) {
+type Noted = { callsign: string; note: OutcomeNote | null; say(text: string, tone?: OutcomeNote["tone"]): void };
+
+function Marked({ callsign, note, say }: Noted) {
   const app = useApp();
   const fleet = useModule<Fleet>();
   const [name, machine] = callsign.split("@");
@@ -92,27 +92,32 @@ function Marked({ callsign, note, say }: { callsign: string; note: string; say(t
   const last: Words = Object.fromEntries((words.data?.points ?? []).map((p) => [p.id, p.last as string[][] | undefined]));
   const failed = app.use(() => (sessionOf(app, callsign)?.r2 as { error?: string } | undefined)?.error);
   const canSave = app.use(() => app.can(machine, "points.save") === true);
-  const canRaise = app.use(() => machinesWith(app, "points.raise").length > 0);
+  const canRaise = app.use(() => app.can(machine, "points.raise") === true);
   const [card, setCard] = useState<number | null>(null);
   const [dialog, setDialog] = useState<{ kind: Kind; from: ListedPoint | null } | null>(null);
   const [unmark, setUnmark] = useState(0);
   const head = points.find((p) => p.id === line.data?.head) ?? points[0];
-  const word = line.error || fleetError;
-  const title = word ? `points.list: ${word}` : head ? `Точка ${ago(head.at)} · №${head.id}${head.bytes ? ` · ${size(head.bytes)}` : ""}` : line.loading ? "…" : "Точек ещё нет";
+  const word = line.error || (sid ? "" : fleetError);
+  const title = word ? `points.list: ${word}` : head ? `Точка ${ago(head.at)} · №${head.id}${head.bytes ? ` · ${megabytes(head.bytes)}` : ""}` : line.loading ? "…" : "Точек ещё нет";
   const open = (kind: Kind, from: ListedPoint | null = null) => setDialog({ kind, from });
+  const changed = () => {
+    line.reload();
+    void fleet.read();
+  };
 
   const save = async () => {
     say("Сохраняю точку…");
     const r = await app.request<{ point: number; same: boolean }>("points.save", { callsign });
-    say(r.ok ? (r.result.same ? `Точка №${r.result.point} — та же, файлы не менялись` : `Точка №${r.result.point}`) : refused(r.error, { who: name }));
-    line.reload();
+    if (r.ok) say(r.result.same ? `Точка №${r.result.point} — та же, файлы не менялись` : `Точка №${r.result.point}`, "ok");
+    else say(refused(r.error, { who: name }), "bad");
+    changed();
   };
 
   const off = async () => {
     say("Удаляю точки…");
     const r = await app.request<{ deleted: number }>("session.r2", { callsign, on: false });
-    if (!r.ok) return say(refused(r.error, { who: name }));
-    say(`${countOf(r.result.deleted, "точка", "точки", "точек")} ${r.result.deleted % 10 === 1 && r.result.deleted % 100 !== 11 ? "удалена" : "удалено"} из R2 — сразу, без отмены. Сессия на ${machine} работает дальше, без точек.`);
+    if (!r.ok) return say(refused(r.error, { who: name }), "bad");
+    say(`${countOf(r.result.deleted, "точка", "точки", "точек")} ${r.result.deleted % 10 === 1 && r.result.deleted % 100 !== 11 ? "удалена" : "удалено"} из R2 — сразу, без отмены. Сессия на ${machine} работает дальше, без точек.`, "ok");
     setUnmark(0);
     void fleet.read();
   };
@@ -140,10 +145,11 @@ function Marked({ callsign, note, say }: { callsign: string; note: string; say(t
         </PageHead>
         {failed ? <Note tone="bad">{`последняя точка не удалась: ${failed}`}</Note> : null}
         {words.error ? <Note tone="bad">{`points.get: ${words.error}`}</Note> : null}
-        {note ? <Note data-note="">{note}</Note> : null}
+        <Outcome data-note="" note={note} />
       </Sec>
-      {dialog && sid && head ? <Dialog key={`${dialog.kind}:${dialog.from?.id}`} kind={dialog.kind} callsign={callsign} sid={sid} head={head} from={dialog.from} close={() => setDialog(null)} reload={line.reload} /> : null}
-      <Sec data-points="">
+      {dialog && sid && head ? <Dialog key={`${dialog.kind}:${dialog.from?.id}`} kind={dialog.kind} callsign={callsign} sid={sid} head={head} from={dialog.from} close={() => setDialog(null)} changed={changed} /> : null}
+      {points.length ? (
+        <Sec data-points="">
         <H4>Линия и ветки</H4>
         {days.map((d) => (
           <Fragment key={d}>
@@ -163,7 +169,8 @@ function Marked({ callsign, note, say }: { callsign: string; note: string; say(t
               ))}
           </Fragment>
         ))}
-      </Sec>
+        </Sec>
+      ) : null}
       <Sec>
         <OptsLabel>
           <Check checked data-act="r2" onChange={() => setUnmark((n) => n + 1)} />
@@ -176,7 +183,7 @@ function Marked({ callsign, note, say }: { callsign: string; note: string; say(t
   );
 }
 
-function Unmarked({ callsign, note, say }: { callsign: string; note: string; say(text: string): void }) {
+function Unmarked({ callsign, note, say }: Noted) {
   const app = useApp();
   const fleet = useModule<Fleet>();
   const [on, setOn] = useState(false);
@@ -185,8 +192,8 @@ function Unmarked({ callsign, note, say }: { callsign: string; note: string; say
     say("Включаю…");
     const r = await app.request<{ point: number | null }>("session.r2", { callsign, on: true });
     setOn(r.ok);
-    if (!r.ok) return say(refused(r.error));
-    say(r.result.point === null ? "Первая точка — на первом конце хода." : `Первая точка — №${r.result.point}, только что; дальше Host кладёт их сам.`);
+    if (!r.ok) return say(refused(r.error), "bad");
+    say(r.result.point === null ? "Первая точка — на первом конце хода." : `Первая точка — №${r.result.point}, только что; дальше Host кладёт их сам.`, "ok");
     void fleet.read();
   };
   return (
@@ -197,7 +204,7 @@ function Unmarked({ callsign, note, say }: { callsign: string; note: string; say
           <Check checked={on} data-act="r2" onChange={() => void mark()} />
           Хранить в R2
         </OptsLabel>
-        {note ? <Note data-note="">{note}</Note> : null}
+        <Outcome data-note="" note={note} />
       </Sec>
     </Page>
   );
@@ -207,6 +214,7 @@ export function Tab({ params }: ScreenProps) {
   const app = useApp();
   const callsign = params.callsign;
   const marked = app.use(() => sessionOf(app, callsign)?.r2 !== undefined);
-  const [note, say] = useState("");
+  const [note, setNote] = useState<OutcomeNote | null>(null);
+  const say: Noted["say"] = (text, tone) => setNote({ text, tone });
   return marked ? <Marked callsign={callsign} note={note} say={say} /> : <Unmarked callsign={callsign} note={note} say={say} />;
 }

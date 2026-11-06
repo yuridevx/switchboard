@@ -24,7 +24,6 @@ export function make(): Module {
   const turns = new Map<string, ReturnType<typeof setTimeout>>();
   const idle = new Map<string, Set<() => void>>();
   const leaving = new Set<string>();
-  const work = new Set<Promise<void>>();
   /** точки одной сессии идут по очереди */
   const queue = new Map<string, Promise<unknown>>();
 
@@ -47,7 +46,7 @@ export function make(): Module {
       errors.delete(callsign);
       return put;
     } catch (e) {
-      const word = isRefusal(e) ? e.word : "point_failed";
+      const word = isRefusal(e) ? e.word : "failed";
       errors.set(callsign, { error: word, at: Date.now() });
       host.log({ kind: "refuse", ev: "point", word, callsign, why: String(e) });
       throw e;
@@ -67,21 +66,9 @@ export function make(): Module {
   function auto(s: Session, why: Why = "rule") {
     const mark = markOf(s).get();
     // до точки старта правило молчит: первая точка после перезапуска Host — она
-    if (down || !mark || (!started && why === "rule") || !existsSync(conversationOf(s))) return;
-    const job = (async () => {
-      try {
-        if (mark.base === undefined) await save(s, why);
-        else {
-          await save(s, "raise", { base: mark.base });
-          markOf(s).set({ r2: true });
-        }
-      } catch (e) {
-        if (isRefusal(e) && e.word === "not_owner") await leave(s);
-      }
-    })()
-      .catch(() => {})
-      .finally(() => work.delete(job));
-    work.add(job);
+    if (down || leaving.has(s.info.callsign) || !mark || (!started && why === "rule") || !existsSync(conversationOf(s))) return;
+    const first = mark.base === undefined ? save(s, why) : save(s, "raise", { base: mark.base }).then(() => markOf(s).set({ r2: true }));
+    void first.catch((e) => (isRefusal(e) && e.word === "not_owner" ? leave(s) : undefined)).catch(() => {});
   }
 
   function startPoints() {
@@ -100,8 +87,9 @@ export function make(): Module {
 
   function longTurn(s: Session) {
     turns.set(s.info.callsign, setTimeout(() => {
+      turns.delete(s.info.callsign);
       auto(s);
-      longTurn(s);
+      if (s.state === "busy") longTurn(s);
     }, LONG_MS));
   }
 
@@ -134,11 +122,13 @@ export function make(): Module {
         const { callsign } = s.info;
         if (state !== "busy") for (const ended of [...(idle.get(callsign) ?? [])]) ended();
         if (state === "busy" && !turns.has(callsign) && marked(s)) longTurn(s);
-        if (state === "idle" && endTurn(callsign) && Date.now() - (lastAt.get(callsign) ?? 0) >= GAP_MS) auto(s);
+        if (state !== "idle") return;
+        endTurn(callsign);
+        if (Date.now() - (lastAt.get(callsign) ?? 0) >= GAP_MS) auto(s);
       },
       close(s) {
         endTurn(s.info.callsign);
-        if (!leaving.has(s.info.callsign)) auto(s);
+        auto(s);
       },
       frame: (f) => void (f.type === "roster" && startPoints()),
       ready() {
@@ -174,8 +164,10 @@ export function make(): Module {
             if (s.state === "busy") await turnEnd(s, ctx.signal);
             if (s.state === "waiting") throw refuse("waiting", `${s.info.callsign} ждёт ответа человека`);
           }
-          const r = await host.request("session.stop", { callsign: s.info.callsign });
-          if (!r.ok) throw refuse(r.error, r.why as string | undefined);
+          if (s.state !== "stopped") {
+            const r = await host.request("session.stop", { callsign: s.info.callsign });
+            if (!r.ok) throw refuse(r.error, r.why as string | undefined);
+          }
         }
         const put = await save(s, "save");
         return { point: put.id, same: put.same === true };
@@ -194,7 +186,7 @@ export function make(): Module {
     async stop() {
       down = true;
       for (const timer of turns.values()) clearTimeout(timer);
-      await Promise.all(work);
+      await Promise.allSettled(queue.values());
     },
   };
 }

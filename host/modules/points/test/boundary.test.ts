@@ -382,6 +382,9 @@ describe("points: ветки и стыки", () => {
     expect(r.ok).toBe(true);
     expect(b.manage.map((m) => m.type)).toEqual(["session.stop"]);
     expect(s.state).toBe("stopped");
+    // уже остановленную не останавливают: session.stop на ней — отказ, перенос не шёл бы
+    expect((await ask({ type: "points.save", callsign: "site@laptop", stop: true })).ok).toBe(true);
+    expect(b.manage.map((m) => m.type)).toEqual(["session.stop"]);
   });
 
   it.each([
@@ -612,15 +615,19 @@ describe("points: покрытие плана host-modules", () => {
     expect(b.reg.puts.slice(n).map((p) => p.result)).toEqual(["missing", "ok", "same"]);
   });
 
-  it("копия в папку этой же сессии: файл её разговора цел", async () => {
-    // источник: чьё: код (файл источника убирается только у чужой папки)
+  it("копия в папку этой же сессии: копия идёт от разговора точки, файл живой сессии цел, чужих файлов в папке не осталось", async () => {
+    // источник: приёмка 6 нояб. — копия от точки, а не от нынешнего файла; опыт на настоящем claude: resume с forkSession берёт разговор из файла под другим именем
     b = await bench({ home });
     const s = await marked("site@laptop", conv(30));
     const sid = s.info.session_id;
     const before = readFileSync(fileOf(s.info.cwd, sid));
     b.reg.seed(300, sid, "laptop", { [`${sid}.jsonl`]: conv(12) });
     expect(await ask({ type: "points.raise", machine: "laptop", sid, point: 300, copy: true, name: "twin", dir: s.info.cwd })).toMatchObject({ ok: true });
+    const open = b.manage.find((m) => m.type === "session.open")!;
+    expect(open).toMatchObject({ fork: true, conversation: conv(12) });
+    expect(open.resume).not.toBe(sid);
     expect(readFileSync(fileOf(s.info.cwd, sid))).toEqual(before);
+    expect(existsSync(fileOf(s.info.cwd, open.resume as string))).toBe(false);
   });
 
   it("3086 · points.save со стопом и interrupt — ход прерван, точка после остановки", async () => {

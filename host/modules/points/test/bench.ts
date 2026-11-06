@@ -2,12 +2,12 @@
 // реестр Worker'а и R2 — подделки в памяти, manage этой машины — модуль-подделка поверх ядра,
 // manage соседней машины — участник рации, который пишет запросы и отвечает ok. Модуль — только через контракт.
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { vi } from "vitest";
-import { refuse, stand } from "@switchboard/host";
+import { claudeDir, refuse, stand } from "@switchboard/host";
 import type { Frame, Manifest, Module } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 
@@ -143,7 +143,9 @@ function fakeManage(calls: ManageCall[], o: { failOpen?: string; failStop?: stri
   return {
     requests: {
       async "session.open"(f, { host }) {
-        calls.push({ ...f });
+        // разговор, с которого open начнёт: файл с именем resume в папке проекта
+        const file = join(claudeDir(), "projects", String(f.dir).replace(/[^a-zA-Z0-9]/g, "-"), `${f.resume}.jsonl`);
+        calls.push({ ...f, ...(existsSync(file) ? { conversation: readFileSync(file) } : {}) });
         if (o.failOpen) throw refuse(o.failOpen);
         const callsign = `${f.name}@${host.machine}`;
         const s = await host.open({ callsign, cwd: f.dir as string, resume: f.resume as string, fork: f.fork === true, point: f.point as number });

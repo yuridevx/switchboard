@@ -2,16 +2,18 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { zstdCompressSync } from "node:zlib";
+import { promisify } from "node:util";
+import { zstdCompress } from "node:zlib";
 import { claudeDir, refuse } from "@switchboard/host";
+import { CALL_MS } from "@switchboard/protocol";
 import type { Host, Result, Session } from "@switchboard/host";
 import { BUNDLE, snapshot } from "./git.ts";
 
 /** Формат блоков — контракт хранилища: 1 МиБ, отпечаток SHA-256 содержимого, в R2 — zstd. */
 const BLOCK = 1 << 20;
-const R2_MS = 300_000;
 const EXCHANGES = 10;
 const WORDS = 160;
+const pack = promisify(zstdCompress);
 
 export type PointFile = { p: string; size: number; b: string[] };
 export type Why = "rule" | "save" | "start" | "raise" | "yield";
@@ -22,11 +24,19 @@ export const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("
 /** Папка проекта рабочей папки: так её называет Claude Code. */
 export const projectDir = (cwd: string) => join(claudeDir(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
 export const conversationOf = (s: Session) => join(projectDir(s.info.cwd), `${s.info.session_id}.jsonl`);
-export const r2Failed = (host: Host, why: string) => {
+const r2Failed = (host: Host, why: string) => {
   host.log({ kind: "refuse", ev: "r2", word: "r2_failed", why });
   return refuse("r2_failed", why);
 };
-export const r2Fetch = (url: string, init: RequestInit = {}) => fetch(url, { ...init, signal: AbortSignal.timeout(R2_MS) });
+
+/** Запрос к R2 по ссылке реестра: сеть или отказ — слово r2_failed. */
+export async function r2Fetch(host: Host, url: string, init: RequestInit = {}): Promise<Response> {
+  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(CALL_MS) }).catch((e) => {
+    throw r2Failed(host, `R2: ${e}`);
+  });
+  if (!res.ok) throw r2Failed(host, `R2 ответил ${res.status}`);
+  return res;
+}
 
 /** Файл блоками; разговор — по последний перевод строки: хвост ещё дописывается. */
 function toBlocks(p: string, buf: Buffer, blocks: Blocks): PointFile {
@@ -53,7 +63,7 @@ function conversation(s: Session, blocks: Blocks): PointFile[] {
 const textOf = (m: { message?: { content?: unknown } }) => {
   const c = m.message?.content;
   if (typeof c === "string") return c;
-  return Array.isArray(c) ? c.flatMap((x: { type?: string; text?: string }) => (x.type === "text" && x.text ? [x.text] : [])).join(" ") : "";
+  return Array.isArray(c) ? ((c as Array<{ type?: string; text?: string }>).find((x) => x.type === "text")?.text ?? "") : "";
 };
 
 /** Первые слова: последние обмены вопрос → ответ, обрезанные; сообщений — сколько отдал SDK. */
@@ -75,12 +85,7 @@ async function words(host: Host, s: Session) {
 }
 
 async function upload(host: Host, links: Record<string, string>, blocks: Blocks) {
-  for (const [hash, url] of Object.entries(links)) {
-    const res = await r2Fetch(url, { method: "PUT", body: new Uint8Array(zstdCompressSync(blocks.get(hash)!)) }).catch((e) => {
-      throw r2Failed(host, `блок ${hash}: ${e}`);
-    });
-    if (!res.ok) throw r2Failed(host, `блок ${hash}: ${res.status}`);
-  }
+  for (const [hash, url] of Object.entries(links)) await r2Fetch(host, url, { method: "PUT", body: new Uint8Array(await pack(blocks.get(hash)!)) });
 }
 
 /** Снять точку сессии; ответ реестра — номер и same. Отказ реестра — его словом. */
@@ -89,9 +94,9 @@ export async function snap(host: Host, s: Session, why: Why, extra: PointExtra =
   if (!existsSync(conversationOf(s))) throw refuse("no_file", `${callsign}: файла разговора ещё нет`);
   const blocks: Blocks = new Map();
   const files = conversation(s, blocks);
-  const bytes = files.reduce((n, f) => n + f.size, 0);
   const git = await snapshot(cwd);
   if (git?.bundle) files.push(toBlocks(BUNDLE, git.bundle, blocks));
+  const bytes = files.reduce((n, f) => n + f.size, 0);
   const spec = await host.read("session.spec", { callsign });
   const frame = { to: ".points", sid, why, files, callsign, dir: cwd, bytes, git: git?.summary, spec: spec.ok ? spec.result : undefined, ...(await words(host, s)), ...extra };
   let put: Result = await host.request("points.put", frame);

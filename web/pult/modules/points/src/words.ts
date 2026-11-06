@@ -41,5 +41,5 @@ export function checkOf(p: Probe, target: string): Check {
 /** Проверка, которой не поднять: другой репозиторий или отказ. */
 export const blocked = (c: Check | null) => !c || c.tone === "bad";
 
-export const megabytes = (bytes: number) => `${Math.round(bytes / 1_048_576)} МБ`;
+export const megabytes = (bytes: number) => `${(bytes / 1_048_576).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} МБ`;
 export const countOf = (n: number, one: string, few: string, many: string) => `${n} ${plural(n, one, few, many)}`;

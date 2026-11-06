@@ -1,13 +1,13 @@
 // Git точки: снимок папки в пакет и папка подъёма. Индекс и ссылки папки снимок не меняет; git не спрашивает пароль.
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { refuse } from "@switchboard/host";
 import { CALL_MS } from "@switchboard/protocol";
 
 /** Сводка git в строке точки. snap — коммит пакета: правки поверх commit или неотправленный commit. */
-export type Summary = { state: "clean" | "dirty"; files: number; unpushed: number; url: string; branch: string; commit: string; snap?: string };
+export type Summary = { state: "clean" | "dirty"; files: number; unpushed: number; url?: string; branch?: string; commit: string; snap?: string };
 export type Folder = { folder: "nogit" | "empty" | "other" | "same" | "dirty" | "shared"; files: number; branch: string | null; sessions: string[] };
 
 export const BUNDLE = "git.bundle";
@@ -19,7 +19,7 @@ const git = (cwd: string, args: string[], env: Record<string, string> = {}) =>
   });
 const quiet = (cwd: string, args: string[]) => git(cwd, args).then((x) => x.trim(), () => null);
 const changed = async (cwd: string) => (await git(cwd, ["status", "--porcelain"])).split("\n").filter(Boolean).length;
-const sameRepo = (a: string, b: string) => a.replace(/(\.git)?\/?$/, "") === b.replace(/(\.git)?\/?$/, "");
+const repoKey = (url: string) => url.replace(/\.git$/, "");
 
 /** Сводка папки и пакет, если в ней есть то, чего нет на remote; папка не под git — ничего. */
 export async function snapshot(cwd: string): Promise<{ summary: Summary; bundle?: Buffer } | undefined> {
@@ -27,7 +27,9 @@ export async function snapshot(cwd: string): Promise<{ summary: Summary; bundle?
   if (!commit) return undefined;
   const files = await changed(cwd);
   const unpushed = Number(await git(cwd, ["rev-list", "--count", "HEAD", "--not", "--remotes"]));
-  const summary: Summary = { state: files ? "dirty" : "clean", files, unpushed, url: (await quiet(cwd, ["remote", "get-url", "origin"])) ?? "", branch: (await git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim(), commit };
+  const url = await quiet(cwd, ["remote", "get-url", "origin"]);
+  const branch = await quiet(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const summary: Summary = { state: files ? "dirty" : "clean", files, unpushed, ...(url === null ? {} : { url }), ...(branch === null ? {} : { branch }), commit };
   if (!files && !unpushed) return { summary };
   const tmp = mkdtempSync(join(tmpdir(), "sb-point-"));
   try {
@@ -56,37 +58,37 @@ function branchName(): string {
   return `points-${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
 }
 
-/** Что будет с папкой подъёма; branch — нынешняя ветка папки, sessions — другие сессии в ней. */
+/** Что будет с папкой подъёма; sessions — другие сессии в ней. */
 export async function folderOf(dir: string, summary: Summary | undefined, sessions: string[]): Promise<Folder> {
   const plain = { files: 0, branch: null, sessions: [] };
   if (!summary) return { folder: "nogit", ...plain };
   if (!existsSync(dir)) return { folder: "empty", ...plain };
   const url = await quiet(dir, ["remote", "get-url", "origin"]);
-  if (url === null || !sameRepo(url, summary.url)) return { folder: "other", ...plain };
+  if (url === null || !summary.url || repoKey(url) !== repoKey(summary.url)) return { folder: "other", ...plain };
   const files = await changed(dir);
-  const branch = await quiet(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  if (files) return { folder: "dirty", files, branch, sessions };
-  return { folder: sessions.length ? "shared" : "same", files: 0, branch, sessions };
+  if (sessions.length) return { folder: "shared", files, branch: branchName(), sessions };
+  return files ? { folder: "dirty", ...plain, files } : { folder: "same", files, branch: branchName(), sessions };
 }
 
 /** Папка точки: клон в пустую, ветка от коммита точки в том же репозитории без правок и чужих сессий; пакет — поверх. Ответ — имя ветки. */
-export async function bring(dir: string, summary: Summary, folder: Folder["folder"], bundle: Buffer | undefined): Promise<string> {
+export async function bring(dir: string, summary: Summary, folder: "empty" | "same", bundle: Buffer | undefined): Promise<string> {
   const branch = branchName();
   const tmp = mkdtempSync(join(tmpdir(), "sb-point-"));
   try {
-    if (folder === "empty") await git(tmp, ["clone", summary.url, dir]);
-    else await git(dir, ["fetch", "origin"]);
-    let target = summary.commit;
+    if (folder === "empty") {
+      mkdirSync(dirname(dir), { recursive: true });
+      await git(dirname(dir), ["clone", "-q", summary.url ?? "", dir]);
+    } else await quiet(dir, ["fetch", "-q", "origin"]); // нет связи с origin — коммит точки мог быть на месте: скажет checkout
+    const target = summary.snap ?? summary.commit;
     if (bundle) {
       const file = join(tmp, BUNDLE);
       writeFileSync(file, bundle);
-      await git(dir, ["fetch", file, REF]);
-      target = "FETCH_HEAD";
+      await git(dir, ["fetch", "-q", file, REF]);
     }
-    await git(dir, ["checkout", "-B", branch, target]);
+    await git(dir, ["checkout", "-q", "-b", branch, target]);
     return branch;
   } catch (e) {
-    throw refuse("git_failed", `папка ${dir}: ${e}`);
+    throw refuse("bad_point", `папка ${dir}: ${e}`);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

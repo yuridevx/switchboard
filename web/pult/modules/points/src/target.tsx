@@ -35,7 +35,7 @@ export function Machines({ t, label = "Машина" }: { t: Target; label?: str
   );
 }
 
-export const Slot = ({ t }: { t: Target }) => (t.slots ? <SlotPick slots={t.slots} value={t.slot} on={t.setSlot} label={`Слот на ${t.machine}`} /> : null);
+export const Slot = ({ t, label }: { t: Target; label?: string }) => (t.slots ? <SlotPick slots={t.slots} value={t.slot} on={t.setSlot} label={label} /> : null);
 
 /** Проба папки на машине: null — ответа ещё нет. */
 export function useProbe(machine: string, body: Record<string, unknown> | null): Check | null {
@@ -46,8 +46,16 @@ export function useProbe(machine: string, body: Record<string, unknown> | null):
   return error ? { key: "error", text: refused(error, { target: machine }), tone: "bad" } : data ? checkOf(data, machine) : null;
 }
 
+const projectOf = (app: App, callsign: string) => app.mark("project.of", callsign) as { id: string } | null | undefined;
+
 /** Новая сессия встаёт в проект исходной. */
 export function joinProject(app: App, from: string, callsign: string) {
-  const project = app.mark("project.of", from) as { id: string } | null | undefined;
-  if (project) app.run("board.assign", { callsign, project: project.id });
+  const project = projectOf(app, from);
+  if (project && from !== callsign) app.run("board.assign", { callsign, project: project.id });
+}
+
+/** Машины проекта сессии. */
+export function nearOf(app: App, callsign: string): string[] {
+  const project = projectOf(app, callsign);
+  return project ? ((app.mark("project.machines", project.id) as string[] | undefined) ?? []) : [];
 }

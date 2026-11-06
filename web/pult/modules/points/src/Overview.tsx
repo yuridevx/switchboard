@@ -1,11 +1,12 @@
 // Экран «Точки»: сессии в R2, «только в R2», «пожар» — машины, которых нет в roster, и объём.
 import { Fragment, useEffect, useRef, useState } from "react";
-import { ago, at, Btn, day, H4, In, M, Note, OkCard, Opts, Outcome, Page, PageHead, Row, Sec, sessionLabel, useApp, useModule, useOutcome } from "@switchboard/web-ui";
+import { ago, at, Btn, day, H4, In, M, machinesWith, Note, Opts, Outcome, Page, PageHead, Row, Sec, sessionLabel, useApp, useModule, useOutcome } from "@switchboard/web-ui";
 import type { Fleet, Listed } from "./store.ts";
 import { joinProject, Machines, Slot, useProbe, useTarget, type Target } from "./target.tsx";
 import { blocked, countOf, megabytes, refused, type Check } from "./words.ts";
 
-const nameOf = (s: Listed) => (s.callsign ? s.callsign.split("@")[0] : s.sid.slice(0, 8));
+const nameOf = (s: Listed) => (s.callsign ? s.callsign.split("@")[0] : s.sid);
+const month = (t: number) => new Date(t).toLocaleDateString("ru-RU", { month: "long" });
 const dirOf = (s: Listed) => s.dir ?? "~";
 const probeOf = (s: Listed) => ({ sid: s.sid, point: s.head.id, dir: dirOf(s), files: "point" });
 const raiseOf = (s: Listed, machine: string, slot: string) => ({ ...probeOf(s), machine, ...(slot ? { slot } : {}) });
@@ -14,6 +15,8 @@ const raiseOf = (s: Listed, machine: string, slot: string) => ({ ...probeOf(s), 
 function Live({ s, fleet }: { s: Listed; fleet: Fleet }) {
   const app = useApp();
   const callsign = s.callsign!;
+  const label = app.use(() => sessionLabel(app, callsign).text);
+  const canSave = app.use(() => app.can(s.owner, "points.save") === true);
   const save = async () => {
     const r = await app.request<{ point: number; same: boolean }>("points.save", { callsign });
     app.toast(`${callsign}: ${r.ok ? `точка №${r.result.point}${r.result.same ? " — та же" : ""}` : refused(r.error, { who: callsign })}`, r.ok ? "ok" : "bad");
@@ -22,9 +25,9 @@ function Live({ s, fleet }: { s: Listed; fleet: Fleet }) {
   return (
     <div className="pt-row" data-sid={s.sid}>
       <span>
-        <b>{sessionLabel(app, callsign).text}</b> {`${ago(s.head.at)} · №${s.head.id}`}
+        <b>{label}</b> {`${ago(s.head.at)} · №${s.head.id}`}
       </span>
-      {app.can(s.owner, "points.save") ? <Btn onClick={() => void save()}>Сохранить сейчас</Btn> : null}
+      {canSave ? <Btn onClick={() => void save()}>Сохранить сейчас</Btn> : null}
     </div>
   );
 }
@@ -55,7 +58,7 @@ function RaiseWindow({ s, fleet, close }: { s: Listed; fleet: Fleet; close(): vo
       <Row label="Папка">
         <M>{dirOf(s)}</M>
       </Row>
-      <Slot t={t} />
+      <Slot t={t} label="Слот" />
       <CheckLine check={t.problem ? { key: "error", text: t.problem, tone: "bad" } : check} />
       <Outcome note={note} />
       <Opts>
@@ -100,12 +103,12 @@ function DeleteWindow({ s, go, close }: { s: Listed; go(): void; close(): void }
 
 function Only({ sessions, fleet }: { sessions: Listed[]; fleet: Fleet }) {
   const app = useApp();
-  const canRaise = app.use(() => (app.roster()?.machines ?? []).some((m) => app.can(m.machine, "points.raise")));
+  const canRaise = app.use(() => machinesWith(app, "points.raise").length > 0);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<{ sid: string; kind: "raise" | "delete"; n: number } | null>(null);
   const [notes, say] = useOutcome();
   const needle = q.trim().toLowerCase();
-  const shown = [...sessions].sort((a, b) => b.head.at - a.head.at).filter((s) => !needle || [nameOf(s), dirOf(s), day(s.head.at)].some((x) => x.toLowerCase().includes(needle)));
+  const shown = [...sessions].sort((a, b) => b.head.at - a.head.at).filter((s) => !needle || [nameOf(s), dirOf(s), day(s.head.at), month(s.head.at)].some((x) => x.toLowerCase().includes(needle)));
   const remove = async (s: Listed) => {
     const r = await app.request<{ points: number }>("points.delete", { sid: s.sid });
     setOpen(null);
@@ -141,50 +144,54 @@ function Only({ sessions, fleet }: { sessions: Listed[]; fleet: Fleet }) {
   );
 }
 
-type Line = { text: string; state: "probe" | "going" | "done" | "failed" };
-
-function FireRow({ s, t, state, report }: { s: Listed; t: Target; state?: Line; report(sid: string, c: Check | null): void }) {
+function FireRow({ s, t, line, report }: { s: Listed; t: Target; line?: string; report(sid: string, c: Check | null): void }) {
   const check = useProbe(t.machine, t.slots && !t.problem ? probeOf(s) : null);
   useEffect(() => report(s.sid, check), [check, s.sid]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Sec data-row={nameOf(s)}>
       <b>{nameOf(s)}</b>
       <Note>{`точка ${at(s.head.at)} · №${s.head.id}`}</Note>
+      {line ? <Note>{line}</Note> : null}
       <Opts>
         <M>{dirOf(s)}</M>
       </Opts>
-      <Note tone={state?.state === "failed" ? "bad" : state?.state === "done" ? "ok" : undefined}>{state?.text ?? check?.text ?? "проверяю папку…"}</Note>
+      <Note>{t.problem || check?.text || "проверяю папку…"}</Note>
     </Sec>
   );
 }
 
 /** Окно «пожара»: все сессии машины по одной, пока окно открыто; закрыли — идущая доходит, остальные ждут на точках. */
-function FireWindow({ machine, sessions, fleet, busy, close }: { machine: string; sessions: Listed[]; fleet: Fleet; busy(on: boolean): void; close(): void }) {
+function FireWindow({ machine, sessions, fleet, close }: { machine: string; sessions: Listed[]; fleet: Fleet; close(): void }) {
   const app = useApp();
   const t = useTarget({ owner: machine });
   const [checks, setChecks] = useState<Record<string, Check | null>>({});
-  const [lines, setLines] = useState<Record<string, Line>>({});
+  const [lines, setLines] = useState<Record<string, string>>({});
   const [run, setRun] = useState<{ done: number; over: boolean } | null>(null);
   const closed = useRef(false);
+  useEffect(
+    () => () => {
+      closed.current = true;
+    },
+    [],
+  );
   const n = sessions.length;
   const go = async () => {
-    busy(true);
+    fleet.moving(true);
     setRun({ done: 0, over: false });
     let done = 0;
     for (const s of sessions) {
       if (closed.current) break;
-      setLines((l) => ({ ...l, [s.sid]: { text: "поднимается…", state: "going" } }));
+      setLines((l) => ({ ...l, [s.sid]: "поднимается…" }));
       const r = await app.request<{ callsign: string }>("points.raise", raiseOf(s, t.machine, t.slot));
       if (r.ok) {
         done++;
         if (s.callsign) joinProject(app, s.callsign, r.result.callsign);
       }
-      const text = r.ok ? `готова — ${r.result.callsign}` : r.error === "not_owner" ? "уже подняли на другой машине" : `не поднялась: ${refused(r.error, { target: t.machine })}`;
-      setLines((l) => ({ ...l, [s.sid]: { text, state: r.ok ? "done" : "failed" } }));
+      setLines((l) => ({ ...l, [s.sid]: r.ok ? `готова — ${r.result.callsign}` : `не поднялась: ${refused(r.error, { target: t.machine })}` }));
       setRun({ done, over: false });
     }
     setRun({ done, over: true });
-    busy(false);
+    fleet.moving(false);
     void fleet.read();
   };
   const ready = sessions.every((s) => !blocked(checks[s.sid] ?? null));
@@ -193,14 +200,14 @@ function FireWindow({ machine, sessions, fleet, busy, close }: { machine: string
     <Sec dlg data-dlg="fire">
       <H4>{`Перенести сессии ${machine} на другую машину`}</H4>
       <Machines t={t} label="Куда" />
-      <Slot t={t} />
+      <Slot t={t} label={`Слот на ${t.machine}`} />
       {sessions.map((s) => (
-        <FireRow key={s.sid} s={s} t={t} state={lines[s.sid]} report={(sid, c) => setChecks((x) => ({ ...x, [sid]: c }))} />
+        <FireRow key={s.sid} s={s} t={t} line={lines[s.sid]} report={(sid, c) => setChecks((x) => ({ ...x, [sid]: c }))} />
       ))}
-      {run?.over ? (
-        <OkCard data-progress={`${run.done}/${n}`}>{progress}</OkCard>
-      ) : run ? (
-        <Note data-progress={`${run.done}/${n}`}>{progress}</Note>
+      {run ? (
+        <Sec role="status" tone={run.over && run.done === n ? "ok" : "wait"} data-progress={`${run.done}/${n}`}>
+          <b>{progress}</b>
+        </Sec>
       ) : null}
       <Opts>
         <Btn
@@ -221,17 +228,16 @@ function FireWindow({ machine, sessions, fleet, busy, close }: { machine: string
 
 function Fire({ machine, sessions, fleet }: { machine: string; sessions: Listed[]; fleet: Fleet }) {
   const app = useApp();
-  const canRaise = app.use(() => (app.roster()?.machines ?? []).some((m) => app.can(m.machine, "points.raise")));
+  const canRaise = app.use(() => machinesWith(app, "points.raise").length > 0 && !fleet.get().moving);
   const left = app.use(() => app.mark("machines.left", machine) as number | undefined);
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
   useEffect(() => app.run("machines.left.read", { machine }), [machine]); // eslint-disable-line react-hooks/exhaustive-deps
   const waiting = `${countOf(sessions.length, "сессия", "сессии", "сессий")} ${sessions.length === 1 ? "ждёт" : "ждут"} на последних точках`;
   return (
     <>
       <Sec tone="bad" data-fire={machine}>
         <b>{`${machine} не на связи${left ? ` с ${at(left)}` : ""} · ${waiting}`}</b>
-        {canRaise && !open && !busy ? (
+        {canRaise && !open ? (
           <Opts>
             <Btn pri onClick={() => setOpen(true)}>
               Перенести на другую машину…
@@ -239,7 +245,7 @@ function Fire({ machine, sessions, fleet }: { machine: string; sessions: Listed[
           </Opts>
         ) : null}
       </Sec>
-      {open ? <FireWindow machine={machine} sessions={sessions} fleet={fleet} busy={setBusy} close={() => setOpen(false)} /> : null}
+      {open ? <FireWindow machine={machine} sessions={sessions} fleet={fleet} close={() => setOpen(false)} /> : null}
     </>
   );
 }
@@ -248,21 +254,35 @@ export function Overview() {
   const app = useApp();
   const fleet = useModule<Fleet>();
   const { fleet: data, error } = app.use(() => fleet.get());
-  const records = app.use(() => (app.roster()?.sessions ?? []).map((s) => s.callsign));
+  const records = app.use(() => (app.roster()?.sessions ?? []).map((s) => ({ callsign: s.callsign, r2: s.r2 !== undefined })));
   const online = app.use(() => (app.roster()?.machines ?? []).map((m) => m.machine));
   useEffect(() => void fleet.read(), [fleet]);
   const word = error ? `points.list: ${error}` : "";
-  if (!data) return <Page>{word ? <Note tone="bad">{word}</Note> : "…"}</Page>;
-  const inRoster = (s: Listed) => !!s.callsign && records.includes(s.callsign);
+  if (!data) {
+    return (
+      <Page>
+        <PageHead title="Точки" />
+        {word ? (
+          <Note tone="bad" role="alert">
+            {word}
+          </Note>
+        ) : (
+          <Note>…</Note>
+        )}
+      </Page>
+    );
+  }
+  const inRoster = (s: Listed) => records.some((r) => r.callsign === s.callsign);
   const live = data.sessions.filter(inRoster).sort((a, b) => a.head.at - b.head.at);
   const lost = data.sessions.filter((s) => !online.includes(s.owner));
   const only = data.sessions.filter((s) => online.includes(s.owner) && !inRoster(s));
-  const plain = records.filter((c) => !live.some((s) => s.callsign === c));
+  const rank = (callsign: string) => online.indexOf(callsign.split("@")[1]);
+  const plain = records.filter((r) => !r.r2).map((r) => r.callsign).sort((a, b) => rank(a) - rank(b));
   const machines = [...new Set(lost.map((s) => s.owner))];
   const sweep = data.sweep ? ` · уборка ${day(data.sweep.at)} ${at(data.sweep.at)} — удалено ${countOf(data.sweep.blocks, "блок", "блока", "блоков")}, ${megabytes(data.sweep.bytes)}` : "";
   return (
     <Page>
-      <PageHead title={app.wide ? "Точки" : undefined} />
+      <PageHead title="Точки" />
       {word ? (
         <Note tone="bad" role="alert">
           {word}
