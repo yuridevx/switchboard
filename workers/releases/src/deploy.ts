@@ -33,10 +33,8 @@ async function deployCloud(env: Env, cat: Catalog, p: Part, version: string | un
   return { from: state.stable, to };
 }
 
-const edgeOf = async (cat: Catalog, p: Part) => (p.root ? (await cat.builds(p.name)).at(-1) : p.versions.at(-1));
-
 async function machineMove(cat: Catalog, row: Row, p: Part, version?: string): Promise<Move> {
-  const to = version ?? (await edgeOf(cat, p));
+  const to = version ?? (await cat.onMachine(p)).at(-1);
   if (!to) return refuse("no_release", `у ${p.name} нет версии в каталоге`);
   if (!(await cat.sha(p.name, to))) refuse("no_release", `у ${p.name} нет версии ${to}`);
   return { part: p.name, from: row.stable[p.name] ?? null, to };

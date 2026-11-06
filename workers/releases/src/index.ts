@@ -20,7 +20,7 @@ function plan({ cat, row, f }: Asked) {
 
 async function rowOf(cat: Catalog, p: Part) {
   const stable = await cat.stableOf(p);
-  const versions = p.root ? await cat.builds(p.name) : p.kind === "cloud" ? (await cat.cloud(p.script!)).tags : p.versions;
+  const versions = p.kind !== "cloud" ? await cat.onMachine(p) : p.root ? await cat.builds(p.name) : (await cat.cloud(p.script!)).tags;
   return { where: p.kind as "machine" | "cloud", edge: versions.at(-1) ?? null, stable, versions: versions.slice(-SHOWN) };
 }
 

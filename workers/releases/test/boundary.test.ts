@@ -1065,6 +1065,18 @@ describe("сверка со старым кодом", () => {
     await set(s, { part: "keeper", pin: "2.0.0" });
     expect((await req(s, "~x", "releases.deploy", { part: "host-x", version: "1.0.1" }))[0]).toMatchObject({ ok: false, error: "check_failed" });
   });
+
+  it("корень машины без сборок флота: list и выкладка берут версии каталога (чьё: код; первый выпуск нового флота)", async () => {
+    const s = fresh();
+    await inCatalog("host", "1.2.0", { type: "sdk-core", provides: {}, uses: {}, config: {} });
+    await inR2("keeper", "1.0.0");
+    await fakeCf({});
+    expect((await result(req(s, "~x", "releases.list", { part: "host" }))).parts.host).toEqual({ where: "machine", edge: "1.2.0", stable: null, versions: ["1.2.0"] });
+    expect((await result(req(s, "~x", "releases.list"))).parts.host.edge).toBe("1.2.0");
+    expect((await result(req(s, "~x", "releases.deploy", { part: "*" }))).parts.host).toEqual({ from: null, to: "1.2.0" });
+    await E.DB.exec("UPDATE fleet SET stable = '{}' WHERE one = 1");
+    expect((await result(req(s, "~x", "releases.deploy", { part: "host" }))).parts.host).toEqual({ from: null, to: "1.2.0" });
+  });
 });
 
 describe("releases.fetch", () => {
