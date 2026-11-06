@@ -981,3 +981,40 @@ func TestEtJournalPlainText(t *testing.T) {
 		t.Fatalf("журнал с экранированием: %s", b)
 	}
 }
+
+// Команда app.json — файл версии, а не только node: у модуля ОС run — ["./d"]; рабочая папка процесса — data части, поэтому первый аргумент, как и
+// остальные, становится полным путём, иначе часть не стартует (чьё: код — «пути — от папки версии»; формат модуля ОС — упаковка dist/app.json).
+func TestEtRunFromVersionFolder(t *testing.T) {
+	s := newStand(t)
+	bin, _ := os.ReadFile(self())
+	name := "bin/" + binName("keeper")
+	b, _ := json.Marshal(map[string]any{"run": []string{"./" + name, "app"}})
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.0.0", files{"app.json": string(b), name: string(bin)}, on)))
+	k := s.start()
+	waitFor(t, "часть из файла версии работает", func() bool {
+		p := partOf(k, "capture")
+		if p.State == "failed" {
+			t.Fatalf("часть не встала: %s", p.Error)
+		}
+		return p.State == "running"
+	})
+}
+
+// «Убей» по force идёт мимо очереди, а план с on:false заменён следующим с on:true, пока цикл занят другой частью: исполняется только последний план,
+// и включённая в нём часть работает (устав: keeper исполняет план; чьё: код — часть, которая не работает, по записи с on ставится).
+func TestEtForceOvertakenByOn(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.0.0", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", running(k, "capture", ""))
+	pid := partOf(k, "capture").Pid
+	capture := func(extra map[string]any) map[string]any { return s.links.part("capture", "1.0.0", appFiles(""), extra) }
+	web := s.links.part("web", "1.0.0", appSetup("slowsetup"), on)
+	s.relay.push(planMsg(2, capture(on), web))
+	waitFor(t, "цикл занят setup", func() bool { return isThere(filepath.Join(verDir(s.home, "web", "1.0.0"), "setup-started")) })
+	s.relay.push(planMsg(3, capture(map[string]any{"on": false, "force": true}), web))
+	waitFor(t, "процесс снят мимо очереди", func() bool { return partOf(k, "capture").Pid != pid })
+	s.relay.push(planMsg(4, capture(on), web))
+	waitFor(t, "план rev 4 исполнен", func() bool { return stateOf(k).Rev == 4 && partOf(k, "web").State == "running" })
+	waitFor(t, "часть из последнего плана работает", running(k, "capture", "1.0.0"))
+}
