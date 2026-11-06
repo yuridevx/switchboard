@@ -1,7 +1,7 @@
 // Леса границы «журнал и инциденты», сторона Host: настоящий HTTP на 127.0.0.1, настоящие manage и chat через контракт;
 // снаружи — SDK, держатели, relay, часы стенда, подделки слотов, профилей и пуша. Импорт — только контракты; исход — ответ, кадр, ввод SDK, roster, журнал, раздел на диске.
 // Источник свойств доставки — слово пользователя 1 нояб.: «запрос пост не должен ничего ждать / инцидент должен быть доставлен хотя бы 1 раз». Номер — эталон-источник; без пометки — чьё: код.
-import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
@@ -546,6 +546,17 @@ describe("инцидент: доставка хотя бы раз", () => {
     const q = await inputOf(st, "disk-full-2@win");
     expect(q.inputs[0].uuid).toBe(r.body.id);
     expect(disk().map((a) => a.callsign)).toEqual(["disk-full-2@win"]);
+  });
+
+  it("сессию остановили намеренно, новая не открылась — обращение без адреса: экран покажет его недоставленным", async () => {
+    const { st, post, work } = await bench();
+    mkdirSync(join(work, "нет"));
+    const r = await post({ type: "nodir", text: "x" });
+    await inputOf(st, "nodir-1@win");
+    rmSync(join(work, "нет"), { recursive: true });
+    expect(await st.relay.request({ type: "session.stop", v: 1, callsign: "nodir-1@win" })).toMatchObject({ ok: true });
+    await until(() => st.journal().find((l) => l.ev === "incident" && l.kind === "refuse" && l.id === r.body.id));
+    expect(await st.relay.request({ type: "incident.pending", v: 1, machine: "win" })).toMatchObject({ result: { appeals: [{ id: r.body.id, callsign: null, refused: { word: "bad_dir" } }] } });
   });
 
   it("обращение без сессии: следующее обращение пробует и его — оба во вводе по порядку", async () => {

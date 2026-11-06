@@ -86,6 +86,8 @@ export function make(): Module {
     const type = cfg.types![a.type];
     let callsign = target(a);
     if (!callsign) {
+      // прежней сессии больше нет: откажет открытие — обращение без адреса, экран покажет его недоставленным
+      change(a.id, ({ callsign: _gone, ...x }) => x);
       const mark: Mark = { type: a.type, ...(a.key === undefined ? {} : { key: a.key }) };
       const r = await host.request("session.open", { machine: host.machine, name: a.type, number: true, dir: type.dir, ...(type.profile ? { profile: type.profile } : {}), ...(type.slot ? { slot: type.slot } : {}), incident: mark });
       if (!r.ok) return refused(a, "session.open", r);
