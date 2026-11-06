@@ -12,3 +12,25 @@
 | вход Worker'ов ×6, `class Refusal` ×5, журнал ×6 | слита | ветка `slopik-door`; развилки: `why`, кадр `reply`, порядок id, `from` |
 | сессия запроса: chat, manage, points | ждёт решения | ветка `slopik-session`; слово отказа: `bad_spec` или `offline` |
 | сессия запроса: logins, profiles | ждёт решения | заморожены; один кадр без `callsign` выключает модуль на машине |
+| `pult-points` Dialog, Tab, Overview — `machineOf`, `nameOf` | слита | проход 1; 6 мест из 7, опыт 39 снимков: 0 различий |
+| `pult-points` `module.tsx:21` `show` вкладки — `machineOf` | ждёт решения | адрес страницы с не-сессией (`~yuri@laptop`, `x@laptop@junk`): вкладка «Точки» видна, по `machineOf` скрыта; рекомендация — `machineOf`, «Журнал» той же карточки уже так |
+| `pult-incidents` `module.tsx:142` — `machineOf` | слита | проход 1; расхождения только на входах, которые дверь relay не пускает в roster |
+| `host-manage` `manage.ts:202` — `nameOf` | слита | проход 1; расхождений нет |
+| `pult-profiles` `ProfilesScreen.tsx:133` — `machineOf` | ждёт решения | заморожено, заявка; пересмотр 13 нояб.: то же правило `split("@")[1]` |
+| `web-core` `uses` — `manifest-gate` `nameOf`, `ownerOf` | слита | проход 1; расхождение только на ссылке без `@`, её отказывают `check` и `releases.deploy` |
+| `usesName` в Host — `uses` в `web-core` | оставлена | вердикт архитектора: разбор уже у владельца, осталось выражение над публичным полем; результаты разные, это работа выполнения, а не суд |
+| `Composer.tsx:110` `lastIndexOf("@")` — адрес | оставлена | упоминание файла в тексте, не адрес |
+| `board/list.tsx:48` — `accounts/merge.ts` `shortName` | оставлена | локальная часть почты, не адрес; вторая копия заморожена, вернуться при снятии |
+| `workers/releases/src/index.ts:17` — `machineOf` | оставлена | другое правило: только `@машина` и `.keeper@машина`, это доступ, а не разбор |
+| `card` `run` — `inbox` `restart` | оставлена | один запрос, тексты человеку разные |
+| `board` `load`, `setView` — `card` `load`, `setHead` | оставлена | шаблон записи настройки, ключи и поля разные |
+| `board` панель — `card` `HeadGroup` | оставлена | шаблон перебора чипов; `Choices` и `Chip` уже общие, у панели своё `disabled` |
+| `web-ui` кнопки выбора — `card` `tabs.tsx:186`, `settings` `passes.tsx:77` | оставлена | шаблон JSX, подписи разные |
+| фильтр поиска: `incidents` — `journal`, `board` `find` — `points` Overview | оставлена | шаблон `some(includes)`, поля разные |
+| `host-points` `sessionOf` — `host-shell` `runOf` | оставлена | совпадение формы: сессия и запуск, разные слова отказа |
+| `alerts` `bytesOf` — `push` `unb64u` | оставлена | стандартный base64url, разные среды; опыт: на длинах 1–65 байт совпали с дополнением и без |
+| `kernel.ts:404` — `journal` `permission_denied` | оставлена | совпадение формы |
+| `chat` `Rows.tsx:279` — `settings` `general.tsx:40` | оставлена | шаблон JSX |
+| `pult-points` `NameRow` — `Unmark` | оставлена | совпадение формы на пороге 0,5; ушла из отчёта от правки двух строк, обхода нет |
+| `FakeRelay` не проверяет форму callsign | оставлена | roster стенду даёт сам тест, двери у подделки нет |
+| `logins` `session.slot` — `profiles` `session.profile` | ждёт решения | заморожено, заявка; пересмотр 13 нояб.: одинаковый ход «записать место и перезапустить» |
