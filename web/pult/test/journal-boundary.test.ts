@@ -68,6 +68,21 @@ describe("журнал флота", () => {
     expect(ids(t)).toEqual(["1"]);
   });
 
+  it("смена машины: записи прежней сняты сразу; отказ — слово, чужих записей под новым выбором нет", async () => {
+    const relay = fleetRelay();
+    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs(), more: true } });
+    const t = await journal(relay);
+    relay.handlers["ledger.read"] = () => undefined;
+    await pick(t, "pc");
+    expect(ids(t)).toEqual([]);
+    expect(t.$("[data-ledger]")!.textContent).toBe("…");
+    expect(t.button("Раньше")).toBeNull();
+    relay.reply(relay.sent("ledger.read").at(-1)!.id!, { ok: false, error: "disconnected" });
+    await flush();
+    expect(ids(t)).toEqual([]);
+    expect(said(t)).toEqual(["ledger.read: disconnected"]);
+  });
+
   it("4159 · записи новые сверху по дням — «Сегодня», «Вчера», дата; время; текст как прислал ledger, «by»; справа — адрес, машина или from", async () => {
     const relay = fleetRelay();
     relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs(), more: false } });

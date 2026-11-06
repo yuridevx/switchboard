@@ -7,6 +7,7 @@ import css from "./journal.css";
 
 const LIMIT = 50;
 type Shown = { events: LedgerEvent[]; more: boolean; loaded: boolean; error: string };
+const START: Shown = { events: [], more: false, loaded: false, error: "" };
 
 /** Подпись дня: «Сегодня», «Вчера», «31 октября». */
 function dayOf(t: number): string {
@@ -28,7 +29,7 @@ function Journal() {
   const app = useApp();
   const [machine, setMachine] = useState("");
   const [q, setQ] = useState("");
-  const [shown, setShown] = useState<Shown>({ events: [], more: false, loaded: false, error: "" });
+  const [shown, setShown] = useState(START);
   const latest = useRef({ asked: 0, busy: false, shown });
   latest.current.shown = shown;
 
@@ -64,6 +65,7 @@ function Journal() {
 
   const pick = (m: string) => {
     setMachine(m);
+    setShown(START);
     void all(m);
   };
 
