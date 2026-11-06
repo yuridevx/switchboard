@@ -866,7 +866,7 @@ describe("окно переноса", () => {
     ["4189 · список слотов цели не пришёл", { ok: false, error: "offline" }, /^machine\.accounts: offline$/],
   ])("%s — проверка словом, запуск недоступен, ни точки, ни подъёма", async (_n, slots, text) => {
     const relay = dialogs();
-    relay.handlers[SLOTS] = () => slots;
+    relay.handlers[SLOTS] = () => slots as never;
     const t = await sessionTab(relay);
     await openMove(t);
     expect(t.$('[data-dlg="move"] [data-check="error"]')!.textContent).toMatch(text);
@@ -1018,8 +1018,8 @@ describe("окна копии, смены папки и отката", () => {
     ["«Забыть» отказал — слово", { ok: true, result: { callsign: "site-v2@laptop", point: 1, folder: "keep", branch: null } }, { ok: false, error: "offline" }, "Машина не на связи", 1],
   ])("261 · смена папки: %s", async (_n, raise, remove, text, removes) => {
     const relay = dialogs();
-    relay.handlers["points.raise"] = () => raise;
-    relay.handlers["session.remove"] = () => remove;
+    relay.handlers["points.raise"] = () => raise as never;
+    relay.handlers["session.remove"] = () => remove as never;
     const t = await sessionTab(relay);
     await t.click(t.$('[data-act="dir"]'));
     await run(t);
