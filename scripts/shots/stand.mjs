@@ -1,5 +1,5 @@
 // Стенд снимков: страница настоящего кода в папке сборки и браузер к ней. BUNDLE и pageHtml берёт и сервер дизайна.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
@@ -7,6 +7,10 @@ import { chromium } from "playwright-core";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const LAUNCH_MS = 60_000;
+const HOST_MODULES = path.join(here, "..", "..", "host", "modules");
+
+/** Контракт Host в roster — provides его модулей: экраны спрашивают app.can. */
+const hostContract = () => Object.assign({}, ...readdirSync(HOST_MODULES).map((m) => JSON.parse(readFileSync(path.join(HOST_MODULES, m, "module.json"), "utf8")).provides));
 
 export const OUT = path.join(here, "..", "..", "dist", "shots");
 export const BUNDLE = { bundle: true, format: "iife", target: "es2022", loader: { ".css": "text" }, logLevel: "warning" };
@@ -29,7 +33,7 @@ ${body}
 
 export async function prepare() {
   mkdirSync(OUT, { recursive: true });
-  await build({ ...BUNDLE, entryPoints: [path.join(here, "entry.ts")], outfile: path.join(OUT, "bundle.js"), jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' } });
+  await build({ ...BUNDLE, entryPoints: [path.join(here, "entry.ts")], outfile: path.join(OUT, "bundle.js"), jsx: "automatic", define: { __HOST__: JSON.stringify(hostContract()), "process.env.NODE_ENV": '"production"' } });
   writeFileSync(path.join(OUT, "index.html"), pageHtml("Стенд", '<script src="bundle.js"></script>'));
 }
 

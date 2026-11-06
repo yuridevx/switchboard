@@ -95,7 +95,7 @@ async function shot(app, kind, scheme, [name, hash, act, only]) {
     await p.waitForTimeout(150);
     await p.screenshot({ path: path.join(OUT, `${id}.png`) });
     trees[id] = await treeOf(p);
-    const over = await overflow(p, "#app *", ".md-table, pre, .chat-diff, .sb-navrow, .cw-tabs, .fscroll, .st-tbl");
+    const over = await overflow(p, "#app *", ".fscroll, .op-pre, .sb-navrow, .cw-tabs");
     if (over.x > 0 || over.bad.length) notes.push(`${id}: выход за край ${over.x} px ${over.bad.slice(0, 3).join(" | ")}`);
   } catch (e) {
     notes.push(`${id}: ${e.message.split("\n")[0]}`);

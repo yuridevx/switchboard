@@ -9,6 +9,8 @@ import { PULT, pultParts } from "../../web/pult/stand/parts.ts";
 import { answerRequests } from "./answers.ts";
 import { bigFleet, SMALL, type S } from "./fleets.ts";
 
+declare const __HOST__: Record<string, number>;
+
 const ME = "you@mail.ru";
 const query = new URLSearchParams(location.search);
 const app = query.get("app") ?? "pult";
@@ -36,15 +38,13 @@ const session = (s: S): SessionRecord => ({
 
 const roster = {
   type: "roster" as const,
-  machines: [] as Array<{ machine: string; since: number; proto: number; contract: Record<string, number> }>,
+  machines: F.ms.map((machine) => ({ machine, since: 1, proto: 1, contract: __HOST__ })),
   sessions: F.ss.map(session),
   clients: [`pult~${ME}`, `phone~${ME}`],
 };
 const relay = new FakeRelay(roster);
 relay.you = `${app}~${ME}`;
 answerRequests(relay, F, roster, app, ME);
-const contract = Object.fromEntries([...Object.keys(relay.handlers), "incident", "points.raise", "points.save", "session.profile", "session.remove", "session.slot", "session.start", "session.stop"].map((type) => [type, 1]));
-roster.machines.push(...F.ms.map((machine) => ({ machine, since: 1, proto: 1, contract })));
 
 const names = [...new Set(F.ss.map(project))].filter((id) => id !== "~").sort();
 const order = big ? ["switchboard", "pfarm", ...names.filter((id) => id !== "switchboard" && id !== "pfarm")] : names;
@@ -80,8 +80,8 @@ startApp({
 });
 
 /** Сообщения сессий — когда открыты соединения всех машин: кадр идёт соединением своей машины. */
-const unread = () => {
-  if (relay.open.length < F.ms.length) return void setTimeout(unread, 20);
+const unread = (tries = 250) => {
+  if (relay.open.length < F.ms.length && tries) return void setTimeout(unread, 20, tries - 1);
   for (const s of F.ss) if (s.unread) relay.push({ type: "message", from: s.cs, to: relay.you, text: s.unread });
 };
 unread();
