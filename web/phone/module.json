@@ -1,7 +1,7 @@
 {
   "name": "phone",
   "type": "web-app",
-  "version": "2.2.5",
+  "version": "2.2.6",
   "provides": {
     "page": 1
   },
