@@ -31,7 +31,7 @@ export function checkOf(p: Probe, target: string): Check {
     same: { text: "тот же репозиторий, своих правок нет — правки точки применятся", tone: "ok" },
     dirty: { text: `тот же репозиторий, но в нём свои правки (${dirty}): правки точки НЕ применятся, ваши файлы останутся`, tone: "wait" },
     empty: { text: `нет на ${target} — будет клон репозитория и правки точки поверх`, tone: "ok" },
-    shared: { text: `здесь же ${sessions.join(", ")} — в этой папке будут ${sessions.length + 1} сессии`, tone: "ok" },
+    shared: { text: `здесь же ${sessions.join(", ")} — в этой папке будут ${countOf(sessions.length + 1, "сессия", "сессии", "сессий")}`, tone: "ok" },
     nogit: { text: "в точке нет git — файлы останутся как есть", tone: "ok" },
     other: { text: "Другой репозиторий — выберите другую папку", tone: "bad" },
   };

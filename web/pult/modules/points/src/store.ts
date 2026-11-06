@@ -27,8 +27,6 @@ export function createFleet(app: App) {
       asked = true;
       void read();
     },
-    /** Сессии хозяев, которых нет в roster. */
-    lost: (): Listed[] => (data.get().fleet?.sessions ?? []).filter((s) => !online().has(s.owner)),
     /** Машины с сессиями в R2, которых нет в roster. */
     fire(): string[] {
       const on = online();

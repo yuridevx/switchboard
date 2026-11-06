@@ -837,6 +837,20 @@ describe("окно переноса", () => {
     expect(t.relay.sent("points.save")[0]).toMatchObject({ callsign: "site@laptop", stop: true, interrupt: true });
   });
 
+  it("флот больше шести машин: своя и машины проекта кнопками, остальные списком", async () => {
+    // источник: подпись экрана p05 прототипа «Пульт и телефон» (подписан 2 нояб.): машины проекта кнопками, остальные списком
+    const relay = pointsRelay((r) => {
+      const c = r.machines[0].contract;
+      for (const m of ["b1", "b2", "b3", "b4", "b5", "b6"]) r.machines.push({ machine: m, since: 1, proto: 1, contract: { ...c } });
+    });
+    relay.handlers["points.raise"] = () => ({ ok: true, result: { folder: "same" } });
+    const t = await sessionTab(relay);
+    await openMove(t);
+    const d = t.$('[data-dlg="move"]')!;
+    expect([...d.querySelectorAll(".sb-opts button[aria-pressed]")].slice(0, 2).map((b) => b.textContent)).toEqual(["laptop", "pc"]);
+    expect(d.querySelector<HTMLSelectElement>('select[data-f="target"]')!.options[0].textContent).toBe("ещё 6…");
+  });
+
   it("E24 · окно переноса: два слота — отмечен текущий; варианта «без слота» нет", async () => {
     const relay = dialogs();
     relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: { bot: { account: "b", order: ["b"], wait: null, sessions: [] }, main: { account: "a", order: ["a"], wait: null, sessions: [] } } } });
