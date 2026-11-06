@@ -46,7 +46,7 @@ export function packModule(dir: string, o: { bundle?: (dir: string) => Buffer } 
   };
   const os = (): TarFile[] => {
     if (!has("dist/app.json") && !has("app.json")) throw new Error(`no_app_json: у приложения ОС ${m.name} нет app.json — ни в dist/, ни в корне`);
-    if (!has("dist")) return packageFiles(dir);
+    if (!has("dist/app.json")) return packageFiles(dir);
     const mode = (f: TarFile) => (statSync(join(dir, "dist", f.path)).mode & 0o111 ? 0o755 : 0o644);
     return [{ path: MANIFEST, data: manifest }, ...walk(join(dir, "dist")).map((f) => ({ ...f, mode: mode(f) }))];
   };

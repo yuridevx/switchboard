@@ -851,4 +851,13 @@ describe("сверка со старым кодом", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("приложение ОС: app.json в корне, в dist/ его нет — архив из папки с app.json (чьё: код; описание инструмента: «dist/ с app.json или папка с app.json»)", () => {
+    const d = tmp();
+    mkdirSync(join(d, "dist"));
+    writeFileSync(join(d, "module.json"), '{"name":"d3","type":"os","version":"1.0.0"}');
+    writeFileSync(join(d, "app.json"), "{}");
+    writeFileSync(join(d, "dist", "main.js"), "1");
+    expect(files(packModule(d).tgz).map((e) => e.path)).toEqual(["module.json", "app.json"]);
+  });
 });
