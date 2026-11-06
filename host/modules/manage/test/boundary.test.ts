@@ -1889,7 +1889,8 @@ describe("fleet: остальные формы", () => {
     const TG = "telegram~ann@x.y";
     const t = "2026-11-06T17:40:12.000Z";
     const tag = (from: string, text: string) => `<fleet-message from="${from}">\n${text}\n</fleet-message>`;
-    const said = (from: string, text: string, uuid = "u") => ({ type: "user", uuid, timestamp: t, origin: { kind: "peer", from }, message: { content: tag(from, text) } });
+    // форма настоящей записи: content — строка с тегом, поля origin нет
+    const said = (from: string, text: string, uuid = "u") => ({ type: "user", uuid, timestamp: t, message: { content: tag(from, text) } });
     const used = (name: string, input: unknown, id = "t1") => ({ type: "assistant", uuid: "a", timestamp: t, message: { content: [{ type: "tool_use", id, name, input }] } });
     const result = (id: string, content: string) => ({ type: "user", uuid: "r", timestamp: t, message: { content: [{ type: "tool_result", tool_use_id: id, content }] } });
     const read = async (messages: unknown[], o: Record<string, unknown> = { people: true }) => {

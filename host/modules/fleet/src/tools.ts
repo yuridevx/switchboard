@@ -9,7 +9,7 @@ import { z } from "zod";
 type Env = { host: Host; records: Settings };
 type Refused = Extract<Result, { ok: false }>;
 type Block = { type?: string; text?: string; name?: string; id?: string; tool_use_id?: string; content?: unknown; input?: { to?: string; text?: string; questions?: Array<{ question?: string }> } };
-type Record_ = { type?: string; uuid?: string; timestamp?: string; origin?: { from?: string }; message?: { content?: string | Block[] } };
+type Record_ = { type?: string; uuid?: string; timestamp?: string; message?: { content?: string | Block[] } };
 type Row = NonNullable<ReturnType<Host["roster"]>>["sessions"][number];
 
 const say = (text: string, isError = false) => ({ content: [{ type: "text" as const, text }], ...(isError ? { isError: true } : {}) });
@@ -93,17 +93,17 @@ const blocksOf = ({ message }: Record_): Block[] => {
 };
 /** Время записи: дата и минуты, UTC. */
 const when = (r: Record_) => (r.timestamp ?? "").slice(0, 16).replace("T", " ");
-/** Текст внутри тега сообщения флота; тег ставит chat. */
-const inside = (text: string) => text.replace(/^<fleet-message[^>]*>\n/, "").replace(/\n<\/fleet-message>$/, "");
+/** Сообщение флота в разговоре: тег из договора chat. Адреса нигде больше нет: поле origin в файл разговора не пишется. */
+const TAG = /^<fleet-message from="([^"]+)">\n([\s\S]*)\n<\/fleet-message>$/;
 
 /** Разговор с людьми строками: ← от человека, → человеку, ? вопрос; ответ на вопрос — отдельной строкой ←. */
 function peopleLines(records: Record_[]): string[] {
   const questions = new Set<string>();
   return records.flatMap((r) => {
     if (r.type !== "user" && r.type !== "assistant") return [];
-    const from = r.origin?.from;
     return blocksOf(r).flatMap((b) => {
-      if (b.type === "text" && b.text && person(from)) return [`${when(r)} ← ${from}: ${inside(b.text)}`];
+      const tag = b.type === "text" ? b.text?.match(TAG) : null;
+      if (tag && person(tag[1])) return [`${when(r)} ← ${tag[1]}: ${tag[2]}`];
       if (b.type === "tool_use" && b.name === SEND && person(b.input?.to)) return [`${when(r)} → ${b.input?.to}: ${b.input?.text}`];
       if (b.type === "tool_use" && b.name === ASK) {
         questions.add(b.id ?? "");
