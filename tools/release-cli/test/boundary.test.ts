@@ -868,4 +868,12 @@ describe("сверка со старым кодом", () => {
     await call("log", { machine: "win" });
     expect(st.relay.frames("machine.journal").at(-1)).not.toHaveProperty("part");
   });
+
+  it("log: машина молчит — timeout за предел чтения, сессия не ждёт две минуты (чьё: код)", async () => {
+    const { call } = await bench((f) => (f.type === "machine.journal" ? null : undefined));
+    let r: Awaited<ReturnType<typeof call>>;
+    await later(10_100, async () => void call("log", { machine: "win", part: "host" }).then((x) => (r = x)));
+    await vi.waitFor(() => expect(r).toBeDefined());
+    expect([r!.isError, r!.text]).toEqual([true, "machine.journal: timeout"]);
+  });
 });
