@@ -1096,6 +1096,17 @@ describe("сверка со старым кодом", () => {
     expect((await result(req(s, "~x", "releases.list", { part: "typo" }))).parts).toEqual({});
     expect((await result(req(s, "~x", "releases.list", { part: "keeper" }))).parts.keeper.edge).toBe("1.0.0");
   });
+
+  it("строка журнала — в общем формате журналов и с тем, кто спросил (чьё: код; так пишут все Worker'ы флота)", async () => {
+    const s = fresh();
+    const log = journal();
+    await req(s, "~x", "releases.nope");
+    await s.frame({ type: "reply", id: "x", ok: true, to: ".releases", from: "~y" });
+    expect(log).toEqual([
+      expect.objectContaining({ t: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), part: "releases", kind: "refuse", ev: "releases.nope", word: "unknown_request", from: "~x" }),
+      expect.objectContaining({ t: expect.any(String), part: "releases", kind: "note", ev: "reply", from: "~y" }),
+    ]);
+  });
 });
 
 describe("releases.fetch", () => {

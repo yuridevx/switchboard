@@ -117,11 +117,12 @@ const REQUESTS: Record<keyof typeof CONTRACT, (r: Asked) => unknown> = {
 };
 
 async function answer(env: Env, f: Frame): Promise<Frame[]> {
-  if (f.type === "reply") return void line({ kind: "note", ev: "reply" }), [];
-  if (!f.id) return void line({ kind: "refuse", ev: f.type, word: "bad_frame", why: "запрос без id" }), [];
-  const reply = { type: "reply", id: f.id, to: f.from };
+  const from = f.from;
+  if (f.type === "reply") return void line({ kind: "note", ev: "reply", from, why: "releases ответов не ждёт" }), [];
+  if (!f.id) return void line({ kind: "refuse", ev: f.type, word: "bad_frame", why: "запрос без id", from }), [];
+  const reply = { type: "reply", id: f.id, to: from };
   const no = (word: string, why: string, extra?: Record<string, unknown>) => {
-    line({ kind: "refuse", ev: f.type, word, why, ...extra });
+    line({ kind: "refuse", ev: f.type, word, why, from, ...extra });
     return [{ ...reply, ok: false, error: word, why }];
   };
   const refused = accepts(f, CONTRACT);
