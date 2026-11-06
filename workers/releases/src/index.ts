@@ -76,12 +76,12 @@ function entryOf(was: PlanEntry | undefined, f: Frame): PlanEntry {
 }
 
 function validateSet(f: Frame) {
-  const { machine, part, pin, on, force, env, remove } = f;
+  const { machine, part, pin, on, force, env } = f;
   if (typeof machine !== "string" || !NAME.test(machine)) refuse("bad_frame", "machine — имя машины");
   if (typeof part !== "string" || !NAME.test(part)) refuse("bad_frame", "part — имя части машины");
   if (pin !== undefined && pin !== null && !isVersion(pin) && !isBuild(pin)) refuse("bad_version", "pin — три числа или null");
   if (env !== undefined && !(typeof env === "object" && env && Object.values(env).every((v) => typeof v === "string"))) refuse("bad_frame", "env — строки");
-  if (part === "keeper" && [on, force, env, remove].some((x) => x !== undefined)) refuse("bad_frame", "у keeper — только pin");
+  if (part === "keeper" && [on, force, env].some((x) => x !== undefined)) refuse("bad_frame", "у keeper — только pin");
 }
 
 async function set({ env, cat, row, f }: Asked) {

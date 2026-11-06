@@ -10,7 +10,7 @@ export { presign, sha256hex, shaLine } from "./src/sign.ts";
 export type { LinkKey } from "./src/sign.ts";
 export { lf, packageFiles, packModule } from "./src/folder.ts";
 export type { ModuleJson, PackedModule } from "./src/folder.ts";
-export { download, refused, upload } from "./src/transfer.ts";
+export { differs, download, refused, upload } from "./src/transfer.ts";
 export type { Answer, Net } from "./src/transfer.ts";
 export { BUILD_FILE, hostBuild, WEB_FILE, webBuild } from "./src/build.ts";
 export type { BuildList } from "./src/build.ts";

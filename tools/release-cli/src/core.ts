@@ -22,13 +22,14 @@ function released(data: Buffer): Buffer {
   return json(outside.length ? { ...pkg, dependencies: Object.fromEntries(outside) } : pkg);
 }
 
-/** Пакеты, которые код ядра импортирует, с их собственными импортами. */
+/** Пакеты, которые импортирует код ядра и которые названы в зависимостях, — и то же у них. */
 function packagesOf(root: string) {
   const repo = loadRepo(root);
   const core = repo.find((m) => m.type === "sdk-core")!;
   const seen = new Set([core]);
   for (const m of seen) {
-    for (const spec of m.imports ?? []) {
+    const { dependencies = {} } = JSON.parse(readFileSync(join(root, m.dir, "package.json"), "utf8")) as { dependencies?: Record<string, string> };
+    for (const spec of [...(m.imports ?? []), ...Object.keys(dependencies)]) {
       const pkg = spec.split("/").slice(0, 2).join("/");
       const dep = repo.find((x) => x.pkg === pkg);
       if (dep) seen.add(dep);
@@ -47,7 +48,8 @@ function filesOf(root: string) {
     { path: MANIFEST, data: lf(readFileSync(join(root, core.dir, MANIFEST))) },
     { path: "host", data: Buffer.from(ENTRY), mode: 0o755 },
     { path: "package.json", data: json({ name: "switchboard-host-release", version: core.version, private: true, type: "module", workspaces: ["packages/*"] }) },
-    { path: "app.json", data: json({ run: ["node", "host"], setup, detach_children: true }) },
+    { path: "app.json", data: Buffer.from(`${JSON.stringify({ run: ["node", "host"], setup, detach_children: true })}
+`) },
   );
   return { version: core.version, files, count: packages.length };
 }

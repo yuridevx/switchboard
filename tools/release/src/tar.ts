@@ -6,6 +6,9 @@ const NAME = 100;
 const PREFIX = 155;
 const FILE = "0";
 const DIR = "5";
+/** Байт ОС заголовка gzip: zlib пишет свой (Windows 10, Linux 3), а архив один на все машины. */
+const GZIP_OS = 9;
+const UNIX = 3;
 
 export const MANIFEST = "module.json";
 export type TarFile = { path: string; data: Buffer; mode?: number };
@@ -55,7 +58,9 @@ export function pack(files: TarFile[]): Buffer {
     if (!f) return [header(path, DIR, 0o755, 0)];
     return [header(path, FILE, f.mode ?? 0o644, f.data.length), f.data, Buffer.alloc(-f.data.length & (BLOCK - 1))];
   });
-  return gzipSync(Buffer.concat([...blocks, Buffer.alloc(2 * BLOCK)]), { level: 9 });
+  const tgz = gzipSync(Buffer.concat([...blocks, Buffer.alloc(2 * BLOCK)]), { level: 9 });
+  tgz[GZIP_OS] = UNIX;
+  return tgz;
 }
 
 function read(tar: Buffer): TarEntry[] {

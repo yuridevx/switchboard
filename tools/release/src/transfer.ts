@@ -1,9 +1,11 @@
 // Загрузка и скачивание по ссылкам «Выпусков»: одна функция у CLI и инструмента сессии. Как спросить «Выпуски», говорит вызывающий.
-import { gunzipSync } from "node:zlib";
 import { shaLine } from "./sign.ts";
+import { entries } from "./tar.ts";
 
 /** Предел обмена с R2: как у keeper на скачивание архива части. */
 const LINK_MS = 10 * 60_000;
+/** Его пишет npm, а не код: на другой машине он другой при том же дереве. */
+const NOT_CODE = "package-lock.json";
 
 export type Answer = { ok: true; result?: unknown } | { ok: false; error: string; why?: unknown };
 type Response = { ok: boolean; status: number; arrayBuffer?(): Promise<ArrayBuffer> };
@@ -32,11 +34,17 @@ async function exchange(net: Net, url: string, method: string, say: Say, o: { bo
   }
 }
 
+/** Пути, чьё содержимое в архивах разное. */
+export function differs(a: Uint8Array, b: Uint8Array): string[] {
+  const filesOf = (tgz: Uint8Array) => new Map(entries(tgz).filter((e) => e.data).map((e) => [e.path, e.data!]));
+  const [x, y] = [filesOf(a), filesOf(b)];
+  return [...new Set([...x.keys(), ...y.keys()])].filter((p) => p !== NOT_CODE && !x.get(p)?.equals(y.get(p) ?? Buffer.alloc(0)));
+}
+
 export const download = (net: Net, url: string, say: Say, signal?: AbortSignal): Promise<Buffer> => exchange(net, url, "GET", say, { signal });
 
 /**
- * Версия в каталог: архив, затем хэш — он делает её готовой. same — такая уже лежит: тот же хэш или, у занятого номера, тот же tar:
- * gzip на разных машинах даёт разные байты при том же tar.
+ * Версия в каталог: архив, затем хэш — он делает её готовой. same — такая уже лежит: тот же хэш или, у занятого номера, те же файлы.
  */
 export async function upload(net: Net, m: { name: string; version: string; tgz: Buffer; sha: string }, signal?: AbortSignal): Promise<{ same?: true }> {
   const version = { part: m.name, version: m.version };
@@ -47,7 +55,7 @@ export async function upload(net: Net, m: { name: string; version: string; tgz: 
     const got = await net.ask("releases.fetch", version);
     if (!got.ok) throw new Error(refused("releases.fetch", got));
     const { url } = got.result as { url: string };
-    if (!gunzipSync(await download(net, url, on(url, "fetch_failed"), signal)).equals(gunzipSync(m.tgz))) throw new Error(refused("releases.upload", r));
+    if (differs(await download(net, url, on(url, "fetch_failed"), signal), m.tgz).length) throw new Error(refused("releases.upload", r));
     return { same: true };
   }
   const links = r.result as { same: true } | { tgz: string; sha256: string };

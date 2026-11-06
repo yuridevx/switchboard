@@ -25,6 +25,8 @@ const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 
 afterEach(() => vi.restoreAllMocks());
 
+const KEEPER_JSON = "{\n  \"name\": \"keeper\",\n  \"type\": \"os\",\n  \"version\": \"1.2.1\",\n  \"provides\": { \"keeper.state\": 1 },\n  \"uses\": { \"releases.plan@releases\": 1, \"ledger.add@ledger\": 1, \"gate.redeem@gate\": 1, \"hello@relay\": 1, \"roster@relay\": 1 },\n  \"config\": {}\n}\n";
+
 describe("формат выпуска", () => {
   it("байты архива и строки .sha256 закреплены: настоящий каталог хранит выпуски в этом формате; туда и обратно — файлы, папки из путей, режим, длинный путь (чьё: код; слово главной сессии — формат не меняется)", () => {
     const long = "packages/" + "a".repeat(70) + "/" + "b".repeat(70) + "/file.ts";
@@ -37,7 +39,13 @@ describe("формат выпуска", () => {
     // tar без сжатия: gzip на разных машинах даёт разные байты при том же tar
     expect(sha(gunzipSync(tgz))).toBe("856b0997034453bdd7279e9a99368538f35801fb271c633e4b6d6492d5b9769c");
     expect(entries(tgz).map((e) => e.path).slice(0, 2)).toEqual(["module.json", "packages/"]);
-    expect(tgz).toEqual(gzipSync(gunzipSync(tgz), { level: 9 }));
+    const gzip = gzipSync(gunzipSync(tgz), { level: 9 });
+    gzip[9] = 3;
+    expect(tgz).toEqual(gzip);
+    // факт CI 42119677969: Linux дал 69e30ba7…, Windows 110a9e79…; вся разница — байт ОС заголовка gzip (3 и 10)
+    const keeper = (path: string, text: string) => ({ path, data: Buffer.from(text), mode: 0o755 });
+    const ci = pack([{ path: "module.json", data: Buffer.from(KEEPER_JSON) }, keeper("windows-amd64/keeper.exe", "keeper windows/amd64"), keeper("linux-amd64/keeper", "keeper linux/amd64")]);
+    expect(sha256hex(ci)).toBe("69e30ba747b2f2244146c6421a38e8fb8f82769ebfd4e5297df3a575d71e17ec");
     const got = new Map(files(tgz).map((e) => [e.path, e.data!]));
     expect(got.size).toBe(4);
     expect(got.get("src/a.ts")!.toString()).toBe("export const a = 1;\n");
@@ -162,7 +170,7 @@ describe("упаковка модуля", () => {
     // стили страницы кладутся в код текстом
     const page = (eol: string) => packFromRepo(clone(eol, "web", "a.css", 'import css from "./a.css";\nexport default css;\n'));
     expect(page("\r\n").sha).toBe(page("\n").sha);
-  }, 60_000);
+  });
 
   it("5131 · 5167 · модуль страницы монорепо — module.json и один ES-файл (другие модули страницы — внешние импорты, протокол — внутри) и рядом папка пакета с контрактом и стендом; тот же код — тот же хэш", async () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): «Веб: один файл ES-модуля»
@@ -368,7 +376,7 @@ describe("CLI выпуска", () => {
     const paths = entries(tgz).map((e) => e.path);
     expect(paths[0]).toBe("module.json");
     expect(await manifestOf(tgz)).toMatchObject({ name: "host", type: "sdk-core" });
-    expect(paths).toEqual(expect.arrayContaining(["host", "package.json", "package-lock.json", "app.json", "packages/host/main.ts", "packages/host/stand/host.ts", "packages/protocol/contract.ts", "packages/release/contract.ts", "packages/relay/contract.ts", "packages/manifest-gate/contract.ts"]));
+    expect(paths).toEqual(expect.arrayContaining(["host", "package.json", "package-lock.json", "app.json", "packages/host/main.ts", "packages/host/stand/host.ts", "packages/protocol/contract.ts", "packages/release/contract.ts", "packages/relay/contract.ts", "packages/manifest-gate/contract.ts", "packages/gate/contract.ts"]));
     expect(paths.some((p) => p.includes("node_modules") || p.includes(".test.") || p.includes("/test/") || p.startsWith("packages/host-"))).toBe(false);
     expect(entries(tgz).find((e) => e.path === "host")?.mode).toBe(0o755);
     expect(text(tgz, "host")).toBe('// Вход выпуска Host: keeper запускает node host в папке версии.\nimport "./packages/host/main.ts";\n');

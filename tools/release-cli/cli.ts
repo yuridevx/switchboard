@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRepo } from "@switchboard/manifest-gate";
 import { CALL_MS } from "@switchboard/protocol";
-import { download, entries, refused, shaLine, upload, type Answer, type Net, type PackedModule } from "@switchboard/release";
+import { differs, download, shaLine, upload, type Answer, type Net, type PackedModule } from "@switchboard/release";
 import { buildCore, coreArchive, type Exec } from "./src/core.ts";
 import { buildKeeper, type Go } from "./src/keeper.ts";
 import { packFromRepo } from "./src/module.ts";
@@ -16,8 +16,6 @@ export type Fetch = (url: string, init: { method: string; body?: string | Uint8A
 
 const USAGE = "вызов: switchboard release core | keeper | modules [--out <папка>] [--dry-run] | check";
 const NO_ENV = "нет SWITCHBOARD_RELEASES или SWITCHBOARD_PASS в окружении: адрес «Выпусков» и пропуск программы";
-/** Ядро пишет lockfile npm: номером управляет не код, поэтому он не сравнивается. */
-const NOT_CODE = "package-lock.json";
 const ROOT = join(import.meta.dirname, "..", "..");
 
 function options(rest: string[]) {
@@ -71,13 +69,6 @@ async function modules(net: Net, dry: boolean): Promise<number> {
   }
   console.log(`каталог: загружено ${n.sent}, уже были ${n.had}, собрано без загрузки ${n.built}, отказов ${n.bad}`);
   return n.bad ? 1 : 0;
-}
-
-/** Пути, чьё содержимое в архивах разное. */
-function differs(a: Uint8Array, b: Uint8Array): string[] {
-  const filesOf = (tgz: Uint8Array) => new Map(entries(tgz).filter((e) => e.data).map((e) => [e.path, e.data!]));
-  const [x, y] = [filesOf(a), filesOf(b)];
-  return [...new Set([...x.keys(), ...y.keys()])].filter((p) => p !== NOT_CODE && !x.get(p)?.equals(y.get(p) ?? Buffer.alloc(0)));
 }
 
 async function check(net: Net): Promise<number> {

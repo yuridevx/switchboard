@@ -101,7 +101,7 @@ function cloudflare(scripts: Record<string, { tags: string[]; live?: string }> =
     const [, s, what] = m;
     if (!tags.has(s) && !o.any) return Response.json({ success: false, errors: [{ code: 10007, message: "no script" }] }, { status: 404 });
     if (what === "assets-upload-session") {
-      sent.manifest = ((await req.json()) as { manifest: Record<string, { hash: string }> }).manifest;
+      sent.manifest = ((await req.json()) as { manifest: Record<string, { hash: string; size: number }> }).manifest;
       return ok({ jwt: "up", buckets: [Object.values(sent.manifest).map((x) => x.hash)] });
     }
     if (what === "versions" && req.method === "POST") {
@@ -476,7 +476,7 @@ describe("эталоны releases", () => {
   });
 
   it.each([
-    ["2094 · у Worker'а нет версии", { error: "no_release", why: "у points нет версии с меткой" }, { points: { tags: [] } }, () => false],
+    ["2094 · у Worker'а нет версии", { error: "no_release", why: "у points нет версии с меткой" }, { points: { tags: [] } }, (_u: string) => false],
   ])("4b · посреди «*»: %s — отказ словом, уже выложенные части Cloudflare в журнале флота, stable частей машины прежний", async (_n, word, over, broken) => {
     // источник: устав «система ловит»: отказ — словом, причина — в журнале; факт цикла тестов 2 нояб. — записи выложенных частей терялись
     const s = fresh();
