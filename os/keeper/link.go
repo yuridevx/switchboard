@@ -235,13 +235,13 @@ func postWorker(ctx context.Context, url, key string, f map[string]any, out any)
 		return err
 	}
 	defer resp.Body.Close()
+	if out != nil {
+		return json.NewDecoder(resp.Body).Decode(out) // отказ Worker'а — кадр со словом и при коде ошибки
+	}
 	if resp.StatusCode >= 300 {
 		return errors.New(resp.Status)
 	}
-	if out == nil {
-		return nil
-	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return nil
 }
 
 func newID() string {
