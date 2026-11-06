@@ -116,4 +116,5 @@ for (const w of wrappers.slice(0, 40)) lines.push(`${w.name} → ${w.to} · ${w.
 lines.push(`\n== совместные правки между модулями: ${coupled.length} пар`);
 for (const c of coupled.slice(0, 25)) lines.push(`${c.k}: ${c.n} коммитов, связанность ${c.deg}`);
 writeFileSync(out, lines.join("\n"));
+writeFileSync(out + ".json", JSON.stringify({ functions: fns.length, small: fns.filter((f) => f.toks.length < 30).length, near: near.map(({ ka, kb, j, toks }) => ({ ka, kb, j, toks })), inside: nearIn.map(({ ka, kb, j, toks }) => ({ ka, kb, j, toks })) }));
 console.log(`файлов ${files.length} · функций ${fns.length} · одноимённых ${sameName.length} · почти-клонов ${near.length} (внутри модуля ${nearIn.length}) · обёрток ${wrappers.length} · связанных пар ${coupled.length}`);

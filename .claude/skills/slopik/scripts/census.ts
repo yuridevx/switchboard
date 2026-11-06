@@ -124,7 +124,7 @@ export function pass(p: Pass, sha: string): void {
   writeFileSync(stateFile(), JSON.stringify({ last: sha }));
 }
 
-/** Остановка: очереди нет, или последний проход ничего не подтвердил, или приёмка сломалась дважды подряд. */
+/** Остановка: файл stop в SLOPIK_HOME, очереди нет, или последний проход ничего не подтвердил, или приёмка сломалась дважды подряд. */
 export function stop(): { go: boolean; why: string } {
   const rows: Pass[] = existsSync(journalFile()) ? readFileSync(journalFile(), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
   const [prev, last] = rows.slice(-2).length === 2 ? rows.slice(-2) : [undefined, rows.at(-1)];
