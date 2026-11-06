@@ -49,3 +49,6 @@
 | `vitest.config` Worker-модулей | оставлена | конфигурация пакетов, законная копия |
 | `card` `Refused` — `settings` `Link` | оставлена | совпадение формы JSX |
 | совместные правки `manage`, `machine`, `remote`, `shell`, `prefs`, `records`, `labels` | оставлена | след коммитов сноса, а не связь без контракта |
+| `scripts/flow-slots.ts:48`, `scripts/shots/answers.ts:123` — `machineOf` | слита | проход 3, со второго агента; на доходящих входах 0 различий, контроль вторым правилом нашёл расхождения |
+| `scripts/flow-incidents.ts:75` — `machineOf` | оставлена | `check` живого сценария: оракул, дверь relay считает через тот же `machineOf`; первая попытка отклонена |
+| `scripts/flow-sessions.ts:68` — `machineOf` | оставлена | тоже `check` живого сценария |
