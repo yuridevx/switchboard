@@ -14,6 +14,8 @@ const { FakeHolders, module, standHost, until } = stand;
 type Stand = stand.Stand;
 type Key = { env: Record<string, string>; settings: Record<string, unknown>; key: string };
 
+/** Как под службой Windows: системная папка есть, Git\usr\bin с cat нет. */
+const NO_CAT = process.platform === "win32" ? { PATH: "C:\Windows\System32", SystemRoot: "C:\Windows" } : { PATH: "" };
 const ORCA: Key = { env: { ANTHROPIC_BASE_URL: "https://api.orcarouter.ai", ANTHROPIC_DEFAULT_OPUS_MODEL: "orcarouter/auto" }, settings: { modelOverrides: { a: "b" } }, key: "sk-orca-SECRET" };
 
 let st: Stand | null = null;
@@ -278,7 +280,7 @@ describe("ключ флота на машине", () => {
     const calls: Array<{ args: string[]; env: Record<string, string | undefined>; helper: string }> = [];
     st!.sdk.cli = async (args, env) => {
       const settings = JSON.parse(args[args.indexOf("--settings") + 1]) as { apiKeyHelper: string };
-      calls.push({ args, env, helper: execSync(settings.apiKeyHelper, { encoding: "utf8", env: { PATH: "", ComSpec: process.env.ComSpec } }).trim() });
+      calls.push({ args, env, helper: execSync(settings.apiKeyHelper, { encoding: "utf8", stdio: "pipe", env: NO_CAT }).trim() });
       return { code: 0, out: answer({ is_error: false, result: "ok" }) };
     };
     const r = await ask({ type: "machine.key_check", name: "orca" });
