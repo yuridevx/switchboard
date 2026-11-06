@@ -8,26 +8,35 @@ export type Catalog = { parts: Record<string, CatalogPart>; machines: Array<{ ma
 /** «1.2.0+7» → «+7»; без сборки — номер целиком. */
 export const short = (version: string) => (version.includes("+") ? `+${version.split("+")[1]}` : version);
 
-/** Сборки старше stable, новые первыми. */
+/** Сборки старше stable, новые первыми: на них «Вернуть». */
 export const older = (p: CatalogPart) => p.versions.slice(0, Math.max(p.versions.indexOf(p.stable), 0)).reverse();
+/** Версии, кроме stable, новые первыми. */
+export const others = (p: CatalogPart) => p.versions.filter((v) => v !== p.stable).reverse();
 
 /** Что машина держит из части: у keeper — свой номер ответа. */
 export const heldBy = (k: KState, part: string) => (part === "keeper" ? k.keeper : k.parts.find((p) => p.part === part)?.version);
 
-export type Cell = { text: string; tone: "" | "behind" | "upd" | "fail" | "off" | "gone" };
+export type Cell = { text: string; tone: "ok" | "behind" | "upd" | "fail" | "off" | "gone"; title?: string };
 
-/** Ячейка матрицы: что держит машина против плана. */
-export function cellOf(k: KState | undefined, part: string, plan: Plan[string] | undefined, stable: string | undefined): Cell {
-  if (!k) return { text: "не на связи", tone: "gone" };
-  if (plan?.on === false) return { text: "выключена", tone: "off" };
-  const version = heldBy(k, part);
-  const state = k.parts.find((p) => p.part === part)?.state;
-  if (!version) return { text: "—", tone: "off" };
-  if (state === "failed") return { text: version, tone: "fail" };
-  if (plan?.pin) return { text: `📌 ${version}`, tone: "" };
-  if (state === "updating") return { text: stable ? `${version} → ${stable}` : version, tone: "upd" };
-  return stable && version !== stable ? { text: `${version} → ${stable}`, tone: "behind" } : { text: version, tone: "" };
+/** Ячейка матрицы: что написать и какой цвет; части на машине нет и в плане её нет — пусто. */
+export function cellOf(k: KState | undefined, online: boolean, part: string, plan: Plan[string] | undefined, stable: string | undefined): Cell | null {
+  const held = k?.parts.find((p) => p.part === part);
+  const version = k && heldBy(k, part);
+  const want = plan?.pin ?? stable;
+  const mark = (text: string) => (plan?.pin ? `📌 ${text}` : text);
+  if (!online || !k) return version || plan || want ? { text: mark(version ?? want ?? "—"), tone: "gone" } : null;
+  if (!version && !plan && !want) return null;
+  if (plan?.on === false) return { text: mark("выключена"), tone: "off" };
+  if (held?.state === "failed") return { text: mark(`${version ?? "?"} · сбой`), tone: "fail", title: held.error };
+  if (version && want && version !== want) return { text: mark(`${version} → ${want}`), tone: held?.state === "starting" || held?.state === "updating" ? "upd" : "behind" };
+  return { text: mark(version ?? want ?? "—"), tone: "ok" };
 }
+
+/** Этот ли пропуск моего устройства: адрес от gate, пока его нет — имя из пропуска. */
+export const isMine = (app: { address(): string | null; name: string }, p: { addr: string; name: string; role: string }) => {
+  const address = app.address();
+  return address ? p.addr === address : p.role === "client" && p.name === app.name;
+};
 
 const WORDS: Record<string, string> = {
   check_failed: "проверка флота не прошла",

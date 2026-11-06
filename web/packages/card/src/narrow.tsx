@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
 import type { ScreenProps } from "@switchboard/web-core";
-import { Btn, Chip, Chips, EFFORTS, failText, MODELS, Note, Pad, Row, sessionOf, slotOf, Tabs, useApp, type Result } from "@switchboard/web-ui";
+import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, sessionOf, slotOf, Tabs, useApp, type Result } from "@switchboard/web-ui";
 
 const words = (s: { state?: unknown }) => (["stopped", "failed"].includes(s.state as string) ? ("start" as const) : ("stop" as const));
 
@@ -34,10 +34,15 @@ export function useAct(callsign: string) {
   return { busy, word, act };
 }
 
-export function Control({ kind, busy, act }: { kind: "start" | "stop" | null } & Pick<ReturnType<typeof useAct>, "busy" | "act">) {
-  if (kind === "start") return <Btn disabled={!!busy} onClick={() => void act("session.start")}>{busy === "session.start" ? "Запускаю…" : "Запустить"}</Btn>;
-  if (kind === "stop") return <Btn disabled={!!busy} onClick={() => void act("session.stop")}>{busy === "session.stop" ? "Останавливаю…" : "Остановить"}</Btn>;
-  return null;
+export function Control({ kind, busy, act, className }: { kind: "start" | "stop" | null; className?: string } & Pick<ReturnType<typeof useAct>, "busy" | "act">) {
+  if (!kind) return null;
+  const name = kind === "start" ? "session.start" : "session.stop";
+  const [idle, working] = kind === "start" ? ["Запустить", "Запускаю…"] : ["Остановить", "Останавливаю…"];
+  return (
+    <Btn className={className} disabled={!!busy} onClick={() => void act(name)}>
+      {busy === name ? working : idle}
+    </Btn>
+  );
 }
 
 function Info({ callsign }: { callsign: string }) {
@@ -49,7 +54,7 @@ function Info({ callsign }: { callsign: string }) {
   const control = useControl(callsign);
   const { busy, word, act } = useAct(callsign);
   const [names, setNames] = useState(false);
-  const facts: Array<[string, unknown]> = [["адрес", callsign], ["папка", s?.dir], ["слот", slotOf(s)?.name], ["аккаунт", s?.account], ["сбой", s?.failed && failText(s)]];
+  const facts: Array<[string, unknown]> = [["адрес", callsign], ["папка", s?.dir], ["слот", slotOf(s)?.name], ["аккаунт", s?.account], ["профиль", profileIdOf(s)], ["сбой", s && failText(s)]];
   return (
     <Pad>
       <dl className="card-info">
@@ -57,27 +62,23 @@ function Info({ callsign }: { callsign: string }) {
       </dl>
       {s && update && (
         <div className="card-pick">
-          <Row label="Модель" data-pick="model">
-            <Chips>
-              {MODELS.map((m) => (
-                <Chip key={m} on={m === s.model} disabled={!!busy} onClick={() => void act("session.update", { model: m })}>
-                  {m}
-                </Chip>
-              ))}
-            </Chips>
-          </Row>
-          <Row label="Усилие" data-pick="effort">
-            <Chips>
-              {EFFORTS.map(([e, name]) => (
-                <Chip key={e} on={e === s.effort} disabled={!!busy} onClick={() => void act("session.update", { effort: e })}>
-                  {name}
-                </Chip>
-              ))}
-            </Chips>
-          </Row>
+          <Opts data-pick="model">
+            {MODELS.map((m) => (
+              <Btn key={m} aria-pressed={m === s.model} disabled={!!busy} onClick={() => void act("session.update", { model: m })}>
+                {m}
+              </Btn>
+            ))}
+          </Opts>
+          <Opts data-pick="effort">
+            {EFFORTS.map(([e, name]) => (
+              <Btn key={e} aria-pressed={e === s.effort} disabled={!!busy} onClick={() => void act("session.update", { effort: e })}>
+                {name}
+              </Btn>
+            ))}
+          </Opts>
         </div>
       )}
-      <Control kind={control} busy={busy} act={act} />
+      <Control className="card-act" kind={control} busy={busy} act={act} />
       {placed.map((p) => (
         <Btn key={p.name} className="card-act" data-screen={p.name} onClick={() => app.run(p.name, { callsign })}>
           {p.label}
@@ -87,9 +88,10 @@ function Info({ callsign }: { callsign: string }) {
         Имена
       </Btn>
       {word && (
-        <Note tone="bad">
-          <b>Не вышло</b> {word}
-        </Note>
+        <BadCard>
+          <b>Не вышло</b>
+          <code>{word}</code>
+        </BadCard>
       )}
       {names && <app.Slot screen="labels" params={{ callsign }} close={() => setNames(false)} />}
     </Pad>

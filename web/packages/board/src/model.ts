@@ -17,15 +17,15 @@ export const BUILT_IN: Array<Pick<Filter, "id" | "name">> = [
 ];
 export const VIEW = { projects: true, group: false, tree: true, dense: false, lamp: true, at: true, owner: true, pin: true, inc: true, badge: true, q: true, unread: true, fail: true, prof: true, model: true, pjlamps: true, grip: true, add: true, fcount: true };
 
-/** Лампа по срочности: сверху то, что ждёт человека. */
-const URGENT = ["bad", "wait", "busy", "stop", "idle"];
-export const byUrgency = <T,>(list: T[], dotOf: (item: T) => string): T[] => [...list].sort((a, b) => URGENT.indexOf(dotOf(a)) - URGENT.indexOf(dotOf(b)));
+const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" ? 1 : 2);
+/** Сначала ждущие вас и упавшие, потом занятые, остальные; внутри — по адресу. */
+export const byUrgency = (list: SessionRecord[]): SessionRecord[] => [...list].sort((a, b) => rank(a) - rank(b) || a.callsign.localeCompare(b.callsign));
 
 type Ctx = { sessions: SessionRecord[]; me: string | null; pins: string[] };
 const find = (sessions: SessionRecord[], callsign: unknown) => sessions.find((s) => s.callsign === callsign);
-const links = (s: SessionRecord) => [s.parent, s.by].filter((x): x is string => typeof x === "string");
+const links = (s: SessionRecord) => [s.by, s.parent].filter((x): x is string => typeof x === "string");
 
-/** Почта человека в начале цепочки: кто дал задачу или открыл, через сессии. */
+/** Почта владельца: устройство, давшее задачу, иначе сессия выше по цепочке. */
 export function ownerOf(sessions: SessionRecord[], callsign: string, seen = new Set<string>()): string | null {
   const s = find(sessions, callsign);
   if (!s || seen.has(callsign)) return null;

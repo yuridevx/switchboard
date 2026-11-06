@@ -165,7 +165,7 @@ export function createState(app: App) {
     find(q: string) {
       const name = (c: string) => records()?.find((r) => r.id === projectOf(c))?.name ?? "";
       const hits = sessions().filter((s) => [s.callsign, sessionLabel(app, s.callsign).text, name(s.callsign)].some((x) => x.toLowerCase().includes(q)));
-      return byUrgency(hits, lamp).map((s) => ({
+      return byUrgency(hits).map((s) => ({
         label: sessionLabel(app, s.callsign).text,
         hint: `${machineLabel(app, machineOf(s.callsign)!).text} · папка ${folderOf(s.dir)}`,
         dot: lamp(s),

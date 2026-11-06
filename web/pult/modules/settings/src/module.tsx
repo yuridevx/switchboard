@@ -1,6 +1,6 @@
 // Настройки флота: вкладки «Выпуски», «Пропуска», «GitHub и устройство»; на телефоне — только устройство.
 import type { AppPart, ScreenProps } from "@switchboard/web-core";
-import { Page, Tabs, useApp } from "@switchboard/web-ui";
+import { Page, PageHead, Tabs, useApp } from "@switchboard/web-ui";
 import { GeneralTab, githubCode } from "./general.tsx";
 import { PassesTab } from "./passes.tsx";
 import { ReleasesTab } from "./releases.tsx";
@@ -22,7 +22,9 @@ function SettingsScreen({ params }: ScreenProps) {
   const tab = (params.tab as Tab | undefined) ?? (githubCode() ? "general" : "releases");
   return (
     <Page>
-      <Tabs className="st-tabs" tabs={TABS} cur={tab} pick={(k) => app.open("settings", { tab: k })} />
+      <PageHead title="Настройки">
+        <Tabs className="st-tabs" tabs={TABS} cur={tab} pick={(k) => app.open("settings", { tab: k })} />
+      </PageHead>
       {tab === "releases" && <ReleasesTab machine={params.machine} />}
       {tab === "passes" && <PassesTab />}
       {tab === "general" && <GeneralTab />}
@@ -44,7 +46,8 @@ export const createSettings = ((app) => {
         group: "Флот",
         label: "Настройки",
         view: SettingsScreen,
-        find: (q) => TABS.flatMap(([tab, name]) => (name.toLowerCase().includes(q) ? [{ label: `Настройки: ${name.toLowerCase()}`, screen: "settings", params: { tab } }] : [])),
+        head: () => ({ title: "Настройки" }),
+        find: (q) => TABS.flatMap(([tab, name]) => (name.toLowerCase().includes(q) ? [{ label: `Настройки: ${name.toLowerCase()}`, hint: "Флот", screen: "settings", params: { tab } }] : [])),
       },
     },
     marks: { "keeper.answers": () => state.answers.get() },

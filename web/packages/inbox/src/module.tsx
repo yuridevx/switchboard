@@ -2,22 +2,22 @@
 import type { ReactNode } from "react";
 import { machineOf } from "@switchboard/protocol";
 import type { AppPart, ScreenProps } from "@switchboard/web-core";
-import { at, Btn, Dot, failText, lamp, sessionLabel, slotOf, useApp, type App } from "@switchboard/web-ui";
+import { at, Btn, Dot, failText, isLive, lamp, machineLabel, sessionLabel, slotOf, TextBtn, useApp, type App } from "@switchboard/web-ui";
 import css from "./inbox.css";
 
 type Kind = "q" | "msg" | "fail" | "wait" | "away" | "fire" | "done";
 type Card = { kind: Kind; callsign?: string; machine?: string; dot: string; label: string; text?: string };
 
 const GROUPS: Array<[string, Kind[]]> = [["Ждут ответа", ["q", "msg"]], ["Сломалось или ждёт", ["fail", "wait", "away", "fire"]], ["Готово", ["done"]]];
-const TONE: Partial<Record<Kind, string>> = { q: "you", msg: "you", fail: "bad", away: "bad", fire: "bad", done: "done" };
+const TONE: Record<Kind, string> = { q: "you", msg: "you", fail: "bad", wait: "bad", away: "bad", fire: "bad", done: "done" };
 /** Закончила ход: из этих состояний в свободную. После ответа на вопрос сессия просто продолжает разговор. */
 const WORKED = ["busy", "starting"];
 
 export const createInbox = ((app) => {
   const states = new Map<string, unknown>();
   const finished = new Set<string>();
-  /** мои сессии, какие видела страница: ушедшая машина их уже не покажет */
-  const seen = new Set<string>();
+  /** мои сессии машины, какими их видели на связи: ушедшая их уже не покажет */
+  const seen = new Map<string, string[]>();
   const mine = (callsign: string) => !!app.mark("mine", callsign);
   const opened = () => app.current()?.params.callsign;
 
@@ -36,36 +36,35 @@ export const createInbox = ((app) => {
 
   function cards(): Card[] {
     const sessions = app.roster()?.sessions ?? [];
-    for (const s of sessions) if (mine(s.callsign)) seen.add(s.callsign);
+    for (const m of app.roster()?.machines ?? []) seen.set(m.machine, sessions.map((s) => s.callsign).filter((c) => machineOf(c) === m.machine && mine(c)));
     const gone = (app.mark("machines.gone") ?? {}) as Readonly<Record<string, number>>;
     const fire = ((app.mark("fire") ?? []) as string[]).filter((m) => !Object.hasOwn(gone, m));
     return [
       ...sessions.flatMap((s): Card[] => {
         const { callsign } = s;
-        const dot = lamp(s);
         const unread = app.mark("unread", callsign) as { count: number; text: string } | undefined;
-        if (app.mark("asked", callsign)) return [{ kind: "q", callsign, dot, label: project(callsign, "спрашивает") }];
-        return unread?.count ? [{ kind: "msg", callsign, dot, label: project(callsign, "пишет вам"), text: unread.text }] : [];
+        if (app.mark("asked", callsign)) return [{ kind: "q", callsign, dot: "wait", label: project(callsign, "спрашивает") }];
+        return unread?.count ? [{ kind: "msg", callsign, dot: "wait", label: project(callsign, "пишет вам"), text: unread.text }] : [];
       }),
       ...sessions.flatMap((s): Card[] => {
         const { callsign } = s;
         const wait = slotOf(s)?.wait;
         if (!mine(callsign)) return [];
-        if (s.state === "failed") return [{ kind: "fail", callsign, dot: lamp(s), label: "не запустилась", text: failText(s) }];
-        return wait ? [{ kind: "wait", callsign, dot: lamp(s), label: "ждёт сброса лимита", text: `Аккаунты слота ${slotOf(s)!.name} у порога — продолжит после ${at(wait)}` }] : [];
+        if (s.state === "failed") return [{ kind: "fail", callsign, dot: "bad", label: project(callsign, "не запустилась"), text: failText(s) }];
+        return wait ? [{ kind: "wait", callsign, dot: "idle", label: project(callsign, "ждёт сброса лимита"), text: `Аккаунты слота ${slotOf(s)!.name} у порога — продолжит после ${at(wait)}` }] : [];
       }),
       ...Object.entries(gone).flatMap(([machine, t]): Card[] => {
-        const here = [...seen].filter((c) => machineOf(c) === machine);
+        const here = seen.get(machine) ?? [];
         return here.length ? [{ kind: "away", machine, dot: "gone", label: `не на связи с ${at(t)}`, text: here.join(", ") }] : [];
       }),
       ...(fire.length ? [{ kind: "fire" as const, dot: "gone", label: `машин не на связи: ${fire.length}` }] : []),
-      ...sessions.flatMap((s): Card[] => (finished.has(s.callsign) && mine(s.callsign) ? [{ kind: "done", callsign: s.callsign, dot: lamp(s), label: "закончила ход" }] : [])),
+      ...sessions.flatMap((s): Card[] => (finished.has(s.callsign) && mine(s.callsign) && isLive(s.state) ? [{ kind: "done", callsign: s.callsign, dot: lamp(s), label: project(s.callsign, "готово") }] : [])),
     ];
   }
 
   async function restart(callsign: string) {
     const r = await app.request("session.start", { callsign });
-    if (!r.ok) app.toast(`${callsign} не запустилась: ${r.error}`, "bad");
+    if (!r.ok) app.toast(`${callsign} не запустилась: ${r.error}`);
   }
   function read(callsign: string) {
     finished.delete(callsign);
@@ -80,6 +79,7 @@ export const createInbox = ((app) => {
     );
     if (c.kind === "away" || c.kind === "fire") return up;
     if (c.kind === "msg") return <Btn pri onClick={() => open()}>Открыть</Btn>;
+    if (c.kind === "wait") return <Btn onClick={() => open()}>Открыть</Btn>;
     if (c.kind === "done") {
       return (
         <>
@@ -98,9 +98,7 @@ export const createInbox = ((app) => {
         <Btn pri onClick={() => void restart(c.callsign!)}>
           Запустить снова
         </Btn>
-        <Btn ghost onClick={() => open({ tab: "info" })}>
-          Почему
-        </Btn>
+        <Btn onClick={() => open(app.wide ? {} : { tab: "info" })}>Почему</Btn>
       </>
     );
   }
@@ -109,16 +107,16 @@ export const createInbox = ((app) => {
     const shell = useApp();
     const { callsign, machine } = card;
     const open = (params: Record<string, string> = {}) => shell.open("card", { callsign: callsign!, ...params });
-    const name = shell.use(() => (callsign ? sessionLabel(shell, callsign).text : machine ? `@${machine}` : ""));
+    const name = shell.use(() => (callsign ? sessionLabel(shell, callsign).text : machine ? machineLabel(shell, machine).text : ""));
     const buttons = actions(card, open);
     return (
-      <div className={["ib-it", TONE[card.kind]].filter(Boolean).join(" ")} data-kind={card.kind} data-callsign={callsign} data-machine={machine}>
+      <div className={`ib-it ${TONE[card.kind]}`} data-kind={card.kind} data-callsign={callsign} data-machine={machine}>
         <div className="ib-ih">
           <Dot kind={card.dot} />
           {callsign ? (
-            <button type="button" className="ib-cs" onClick={() => open()}>
+            <TextBtn className="ib-cs" onClick={() => open()}>
               {name}
-            </button>
+            </TextBtn>
           ) : (
             name && <b className="ib-cs">{name}</b>
           )}
@@ -163,6 +161,6 @@ export const createInbox = ((app) => {
       current: (c) => void (c.params.callsign && finished.delete(c.params.callsign)),
     },
     marks: { you: () => cards().length },
-    screens: { inbox: { nav: "Вам", mark: "you", view: Screen } },
+    screens: { inbox: { nav: "Вам", mark: "you", label: "Вам", view: Screen, head: () => ({ title: "Вам" }) } },
   };
 }) satisfies AppPart["module"];

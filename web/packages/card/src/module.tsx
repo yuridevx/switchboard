@@ -69,8 +69,8 @@ export const createCard = ((app) => {
     start: load,
     on: { show: load },
     screens: {
-      card: { label: "Сессия", head, view: (p) => (app.wide ? <WideCard {...p} /> : <NarrowCard {...p} />) },
-      "card.view": { view: HeadGroup },
+      card: { label: "Карточка", head, view: (p) => (app.wide ? <WideCard {...p} /> : <NarrowCard {...p} />) },
+      "card.view": { label: "Шапка", path: "card-view", view: HeadGroup },
     },
     commands: { "card.head.reset": { run: () => setHead(HEAD) } },
   };

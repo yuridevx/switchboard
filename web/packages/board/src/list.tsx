@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { machineOf } from "@switchboard/protocol";
 import { NONE } from "@switchboard/records";
-import { Badge, Btn, Dot, RowBtn, incidentOf, lamp, failText, machineLabel, profileNameOf, sessionLabel, useApp, useModule, type App } from "@switchboard/web-ui";
+import { Badge, Btn, DisclosureBtn, Dot, failText, IconBtn, incidentOf, lamp, machineLabel, profileNameOf, RowBtn, sessionLabel, stateLabel, TextBtn, useApp, useModule, type App } from "@switchboard/web-ui";
 import { holdTouch, rowDrag, sorting, track } from "./drag.ts";
 import { beforeOf, blockOf, byUrgency, tree, type Filter, type Line, type Section, type View } from "./model.ts";
 import { FilterEditor, ViewPanel } from "./panel.tsx";
@@ -10,6 +10,8 @@ import type { BoardState } from "./state.ts";
 
 type Shared = { host: () => HTMLElement; body: () => HTMLElement };
 const words = (...list: unknown[]) => list.filter(Boolean).join(" ");
+/** Ламп у свёрнутого проекта: больше не помещается. */
+const LAMPS = 6;
 
 /** Правка переставила элемент: вернуть фокус после перерисовки. */
 function useRefocus(root: () => HTMLElement | null) {
@@ -22,7 +24,7 @@ function useRefocus(root: () => HTMLElement | null) {
 }
 
 const PIN = (
-  <svg className="bd-pin" viewBox="0 0 16 16" aria-hidden="true">
+  <svg className="bd-pin" viewBox="0 0 16 16" role="img" aria-label="закреплена">
     <path d="M9.8 1.5 14.5 6.2l-2 .6-2.9 2.9-.3 3-1.4 1.4-2.3-3.2L2 14l3-3.6-3.2-2.3 1.4-1.4 3-.3 2.9-2.9z" />
   </svg>
 );
@@ -41,6 +43,7 @@ function rowOf(app: App, s: BoardState, callsign: string, project: boolean) {
   const owner = s.mine(callsign) ? null : s.owner(callsign);
   return {
     dot: r ? lamp(r) : "stop",
+    title: stateLabel(r?.state).text,
     name: sessionLabel(app, callsign),
     at: machineLabel(app, machineOf(callsign)!),
     owner: owner && !pinned ? owner.slice(1).split("@")[0] : null,
@@ -56,11 +59,11 @@ function rowOf(app: App, s: BoardState, callsign: string, project: boolean) {
   };
 }
 
-/** Вторая строка: вопрос, непрочитанное, сбой; иначе профиль и модель. */
+/** Вторая строка: вопрос, сбой, непрочитанное; иначе профиль и модель. */
 function second(r: ReturnType<typeof rowOf>, v: View): ReactNode {
   if (v.q && r.asked) return <span className="tx q">{`? ${r.asked}`}</span>;
-  if (v.unread && r.unread?.text) return <span className="tx">{r.unread.text}</span>;
   if (v.fail && r.fail) return <span className="tx f">{r.fail}</span>;
+  if (v.unread && r.unread?.text) return <span className="tx">{r.unread.text}</span>;
   return (
     <>
       {v.prof && r.profile && <span className="bd-pill">{r.profile}</span>}
@@ -82,10 +85,10 @@ function Row({ line, v, flat, grouped, shared }: { line: Line; v: View; flat: bo
   };
   return (
     <RowBtn className={words("bd-row", depth > 0 && "kid")} style={depth > 0 ? { paddingLeft: `${10 + depth * 22}px` } : undefined} data-callsign={callsign} aria-current={r.current || undefined} onClick={open} onPointerDown={down}>
-      {v.lamp && <Dot kind={r.dot} />}
+      {v.lamp && <Dot kind={r.dot} title={r.title} />}
       <span className="bd-rt">
         <span className="bd-t1">
-          <span className={words("bd-cs", r.name.human && "hum")}>{r.name.text}</span>
+          <b className={words("bd-cs", r.name.human && "hum")}>{r.name.text}</b>
           {v.pin && r.pinned && PIN}
           {v.owner && r.owner && <span className="bd-pill own">{r.owner}</span>}
           {v.inc && r.incident && <span className="bd-pill inc">{r.incident}</span>}
@@ -96,7 +99,11 @@ function Row({ line, v, flat, grouped, shared }: { line: Line; v: View; flat: bo
           {second(r, v)}
         </span>
       </span>
-      {v.badge && r.asked && <Badge wait>?</Badge>}
+      {v.badge && r.asked && (
+        <Badge wait aria-label="ждёт ответа">
+          ?
+        </Badge>
+      )}
       {v.badge && !r.asked && !!r.unread?.count && <Badge>{r.unread.count}</Badge>}
     </RowBtn>
   );
@@ -128,7 +135,7 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
   const s = useModule<BoardState>();
   const { id, name, callsigns } = section;
   const folded = app.use(() => s.device.get().collapsed[id] === true);
-  const lamps = app.use(() => (folded ? byUrgency(s.sessions().filter((x) => callsigns.includes(x.callsign)).map(lamp), (d) => d) : []));
+  const lamps = app.use(() => (folded ? byUrgency(s.sessions().filter((x) => callsigns.includes(x.callsign))).slice(0, LAMPS).map(lamp) : []));
   const refocus = useRefocus(shared.host);
   const parentOf = (c: string) => s.sessions().find((x) => x.callsign === c)?.parent;
   const lines = (list: string[]) => (v.tree ? tree(list, parentOf) : list.map((callsign) => ({ callsign, depth: 0 })));
@@ -173,15 +180,15 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
   };
 
   return (
-    <div className="pjs" data-proj={id}>
+    <section className="pjs" data-proj={id}>
       <div className="pj">
         {v.grip && id !== NONE && (
           <span className="grip" role="button" tabIndex={0} data-proj={id} aria-label={`Проект ${name}: перетащить, стрелки или нажать — имя и удаление`} onClick={() => setMenu(!menu)} onKeyDown={keys} onPointerDown={down}>
             ⠿
           </span>
         )}
-        <button type="button" className="pj-t" data-proj={id} aria-expanded={!folded} onClick={() => s.toggle(id, folded)}>
-          <span className="car">▾</span>
+        <DisclosureBtn className="pj-t" data-proj={id} open={!folded} onClick={() => s.toggle(id, folded)}>
+          <span className="car">▼</span>
           <span className="nm">{name}</span>
           {v.pjlamps && lamps.length > 0 && (
             <span className="lamps">
@@ -190,11 +197,11 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
               ))}
             </span>
           )}
-        </button>
+        </DisclosureBtn>
         {v.add && (
-          <button type="button" className="pj-add" data-proj={id} aria-label={`Новая сессия в ${name}`} onClick={add}>
+          <IconBtn className="pj-add" data-proj={id} aria-label={`Новая сессия в ${name}`} onClick={add}>
             +
-          </button>
+          </IconBtn>
         )}
       </div>
       {menu && (
@@ -217,7 +224,7 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
             ...lines(here).map((line) => <Row key={line.callsign} line={line} v={v} flat={false} grouped shared={shared} />),
           ];
         })}
-    </div>
+    </section>
   );
 }
 
@@ -228,14 +235,21 @@ function Lists({ filter, v, shared }: { filter: Filter; v: View; shared: Shared 
   const [adding, setAdding] = useState(false);
   const sections = app.use(() => (s.drawn() ? s.shown(s.conditions(filter)) : []));
   const drawn = app.use(() => s.drawn());
+  const box = useRef<HTMLDivElement>(null);
+  const open = app.use(() => app.current()?.params.callsign);
   useEffect(() => {
     if (v.projects) s.firstShow(sections);
   });
-  if (!drawn) return null;
-  const empty = sections.every((x) => !x.callsigns.length) && <div className="bd-empty">{`в «${filter.name}» сессий нет`}</div>;
+  // открытая строка всегда видна, и когда только что появилась
+  const shown = sections.some((x) => open && x.callsigns.includes(open));
+  useEffect(() => {
+    if (open) box.current?.querySelector(`.bd-row[data-callsign="${CSS.escape(open)}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [open, shown]);
+  if (!drawn) return <div className="lst" />;
+  const empty = !sections.some((x) => x.callsigns.length) && <div className="bd-empty">{`в «${filter.name}» сессий нет`}</div>;
   if (!v.projects) {
     return (
-      <div className="lst flat">
+      <div ref={box} className="lst flat">
         {sections.flatMap((x) => x.callsigns).map((callsign) => (
           <Row key={callsign} line={{ callsign, depth: 0 }} v={v} flat grouped={false} shared={shared} />
         ))}
@@ -245,7 +259,7 @@ function Lists({ filter, v, shared }: { filter: Filter; v: View; shared: Shared 
   }
   const order = sections.map((x) => x.id);
   return (
-    <div className="lst">
+    <div ref={box} className="lst">
       {sections.map((section) => (
         <Project key={section.id} section={section} v={v} shared={shared} menu={menu === section.id} setMenu={(open) => setMenu(open ? section.id : "")} order={order} />
       ))}
@@ -253,9 +267,9 @@ function Lists({ filter, v, shared }: { filter: Filter; v: View; shared: Shared 
       {adding ? (
         <NameField className="pj-newin" data-f="project-new" aria-label="Имя нового проекта" save={s.addProject} close={() => setAdding(false)} />
       ) : (
-        <button type="button" className="pj-new" data-act="project-new" onClick={() => setAdding(true)}>
+        <TextBtn className="pj-new" data-act="project-new" onClick={() => setAdding(true)}>
           Новый проект
-        </button>
+        </TextBtn>
       )}
     </div>
   );
@@ -296,16 +310,20 @@ function FilterRow({ v, panel, setPanel, edit, shared }: { v: View; panel: boole
           <button key={c.id} type="button" role="tab" className="fc" data-fid={c.id} aria-selected={c.id === selected} onKeyDown={(e) => keys(e, c.id)} onPointerDown={(e) => down(e, c.id)} onClick={() => (c.id === selected && own(c.id) ? edit(own(c.id)!) : s.pick(c.id))}>
             {c.name}
             {v.fcount && <span className="n">{c.n}</span>}
-            {c.id === selected && own(c.id) && <span className="ed">✎</span>}
+            {c.id === selected && own(c.id) && (
+              <span className="ed" aria-hidden="true">
+                ✎
+              </span>
+            )}
           </button>
         ))}
       </div>
-      <button type="button" className="fc add" aria-label="Новый фильтр" onClick={() => edit(null)}>
+      <IconBtn className="fc add" aria-label="Новый фильтр" onClick={() => edit(null)}>
         +
-      </button>
-      <button type="button" className="fc vw" aria-label="Вид списка" aria-expanded={panel} onClick={() => setPanel(!panel)}>
+      </IconBtn>
+      <IconBtn className="fc vw" aria-label="Вид списка" aria-expanded={panel} onClick={() => setPanel(!panel)}>
         {SLIDERS}
-      </button>
+      </IconBtn>
     </div>
   );
 }

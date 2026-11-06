@@ -395,6 +395,20 @@ describe("Работа", () => {
       expect(t.$('.fc[aria-selected="true"]')!.dataset.fid).toBe("f1");
     });
 
+    it("5241 · три быстрые правки подряд: на экране до таймера — в том же кадре; записана последняя", async () => {
+      // источник: отложенная строка упала на новом коде; видимое человеку — кадр, а не конец обработчика: ядро считает выборки на микрозадаче
+      const relay = relayWith();
+      const t = await start({ relay });
+      for (const k of ["switchboard", "pfarm", "switchboard"]) {
+        t.$(`.grip[data-proj="${k}"]`)!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      }
+      expect(projects(t)).toEqual(["pfarm", "switchboard"]);
+      await flush(10);
+      const ids = (relay.scoped.global["fleet.projects"] as Array<{ id: string }>).map((x) => x.id);
+      expect(ids.indexOf("pfarm")).toBeLessThan(ids.indexOf("switchboard"));
+    });
+
     it("5242 · prefs отказал: «Моё» и «Всё» работают, своих нет; изменение — отказ словом, prefs.set не уходит", async () => {
       const relay = relayWith();
       relay.handlers["prefs.get"] = () => ({ ok: false, error: "not_user" });
@@ -1019,6 +1033,24 @@ describe("Найдено сверкой деревьев", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
     await flush();
     expect([...document.querySelectorAll(".sb-palit .sb-dot")].slice(0, 2).map((x) => x.className.split(" ")[1])).toEqual(["bad", "wait"]);
+  });
+
+  it("вторая строка: вопрос, затем сбой, затем непрочитанное; ламп свёрнутого — шесть, внутри срочности по адресу", async () => {
+    // источник: комментарии старого кода, сверка 6 нояб.: «одно из вопрос, сбой, непрочитанное», «ламп больше не помещается», «внутри — по адресу»
+    const r = fleetRoster();
+    r.sessions = [...r.sessions, ...["a", "b", "c"].map((n) => ({ callsign: `${n}@pc`, state: "idle", dir: "~", by: "panel-desk~owner@example.com" }))];
+    r.sessions = r.sessions.map((s) => (s.callsign === "site@laptop" ? { ...s, state: "failed", failed: { host: "код 1" } } : s));
+    const relay = fleetRelay(r);
+    relay.scoped.global = { "fleet.projects": [{ id: "all", name: "Все", sessions: r.sessions.map((s) => s.callsign) }] };
+    relay.handlers["question.list"] = () => ({ ok: true, result: [] });
+    const t = await pult({ relay });
+    await flush(5);
+    t.relay.push({ type: "message", from: "site@laptop", text: "Готово?" });
+    await flush(5);
+    expect(t.$('[data-callsign="site@laptop"] .tx.f')!.textContent).toBe("host: код 1");
+    await t.click(t.$('.fc[data-fid="all"]'));
+    if (t.$('.pj-t[data-proj="all"]')!.getAttribute("aria-expanded") === "true") await t.click(t.$('.pj-t[data-proj="all"]'));
+    expect(t.$$(".lamps .sb-dot").map((x) => x.className.split(" ")[1])).toEqual(["bad", "wait", "bad", "busy", "idle", "idle"]);
   });
 
   it("окно фильтра: число выбранного у поля", async () => {

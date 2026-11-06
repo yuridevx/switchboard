@@ -21,20 +21,20 @@ export function ViewPanel({ v, close }: { v: View; close(): void }) {
     if (app.wide) app.run("card.head.reset");
   };
   return (
-    <div className="bd-vw" role="dialog" aria-label="Вид списка">
+    <div className="bd-vw" role="dialog" aria-label="Вид списка" data-hide-tabs="">
       <div className="vw-h">
         <b>Вид списка</b>
-        <button type="button" className="vw-x" data-act="view-reset" onClick={reset}>
+        <Btn className="vw-x" data-act="view-reset" onClick={reset}>
           Вернуть
-        </button>
+        </Btn>
         {app.wide ? (
-          <button type="button" className="vw-x" aria-label="Закрыть" onClick={close}>
+          <Btn className="vw-x" aria-label="Закрыть" onClick={close}>
             ✕
-          </button>
+          </Btn>
         ) : (
-          <button type="button" className="vw-x pri" onClick={close}>
+          <Btn pri className="vw-x" onClick={close}>
             Готово
-          </button>
+          </Btn>
         )}
       </div>
       <div className="vw-b">
@@ -99,11 +99,11 @@ export function FilterEditor({ filter, close }: { filter: Filter | null; close()
     <div className="bd-veil" data-editor="1" onClick={(e) => e.target === e.currentTarget && close()} onKeyDown={onKey}>
       <div className="bd-dlg" role="dialog" aria-label="Фильтр">
         <div className="fe-h">
-          <b>{filter ? filter.name : "Новый фильтр"}</b>
+          <b>{filter ? "Фильтр" : "Новый фильтр"}</b>
         </div>
         <div className="fe-b">
-          <In className="fe-name" data-f="name" placeholder="Имя фильтра" aria-label="Имя фильтра" autoFocus={!filter} value={draft.name} onInput={(e) => setDraft({ ...draft, name: e.currentTarget.value })} />
-          <In data-f="q" placeholder="Найти: люди, проекты, машины…" aria-label="Найти в фильтре" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
+          <In className="fe-name" data-f="name" placeholder="Имя фильтра" aria-label="Имя фильтра" autoComplete="off" autoFocus={!filter} value={draft.name} onInput={(e) => setDraft({ ...draft, name: e.currentTarget.value })} />
+          <In className="fe-q" data-f="q" placeholder="Найти: люди, проекты, машины…" aria-label="Найти в фильтре" autoComplete="off" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
           <div className="fe-fs">
             {fields.map(({ field, title, list, picked }) => (
               <div key={field} className="fe-f" data-field={field}>

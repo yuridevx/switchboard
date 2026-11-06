@@ -73,7 +73,7 @@ export const createMachines = ((app) => {
         <span className={failed ? "v bad" : "v"} data-part={part.part} data-state={part.state}>
           {[part.version, part.state, part.pid && `pid ${part.pid}`].filter(Boolean).join(" · ")}
         </span>
-        {part.error && <span className="e">{part.error}</span>}
+        {part.error && <div className="e">{part.error}</div>}
         {failed && online && part.part !== "keeper" && (
           <Btn className="r" disabled={busy} onClick={() => void restart()}>
             {busy ? "Перезапускаю…" : "Перезапустить"}
@@ -97,7 +97,7 @@ export const createMachines = ((app) => {
             <span>система</span>
             <span>{k.os}</span>
             <span>keeper</span>
-            <span data-keeper="1">{`${k.keeper} · план rev ${k.rev}`}</span>
+            <span data-keeper={k.keeper}>{`${k.keeper} · план rev ${k.rev}`}</span>
           </div>
         )}
         {word && <Note tone="bad">{`keeper.state: ${word}`}</Note>}
@@ -124,6 +124,6 @@ export const createMachines = ((app) => {
       "machines.left": (machine: string) => gone[machine] ?? left.get(machine),
     },
     commands: { "machines.left.read": { run: (p) => void readLeft(p.machine) } },
-    screens: { "machine.parts": { view: Parts } },
+    screens: { "machine.parts": { label: "Части машины", path: "machine-parts", view: Parts } },
   };
 }) satisfies AppPart["module"];

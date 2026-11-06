@@ -1,7 +1,7 @@
 // Жесты «Работы» поверх готовой разметки: один трекер указателя, сортировка соседей по оси (проекты и чипы), бросок строки.
 // Жест не трогает React: двигает элементы стилем и в конце зовёт ту же правку, что и клавиатура.
 const HOLD_MS = 300;
-const MOUSE_SLOP = 4;
+const MOUSE_SLOP = 5;
 const TOUCH_SLOP = 8;
 const LAND_MS = 200;
 const EDGE = 40;
@@ -40,6 +40,8 @@ export function track(down: Down, hold: boolean, begin: (from: Point) => Gesture
     gesture = begin(from);
   };
   const timer = waits ? setTimeout(start, HOLD_MS) : undefined;
+  // удержание пальцем — это жест, а не меню браузера
+  const noMenu = (e: Event) => e.preventDefault();
   const finish = (act?: "drop" | "cancel") => {
     clearTimeout(timer);
     lifted = false;
@@ -53,6 +55,7 @@ export function track(down: Down, hold: boolean, begin: (from: Point) => Gesture
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onCancel);
     window.removeEventListener("keydown", onKey);
+    window.removeEventListener("contextmenu", noMenu);
   };
   function onMove(e: PointerEvent) {
     const p = { x: e.clientX, y: e.clientY };
@@ -81,6 +84,7 @@ export function track(down: Down, hold: boolean, begin: (from: Point) => Gesture
   window.addEventListener("pointerup", onUp);
   window.addEventListener("pointercancel", onCancel);
   window.addEventListener("keydown", onKey);
+  if (waits) window.addEventListener("contextmenu", noMenu);
 }
 
 type Axis = "x" | "y";
@@ -107,6 +111,9 @@ function lift(grabbed: HTMLElement, host: HTMLElement, classes: string[]) {
   const base = host.getBoundingClientRect();
   const card = grabbed.cloneNode(true) as HTMLElement;
   card.classList.add(...classes);
+  // без имён, по которым её нашли бы вместо настоящего, и вне фокуса
+  for (const x of [card, ...card.querySelectorAll("*")]) for (const name of ["data-proj", "data-fid", "data-callsign", "role", "tabindex"]) x.removeAttribute(name);
+  card.querySelector(".pj-t")?.setAttribute("aria-expanded", "false");
   card.setAttribute("aria-hidden", "true");
   card.style.width = `${box.width}px`;
   host.append(card);
@@ -233,14 +240,17 @@ export function rowDrag(o: RowOptions, from: Point): Gesture {
     const all = rowsIn(section);
     const rows = stay(all);
     const project = section.dataset.proj!;
+    const head = section.querySelector<HTMLElement>(".pj")!;
     const next = rows.find((r) => {
       const box = r.getBoundingClientRect();
       return now.y < box.top + box.height / 2;
     });
-    target = { project, before: next ? of(next) : null, rows: all.map(of) };
-    if (!rows.length) {
-      into = section.querySelector(".pj");
-      into?.classList.add("dnd-into");
+    // заголовок проекта — бросок в него
+    const onHead = now.y < head.getBoundingClientRect().bottom;
+    target = { project, before: next && !onHead ? of(next) : null, rows: all.map(of) };
+    if (onHead || !rows.length) {
+      into = head;
+      into.classList.add("dnd-into");
       return mark(null, 0);
     }
     const end = rows.at(-1)!.getBoundingClientRect().bottom;

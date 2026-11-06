@@ -1,10 +1,10 @@
 // «GitHub и устройство»: приложение GitHub флота и это устройство.
 import { useState } from "react";
-import { Btn, In, LinkBtn, Note, plural, Row, Sec, TextBtn, useApp, useLoad } from "@switchboard/web-ui";
-import { wordFor } from "./rules.ts";
+import { Btn, In, LinkBtn, M, Note, Pill, plural, Row, Sec, useApp, useLoad } from "@switchboard/web-ui";
+import { isMine, wordFor } from "./rules.ts";
 
 type GithubAnswer = { app: { slug: string } | null; repos?: string[]; install?: string; form?: { action: string; manifest: unknown } };
-type Pass = { addr: string; state: string };
+type Pass = { role: string; name: string; addr: string; state: string };
 
 const PUSH: Record<string, string> = { on: "включены", ask: "выключены", error: "не включились", working: "включаю…", denied: "запрещены в браузере", off: "браузер не умеет" };
 
@@ -33,14 +33,14 @@ function Repos({ repos }: { repos: string[] }) {
   const list = repos.filter((r) => r.toLowerCase().includes(q.toLowerCase()));
   return (
     <>
-      <In data-f="gq" placeholder="Найти репозиторий" aria-label="Найти репозиторий" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
+      <In className="st-grow" data-f="gq" placeholder="Найти репозиторий" aria-label="Найти репозиторий" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
       <div className="st-repos">
         {list.map((r) => (
           <div key={r} className="st-repo" data-repo={r}>
-            {r}
+            <M className="st-grow">{r}</M>
           </div>
         ))}
-        {!list.length && <div className="st-repo">Таких нет</div>}
+        {!list.length && <Note className="st-repo">Таких нет</Note>}
       </div>
     </>
   );
@@ -73,16 +73,19 @@ function Github() {
   }
   const repos = gh.data?.repos ?? [];
   return (
-    <Sec data-github="1">
+    <Sec data-github="">
       <b>Приложение GitHub флота</b>
       {gh.error && <Note tone="bad">{`github.app: ${gh.error}`}</Note>}
-      {code && <Note>GitHub вернул код нового приложения.</Note>}
+      {code && <span>GitHub вернул код нового приложения.</span>}
       {code && <Btn pri disabled={saving} onClick={() => void save()}>Сохранить приложение</Btn>}
-      {saving && <Note>Сохраняю приложение…</Note>}
+      {saving && <Note role="status">Сохраняю приложение…</Note>}
       {saved && <Note tone="ok">Приложение сохранено — установите его на репозитории.</Note>}
       {gh.data?.app && (
         <>
-          <Note>{`${gh.data.app.slug} · ${repos.length} ${plural(repos.length, "репозиторий", "репозитория", "репозиториев")}`}</Note>
+          <span className="sb-opts">
+            <M className="st-grow">{gh.data.app.slug}</M>
+            <Pill tone="ok">{`${repos.length} ${plural(repos.length, "репозиторий", "репозитория", "репозиториев")}`}</Pill>
+          </span>
           {gh.data.install && (
             <LinkBtn href={gh.data.install} target="_blank" rel="noreferrer">
               Доступ на GitHub ↗
@@ -93,7 +96,7 @@ function Github() {
       )}
       {gh.data && !gh.data.app && !code && (
         <>
-          <In data-f="org" placeholder="организация" aria-label="Организация" value={org} onInput={(e) => setOrg(e.currentTarget.value)} />
+          <In mono data-f="org" placeholder="организация" aria-label="Организация" value={org} onInput={(e) => setOrg(e.currentTarget.value)} />
           <Btn pri onClick={() => void create()}>
             Создать приложение GitHub
           </Btn>
@@ -109,24 +112,25 @@ function Device() {
   const passes = useLoad(() => app.read<{ passes: Pass[] }>("keys.list"), []);
   const push = app.use(() => app.mark("alerts.state") as string | undefined);
   const address = app.use(() => app.address());
-  const pass = passes.data?.passes.find((p) => p.addr === address);
+  const pass = app.use(() => passes.data?.passes.find((p) => isMine(app, p)));
   return (
-    <Sec data-device="1">
+    <Sec data-device="">
       <b>Это устройство</b>
-      <Row label="адрес">{address ?? "—"}</Row>
+      <Row label="адрес">
+        <M>{address ?? pass?.addr ?? "—"}</M>
+      </Row>
       <Row label="пропуск">
         <span>
-          {pass ? (pass.state === "ok" ? "действует" : pass.state) : "—"}
+          {pass ? "действует" : "—"}
           {app.wide && (
-            <>
-              {" "}
-              <TextBtn onClick={() => app.open("settings", { tab: "passes" })}>Пропуска</TextBtn>
-            </>
+            <Btn className="st-ml8" onClick={() => app.open("settings", { tab: "passes" })}>
+              Пропуска
+            </Btn>
           )}
         </span>
       </Row>
       <Row label="уведомления">
-        <span data-push="1">{(push && PUSH[push]) ?? "—"}</span>
+        <span data-push={push ?? ""}>{push ? (PUSH[push] ?? push) : "—"}</span>
       </Row>
       {passes.error && <Note tone="bad">{`keys.list: ${passes.error}`}</Note>}
     </Sec>

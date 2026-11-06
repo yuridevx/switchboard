@@ -778,6 +778,16 @@ describe("Карточка: широкий вид", () => {
       expect(relay.sent("machine.journal").at(-1)).toMatchObject({ since: yest.toISOString() });
     });
 
+    it("время записи — ЧЧ:ММ:СС; не дата — как пришло", async () => {
+      // источник: комментарий старого кода, сверка 6 нояб.
+      const relay = relayFor(roster());
+      const at = new Date(2026, 10, 1, 9, 5, 7).toISOString();
+      relay.handlers["machine.journal"] = () => ({ ok: true, result: { records: [rec(at, "x")], more: false } });
+      const t = await wideCard("poe-bot@pc", roster(), relay);
+      await t.tab("log");
+      expect(t.$(".cw-lr span")!.textContent).toBe("09:05:07");
+    });
+
     it("4094 · отказ machine.journal — «machine.journal: слово», без «Записей нет»", async () => {
       const relay = relayFor(roster());
       relay.handlers["machine.journal"] = () => ({ ok: false, error: "offline" });

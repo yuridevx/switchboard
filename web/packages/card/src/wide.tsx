@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { machineOf, userOf } from "@switchboard/protocol";
 import type { ScreenProps } from "@switchboard/web-core";
-import { at, Btn, Dot, effortName, EFFORTS, failText, incidentOf, LIMIT_NAMES, LIMIT_WARN, LimitRow, machineLabel, MODELS, profileNameOf, remoteOf, sessionLabel, sessionOf, slotOf, stateLabel, Tabs, useApp, useMachineLoad, useModule, type AccountsAnswer, type ModelInfo } from "@switchboard/web-ui";
+import { at, Btn, Dot, effortName, EFFORTS, failText, IconBtn, incidentOf, lamp, LIMIT_NAMES, LIMIT_WARN, LimitRow, machineLabel, MODELS, myAddress, profileNameOf, remoteOf, RowBtn, sessionLabel, sessionOf, slotOf, stateLabel, Tabs, useApp, useMachineLoad, useModule, type AccountsAnswer, type ModelInfo } from "@switchboard/web-ui";
 import { Aside } from "./aside.tsx";
 import type { CardState } from "./module.tsx";
 import { LogTab, SetTab } from "./tabs.tsx";
@@ -22,24 +22,26 @@ function ModelPop({ callsign, close }: { callsign: string; close(): void }) {
   async function set(body: Record<string, string>, word: string) {
     close();
     const r = await app.request("session.update", { callsign, ...body });
-    if (!r.ok) app.toast(`${callsign}: ${word} — ${r.error}`, "bad");
+    if (!r.ok) app.toast(`${callsign}: ${word} — ${r.error}`);
   }
   const list = models ?? MODELS.map((value) => ({ value, displayName: value }));
   return (
     <div className="cw-pop l" role="dialog" aria-label="Модель и усилие">
       <span className="lb">Модель</span>
       {list.map((m) => (
-        <button key={m.value} type="button" className="cw-mi" data-model={m.value} onClick={() => void set({ model: m.value }, "модель")}>
+        <RowBtn key={m.value} className="cw-mi" role="menuitemradio" aria-checked={s?.model === m.value} data-model={m.value} onClick={() => void set({ model: m.value }, "модель")}>
           {`${m.value === s?.model ? "✓ " : ""}${m.displayName ?? m.value}`}
-        </button>
+        </RowBtn>
       ))}
       <hr />
       <span className="lb">Усилие</span>
-      {EFFORTS.map(([e, name]) => (
-        <button key={e} type="button" className="cw-mi" data-effort={e} onClick={() => void set({ effort: e }, "усилие")}>
-          {`${e === s?.effort ? "✓ " : ""}${name}`}
-        </button>
-      ))}
+      <div className="cw-opts">
+        {EFFORTS.map(([e, name]) => (
+          <Btn key={e} aria-pressed={e === s?.effort} data-effort={e} onClick={() => void set({ effort: e }, "усилие")}>
+            {name}
+          </Btn>
+        ))}
+      </div>
     </div>
   );
 }
@@ -58,10 +60,9 @@ function AccountPop({ callsign, accounts, toSlots }: { callsign: string; account
         <LimitRow key={k} className="cw-win" data-win={k} label={LIMIT_NAMES[k] ?? k} used={w.utilization} resets={w.resetsAt} />
       ))}
       {order && order.length > 0 && <span className="cw-note queue">{`очередь слота: ${order.join(" → ")}`}</span>}
-      <hr />
-      <button type="button" className="cw-mi" onClick={toSlots}>
-        Сменить слот
-      </button>
+      <div className="cw-opts">
+        <Btn onClick={toSlots}>Сменить слот</Btn>
+      </div>
     </div>
   );
 }
@@ -74,16 +75,16 @@ function MenuPop({ callsign, close }: { callsign: string; close(): void }) {
   const incident = incidentOf(s);
   const remote = remoteOf(s);
   return (
-    <div className="cw-pop r" role="dialog" aria-label={`Сессия ${callsign}`}>
+    <div className="cw-pop r" role="menu" aria-label={`Сессия ${callsign}`}>
       <Kv rows={[["профиль", profileNameOf(s)], ["папка", s?.dir], ["машина", `@${machineOf(callsign)}`], ["инцидент", incident && [incident.type, incident.key].filter(Boolean).join(" · ")]]} />
       {remote && (
-        <a className="cw-mi" href={remote} target="_blank" rel="noreferrer">
+        <a className="cw-mi" href={remote} target="_blank" rel="noopener" role="menuitem">
           Открыть в claude.ai ↗
         </a>
       )}
-      <button type="button" className="cw-mi" data-act="info" onClick={() => (c.setInfo(!info), close())}>
+      <RowBtn className="cw-mi" role="menuitemcheckbox" aria-checked={info} data-act="info" onClick={() => (c.setInfo(!info), close())}>
         {info ? "✓ Сведения сбоку" : "Сведения сбоку"}
-      </button>
+      </RowBtn>
     </div>
   );
 }
@@ -118,43 +119,45 @@ function Head({ callsign, accounts, tabs, tab, pick, names }: { callsign: string
   const wait = slotOf(s)?.wait;
   const used = account ? accounts?.accounts[account]?.limits?.five_hour?.utilization : undefined;
   const percent = used === undefined ? null : Math.round(used * 100);
-  const owner = typeof s?.by === "string" ? userOf(s.by)?.slice(1) : undefined;
+  const owner = typeof s?.by === "string" ? userOf(s.by) : null;
   async function run() {
     const r = await app.request("session.start", { callsign });
-    if (!r.ok) app.toast(`${callsign}: «Запустить» — ${r.error}`, "bad");
+    if (!r.ok) app.toast(`${callsign}: «Запустить» — ${r.error}`);
   }
   return (
     <div className="cw-h">
       <div className="cw-hl">
-        {s && <Dot className="cw-lamp" kind={stateLabel(s.state).dot} title={title} aria-label={title} />}
-        <button type="button" className="cw-nm" data-act="names" aria-label="Имена сессии и машины" onClick={names}>
+        {s ? <Dot className="cw-lamp" kind={lamp(s)} role="img" tabIndex={0} data-tip={title} title={title} aria-label={title} /> : <Dot className="cw-lamp" kind="stop" role="img" title="не на связи" aria-label="не на связи" />}
+        <IconBtn className="cw-nm" data-act="names" aria-label="Имена сессии и машины" onClick={names}>
           <span className="cw-nm1">
-            <span className={classes("cw-cs", name.human && "hum")}>{name.text}</span>
+            <b className={classes("cw-cs", name.human && "hum")}>{name.text}</b>
             <span className={classes("cw-at", place.human && "hum")}>{place.text}</span>
-            <span className="cw-ed">✎</span>
+            <span className="cw-ed" aria-hidden="true">
+              ✎
+            </span>
           </span>
-          {head.haddr && name.human && <span className="cw-real">{callsign}</span>}
-        </button>
-        {!s && <span className="cw-why">не на связи</span>}
+          {s && head.haddr && (name.human || place.human) && <span className="cw-real">{callsign}</span>}
+        </IconBtn>
+        {!s && <span className="cw-note">не на связи</span>}
         {s && (
           <span className="cw-meta">
-            {head.howner && owner}
+            {head.howner && owner && owner !== myAddress(app) && <span className="cw-pill">{owner.slice(1)}</span>}
             {head.hprof && profileNameOf(s) && <span className="cw-pill">{profileNameOf(s)}</span>}
           </span>
         )}
       </div>
       <div className="cw-hr">
         {s && (
-          <div className="cw-hpw">
+          <span className="cw-hpw">
             {head.hmodel && (
-              <button type="button" className="cw-hb" data-pop="model" disabled={!update} onClick={() => toggle("model")}>
-                {`${[s.model, effortName(s.effort)].filter(Boolean).join(" · ")} ▾`}
-              </button>
+              <Btn className="cw-hb" data-pop="model" aria-expanded={pop === "model"} disabled={!update} onClick={() => toggle("model")}>
+                {`${[s.model, effortName(s.effort)].filter(Boolean).join(" · ") || "модель"} ▾`}
+              </Btn>
             )}
             {account && (
-              <button type="button" className={classes("cw-hb", wait ? "you" : percent !== null && percent >= LIMIT_WARN && "lim")} data-pop="acc" onClick={() => toggle("acc")}>
+              <Btn className={classes("cw-hb", wait ? "you" : percent !== null && percent >= LIMIT_WARN && "lim")} data-pop="acc" aria-expanded={pop === "acc"} onClick={() => toggle("acc")}>
                 {`${account}${wait ? ` · ждёт сброса ${at(wait)}` : percent !== null ? ` · ${percent} %` : ""} ▾`}
-              </button>
+              </Btn>
             )}
             {pop === "model" && <ModelPop callsign={callsign} close={() => setPop("")} />}
             {pop === "acc" && (
@@ -167,7 +170,7 @@ function Head({ callsign, accounts, tabs, tab, pick, names }: { callsign: string
                 }}
               />
             )}
-          </div>
+          </span>
         )}
         <Tabs className="cw-tabs" tabs={tabs} cur={tab} pick={pick} />
         {placed.map((p) => (
@@ -177,12 +180,12 @@ function Head({ callsign, accounts, tabs, tab, pick, names }: { callsign: string
         ))}
         {(s?.state === "stopped" || failed) && start && <Btn pri onClick={() => void run()}>Запустить</Btn>}
         {s && (
-          <div className="cw-mw">
-            <button type="button" className="cw-hb cw-more" data-pop="menu" aria-label="Действия сессии" onClick={() => toggle("menu")}>
+          <span className="cw-mw">
+            <Btn ghost className="cw-more" data-pop="menu" aria-label="Действия сессии" aria-haspopup="menu" aria-expanded={pop === "menu"} onClick={() => toggle("menu")}>
               ⋯
-            </button>
+            </Btn>
             {pop === "menu" && <MenuPop callsign={callsign} close={() => setPop("")} />}
-          </div>
+          </span>
         )}
       </div>
     </div>
@@ -209,7 +212,7 @@ export function WideCard({ params }: ScreenProps) {
   return (
     <div className="cw">
       <Head callsign={callsign} accounts={accounts.data} tabs={tabs} tab={tab} pick={setTab} names={() => setNames(true)} />
-      <div className="cw-pl" hidden={!failed}>
+      <div className="cw-pl" role="status" hidden={!failed}>
         {failed && (
           <>
             <b>{why ? `Не запустилась: ${why}` : "Не запустилась"}</b>

@@ -1,7 +1,7 @@
 // «Выпуски»: stable по машинам, матрица машина × часть, план машины, каталог и сборки.
 import { useEffect, useState } from "react";
-import { Btn, Dot, In, machineLabel, Note, okOf, Opts, plural, Sec, useApp, useLoad, useModule, wordOf, type Result } from "@switchboard/web-ui";
-import { cellOf, older, short, wordFor, type Catalog, type KState, type Plan } from "./rules.ts";
+import { Btn, Dot, In, M, machineLabel, Meter, Note, okOf, Opts, plural, Sec, useApp, useLoad, useModule, wordOf, type Result } from "@switchboard/web-ui";
+import { cellOf, heldBy, older, others, short, wordFor, type Catalog, type KState, type Plan } from "./rules.ts";
 import type { KeeperAnswers, SettingsState } from "./state.ts";
 
 const machinesWord = (n: number) => `${n} ${plural(n, "машина", "машины", "машин")}`;
@@ -22,7 +22,7 @@ function useDeploy(reload: () => void) {
   const s = useModule<SettingsState>();
   return async (part: string, version: string) => {
     s.local.set((l) => {
-      l.deploying = part;
+      l.deploying = `${part}:${version}`;
       l.deployed = null;
     });
     const r = await app.request<{ parts: Record<string, { from: string | null; to: string }> }>("releases.deploy", { part, version });
@@ -45,12 +45,13 @@ function Stable({ catalog, answers, online, reload }: { catalog: Catalog; answer
     <Sec>
       <b>Stable флота</b>
       {parts.map(([name, p]) => {
-        const holding = online.filter((m) => cellOf(okOf(answers[m]), name, undefined, p.stable).text === p.stable).length;
+        const k = (m: string) => okOf(answers[m]);
+        const holding = online.filter((m) => k(m) && heldBy(k(m)!, name) === p.stable).length;
         const back = older(p)[0];
         return (
           <div key={name} className="st-roll" data-roll={name}>
             <span>{`${name} ${p.stable}`}</span>
-            <span className="st-bar" />
+            <Meter className="st-bar" value={online.length ? Math.round((100 * holding) / online.length) : 0} warn={holding < online.length} />
             <span>{`${holding} из ${online.length}`}</span>
             {back && (
               <Btn disabled={!!busy} onClick={() => void deploy(name, back)}>
@@ -64,7 +65,7 @@ function Stable({ catalog, answers, online, reload }: { catalog: Catalog; answer
   );
 }
 
-function MachinePlan({ machine, catalog, plan, k, set, close }: { machine: string; catalog: Catalog | undefined; plan: Plan; k: KState | undefined; set: ReturnType<typeof usePlan>; close(): void }) {
+function MachinePlan({ machine, online, catalog, plan, k, set, close }: { machine: string; online: boolean; catalog: Catalog | undefined; plan: Plan; k: KState | undefined; set: ReturnType<typeof usePlan>; close(): void }) {
   const app = useApp();
   const [word, setWord] = useState("");
   const [typed, setTyped] = useState<Record<string, string>>({});
@@ -79,30 +80,38 @@ function MachinePlan({ machine, catalog, plan, k, set, close }: { machine: strin
   return (
     <Sec className="st-side" data-plan={machine}>
       <Opts>
-        <b className="st-grow">{label}</b>
-        <Btn ghost aria-label="Закрыть" onClick={close}>
+        <M className="st-grow">{label}</M>
+        <Btn aria-label="Закрыть" onClick={close}>
           ✕
         </Btn>
       </Opts>
-      <Note>{`план rev ${catalog?.rev ?? k?.rev ?? "—"}`}</Note>
+      <Note>{`план rev ${k?.rev ?? "—"}${online ? "" : " · не на связи"}`}</Note>
       {parts.map((part) => {
         const c = catalog?.parts[part];
         const held = k?.parts.find((p) => p.part === part);
         const entry = plan[part];
-        const back = c && older(c)[0];
+        const cell = cellOf(k, online, part, entry, c?.stable);
         const version = (typed[part] ?? "").trim();
         return (
           <div key={part} className="st-part" data-part={part}>
             <Opts>
-              <b>{part}</b>
-              <span>{entry?.pin ?? held?.version ?? "—"}</span>
-              {part !== "keeper" && <Btn onClick={() => void change(part, { on: entry?.on === false })}>{entry?.on === false ? "выключена" : "включена"}</Btn>}
+              <b className="st-grow">{part}</b>
+              {cell && <span className={`st-cell ${cell.tone}`}>{cell.text}</span>}
+              {part !== "keeper" && (
+                <Btn role="switch" aria-checked={entry?.on !== false} aria-pressed={entry?.on !== false} onClick={() => void change(part, { on: entry?.on === false })}>
+                  {entry?.on === false ? "выключена" : "включена"}
+                </Btn>
+              )}
             </Opts>
             {held?.error && <Note tone="bad">{held.error}</Note>}
             {c && (
               <Opts>
-                {entry?.pin && <Btn onClick={() => void change(part, { pin: null })}>{`stable ${c.stable}`}</Btn>}
-                {back && back !== entry?.pin && <Btn onClick={() => void change(part, { pin: back })}>{`📌 ${short(back)}`}</Btn>}
+                <Btn aria-pressed={!entry?.pin} onClick={() => void change(part, { pin: null })}>{`stable ${c.stable}`}</Btn>
+                {others(c).map((v) => (
+                  <Btn key={v} aria-pressed={entry?.pin === v} onClick={() => void change(part, { pin: v })}>
+                    {`📌 ${short(v)}`}
+                  </Btn>
+                ))}
                 <In className="st-ver" mono placeholder="версия" aria-label={`Версия ${part}`} value={typed[part] ?? ""} onInput={(e) => setTyped({ ...typed, [part]: e.currentTarget.value })} />
                 <Btn onClick={() => version && void change(part, { pin: version })}>Закрепить</Btn>
               </Opts>
@@ -130,7 +139,7 @@ function Bulk({ checked, catalog, set }: { checked: string[]; catalog: Catalog |
     app.toast([`${machinesWord(done)}: план изменён`, ...refused].join("; "), refused.length ? "bad" : "ok");
   }
   return (
-    <div className="st-bulk" data-bulk="1">
+    <div className="st-bulk" data-bulk="">
       <span>{`Выбрано ${checked.length}: ${labels.join(", ")}`}</span>
       {back && <Btn onClick={() => void apply(back)}>{`host: закрепить ${short(back)}`}</Btn>}
       <Btn onClick={() => void apply(null)}>host: к stable</Btn>
@@ -141,7 +150,7 @@ function Bulk({ checked, catalog, set }: { checked: string[]; catalog: Catalog |
   );
 }
 
-function Matrix({ machines, catalog, answers, plans, picked, pick, query, setQuery }: { machines: string[]; catalog: Catalog | undefined; answers: KeeperAnswers; plans: Record<string, Plan>; picked: string; pick(m: string): void; query: string; setQuery(q: string): void }) {
+function Matrix({ machines, online, catalog, answers, plans, picked, pick, query, setQuery }: { machines: string[]; online: string[]; catalog: Catalog | undefined; answers: KeeperAnswers; plans: Record<string, Plan>; picked: string; pick(m: string): void; query: string; setQuery(q: string): void }) {
   const app = useApp();
   const s = useModule<SettingsState>();
   const checked = app.use(() => s.local.get().checked);
@@ -153,7 +162,7 @@ function Matrix({ machines, catalog, answers, plans, picked, pick, query, setQue
     <Sec className="st-matrix">
       <Opts>
         <In className="st-rq" data-f="rq" placeholder="Найти машину" aria-label="Найти машину" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
-        <span className="st-end">{machinesWord(machines.length)}</span>
+        <Note className="st-end">{machinesWord(shown.length)}</Note>
       </Opts>
       <div className="st-scroll">
         <table className="st-mx">
@@ -179,17 +188,21 @@ function Matrix({ machines, catalog, answers, plans, picked, pick, query, setQue
                     </button>
                   </td>
                   <td>
-                    <button type="button" className="st-mn" onClick={() => pick(m)}>
-                      <Dot kind={k ? (k.parts.some((p) => p.state === "failed") ? "bad" : "idle") : "gone"} />
+                    <button type="button" className="sb-rw st-mn" onClick={() => pick(m)}>
+                      <Dot kind={!online.includes(m) ? "gone" : k?.parts.some((p) => p.state === "failed") ? "bad" : "idle"} />
                       {labels[m]}
                     </button>
                   </td>
-                  <td>{k ? `rev ${k.rev}` : ""}</td>
+                  <td>{online.includes(m) ? (k ? `rev ${k.rev}` : "") : "не на связи"}</td>
                   {parts.map((p) => {
-                    const c = cellOf(k, p, plans[m]?.[p], catalog?.parts[p]?.stable);
+                    const c = cellOf(k, online.includes(m), p, plans[m]?.[p], catalog?.parts[p]?.stable);
                     return (
                       <td key={p} data-part={p}>
-                        <span className={["st-cell", c.tone].filter(Boolean).join(" ")}>{c.text}</span>
+                        {c && (
+                          <span className={`st-cell ${c.tone}`} title={c.title}>
+                            {c.text}
+                          </span>
+                        )}
                       </td>
                     );
                   })}
@@ -218,27 +231,30 @@ function Build({ catalog, reload }: { catalog: Catalog; reload(): void }) {
               <th>часть</th>
               <th>где</th>
               <th>stable</th>
-              <th>edge</th>
-              <th />
+              <th>история</th>
+              <th className="st-w30" />
             </tr>
           </thead>
           <tbody>
             {Object.entries(catalog.parts).map(([name, p]) => (
               <tr key={name} data-part={name}>
                 <td>{name}</td>
-                <td>{p.where === "cloud" ? "Cloudflare" : "машины"}</td>
-                <td>{p.stable}</td>
-                <td>{p.edge}</td>
+                <td>{p.where === "machine" ? "машины" : "Cloudflare"}</td>
+                <td>
+                  <M>{p.stable}</M>
+                </td>
+                <td>
+                  <M>{p.versions.map(short).join(" · ")}</M>
+                </td>
                 <td>
                   <Opts>
-                    {busy === name && <span>Выкладываю…</span>}
                     {p.edge !== p.stable && (
                       <Btn pri disabled={!!busy} onClick={() => void deploy(name, p.edge)}>
-                        {`Выложить ${short(p.edge)}`}
+                        {busy === `${name}:${p.edge}` ? "Выкладываю…" : `Выложить ${short(p.edge)}`}
                       </Btn>
                     )}
                     {older(p).map((v) => (
-                      <Btn key={v} disabled={!!busy} onClick={() => void deploy(name, v)}>
+                      <Btn key={v} data-back={v} disabled={!!busy} onClick={() => void deploy(name, v)}>
                         {`Вернуть ${short(v)}`}
                       </Btn>
                     ))}
@@ -258,21 +274,26 @@ function Build({ catalog, reload }: { catalog: Catalog; reload(): void }) {
               <th>входит в</th>
               <th>в сборке</th>
               <th>новее</th>
+              <th className="st-w20" />
             </tr>
           </thead>
           <tbody>
             {Object.entries(catalog.modules).map(([name, m]) => {
-              const built = [...new Set(Object.values(m.built))];
+              const newer = Object.values(m.built).some((v) => v !== m.edge);
               return (
                 <tr key={name} data-module={name}>
                   <td>{name}</td>
                   <td>{m.into.join(", ")}</td>
-                  <td>{built.join(", ")}</td>
                   <td>
-                    {busy === name && <span>Выкладываю…</span>}
-                    {built.some((v) => v !== m.edge) && (
+                    <M>{Object.entries(m.built).map(([app_, v]) => `${app_} ${v}`).join(" · ")}</M>
+                  </td>
+                  <td>
+                    <M>{newer ? m.edge : null}</M>
+                  </td>
+                  <td>
+                    {newer && (
                       <Btn disabled={!!busy} onClick={() => void deploy(name, m.edge)}>
-                        {`Выложить ${m.edge}`}
+                        {busy === `${name}:${m.edge}` ? "Выкладываю…" : `Выложить ${m.edge}`}
                       </Btn>
                     )}
                   </td>
@@ -303,12 +324,17 @@ export function ReleasesTab({ machine }: { machine?: string }) {
   const catalog = list.data ?? undefined;
   const machines = [...new Set([...online, ...(hosts.data?.passes ?? []).map((p) => p.name)])];
   const plans = Object.fromEntries((catalog?.machines ?? []).map((m) => [m.machine, m.plan]));
-  const toggleCatalog = () => s.local.set((l) => void (l.catalog = !l.catalog));
+  const setCatalog = (on: boolean) => s.local.set((l) => void (l.catalog = on));
   return (
     <>
-      <Opts>
-        <Btn onClick={toggleCatalog}>{local.catalog ? "Машины" : "Каталог и сборки"}</Btn>
-      </Opts>
+      <div className="st-tabs">
+        <Btn aria-pressed={!local.catalog} onClick={() => setCatalog(false)}>
+          Машины
+        </Btn>
+        <Btn aria-pressed={local.catalog} onClick={() => setCatalog(true)}>
+          Каталог и сборки
+        </Btn>
+      </div>
       {list.error && <Note tone="bad">{`releases.list: ${list.error}`}</Note>}
       {hosts.error && <Note tone="bad">{`keys.list: ${hosts.error}`}</Note>}
       {local.deployed && <Note tone={local.deployed.tone}>{local.deployed.text}</Note>}
@@ -318,8 +344,8 @@ export function ReleasesTab({ machine }: { machine?: string }) {
           {catalog && <Stable catalog={catalog} answers={answers} online={online} reload={list.reload} />}
           {local.checked.length > 0 && <Bulk checked={local.checked} catalog={catalog} set={set} />}
           <div className="st-grid">
-            <Matrix machines={machines} catalog={catalog} answers={answers} plans={plans} picked={picked} pick={setPicked} query={query} setQuery={setQuery} />
-            {picked && <MachinePlan machine={picked} catalog={catalog} plan={plans[picked] ?? {}} k={okOf(answers[picked])} set={set} close={() => setPicked("")} />}
+            <Matrix machines={machines} online={online} catalog={catalog} answers={answers} plans={plans} picked={picked} pick={setPicked} query={query} setQuery={setQuery} />
+            {picked && <MachinePlan machine={picked} online={online.includes(picked)} catalog={catalog} plan={plans[picked] ?? {}} k={okOf(answers[picked])} set={set} close={() => setPicked("")} />}
           </div>
         </>
       )}

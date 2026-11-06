@@ -626,6 +626,20 @@ describe("Настройки", () => {
       expect(t.$('tr[data-pass="kc9"]')!.textContent).not.toContain("это устройство");
     });
 
+    it("адреса от gate ещё нет — это устройство по имени из пропуска: отозвать себя нельзя", async () => {
+      // источник: комментарий старого кода, сверка 6 нояб.: «адрес от gate, пока его нет — имя из пропуска»
+      const t = await settings({ url: "/#settings?tab=passes", hooks: (r) => void (r.you = undefined) });
+      expect(t.$('tr[data-pass="kc1"]')!.textContent).toContain("это устройство");
+      expect(t.btn("Отозвать…", t.$('tr[data-pass="kc1"]')!)).toBeNull();
+    });
+
+    it("ячейка: части на машине нет, в плане и каталоге её нет — пусто", async () => {
+      // источник: комментарий старого кода, сверка 6 нояб.
+      const t = await settings();
+      expect(t.cell("laptop", "hello-daemon")).toBe("");
+      expect(t.cell("pc", "hello-daemon")).toContain("сбой");
+    });
+
     it("6104 · форма создания приложения GitHub уходит один раз: новое открытие экрана её не повторяет", async () => {
       const submit = vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(() => {});
       const t = await settings();

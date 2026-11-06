@@ -1,6 +1,6 @@
 // Сведения сбоку: кто дал задачу, дерево, серверы MCP.
 import { useState } from "react";
-import { Btn, isLive, remoteOf, sessionOf, useApp, useMachineLoad } from "@switchboard/web-ui";
+import { Btn, isLive, LinkBtn, profileNameOf, remoteOf, sessionOf, useApp, useMachineLoad } from "@switchboard/web-ui";
 
 type Server = { name: string; status: string };
 const STATUS: Record<string, string> = { pending: "подключается", disabled: "выключен", "needs-auth": "нужен вход", connected: "подключён", failed: "ошибка" };
@@ -12,7 +12,7 @@ function Servers({ callsign, machine }: { callsign: string; machine: string }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
   const call = async <T,>(method: string, name: string, ...rest: unknown[]) => {
     const r = await app.request<T>("session.call", { callsign, method, args: [name, ...rest] });
-    if (!r.ok) app.toast(`${method}: ${r.error}`, "bad");
+    if (!r.ok) app.toast(`${callsign}: ${method}: ${r.error}`);
     return r;
   };
   const change = async (method: string, name: string, ...rest: unknown[]) => {
@@ -22,11 +22,11 @@ function Servers({ callsign, machine }: { callsign: string; machine: string }) {
     const r = await call<{ authUrl?: string }>("mcpAuthenticate", name);
     if (!r.ok) return;
     if (r.result?.authUrl) setUrls({ ...urls, [name]: r.result.authUrl });
-    else app.toast("mcpAuthenticate: ссылки нет", "bad");
+    else app.toast(`${callsign}: mcpAuthenticate: ссылки нет`);
   }
   if (!live && !list.data) return null;
   return (
-    <section>
+    <section data-sec="mcp">
       <h4>Серверы MCP</h4>
       {!list.data && list.error && (
         <span className="cw-note bad" data-refused="mcp">
@@ -46,19 +46,19 @@ function Servers({ callsign, machine }: { callsign: string; machine: string }) {
               {status === "disabled" ? "вкл" : "выкл"}
             </Btn>
             {status !== "disabled" && (
-              <Btn data-mcp-re={name} onClick={() => void change("reconnectMcpServer", name)}>
+              <Btn ghost data-mcp-re={name} onClick={() => void change("reconnectMcpServer", name)}>
                 Переподключить
               </Btn>
             )}
             {status === "needs-auth" && (
-              <Btn data-mcp-login={name} onClick={() => void login(name)}>
+              <Btn ghost data-mcp-login={name} onClick={() => void login(name)}>
                 Войти
               </Btn>
             )}
             {urls[name] && (
-              <a className="cw-mi flat" data-mcp-url={name} href={urls[name]} target="_blank" rel="noreferrer">
+              <LinkBtn ghost data-mcp-url={name} href={urls[name]} target="_blank" rel="noopener noreferrer">
                 Открыть страницу входа ↗
-              </a>
+              </LinkBtn>
             )}
           </div>
         </div>
@@ -87,9 +87,15 @@ export function Aside({ callsign, machine }: { callsign: string; machine: string
           ) : null}
           <dt>папка</dt>
           <dd>{String(s.dir ?? "—")}</dd>
+          {profileNameOf(s) ? (
+            <>
+              <dt>профиль</dt>
+              <dd>{profileNameOf(s)}</dd>
+            </>
+          ) : null}
         </dl>
         {remote && (
-          <a className="cw-mi flat" href={remote} target="_blank" rel="noreferrer">
+          <a className="cw-mi flat" href={remote} target="_blank" rel="noopener">
             Открыть в claude.ai ↗
           </a>
         )}
@@ -105,11 +111,18 @@ export function Aside({ callsign, machine }: { callsign: string; machine: string
               </>
             ) : null}
           </dl>
-          {kids.map((k) => (
-            <Btn key={k} ghost className="kid" onClick={() => app.open("card", { callsign: k })}>
-              {k}
-            </Btn>
-          ))}
+          {kids.length > 0 && (
+            <dl className="cw-kv">
+              <dt>ведёт</dt>
+              <dd>
+                {kids.map((k) => (
+                  <Btn key={k} ghost className="kid" onClick={() => app.open("card", { callsign: k })}>
+                    {k}
+                  </Btn>
+                ))}
+              </dd>
+            </dl>
+          )}
         </section>
       )}
       <Servers callsign={callsign} machine={machine} />

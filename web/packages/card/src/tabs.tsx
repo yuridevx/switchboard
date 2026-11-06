@@ -1,6 +1,6 @@
 // Вкладки широкой карточки: «Настройки» и «Журнал».
 import { useEffect, useRef, useState } from "react";
-import { hhmm, Btn, CommitIn, midnight, Opts, profileIdOf, profileName, sessionOf, slotOf, Switch, useApp, useMachineLoad, type AccountsAnswer, type JournalAnswer, type JournalRecord, type ProfilesAnswer } from "@switchboard/web-ui";
+import { Btn, CommitIn, midnight, Opts, profileIdOf, profileName, sessionOf, slotOf, useApp, useMachineLoad, type AccountsAnswer, type JournalAnswer, type JournalRecord, type ProfilesAnswer } from "@switchboard/web-ui";
 import { Control, useAct, useControl } from "./narrow.tsx";
 
 const toldLater = (r: { ok: boolean; result?: unknown }) => (r.ok && (r.result as { restart?: boolean } | undefined)?.restart ? "после хода" : "");
@@ -42,7 +42,7 @@ export function SetTab({ callsign, machine, accounts, error }: { callsign: strin
   }
   async function fast() {
     const r = await act("session.update", { fast: !s!.fast });
-    if (!r.ok) app.toast(`${callsign}: быстрый режим — ${r.error}`, "bad");
+    if (!r.ok) app.toast(`${callsign}: быстрый режим — ${r.error}`);
   }
   async function remove() {
     const r = await act("session.remove");
@@ -69,12 +69,12 @@ export function SetTab({ callsign, machine, accounts, error }: { callsign: strin
         </div>
       )}
       {can["session.update"] && (
-        <div className="cw-fs" data-sec="fast">
-          <label className="cw-sw">
-            <span>Быстрый режим</span>
-            <Switch on={!!s.fast} onClick={() => void fast()} />
-          </label>
-        </div>
+        <label className="cw-sw" data-sec="fast">
+          <span>Быстрый режим</span>
+          <Btn role="switch" aria-checked={s.fast === true} aria-pressed={s.fast === true} onClick={() => void fast()}>
+            {s.fast === true ? "вкл" : "выкл"}
+          </Btn>
+        </label>
       )}
       {can["session.update"] && can["session.spec"] && (
         <div className="cw-fs" data-sec="title">
@@ -124,7 +124,8 @@ export function SetTab({ callsign, machine, accounts, error }: { callsign: strin
 }
 
 const KINDS = ["stop", "refuse", "note"];
-const timeOf = (t: string) => (Number.isNaN(Date.parse(t)) ? t : hhmm(Date.parse(t)));
+/** ЧЧ:ММ:СС записи; не дата — как пришло. */
+const timeOf = (t: string) => (Number.isNaN(Date.parse(t)) ? t : new Date(t).toTimeString().slice(0, 8));
 
 export function LogTab({ callsign, machine }: { callsign: string; machine: string }) {
   const app = useApp();
@@ -154,14 +155,18 @@ export function LogTab({ callsign, machine }: { callsign: string; machine: strin
         <div key={i} className="cw-lr">
           <span>{timeOf(r.t)}</span>
           <span className={`k ${r.kind ?? ""}`}>{r.kind}</span>
-          <span className="w">{r.part}</span>
+          <span className="w">{[r.part, r.who].filter(Boolean).join(" · ")}</span>
           <span className="x">{[r.ev, r.word, r.why].filter(Boolean).join(" · ")}</span>
         </div>
       ))}
-      {page?.word && <span className="cw-note bad">{page.word}</span>}
+      {page?.word && (
+        <span className="cw-note bad" role="alert">
+          {page.word}
+        </span>
+      )}
       {page && !page.word && !page.records.length && <span className="cw-note">Записей нет.</span>}
       <Opts>
-        {page?.more && <Btn onClick={() => void read(page.records.at(-1)?.t ?? midnight(days), page.records)}>дальше →</Btn>}
+        {page?.more && page.records.length > 0 && <Btn onClick={() => void read(page.records.at(-1)?.t ?? midnight(days), page.records)}>дальше →</Btn>}
         <Btn onClick={() => setDays(days + 1)}>Раньше</Btn>
       </Opts>
     </div>
