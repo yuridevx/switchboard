@@ -1301,6 +1301,16 @@ describe("remote: Remote Control у каждой сессии", () => {
     );
     return f;
   }
+  /** Последняя целая запись привязки: claude пропускает недописанное. */
+  function lastBridgeOf(f: string) {
+    return readFileSync(f, "utf8").trim().split("\n").flatMap((l) => {
+      try {
+        return [JSON.parse(l) as { type: string; bridgeSessionId?: string }];
+      } catch {
+        return [];
+      }
+    }).filter((x) => x.type === "bridge-session").at(-1);
+  }
   /** Последняя запись привязки в файле — так её прочитает claude. */
   function lastBridge(f: string) {
     return readFileSync(f, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { type: string; bridgeSessionId?: string }).filter((x) => x.type === "bridge-session").at(-1);
@@ -1457,6 +1467,8 @@ describe("remote: Remote Control у каждой сессии", () => {
     appendFileSync(f, JSON.stringify({ type: "bridge-session", sessionId: s.info.session_id, bridgeSessionId: "session_03Jai", lastSequenceNum: 0 }) + '\n{"type":"bridge-session","sessionId');
     await crash(5);
     expect(unbinds(st).at(-1)?.why).toBe("привязка снята: записи нет · session_03Jai");
+    // файл кончался обрывком: запись снятия — своей строкой, иначе claude её не прочтёт
+    expect(lastBridgeOf(f)).toMatchObject({ bridgeSessionId: "" });
   });
 
   it.each([

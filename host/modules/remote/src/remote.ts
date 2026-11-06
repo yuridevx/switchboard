@@ -17,8 +17,8 @@ function transcriptOf(dir: string, sessionId: string): string | undefined {
 }
 
 /** Последняя целая запись привязки: claude читает файл так же. */
-function lastBridge(file: string): Bridge | undefined {
-  const lines = readFileSync(file, "utf8").split("\n");
+function lastBridge(text: string): Bridge | undefined {
+  const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].includes('"bridge-session"')) continue;
     try {
@@ -48,10 +48,13 @@ export function make({ claudeDir: dir }: { claudeDir?: string } = {}): Module {
   function unbind(s: Session): void {
     const { callsign, session_id: sessionId } = s.info;
     const file = transcriptOf(dir ?? claudeDir(), sessionId);
-    const bound = file ? lastBridge(file) : undefined;
+    if (!file) return;
+    const text = readFileSync(file, "utf8");
+    const bound = lastBridge(text);
     const why = bound?.bridgeSessionId && reasonOf(s);
     if (!why) return;
-    appendFileSync(file!, JSON.stringify({ type: "bridge-session", sessionId: bound!.sessionId ?? sessionId, bridgeSessionId: "", lastSequenceNum: 0 }) + "\n");
+    // файл кончается обрывком упавшего процесса: запись — своей строкой, иначе claude её не прочтёт
+    appendFileSync(file, `${text.endsWith("\n") ? "" : "\n"}${JSON.stringify({ type: "bridge-session", sessionId: bound!.sessionId ?? sessionId, bridgeSessionId: "", lastSequenceNum: 0 })}\n`);
     host.log({ ev: "unbind", callsign, why: `привязка снята: ${why} · ${bound!.bridgeSessionId}` });
   }
 
