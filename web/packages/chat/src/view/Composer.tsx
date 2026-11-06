@@ -118,6 +118,8 @@ export function Composer() {
     if (!body && !files.length) return;
     if (env.canAct && !files.length && body.startsWith(`${SIDE} `)) void talks.side(cs, body.slice(SIDE.length).trim());
     else talks.send(cs, body, files);
+    put("");
+    if (files.length) talks.edit(cs, (t) => void (t.files = []));
   }
 
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {

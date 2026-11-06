@@ -222,8 +222,6 @@ export function createTalks(app: App) {
       edit(cs, (t) => {
         t.sends.push(s);
         t.msgs.push(ownEntry(s));
-        t.draft = "";
-        t.files = [];
       });
       void deliver(cs, s);
     },
@@ -242,10 +240,7 @@ export function createTalks(app: App) {
     },
     async side(cs: string, q: string) {
       const id = ++n;
-      edit(cs, (t) => {
-        t.sides.push({ id, q, state: "wait", a: "" });
-        t.draft = "";
-      });
+      edit(cs, (t) => void t.sides.push({ id, q, state: "wait", a: "" }));
       const r = await call(cs, "askSideQuestion", [q]);
       edit(cs, (t) => {
         const x = t.sides.find((y) => y.id === id);

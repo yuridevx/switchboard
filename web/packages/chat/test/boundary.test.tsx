@@ -2786,4 +2786,18 @@ describe("сверка строк, второй проход", () => {
     await t.events(IDLE, [{ type: "user", uuid: p.uuid, message: { content: [{ type: "image", source: { type: "base64", media_type: "image/png", data } }, { type: "text", text: "Смотри" }] } }], 1);
     expect(t.$$(".chat-me .chat-pics img")).toHaveLength(1);
   });
+
+  it("«Сжать контекст» не трогает написанное в поле и вложения", async () => {
+    const relay = relayFor();
+    answerWith(relay, { getContextUsage: () => ({ ok: true, result: { totalTokens: 1, maxTokens: 2, percentage: 50 } }) });
+    const t = await chat(IDLE, { relay, wide: true });
+    await t.pick(txt("a.txt"));
+    await t.type("черновик");
+    await t.click(t.btn(".chat-bar", "контекст"));
+    await flush(10);
+    await t.click(t.btn(".chat-panel", "Сжать контекст"));
+    expect(relay.sent("session.prompt")[0]).toMatchObject({ text: "/compact" });
+    expect(t.$<HTMLTextAreaElement>(".chat-inp")!.value).toBe("черновик");
+    expect(t.$$(".chat-file")).toHaveLength(1);
+  });
 });
