@@ -1202,6 +1202,36 @@ describe("раунд lost: сверка со старым кодом", () => {
     expect(st.states("b@laptop").at(-1)?.failed).toBeUndefined();
   });
 
+  it("query() бросил — нет файла claude в пакете SDK: отказ словами, ветка сбоя: один resume, второй — failed; stop и start работают", async () => {
+    // источник: устав «процесс claude умер — один resume, второй сбой до готовности — failed»; факт: SDK 0.3.311 бросает из query(), если pathToClaudeCodeExecutable нет и пакет платформы не найден
+    const st = await stand({ modules: [] });
+    const query = st.sdk.query;
+    st.sdk.query = (() => {
+      throw new Error("Native CLI binary for win32-x64 not found");
+    }) as never;
+    await expect(st.open(CS)).rejects.toThrow("Native CLI binary for win32-x64 not found");
+    const s = st.kernel.sessions.get(CS)!;
+    await until(() => s.state === "failed");
+    expect(lines(st, "session_exited")).toHaveLength(2);
+    expect(lines(st, "session_failed")[0].why).toContain("Native CLI binary");
+    await s.stop();
+    expect(s.state).toBe("stopped");
+    st.sdk.query = query;
+    await s.start();
+    expect(s.state).toBe("idle");
+  });
+
+  it("query() бросил на старте Host: сессия failed, Host всё равно ready", async () => {
+    // источник: устав «второй сбой до готовности — failed»; факт тот же: одна сессия не держит старт машины
+    const st = await stand({ modules: [], sessions: [{ callsign: CS }], start: false });
+    st.sdk.query = (() => {
+      throw new Error("Native CLI binary for win32-x64 not found");
+    }) as never;
+    await st.start();
+    expect(st.kernel.sessions.get(CS)!.state).toBe("failed");
+    expect(lines(st, "ready")).toHaveLength(1);
+  });
+
   it("отказ в журнале: кто и какой запрос; причина есть и у отказа без слов", async () => {
     // источник: устав «отвечаешь по фактам из журнала», принцип «ошибка словом, причина в журнале»; чьё: код — id, from и why у строки refuse
     const no = module("host-no", {
