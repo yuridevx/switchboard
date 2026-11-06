@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import http from "node:http";
 import { join } from "node:path";
+import { checker } from "./kit.mjs";
 import { launch, OUT, prepare } from "./stand.mjs";
 
 const filter = process.argv[2] ?? "";
@@ -28,8 +29,7 @@ const evil = http.createServer((q, s) => {
 await new Promise((r) => evil.listen(0, "127.0.0.1", r));
 const E = `http://127.0.0.1:${evil.address().port}`;
 const b = await launch();
-const fails = [];
-let passed = 0;
+const { check, bad } = checker();
 
 /** Страница стенда на чате сессии: «ключ» на месте, сообщения рамки считаются, текст ответа приходит кадром настоящей ленты. */
 async function open() {
@@ -78,11 +78,9 @@ async function test(number, name, run) {
   };
   try {
     await run(x, eq);
-    passed++;
-    console.log(`✓ ${number} · ${name}`);
+    check(`${number} · ${name}`, true);
   } catch (e) {
-    fails.push(`${number} · ${name}: ${e.message.split("\n")[0].slice(0, 400)}`);
-    console.log(`✗ ${number} · ${name}: ${e.message.split("\n")[0].slice(0, 400)}`);
+    check(`${number} · ${name}`, false, e.message.split("\n")[0].slice(0, 400));
   }
   await x.ctx.close();
 }
@@ -248,5 +246,5 @@ await test("6795", "опасный HTML в образце галереи: на �
 await b.close();
 page.close();
 evil.close();
-console.log(fails.length ? `\nупало ${fails.length} из ${passed + fails.length}` : `\nвсё прошло: ${passed}`);
-process.exit(fails.length ? 1 : 0);
+console.log(bad() ? `\nупало ${bad()}` : "\nвсё прошло");
+process.exit(bad() ? 1 : 0);

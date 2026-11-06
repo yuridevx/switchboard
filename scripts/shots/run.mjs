@@ -1,7 +1,7 @@
 // Снимки экранов настоящего кода: npm run shots [часть имени]; SHOTS_DOM=<файл> — ещё и деревья DOM. Замечания — выход за край и ошибки страницы.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { appContext, errorsOf, overflow, treeOf } from "./kit.mjs";
+import { snap, treeOf } from "./kit.mjs";
 import { launch, OUT as ROOT, prepare, url } from "./stand.mjs";
 
 const OUT = path.join(ROOT, "shots");
@@ -83,25 +83,16 @@ const trees = {};
 async function shot(app, kind, scheme, [name, hash, act, only]) {
   const id = `${app}-${kind}-${scheme}-${name}`;
   if ((only && only !== kind) || !id.includes(filter)) return;
-  const ctx = await appContext(browser, app, app === "pult" ? WIDE : NARROW, scheme);
-  const p = await ctx.newPage();
-  const errors = errorsOf(p, true);
-  try {
+  const open = async (p) => {
     await p.goto(url(app, kind, "#sessions"));
     await p.waitForSelector(".bd-list");
     await p.evaluate((h) => (location.hash = h), hash);
     await p.waitForTimeout(400);
     await act?.(p);
     await p.waitForTimeout(150);
-    await p.screenshot({ path: path.join(OUT, `${id}.png`) });
-    trees[id] = await treeOf(p);
-    const over = await overflow(p, "#app *", ".fscroll, .op-pre, .sb-navrow, .cw-tabs");
-    if (over.x > 0 || over.bad.length) notes.push(`${id}: выход за край ${over.x} px ${over.bad.slice(0, 3).join(" | ")}`);
-  } catch (e) {
-    notes.push(`${id}: ${e.message.split("\n")[0]}`);
-  }
-  if (errors.length) notes.push(`${id}: ошибки ${errors.slice(0, 2).join(" | ").slice(0, 240)}`);
-  await ctx.close();
+  };
+  const after = async (p) => void (trees[id] = await treeOf(p));
+  await snap(browser, { id, app, viewport: app === "pult" ? WIDE : NARROW, scheme, dir: OUT, scope: "#app *", allowed: ".fscroll, .op-pre, .sb-navrow, .cw-tabs", open, after }, notes);
 }
 
 for (const [app, screens] of [["pult", PULT_SCREENS], ["phone", PHONE_SCREENS]]) {

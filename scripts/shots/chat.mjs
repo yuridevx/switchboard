@@ -2,7 +2,7 @@
 // node scripts/shots/chat.mjs [часть имени снимка]; снимки смотрит глазами тот, кто запустил; замечания — выход за край и ошибки страницы.
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { appContext, errorsOf, overflow } from "./kit.mjs";
+import { errorsOf, snap } from "./kit.mjs";
 import { launch, OUT as ROOT, prepare, url } from "./stand.mjs";
 
 const OUT = path.join(ROOT, "chat");
@@ -74,31 +74,23 @@ const fails = [];
 
 async function shot(app, viewport, scheme, id, hash, act) {
   if (filter && !id.includes(filter)) return;
-  const ctx = await appContext(b, app, viewport, scheme);
-  const p = await ctx.newPage();
-  const errs = errorsOf(p, true, /Content Security Policy|allow-scripts/);
-  try {
+  const open = async (p) => {
     await p.goto(url(app, "small", hash));
     await p.waitForSelector(".chat, .chat-gal", { timeout: 5000 });
     await pause(p, 500);
     if (act) await act(p);
     await pause(p, 150);
-    await p.screenshot({ path: path.join(OUT, `${id}.png`) });
-    // лента у низа остаётся у низа, что бы ни выросло над вводом; уводят от низа только прокрутка вверх и откат к первому сообщению
-    if (!/scrolled-up|rewind/.test(id)) {
-      const gap = await p.evaluate(() => {
-        const f = document.querySelector(".chat-feed");
-        return f ? f.scrollHeight - f.scrollTop - f.clientHeight : 0;
-      });
-      if (gap > 4) fails.push(`${id}: лента не у низа, ${Math.round(gap)} точек`);
-    }
-    const over = await overflow(p, ".chat *, .chat-gal *", ".md-table, pre, .chat-diff, .sb-navrow, .cw-tabs");
-    if (over.x > 0 || over.bad.length) fails.push(`${id}: выход за край ${over.x}px ${over.bad.join(" | ")}`);
-  } catch (e) {
-    fails.push(`${id}: ${e.message.split("\n")[0]}`);
-  }
-  if (errs.length) fails.push(`${id}: ошибки ${errs.slice(0, 2).join(" | ").slice(0, 240)}`);
-  await ctx.close();
+  };
+  // лента у низа остаётся у низа, что бы ни выросло над вводом; уводят от низа только прокрутка вверх и откат к первому сообщению
+  const after = async (p) => {
+    if (/scrolled-up|rewind/.test(id)) return;
+    const gap = await p.evaluate(() => {
+      const f = document.querySelector(".chat-feed");
+      return f ? f.scrollHeight - f.scrollTop - f.clientHeight : 0;
+    });
+    if (gap > 4) fails.push(`${id}: лента не у низа, ${Math.round(gap)} точек`);
+  };
+  await snap(b, { id, app, viewport, scheme, dir: OUT, scope: ".chat *, .chat-gal *", allowed: ".md-table, pre, .chat-diff, .sb-navrow, .cw-tabs", noise: /Content Security Policy|allow-scripts/, open, after }, fails);
 }
 
 /** Галерея: разделы отдельными снимками во всю высоту. */
