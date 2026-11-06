@@ -25,9 +25,11 @@ func newJournal(home, machine string) *journal {
 }
 
 // add — строка журнала; kv — пары имя, значение.
-func (j *journal) add(who, part, kind, ev string, kv ...any) {
-	t := time.Now().UTC()
-	r := map[string]any{"t": t.Format("2006-01-02T15:04:05.000Z"), "part": part, "machine": j.machine, "who": who, "kind": kind, "ev": ev}
+func (j *journal) add(who, part, kind, ev string, kv ...any) { j.write(j.record(who, part, kind, ev, kv...)) }
+
+// record — строка журнала с переводом строки, ещё не записанная.
+func (j *journal) record(who, part, kind, ev string, kv ...any) []byte {
+	r := map[string]any{"t": time.Now().UTC().Format("2006-01-02T15:04:05.000Z"), "part": part, "machine": j.machine, "who": who, "kind": kind, "ev": ev}
 	for i := 0; i+1 < len(kv); i += 2 {
 		r[kv[i].(string)] = kv[i+1]
 	}
@@ -35,14 +37,22 @@ func (j *journal) add(who, part, kind, ev string, kv ...any) {
 	e := json.NewEncoder(&b) // перевод строки дописывает Encode
 	e.SetEscapeHTML(false)   // журнал читают люди
 	e.Encode(r)
+	return b.Bytes()
+}
+
+// write — готовые строки одной записью в файл дня.
+func (j *journal) write(b []byte) {
+	if len(b) == 0 {
+		return
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	os.MkdirAll(j.dir, 0o700)
-	f, err := os.OpenFile(filepath.Join(j.dir, "keeper-"+t.Format("2006-01-02")+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(filepath.Join(j.dir, "keeper-"+time.Now().UTC().Format("2006-01-02")+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
-	f.Write(b.Bytes())
+	f.Write(b)
 	f.Close()
 }
 
