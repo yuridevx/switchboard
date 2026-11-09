@@ -168,8 +168,8 @@ describe("стенд", () => {
   it("open, который ждёт то, чего стенд не даёт, — отказ словом по настоящим часам, а не висение до testTimeout (identity 10 нояб.: модуль ждал gate в session(), прогон висел больше 2 ч)", async () => {
     const st = await stand({ modules: [module("host-wait", { session: () => new Promise<never>(() => {}) })] });
     const from = Date.now();
-    await expect(st.open(CS)).rejects.toThrow(/^стенд: open .+ не кончился за 5 с по настоящим часам/);
-    expect(Date.now() - from).toBeLessThan(10_000);
+    await expect(st.open(CS)).rejects.toThrow(/^стенд: open .+ не кончился за 20 с по настоящим часам/);
+    expect(Date.now() - from).toBeLessThan(25_000);
   });
 });
 

@@ -85,8 +85,8 @@ async function check(net: Net): Promise<number> {
     console.error(`подними номер: ${label}: ${paths.join(", ")}`);
     n.raise++;
   };
-  for (const m of catalogued()) await compare(packFromRepo(join(ROOT, m.dir)));
-  await compare(coreArchive(ROOT));
+  // запросы к каталогу и R2 — разом: по одному сверка ждала сеть 58 раз подряд (45 с, из них 32 с простоя)
+  await Promise.all([...catalogued().map((m) => compare(packFromRepo(join(ROOT, m.dir)))), compare(coreArchive(ROOT))]);
   console.log(`каталог: как в коде ${n.same}, новых номеров ${n.fresh}, поднять ${n.raise}`);
   return n.raise ? 1 : 0;
 }

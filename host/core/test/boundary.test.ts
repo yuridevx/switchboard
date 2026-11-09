@@ -1595,8 +1595,8 @@ describe("хранилище и журнал", () => {
     expect(lines(st, "hello")[0].why).toBe("hello принят");
     expect(lines(st, "open")[0]).toMatchObject({ callsign: CS, cwd: st.home });
     expect(lines(st, "launch")[0]).toMatchObject({ callsign: CS, start: "spawn", sdk: "0.3.311", session_id: s.info.session_id });
-    expect(lines(st, "ready")[0]).toMatchObject({ version: "1.4.0" });
-    expect(lines(st, "host_start")[0]).toMatchObject({ version: "1.4.0", sdk: "0.3.311", modules: [] });
+    expect(lines(st, "ready")[0]).toMatchObject({ version: "1.4.1" });
+    expect(lines(st, "host_start")[0]).toMatchObject({ version: "1.4.1", sdk: "0.3.311", modules: [] });
     await s.remove();
     expect(lines(st, "remove")[0]).toMatchObject({ callsign: CS });
     expect(st.relay.frames("session.state").at(-1)).toMatchObject({ callsign: CS, state: null });

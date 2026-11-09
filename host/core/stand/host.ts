@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { nameOf, type Frame } from "@switchboard/protocol";
+import { nameOf, READ_MS, type Frame } from "@switchboard/protocol";
 import type { Host, Manifest, Module, Session } from "../contract.ts";
 import { Kernel, Mod, StartError } from "../src/kernel.ts";
 import type { HostConfig } from "../src/kernel.ts";
@@ -106,9 +106,9 @@ const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
 
 /** Настоящий предел open и start стенда. Пределы ядра идут по поддельным часам и без clock.tick не наступают: модуль, который ждёт то,
- *  чего стенд не даёт, падает словом, а не висит до testTimeout. 5 с — в десять раз выше самого долгого замера (open 423 мс, start 118 мс;
- *  10 нояб., 1310 замеров на Windows) и ниже testTimeout 30 с. */
-const STAND_MS = 5_000;
+ *  чего стенд не даёт, падает словом, а не висит до testTimeout. Вдвое выше предела чтения: модуль вправе ждать по настоящим часам READ_MS
+ *  (fleet ждёт пропуск у gate); ниже testTimeout 30 с. Замер 10 нояб.: open не дольше 423 мс, start — 118 мс. */
+const STAND_MS = 2 * READ_MS;
 function real<T>(p: Promise<T>, what: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const why = `стенд: ${what} не кончился за ${STAND_MS / 1000} с по настоящим часам — ждёт то, чего стенд не даёт; пределы ядра идут по поддельным часам (clock.tick)`;
@@ -167,7 +167,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     config,
     core: CORE,
     // адреса флота — в списке сборки: relay: false — сборка без relay
-    release: { version: o.version ?? "1.4.0", sdk: sdk.version, modules: o.modules ?? [], workers: o.relay === false ? {} : { ...FakeRelay.WORKERS, ...o.workers } },
+    release: { version: o.version ?? "1.4.1", sdk: sdk.version, modules: o.modules ?? [], workers: o.relay === false ? {} : { ...FakeRelay.WORKERS, ...o.workers } },
     sdk,
     holders,
     relayKey: `host.${machine}.k7f3.stand`,
