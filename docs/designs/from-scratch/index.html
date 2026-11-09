@@ -1,0 +1,866 @@
+<title>Switchboard с нуля</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@500;600&display=swap">
+<style>
+/* Раскладка: колонка 1080px; сверху карта всей системы, ниже — погружение по слоям; цвета и шрифты — как у других дизайнов Switchboard. */
+:root{
+  --bg:#F2F4F8; --surface:#FFFFFF; --surface2:#E8ECF2; --ink:#131A25; --muted:#576377; --line:#D2D9E3; --line2:#E3E8EF;
+  --accent:#1E4ED0; --accent-weak:#E2E9FB; --on-accent:#FFFFFF;
+  --ok:#1C7548; --ok-weak:#DBF0E4; --wait:#955700; --wait-weak:#FAEACD; --bad:#B0222E; --bad-weak:#F7DDE0;
+  --chg-bg:#FFF5C2; --chg-edge:#D9B400;
+  --disp:"Unbounded","Golos Text",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:400 15.5px/1.5 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 72px;overflow-wrap:break-word}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:22px;min-width:0}
+h1,h2,h3{text-wrap:balance;margin:0}
+h3{font:600 14px/1.3 var(--body)}
+h1{font:600 clamp(26px,4.6vw,40px)/1.12 var(--disp);letter-spacing:-.01em}
+h2{font:600 19px/1.25 var(--disp)}
+p{margin:0;max-width:70ch}
+code,.mono{font-family:var(--mono);font-size:.88em;overflow-wrap:anywhere}
+button{font:500 13.5px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,.d [tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.top{display:flex;flex-direction:column;gap:14px;padding-block:8px 6px}
+.lede{font-size:17.5px}
+.keys{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+kbd{font:600 12px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:var(--surface);color:var(--ink)}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:13px;border:1px solid var(--line);border-radius:999px;padding:4px 11px;background:var(--surface)}
+.blk{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.chg{background:var(--chg-bg);border-color:var(--chg-edge)}
+.chg.read{background:var(--surface);border-color:var(--line)}
+.blk-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.blk-h p{color:var(--muted);font-size:14px;flex-basis:100%}
+.tag{font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border-radius:999px;padding:4px 8px;background:var(--chg-edge);color:#1E1A00}
+.tag::after{content:"новое"}
+.chg.read .tag{background:var(--ok-weak);color:var(--ok)}
+.chg.read .tag::after{content:"прочитано ✓"}
+.inner{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
+.chg.read .inner{background:var(--surface2);border-color:var(--line2)}
+.seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.fig{overflow-x:auto;padding:6px}
+svg.d{display:block;width:100%;min-width:700px;height:auto}
+.d .band{fill:var(--surface2);opacity:.55}
+.d .bandl{font:600 10.5px var(--mono);letter-spacing:.12em;text-transform:uppercase;fill:var(--muted)}
+.d .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.d .node,.d .edge,.d .step{cursor:pointer}
+.d .t{font:600 13.5px var(--body);fill:var(--ink);text-anchor:middle}
+.d .s{font:400 10.5px var(--body);fill:var(--muted);text-anchor:middle}
+.d .ln{fill:none;stroke:var(--muted);stroke-width:1.5}
+.d .hit{fill:none;stroke:transparent;stroke-width:16}
+.d .ah{fill:var(--muted)}
+.d .el{font:500 11px var(--body);fill:var(--ink);text-anchor:middle}
+.d .elb{fill:var(--surface)}
+.d .life{stroke:var(--line);stroke-width:1.5;stroke-dasharray:3 5}
+.d .num{fill:var(--ink)}
+.d .numt{font:600 10.5px var(--mono);fill:var(--bg);text-anchor:middle}
+.d .hot .box,.d .sel .box{stroke:var(--accent);fill:var(--accent-weak)}
+.d .hot .ln,.d .sel .ln{stroke:var(--accent);stroke-width:2.4}
+.d .hot .ah,.d .sel .ah,.d .sel .num{fill:var(--accent)}
+.d .live .box{stroke:var(--ok);fill:var(--ok-weak)}
+.d .again .box{stroke:var(--wait);fill:var(--wait-weak)}
+.d .dead .box{stroke:var(--bad);fill:var(--bad-weak)}
+.info{border-top:1px solid var(--line);padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:14px;min-height:64px}
+.info b{font:600 14px var(--body)}
+.info pre{margin:4px 0 0;font:400 12px/1.5 var(--mono);background:var(--surface2);border-radius:8px;padding:10px 12px;overflow-x:auto;white-space:pre}
+.two{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:14px}
+@media (max-width:760px){.two{grid-template-columns:minmax(0,1fr)}}
+.code{font:400 12.5px/1.6 var(--mono);padding:14px;overflow-x:auto;white-space:pre;margin:0}
+.code i{font-style:normal;color:var(--accent)}
+.code u{text-decoration:none;color:var(--ok)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);padding:0 14px 10px}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;border:1.5px solid}
+.legend .l-live::before{background:var(--ok-weak);border-color:var(--ok)}
+.legend .l-again::before{background:var(--wait-weak);border-color:var(--wait)}
+.legend .l-dead::before{background:var(--bad-weak);border-color:var(--bad)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.card{padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+.card h3{font:600 14px var(--body)}
+.card .arrow{color:var(--muted)}
+.pill{align-self:flex-start;font:600 10.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:4px 8px}
+.p-word{background:var(--ok-weak);color:var(--ok)} .p-fact{background:var(--accent-weak);color:var(--accent)} .p-new{background:var(--wait-weak);color:var(--wait)}
+.card .rec{border-left:2px solid var(--ok);padding-left:9px}
+.card .alt{border-left:2px solid var(--line);padding-left:9px;color:var(--muted)}
+.bars{display:grid;grid-template-columns:minmax(120px,240px) minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:14px;font-size:13.5px}
+.bars .n{font:600 13px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bars .tr{display:flex;flex-direction:column;gap:3px;min-width:0}
+.bars .b{height:7px;border-radius:4px;background:var(--muted);min-width:2px}
+.bars .a{height:7px;border-radius:4px;background:var(--accent);min-width:2px}
+.bars button{all:unset;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.bars button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.report{font:400 12.5px/1.65 var(--mono);padding:14px;margin:0;white-space:pre-wrap}
+.track{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.stepc{padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+.stepc .no{font:600 20px/1 var(--disp);color:var(--accent)}
+.stepc .done{border-left:2px solid var(--ok);padding-left:9px}
+.stepc .done b{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.mark-banner{position:fixed;left:max(16px,env(safe-area-inset-left,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);font-size:13px;padding:8px 12px;border-radius:9px;z-index:5}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Switchboard с нуля</h1>
+    <p class="lede">Сессии Claude Code на разных машинах видят друг друга, переписываются и достают до человека. Тот же продукт, собранный заново: меньше частей, один договор, один номер сборки.</p>
+    <div class="keys"><span>Блок или стрелка — нажмите</span><span><kbd>A</kbd> прочитал</span><span><kbd>Z</kbd> снять</span></div>
+    <div class="chips" aria-label="Не меняется">
+      <span class="chip">Host — единственная точка к сессиям</span>
+      <span class="chip">держатели процессов</span>
+      <span class="chip">Keeper на Go</span>
+      <span class="chip">прокси модели</span>
+      <span class="chip">Cloudflare</span>
+      <span class="chip">экраны страницы</span>
+    </div>
+  </header>
+
+  <section class="blk chg" data-chg="map">
+    <div class="blk-h"><h2>Карта</h2><span class="tag"></span></div>
+    <div class="inner" id="d-map"></div>
+  </section>
+
+  <section class="blk chg" data-chg="scale">
+    <div class="blk-h"><h2>Масштаб</h2><span class="tag"></span><p>Рост — это больше объектов, а не больше нагрузки на один. Общего на все флоты состояния нет.</p></div>
+    <div class="inner" id="d-scale"></div>
+    <div class="chips">
+      <span class="chip">1 000 запросов в секунду на объект</span>
+      <span class="chip">10 ГБ записей на объект</span>
+      <span class="chip">объектов — без счёта</span>
+      <span class="chip">поиск по тексту встроен</span>
+      <span class="chip">откат записей на 30 дней назад</span>
+    </div>
+  </section>
+
+  <section class="blk chg" data-chg="paths">
+    <div class="blk-h"><h2>Пути сообщения</h2><span class="tag"></span></div>
+    <div class="inner" id="d-paths"></div>
+  </section>
+
+  <section class="blk chg" data-chg="contract">
+    <div class="blk-h"><h2>Договор — это код</h2><span class="tag"></span><p>Один запрос описан один раз. Им пользуются кнопка, модель, внешний Claude и скрипт.</p></div>
+    <div class="two">
+      <pre class="inner code"><i>export const</i> sessionOpen = request(<u>"session.open"</u>, {
+  tool:  <u>"Открыть сессию на машине"</u>,
+  input: { to: Machine, spec: Spec },
+  output:{ callsign: Callsign },
+});
+
+<i>// где угодно: страница, Host, служба, скрипт</i>
+<i>await</i> call(sessionOpen, { to: <u>"@laptop"</u>, spec });</pre>
+      <div class="inner" id="d-contract"></div>
+    </div>
+  </section>
+
+  <section class="blk chg" data-chg="access">
+    <div class="blk-h"><h2>Кто пришёл и что может</h2><span class="tag"></span><p>Всё действует от имени человека. Граница прав — машина.</p></div>
+    <div class="inner" id="d-access"></div>
+    <div class="inner" id="d-check"></div>
+  </section>
+
+  <section class="blk chg" data-chg="session">
+    <div class="blk-h"><h2>Сессия</h2><span class="tag"></span><p>Сессия — один документ. У каждого ключа один хозяин.</p></div>
+    <div class="inner" id="d-spec"></div>
+    <div class="inner" id="d-states"></div>
+  </section>
+
+  <section class="blk chg" data-chg="cloud">
+    <div class="blk-h"><h2>Облако</h2><span class="tag"></span><p>Два Worker'а и два вида объектов. Стрелки смотрят в сторону того, что меняется реже.</p></div>
+    <div class="inner" id="d-cloud"></div>
+  </section>
+
+  <section class="blk chg" data-chg="machine">
+    <div class="blk-h"><h2>Машина</h2><span class="tag"></span><p>Что переживает что.</p></div>
+    <div class="inner" id="d-machine"></div>
+  </section>
+
+  <section class="blk chg" data-chg="page">
+    <div class="blk-h"><h2>Страница</h2><span class="tag"></span><p>Одно приложение, две раскладки: широкая и узкая. Экраны остаются теми же.</p></div>
+    <div class="inner" id="d-page"></div>
+  </section>
+
+  <section class="blk chg" data-chg="ship">
+    <div class="blk-h"><h2>Поставка</h2><span class="tag"></span><p>Один номер сборки на всё: страницу, службы, Host и Keeper.</p></div>
+    <div class="inner" id="d-ship"></div>
+  </section>
+
+  <section class="blk chg" data-chg="fails">
+    <div class="blk-h"><h2>Ожидаемые сбои</h2><span class="tag"></span><p>Закрытый список. Остальное — остановка, журнал, чистый перезапуск.</p></div>
+    <div class="cards" id="fails"></div>
+  </section>
+
+  <section class="blk chg" data-chg="etalons">
+    <div class="blk-h"><h2>Эталоны</h2><span class="tag"></span><p>Одно свойство на зафиксированном входе.</p></div>
+    <div class="cards" id="etalons"></div>
+  </section>
+
+  <section class="blk chg" data-chg="forks">
+    <div class="blk-h"><h2>Решения</h2><span class="tag"></span><p>Что выбрано и что отброшено.</p></div>
+    <div class="cards" id="forks"></div>
+  </section>
+
+  <section class="blk chg" data-chg="gate">
+    <div class="blk-h"><h2>Гейт</h2><span class="tag"></span><p>Работа: большая — меняет границы частей, протокол и поставку. Серое — сейчас, синее — после.</p></div>
+    <div class="inner"><div class="bars" id="dups"></div><div class="info" id="dups-info"></div></div>
+    <div class="inner"><div class="bars" id="nums"></div></div>
+    <pre class="inner report" id="report"></pre>
+  </section>
+
+  <section class="blk chg" data-chg="order">
+    <div class="blk-h"><h2>Порядок реализации</h2><span class="tag"></span><p>После каждого шага флот работает.</p></div>
+    <div class="track" id="order"></div>
+  </section>
+</div>
+
+<script>
+(function(){
+"use strict";
+const NS = "http://www.w3.org/2000/svg";
+function S(tag, attrs, parent, text){ const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; if (parent) parent.appendChild(e); return e; }
+function H(tag, cls, parent, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; if (parent) parent.appendChild(e); return e; }
+function panel(root){
+  const p = H("div", "info", root); p.setAttribute("aria-live", "polite");
+  const h = H("b", "", p), t = H("span", "", p), pre = H("pre", "", p); pre.hidden = true;
+  return function(title, text, json){ h.textContent = title; t.textContent = text; pre.hidden = !json; pre.textContent = json ? (typeof json === "string" ? json : JSON.stringify(json, null, 2)) : ""; };
+}
+function head(g, a, b){ const an = Math.atan2(b[1]-a[1], b[0]-a[0]), L = 9, W = 4.5;
+  const bx = b[0]-L*Math.cos(an), by = b[1]-L*Math.sin(an), nx = -Math.sin(an)*W, ny = Math.cos(an)*W;
+  S("polygon", {class:"ah", points: b[0]+","+b[1]+" "+(bx+nx)+","+(by+ny)+" "+(bx-nx)+","+(by-ny)}, g); }
+function label(g, x, y, text){ const w = text.length*6.4+10; S("rect", {class:"elb", x:x-w/2, y:y-9, width:w, height:17, rx:4}, g); S("text", {class:"el", x:x, y:y+4}, g, text); }
+function press(el, fn){ el.setAttribute("tabindex", "0"); el.setAttribute("role", "button"); el.addEventListener("click", fn); el.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); fn(); } }); }
+
+/* Схема: блоки и стрелки; ховер подсвечивает блок и его пути, клик — пояснение. */
+function diagram(id, d){
+  const root = document.getElementById(id), fig = H("div", "fig", root);
+  const svg = S("svg", {class:"d", viewBox:"0 0 "+d.w+" "+d.h, role:"group"}, fig);
+  const show = panel(root), N = {}, groups = {}, edges = [];
+  (d.bands||[]).forEach(b => { S("rect", {class:"band", x:b.x==null?10:b.x, y:b.y, width:b.w==null?d.w-20:b.w, height:b.h, rx:12}, svg); S("text", {class:"bandl", x:(b.x==null?10:b.x)+14, y:b.y+20}, svg, b.label); });
+  d.nodes.forEach(n => N[n.id] = n);
+  function at(p){ if (typeof p !== "string") return p; const q = p.split(":"), n = N[q[0]], o = +q[2]||0;
+    return q[1]==="t" ? [n.x+n.w/2+o, n.y] : q[1]==="b" ? [n.x+n.w/2+o, n.y+n.h] : q[1]==="l" ? [n.x, n.y+n.h/2+o] : [n.x+n.w, n.y+n.h/2+o]; }
+  function pick(g, title, info, json){ svg.querySelectorAll(".sel").forEach(x => x.classList.remove("sel")); g.classList.add("sel"); show(title, info, json); }
+  const ge = S("g", {}, svg);
+  d.edges.forEach(e => {
+    const pts = e.p.map(at), g = S("g", {class:"edge"}, ge);
+    const dd = "M" + pts.map(p => p[0]+" "+p[1]).join(" L");
+    S("path", {class:"ln", d:dd}, g); S("path", {class:"hit", d:dd}, g);
+    head(g, pts[pts.length-2], pts[pts.length-1]); if (e.both) head(g, pts[1], pts[0]);
+    if (e.label){ let lp = e.lp; if (!lp){ let best = 0, bi = 0; for (let i = 0; i < pts.length-1; i++){ const l = Math.hypot(pts[i+1][0]-pts[i][0], pts[i+1][1]-pts[i][1]); if (l > best){ best = l; bi = i; } } lp = [(pts[bi][0]+pts[bi+1][0])/2, (pts[bi][1]+pts[bi+1][1])/2]; } label(g, lp[0], lp[1], e.label); }
+    const ends = e.ends || [e.p[0], e.p[e.p.length-1]].filter(p => typeof p === "string").map(p => p.split(":")[0]);
+    const title = e.title || e.label || "";
+    g.setAttribute("aria-label", title);
+    press(g, () => pick(g, title, e.info, e.json));
+    g.addEventListener("pointerenter", () => { g.classList.add("hot"); ends.forEach(n => groups[n] && groups[n].classList.add("hot")); });
+    g.addEventListener("pointerleave", () => { g.classList.remove("hot"); ends.forEach(n => groups[n] && groups[n].classList.remove("hot")); });
+    edges.push({g, ends});
+  });
+  d.nodes.forEach(n => {
+    const g = S("g", {class:"node"}, svg); groups[n.id] = g;
+    S("rect", {class:"box", x:n.x, y:n.y, width:n.w, height:n.h, rx:9}, g);
+    S("text", {class:"t", x:n.x+n.w/2, y:n.y+n.h/2+(n.sub?-2:5)}, g, n.label);
+    if (n.sub) S("text", {class:"s", x:n.x+n.w/2, y:n.y+n.h/2+14}, g, n.sub);
+    g.setAttribute("aria-label", n.label);
+    press(g, () => pick(g, n.label, n.info, n.json));
+    g.addEventListener("pointerenter", () => { g.classList.add("hot"); edges.forEach(e => e.ends.indexOf(n.id) >= 0 && e.g.classList.add("hot")); });
+    g.addEventListener("pointerleave", () => { g.classList.remove("hot"); edges.forEach(e => e.g.classList.remove("hot")); });
+  });
+  if (d.first){ const n = N[d.first]; pick(groups[d.first], n.label, n.info, n.json); }
+  return { show, mark(map){ for (const k in groups){ groups[k].classList.remove("live", "again", "dead", "sel"); if (map[k]) groups[k].classList.add(map[k]); } } };
+}
+
+/* Последовательность: участники сверху, шаги по порядку сверху вниз; кнопки выбирают сценарий. */
+function sequence(id, d){
+  const root = document.getElementById(id);
+  let bar = null; const keys = Object.keys(d.scenarios);
+  if (keys.length > 1){ bar = H("div", "seg", root); bar.style.padding = "12px 14px 0"; }
+  const fig = H("div", "fig", root), svg = S("svg", {class:"d", role:"group"}, fig), show = panel(root);
+  const X = {}, gap = (d.w-160)/(d.lanes.length-1);
+  d.lanes.forEach((l, i) => X[l.id] = 80+i*gap);
+  function render(key){
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    const sc = d.scenarios[key], h = 96+sc.steps.length*46;
+    svg.setAttribute("viewBox", "0 0 "+d.w+" "+h);
+    d.lanes.forEach(l => {
+      S("line", {class:"life", x1:X[l.id], y1:52, x2:X[l.id], y2:h-8}, svg);
+      const g = S("g", {class:"node"}, svg);
+      S("rect", {class:"box", x:X[l.id]-64, y:8, width:128, height:44, rx:9}, g);
+      S("text", {class:"t", x:X[l.id], y:l.sub?27:35}, g, l.label);
+      if (l.sub) S("text", {class:"s", x:X[l.id], y:43}, g, l.sub);
+      g.setAttribute("aria-label", l.label);
+      press(g, () => { svg.querySelectorAll(".sel").forEach(x => x.classList.remove("sel")); g.classList.add("sel"); show(l.label, l.info); });
+    });
+    let firstG = null;
+    sc.steps.forEach((s, i) => {
+      const y = 96+i*46, a = [X[s.from], y], b = [X[s.to], y], g = S("g", {class:"step edge"}, svg);
+      const dd = "M"+a[0]+" "+y+" L"+b[0]+" "+y;
+      S("path", {class:"ln", d:dd}, g); S("path", {class:"hit", d:dd}, g); head(g, a, b);
+      label(g, (a[0]+b[0])/2, y-13, s.label);
+      S("circle", {class:"num", cx:a[0], cy:y, r:9}, g); S("text", {class:"numt", x:a[0], y:y+3.5}, g, String(i+1));
+      const title = (i+1)+" · "+s.label; g.setAttribute("aria-label", title);
+      const go = () => { svg.querySelectorAll(".sel").forEach(x => x.classList.remove("sel")); g.classList.add("sel"); show(title, s.info, s.json); };
+      press(g, go);
+      g.addEventListener("pointerenter", () => g.classList.add("hot")); g.addEventListener("pointerleave", () => g.classList.remove("hot"));
+      if (!i) firstG = go;
+    });
+    if (bar) bar.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.k === key)));
+    if (firstG) firstG();
+  }
+  if (bar) keys.forEach(k => { const b = H("button", "", bar, d.scenarios[k].title); b.type = "button"; b.dataset.k = k; b.addEventListener("click", () => render(k)); });
+  render(keys[0]);
+}
+
+/* ===== Карта ===== */
+diagram("d-map", { w:1000, h:578, first:"fleet",
+  bands:[{y:14,h:100,label:"Люди"},{y:136,h:166,label:"Облако"},{x:128,y:164,w:464,h:126,label:"Платформа"},{y:346,h:218,label:"Машина · таких много"}],
+  nodes:[
+    {id:"page", x:130,y:36,w:200,h:58, label:"Страница", sub:"пульт и телефон — одна",
+      info:"Одно веб-приложение. На широком экране — пульт, на узком — телефон. Показывает сессии машин, до которых достаёт человек: чат, вопросы, аккаунты, архив сессий, выпуски."},
+    {id:"ext", x:400,y:36,w:180,h:58, label:"Внешний Claude", sub:"вход по OAuth",
+      info:"Claude вне флота — приложение или чужая сессия. Входит по OAuth как устройство человека и получает те же инструменты, что сессии флота."},
+    {id:"away", x:650,y:36,w:230,h:58, label:"Человек не на связи", sub:"пуш на телефон, Telegram",
+      info:"Устройства человека, когда страница закрыта: подписка на веб-пуш и чат Telegram. Оба — записи одного модуля «Связь с людьми»."},
+    {id:"machine", x:150,y:196,w:190,h:58, label:"Объект машины", sub:"её сессии вживую",
+      info:"У каждой машины свой объект. Держит соединения её Host и Keeper и тех, кто смотрит её сессии; несёт поток событий. Своих записей не ведёт: строки сессий живут в картине флота. Нагрузка объекта — одна машина. Больше машин — больше объектов."},
+    {id:"fleet", x:410,y:196,w:170,h:58, label:"Объект флота", sub:"люди и картина",
+      info:"У каждого флота свой объект. Хранит людей, пропуска и проекты и отвечает, кто пришёл и до каких машин достаёт. Держит картину флота — строки сессий всех машин — и по одному соединению с каждой открытой страницей. Через него идут подключения, проверки пропусков и изменения строк; поток событий сессий его не касается."},
+    {id:"services", x:640,y:196,w:190,h:58, label:"Службы", sub:"9 модулей и страница",
+      info:"Worker без состояния. Внутри — модули-папки: выпуски, журнал флота, архив сессий, связь с людьми, настройки, ключи флота, GitHub, аналитика, сервер MCP. Он же отдаёт файлы страницы, поэтому у флота один адрес."},
+    {id:"store", x:870,y:196,w:110,h:58, label:"Записи · R2", sub:"на модуль и флот",
+      info:"У каждого модуля служб свой объект с записями на каждый флот: создаётся сам при первом обращении, флоты не делят ни записи, ни очередь запросов. У архива сессий объект записей свой на каждую машину. Файлы сборок и блоки сессий — в R2, под именем своего флота. Общих баз и своих серверов нет."},
+    {id:"keeper", x:60,y:406,w:150,h:58, label:"Keeper", sub:"служба ОС",
+      info:"Маленькая служба, которую поднимает ОС. Ставит названную сборку Host и свою, держит Host, отвечает состоянием. Сам ничего не решает. Остаётся на связи, когда Host сломан."},
+    {id:"host", x:270,y:406,w:200,h:58, label:"Host", sub:"ядро и 9 модулей",
+      info:"Единственная точка к сессиям машины. Ядро: сессии, их документ, связь, хранилище. Модули: чат, аккаунты, профили, точки, прокси модели, скрипты, инциденты, Remote Control, машина."},
+    {id:"holders", x:530,y:406,w:160,h:58, label:"Держатели", sub:"по одному на процесс",
+      info:"Крошечный процесс, который владеет вводом и выводом одного процесса claude. Host обновляется — процесс claude живёт, новый Host подключается к держателю."},
+    {id:"claude", x:750,y:406,w:190,h:58, label:"Процессы claude", sub:"сессии",
+      info:"Сессии Claude Code. Ими управляет только Claude Agent SDK внутри Host."},
+    {id:"proxy", x:270,y:500,w:200,h:46, label:"Прокси модели", sub:"модуль Host",
+      info:"Через него идёт каждый запрос claude к модели. Применяет правила флота к телу запроса, подставляет ключ флота из памяти, переводит протокол для провайдеров с другим API. Переписку не пишет: её пишет claude в файл сессии."},
+    {id:"prov", x:60,y:500,w:150,h:46, label:"Провайдеры", sub:"Anthropic, Meta…",
+      info:"Модели. Anthropic и совместимые получают запрос как есть после правил; для Meta прокси переводит запрос, поток и ошибки."}
+  ],
+  edges:[
+    {p:["page:b:30","fleet:t:-40"], both:true, label:"один сокет", lp:[380,150], info:"Страница держит одно соединение с объектом флота: получает картину сессий — снимок при подключении, дальше изменения строк.",
+      json:{type:"roster",rev:57,machines:[{name:"laptop",online:true,build:412},{name:"server",online:false,since:"2026-11-10T08:02:11Z"}],sessions:[{callsign:"site@laptop",state:"busy",unread:true,spec:{cwd:"~/projects/site",model:"claude-fable-5-2"}}]}},
+    {p:["page:b:-40","machine:t:-40"], both:true, label:"запросы, лента", info:"Запрос сессии идёт объекту её машины. Пока человек смотрит сессию, страница держит соединение с объектом её машины и получает ленту. Закрыл сессию — соединение закрыто. Объект машины сам спрашивает объект флота, кто пришёл, и пускает только того, кто до этой машины достаёт: раз на подключение, раз на отдельный запрос.",
+      json:{type:"message",id:"m-41",to:"site@laptop",text:"Собери отчёт за неделю"}},
+    {p:["host:t:-60","machine:b:15"], both:true, label:"один сокет", info:"Host держит одно соединение — с объектом своей машины. Шлёт изменения сессий и кадры кому угодно во флоте, получает запросы.",
+      json:{type:"session.state",callsign:"site@laptop",rev:58,row:{state:"idle"}}},
+    {p:["keeper:t:0","machine:b:-50"], both:true, label:"сокет", info:"Keeper держит своё соединение с объектом машины, чтобы отвечать состоянием и узнавать о новом плане, даже когда Host не работает."},
+    {p:["machine:r:0","fleet:l:0"], label:"строки", title:"Объект машины → объект флота", info:"Объект машины спрашивает объект флота, кто подключается, и передаёт ему изменения строк своих сессий; сам строк не хранит. Строка меняется, когда меняется состояние сессии, вопрос, документ или пометка «непрочитано» — два-три раза за ход. События, текст и счётчики в строку не входят."},
+    {p:["services:l:0","fleet:r:0"], label:"кто?", info:"Вход служб на каждый запрос спрашивает объект флота, кто пришёл. У админ-запроса проверяет, что человек — админ; у запроса о машине — что он до неё достаёт. Один вход на все модули. Проверка — одно короткое чтение; копий пропусков вне объекта флота нет, поэтому отзыв действует сразу."},
+    {p:["services:b:-70",[665,274],[290,274],"machine:b:45"], label:"кадр", lp:[480,274], info:"Служба отдаёт кадр объекту машины-адресата, а «всем машинам» — каждому по списку флота: «план изменился» для Keeper, «настройки флота изменились» для Host, вызов инструмента модели, сообщение человека из Telegram. Так же расходится отзыв пропуска и смена проектов: объект машины закрывает соединения названного человека, тот подключается заново.",
+      json:{type:"prefs.changed",name:"proxy.rules"}},
+    {p:["page:b:80","services:t:-60"], label:"запрос", info:"Запрос службе — обычный POST на тот же адрес, с которого пришла страница.",
+      json:{type:"points.list",id:"l-4",q:"выкладка"}},
+    {p:["ext:b:40","services:t:-20"], label:"MCP", info:"Один сервер MCP флота. Инструмент — запрос договора с описанием для модели; отдельных серверов инструментов нет.",
+      json:{method:"tools/call",params:{name:"session_open",arguments:{to:"@server",spec:{name:"review",cwd:"~/projects/site"}}}}},
+    {p:["host:t:60","services:b:10"], label:"запрос", info:"Host зовёт службы напрямую: сохранить точку, взять токен GitHub, записать событие в журнал флота, позвать человека.",
+      json:{type:"reach.send",id:"r-3",to:"~yuri@example.com",title:"site@laptop спрашивает",text:"Какую ветку выкладывать?",callsign:"site@laptop"}},
+    {p:["claude:t:0","services:b:60"], label:"MCP", info:"Сессия флота зовёт инструменты того же сервера MCP, что и внешний Claude. Предъявляет пропуск своей машины и свой позывной — отдельного пропуска у сессии нет.",
+      json:{method:"tools/call",params:{name:"message",arguments:{to:"docs@server",text:"Обнови раздел про выкладку"}}}},
+    {p:["services:t:40","away:b:0"], both:true, label:"пуш, Telegram", lp:[860,134], info:"Модуль «Связь с людьми» шлёт веб-пуш и сообщение в Telegram. Ответ человека из Telegram приходит обратно и уходит сессии обычным кадром message."},
+    {p:["services:r:0","store:l:0"], title:"Службы → записи", info:"Модуль пишет только в свой объект записей и свои файлы."},
+    {p:["keeper:r:0","host:l:0"], label:"держит", lp:[240,482], info:"Keeper запускает Host нужной сборки и перезапускает его один раз после падения."},
+    {p:["host:r:0","holders:l:0"], label:"подключается", lp:[500,482], info:"Host говорит с процессом claude через его держателя по локальному соединению."},
+    {p:["holders:r:0","claude:l:0"], label:"ввод и вывод", lp:[720,482], info:"Держатель владеет вводом и выводом процесса. Пока Host нет, вывод копится."},
+    {p:["claude:b:0",[845,523],"proxy:r:0"], label:"запросы к модели", lp:[650,523], info:"Адрес модели у каждой сессии — прокси на этой же машине. Сессию прокси узнаёт по заголовку запроса, куда идти — спрашивает у модуля аккаунтов."},
+    {p:["proxy:l:0","prov:r:0"], title:"Прокси → провайдер", info:"Запрос после правил уходит провайдеру. Правила не прочитаны — запрос не уходит, claude повторяет сам."}
+  ]});
+
+/* ===== Масштаб ===== */
+(function(){
+  const rows = [
+    ["fl","Больше флотов","Объект флота на каждый","Флот — отдельная единица: свой объект флота, свои объекты записей у модулей, свои объекты машин. Одна выкладка обслуживает сколько угодно флотов; флоты не делят ни записи, ни очередь запросов. Новый флот ничего не заводит руками: объекты создаются при первом обращении."],
+    ["ma","Больше машин","Объект машины на каждую","Машина приходит со своим объектом. Остальные объекты её не замечают: в объект флота от неё идут только изменения строк её сессий."],
+    ["se","Больше сессий и событий","Тот же объект машины","Поток событий сессий идёт только через объект их машины. Предел объекта — около 1 000 запросов в секунду; раньше него кончится сама машина. Через объект флота поток не идёт: строка сессии меняется два-три раза за ход, сколько бы событий в нём ни было."],
+    ["vi","Больше людей и страниц","Сокеты объекта флота","Страница держит одно соединение с объектом флота, сколько бы машин ни было. Ленту открытой сессии она берёт у объекта её машины, так что зрители одной сессии не нагружают остальные."],
+    ["ar","Больше архива","R2 и объект записей на машину","Блоки сессий лежат в R2 — без предела. Реестр и поиск по словам — в объекте записей той машины, что сохранила точку, до 10 ГБ на машину: архив растёт числом объектов вместе с числом машин. Поиск опрашивает объекты только тех машин, до которых человек достаёт, и склеивает ответы. Место в объекте кончилось — запись получает отказ словом, старые сессии убирает агент."],
+    ["rq","Больше запросов службам","Worker'ы без состояния","Вход, службы и сервер MCP состояния не держат — их размножает платформа. Обработчик модуля работает в Worker'е; объект записей исполняет только короткие запросы и не занят, пока модуль ждёт сеть. Каждый запрос — одна проверка пропуска в объекте флота; она входит в его предел."],
+    ["an","Больше расчётов по расходу","ClickHouse в стороне","Аналитика живёт вне платформы, в ClickHouse, и растёт сама по себе. Строки попадают туда через очередь платформы, поэтому всплеск сохранений точек не давит ни на архив, ни на ClickHouse. Ничто, кроме отчётов о расходе, от неё не зависит."],
+    ["bc","Рассылка всем машинам","Вызов объекта каждой машины","Служба берёт список машин у объекта флота и зовёт объекты машин параллельно из одного запроса; предел платформы — 10 000 вызовов на запрос. Расходятся три вещи: новый план, смена общих настроек, смена доступа. Машина не на связи кадр не получает и очереди для неё нет: подключится — спросит сама."],
+    ["up","Обновление платформы","Переподключение вразброс","Обновление платформы закрывает все соединения флота. Клиент подключается заново после случайной паузы, иначе проверки пропусков всех машин и страниц придут в объект флота в одну секунду. Платформа обновляется, только когда изменился её код; службы и страница обновляются, не трогая соединений."],
+    ["loc","Люди и машины далеко","Объект рядом с первым обращением","Объект появляется рядом с тем, кто позвал его первым, и не переезжает. Объект машины — рядом с её Host. Объект флота и записи модулей — там, откуда флот завели: проверка пропуска издалека стоит одного перехода до этого места. Настройки места нет."]
+  ];
+  const nodes = [], edges = [];
+  rows.forEach((r, i) => {
+    const y = 14 + i*50;
+    nodes.push({id:r[0]+"a", x:60,y:y,w:300,h:38, label:r[1], info:r[3]});
+    nodes.push({id:r[0]+"b", x:600,y:y,w:340,h:38, label:r[2], info:r[3]});
+    edges.push({p:[r[0]+"a:r:0", r[0]+"b:l:0"], title:r[1]+" → "+r[2].toLowerCase(), info:r[3]});
+  });
+  const ly = 30 + rows.length*50;
+  nodes.push({id:"lim", x:60,y:ly,w:880,h:46, label:"Предел: объект одного флота", sub:"около 1 000 обращений в секунду: проверки пропусков и изменения строк — тогда флот делят на два",
+    info:"Единственное место, где сходится весь флот, — объект флота. Через него идут подключения, проверка пропуска на каждый запрос службам и изменения строк; каждое изменение он раздаёт открытым страницам. Сессия за ход меняет строку два-три раза и делает несколько запросов службам, так что предел — тысячи одновременно работающих сессий и сотни открытых страниц в одном флоте. Замер покажет предел — флот делят на два: граница флота уже есть в пропусках и адресах."});
+  diagram("d-scale", { w:1000, h:ly+60, first:"lim", nodes, edges });
+})();
+
+/* ===== Пути ===== */
+sequence("d-paths", { w:1140,
+  lanes:[
+    {id:"page", label:"Страница", info:"Открытая страница человека."},
+    {id:"fl", label:"Объект флота", info:"Люди, пропуска и картина флота."},
+    {id:"oa", label:"Объект", sub:"laptop", info:"Объект машины laptop."},
+    {id:"ha", label:"Машина", sub:"laptop", info:"Host машины laptop и её сессия site."},
+    {id:"ob", label:"Объект", sub:"server", info:"Объект машины server."},
+    {id:"hb", label:"Машина", sub:"server", info:"Host машины server и её сессия docs."},
+    {id:"sv", label:"Службы", info:"Worker служб: связь с людьми и сервер MCP."},
+    {id:"ph", label:"Телефон", sub:"Telegram", info:"Устройства человека, когда страница закрыта."}
+  ],
+  scenarios:{
+    human:{title:"Человек пишет сессии", steps:[
+      {from:"page",to:"oa",label:"message", info:"Один запрос на ввод в сессию — и от человека, и от другой сессии. Идёт объекту машины-адресата; объект флота в разговоре не участвует.", json:{type:"message",id:"m-41",to:"site@laptop",text:"Собери отчёт за неделю"}},
+      {from:"oa",to:"ha",label:"message", info:"Объект подставляет отправителя и отдаёт кадр Host.", json:{type:"message",id:"m-41",to:"site@laptop",from:"pult~yuri@example.com",text:"Собери отчёт за неделю"}},
+      {from:"ha",to:"oa",label:"reply", info:"Host положил текст в очередь ввода сессии.", json:{type:"reply",id:"m-41",ok:true}},
+      {from:"oa",to:"page",label:"reply", info:"Ответ возвращается тем же путём."},
+      {from:"ha",to:"oa",label:"session.events", info:"Сообщения SDK как есть, пачками, только тем, кто смотрит сессию.", json:{type:"session.events",callsign:"site@laptop",seq:119,events:[{type:"assistant",message:{content:[{type:"text",text:"Собираю отчёт…"}]}}]}},
+      {from:"oa",to:"page",label:"session.events", info:"Страница сворачивает сообщения в ленту общим пакетом свёртки — тем же, которым делается текстовая история сессии."}
+    ]},
+    ask:{title:"Сессия спрашивает, человека нет", steps:[
+      {from:"ha",to:"oa",label:"session.state", info:"Вопрос — часть строки сессии. Отдельных кадров «вопрос» и «вопрос снят» нет: кто подключился, тот видит вопрос в картине.", json:{type:"session.state",callsign:"site@laptop",rev:57,row:{state:"waiting",ask:{id:"q-9",kind:"question",text:"Какую ветку выкладывать?",options:["main","release"]}}}},
+      {from:"oa",to:"fl",label:"строка", info:"Изменение строки уходит в картину флота, оттуда — открытым страницам."},
+      {from:"ha",to:"sv",label:"reach.send", info:"Host зовёт человека одним запросом. Звать ли на самом деле, решает служба.", json:{type:"reach.send",id:"r-3",to:"~yuri@example.com",title:"site@laptop спрашивает",text:"Какую ветку выкладывать?",callsign:"site@laptop"}},
+      {from:"sv",to:"fl",label:"на связи?", info:"Служба спрашивает объект флота, открыта ли у человека страница. Открыта — уведомление не шлётся."},
+      {from:"sv",to:"ph",label:"пуш, Telegram", info:"Страницы нет — служба шлёт на все устройства человека: веб-пуш и тему сессии в Telegram."},
+      {from:"page",to:"fl",label:"hello", info:"Человек открыл страницу по уведомлению.", json:{type:"hello",proto:2,key:"home.pult~yuri@example.com.17.••••"}},
+      {from:"fl",to:"page",label:"roster", info:"Картина флота, в строке сессии — вопрос."},
+      {from:"page",to:"oa",label:"answer", info:"Первый ответ выигрывает, второй получит отказ already_answered.", json:{type:"answer",id:"a-1",to:"site@laptop",ask:"q-9",answer:"main"}},
+      {from:"oa",to:"ha",label:"answer", info:"Ответ из Telegram приходит так же: служба отдаёт объекту машины кадр answer."},
+      {from:"ha",to:"oa",label:"session.state", info:"Вопрос снят со строки, сессия снова работает.", json:{type:"session.state",callsign:"site@laptop",rev:58,row:{state:"busy",ask:null}}}
+    ]},
+    cross:{title:"Сессия пишет сессии на другой машине", steps:[
+      {from:"ha",to:"sv",label:"инструмент message", info:"Модель вызвала инструмент сервера MCP. Сессия предъявляет пропуск своей машины и свой позывной.", json:{method:"tools/call",params:{name:"message",arguments:{to:"docs@server",text:"Обнови раздел про выкладку"}}}},
+      {from:"sv",to:"ob",label:"message", info:"Инструмент — это запрос договора. Сервер MCP превращает вызов в кадр и отдаёт объекту машины-адресата. Владелец laptop не достаёт до server — отказ forbidden на этом шаге.", json:{type:"message",id:"m-7",to:"docs@server",from:"site@laptop",text:"Обнови раздел про выкладку"}},
+      {from:"ob",to:"hb",label:"message", info:"Host машины server кладёт текст во ввод сессии docs с пометкой, от кого он."},
+      {from:"hb",to:"ob",label:"reply", info:"Машина не на связи — на шаге 3 был бы отказ offline словом."},
+      {from:"ob",to:"sv",label:"reply", info:"Ответ возвращается тем же вызовом.", json:{type:"reply",id:"m-7",ok:true}},
+      {from:"sv",to:"ha",label:"итог инструмента", info:"Модель получает итог вызова."}
+    ]}
+  }});
+
+/* ===== Договор ===== */
+diagram("d-contract", { w:560, h:262, first:"tool",
+  nodes:[
+    {id:"btn", x:20,y:10,w:190,h:48, label:"Кнопка страницы", sub:"«Новая сессия»", info:"Страница импортирует договор и зовёт запрос. Типы ответа берутся из договора, руками не переписываются.",
+      json:{type:"session.open",id:"o-7",to:"@laptop",spec:{name:"site",cwd:"~/projects/site",account:"auto",pieces:["base","web"],model:"claude-fable-5-2"}}},
+    {id:"tool", x:20,y:72,w:190,h:48, label:"Сессия флота", sub:"инструмент MCP", info:"Запрос с полем tool становится инструментом сервера MCP сам. Модулей-обёрток и своих серверов инструментов в Host нет.",
+      json:{method:"tools/call",params:{name:"session_open",arguments:{to:"@laptop",spec:{name:"site-tests",cwd:"~/projects/site",pieces:["base"]}}}}},
+    {id:"ext", x:20,y:134,w:190,h:48, label:"Внешний Claude", sub:"тот же MCP", info:"Тот же список инструментов и тот же ответ, что у сессии флота. Права — человека, который вошёл.",
+      json:{method:"tools/call",params:{name:"points_list",arguments:{q:"выкладка"}}}},
+    {id:"script", x:20,y:196,w:190,h:48, label:"Скрипт", sub:"сторож, CI", info:"Программа с пропуском шлёт тот же кадр.",
+      json:{type:"session.open",id:"1",to:"@server",spec:{name:"nightcheck",cwd:"~/checks"}}},
+    {id:"in", x:290,y:104,w:120,h:48, label:"Вход", sub:"кто · схема", info:"Одна проверка для всех: кто пришёл, подходит ли ввод под схему, достаёт ли он до названной машины. Нет — отказ словом, обработчик не вызван."},
+    {id:"own", x:450,y:104,w:96,h:48, label:"Хозяин", sub:"ядро Host", info:"У имени запроса один хозяин. Гейт сборки падает, если хозяев два или модуль импортирует чужое мимо договора.",
+      json:{type:"reply",id:"o-7",ok:true,result:{callsign:"site@laptop"}}}
+  ],
+  edges:[
+    {p:["btn:r:0","in:l:-15"], title:"Кнопка → вход", info:"Кадр session.open от человека."},
+    {p:["tool:r:0","in:l:-5"], title:"Сессия → вход", info:"Вызов инструмента превращается в тот же кадр, отправитель — сессия."},
+    {p:["ext:r:0","in:l:5"], title:"Внешний Claude → вход", info:"Вызов инструмента превращается в тот же кадр, отправитель — устройство человека."},
+    {p:["script:r:0","in:l:15"], title:"Скрипт → вход", info:"Кадр от программы."},
+    {p:["in:r:0","own:l:0"], title:"Вход → хозяин", info:"До обработчика доходит только проверенный ввод."}
+  ]});
+
+/* ===== Вход и права ===== */
+(function(){
+  const m = diagram("d-access", { w:1000, h:320,
+    nodes:[
+      {id:"anya", x:90,y:16,w:200,h:50, label:"Аня", sub:"~anya@example.com", info:"Человек — это его почта. Её устройства, программы и машины действуют от её имени."},
+      {id:"yuri", x:400,y:16,w:200,h:50, label:"Юра", sub:"админ флота", info:"Админ флота приглашает людей, собирает проекты, выкладывает сборки, меняет ключи флота и правила прокси."},
+      {id:"oleg", x:710,y:16,w:200,h:50, label:"Олег", sub:"~oleg@example.com", info:"Человек флота. В проекте «Инфра» вместе с Юрой."},
+      {id:"site", x:245,y:136,w:200,h:44, label:"Проект «Сайт»", info:"Проект — люди, которые работают вместе. Машины в проект не добавляют: общий проект открывает людям машины друг друга."},
+      {id:"infra", x:555,y:136,w:200,h:44, label:"Проект «Инфра»", info:"Второй проект. Аня в него не входит."},
+      {id:"apc", x:40,y:252,w:200,h:50, label:"anya-pc", sub:"владелец — Аня", info:"У машины один владелец — тот, кто её поставил. Слоты и аккаунты машины идут за машиной."},
+      {id:"laptop", x:270,y:252,w:200,h:50, label:"laptop", sub:"владелец — Юра", info:"Машина Юры. Любой ввод в её сессию — исполнение кода на ней, поэтому право мельче машины не выдаётся."},
+      {id:"server", x:530,y:252,w:200,h:50, label:"server", sub:"владелец — Юра", info:"Вторая машина Юры."},
+      {id:"omac", x:760,y:252,w:200,h:50, label:"oleg-mac", sub:"владелец — Олег", info:"Машина Олега."}
+    ],
+    edges:[
+      {p:["anya:b:30","site:t:-60"], title:"Аня в проекте «Сайт»", info:"Состав проекта хранит объект флота; меняет его админ."},
+      {p:["yuri:b:-40","site:t:40"], title:"Юра в проекте «Сайт»", info:"Общий проект с Аней."},
+      {p:["yuri:b:40","infra:t:-40"], title:"Юра в проекте «Инфра»", info:"Общий проект с Олегом."},
+      {p:["oleg:b:-30","infra:t:60"], title:"Олег в проекте «Инфра»", info:"Состав проекта хранит объект флота; меняет его админ."}
+    ]});
+  const root = document.getElementById("d-access"), bar = H("div", "seg"); bar.style.padding = "12px 14px 0"; root.insertBefore(bar, root.firstChild);
+  const lg = H("div", "legend"); H("span", "l-live", lg, "достаёт"); H("span", "l-dead", lg, "отказ forbidden"); root.insertBefore(lg, root.lastChild);
+  [
+    ["Аня", {anya:"live",site:"live",apc:"live",laptop:"live",server:"live",omac:"dead"}, "Аня достаёт до своей машины и до машин Юры: у них общий проект. Машины Олега нет даже в её картине. Админ-запросы ей отказаны."],
+    ["Юра", {yuri:"live",site:"live",infra:"live",apc:"live",laptop:"live",server:"live",omac:"live"}, "Юра в проектах с обоими и достаёт до всех машин. Как админ флота он приглашает людей, выкладывает сборки, меняет ключи и правила."],
+    ["Олег", {oleg:"live",infra:"live",apc:"dead",laptop:"live",server:"live",omac:"live"}, "Олег достаёт до своей машины и до машин Юры. До машины Ани — нет."],
+    ["Сессия на laptop", {yuri:"live",site:"live",infra:"live",apc:"live",laptop:"live",server:"live",omac:"live"}, "Сессия действует от имени владельца машины, а не того, кто ей пишет: её пропуск — пропуск машины с её позывным. Кто достаёт до машины, тот доверен её владельцем."]
+  ].forEach((c, i) => { const b = H("button", "", bar, c[0]); b.type = "button";
+    b.addEventListener("click", () => { bar.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); m.mark(c[1]); m.show(c[0], c[2]); });
+    if (!i) b.click(); });
+})();
+diagram("d-check", { w:1000, h:200, first:"gate",
+  nodes:[
+    {id:"pass", x:30,y:72,w:180,h:56, label:"Пропуск", sub:"устройство · машина", info:"Один вид удостоверения. Получают его одним способом — приглашением на сутки: страница — ссылкой, машина — при установке Keeper, программа — командой, внешний Claude — входом OAuth, где код и есть приглашение. В пропуске записан флот — по нему вход находит объект флота. Хранится только хэш секрета.",
+      json:{type:"invite",id:"i-1",addr:"@anya-pc",owner:"~anya@example.com"}},
+    {id:"gate", x:300,y:72,w:180,h:56, label:"Объект флота", sub:"кто и до чего достаёт", info:"Правило считается в одном месте: человек достаёт до своих машин и до машин тех, с кем у него общий проект. Сессия называет свой позывной при пропуске машины — объект флота сверяет, что позывной этой машины.",
+      json:{addr:"pult~anya@example.com",person:"~anya@example.com",admin:false,machines:["anya-pc","laptop","server"]}},
+    {id:"obj", x:590,y:16,w:380,h:56, label:"Вход платформы", sub:"картина и кадры — только по своим машинам", info:"Первое из двух мест проверки. В картине человека — только машины, до которых он достаёт; подключение к объекту чужой машины и кадр для неё получают отказ forbidden. Права соединения считаются при подключении; отзыв пропуска или смена проектов закрывает соединения человека, и он подключается заново. Модули Host о правах не знают."},
+    {id:"ent", x:590,y:128,w:380,h:56, label:"Вход служб", sub:"админ-запросы и данные машин", info:"Второе место проверки. Запрос с пометкой admin в договоре проходит только у админа: люди и пропуска, выкладка, ключи флота, правила прокси, GitHub. Запрос о данных машины — архив её сессий — только у того, кто до неё достаёт."}
+  ],
+  edges:[
+    {p:["pass:r:0","gate:l:0"], label:"предъявить", info:"Пропуск идёт с подключением к объекту или с запросом службе."},
+    {p:["gate:r:-10","obj:l:0"], label:"ответ", info:"Один вызов на подключение."},
+    {p:["gate:r:10","ent:l:0"], label:"ответ", info:"Один вызов на запрос."}
+  ]});
+
+/* ===== Сессия: документ ===== */
+diagram("d-spec", { w:1000, h:300, first:"mix",
+  nodes:[
+    {id:"core", x:40,y:14,w:230,h:44, label:"Ядро", sub:"папка, модель, режим, родитель, пара", info:"Ядро владеет общими ключами и связями между сессиями: родитель и пара ведущий–ведомый живут в одном месте.", json:{name:"site",cwd:"~/projects/site",model:"claude-fable-5-2",effort:"high",mode:"all",parent:"lead@laptop"}},
+    {id:"acc", x:40,y:70,w:230,h:44, label:"Аккаунты", sub:"account", info:"Какой вход Claude или ключ флота у сессии. «auto» — модуль выбирает по лимитам. Прокси модели спрашивает у этого модуля, куда идти запросу сессии.", json:{account:"auto"}},
+    {id:"prof", x:40,y:126,w:230,h:44, label:"Профили", sub:"pieces", info:"Набор кусочков — репозиториев с плагинами, настройками и памятью.", json:{pieces:["base","web"]}},
+    {id:"pts", x:40,y:182,w:230,h:44, label:"Точки", sub:"backup", info:"Сохранять ли точки сессии в облако.", json:{backup:true}},
+    {id:"rc", x:40,y:238,w:230,h:44, label:"Remote Control", sub:"remote", info:"Открыть ли сессию в приложении Claude.", json:{remote:false}},
+    {id:"mix", x:420,y:118,w:190,h:60, label:"Документ сессии", sub:"открыть · изменить", info:"Сессию описывает один документ. Открыть — session.open с документом, изменить — session.update с правкой. Хозяин ключа проверяет своё значение и превращает его в опции запуска. Отдельных запросов «сменить слот», «сменить профиль», «сменить модель» нет.",
+      json:{type:"session.update",id:"u-2",to:"site@laptop",patch:{account:"work",effort:"medium"}}},
+    {id:"sdk", x:760,y:118,w:200,h:60, label:"Claude Agent SDK", sub:"опции запуска", info:"Из документа получаются опции одного вызова SDK: папка, окружение, плагины, серверы инструментов, модель."}
+  ],
+  edges:[
+    {p:["core:r:0","mix:l:-20"], title:"Ядро → документ", info:"Проверка общих ключей и вклад в опции."},
+    {p:["acc:r:0","mix:l:-10"], title:"Аккаунты → документ", info:"Папка входа или ключ для сессии."},
+    {p:["prof:r:0","mix:l:0"], title:"Профили → документ", info:"Плагины, дополнительные папки, память."},
+    {p:["pts:r:0","mix:l:10"], title:"Точки → документ", info:"Пометка сессии для сохранения точек."},
+    {p:["rc:r:0","mix:l:20"], title:"Remote Control → документ", info:"Включение через метод SDK."},
+    {p:["mix:r:0","sdk:l:0"], label:"query()", info:"Один способ собрать запуск: каждый хозяин отдаёт свою часть опций, ядро склеивает."}
+  ]});
+
+/* ===== Сессия: состояния ===== */
+diagram("d-states", { w:1000, h:320, first:"waiting",
+  nodes:[
+    {id:"starting", x:60,y:130,w:130,h:46, label:"starting", info:"Процесс запускается или возобновляется."},
+    {id:"idle", x:290,y:130,w:130,h:46, label:"idle", info:"Ждёт ввода."},
+    {id:"busy", x:520,y:130,w:130,h:46, label:"busy", info:"Идёт ход. Предела у хода нет: он законно идёт часами."},
+    {id:"waiting", x:760,y:40,w:150,h:46, label:"waiting", info:"Ждёт человека. Сам вопрос лежит в строке сессии, его видят все подключённые; первый ответ выигрывает."},
+    {id:"stopping", x:520,y:250,w:130,h:46, label:"stopping", info:"Остановка ступенями: закрыть ввод, попросить выйти, убить."},
+    {id:"stopped", x:290,y:250,w:130,h:46, label:"stopped", info:"Процесса нет, документ и разговор сохранены."},
+    {id:"failed", x:60,y:250,w:130,h:46, label:"failed", info:"Система остановилась и записала причину. Дальше решает агент или человек."}
+  ],
+  edges:[
+    {p:["starting:r:0","idle:l:0"], label:"готова", info:"SDK сообщил о готовности."},
+    {p:["idle:r:-10","busy:l:-10"], label:"ввод", lp:[470,131], info:"Пришёл message."},
+    {p:["busy:l:10","idle:r:10"], label:"ход окончен", lp:[470,176], info:"SDK сообщил о конце хода."},
+    {p:["busy:t:20","waiting:l:0"], label:"вопрос", lp:[664,82], info:"Модель спросила человека или попросила разрешение."},
+    {p:["waiting:b:-30","busy:r:-8"], label:"ответ", lp:[752,126], info:"Пришёл answer."},
+    {p:["busy:b:0","stopping:t:0"], label:"стоп", info:"session.stop из любого рабочего состояния."},
+    {p:["stopping:l:0","stopped:r:0"], label:"вышел", info:"Процесс завершился."},
+    {p:["stopped:l:0","starting:b:20"], label:"старт", lp:[236,224], info:"session.start возобновляет разговор."},
+    {p:["busy:t:-30",[555,92],[125,92],"starting:t:0"], label:"процесс умер — один resume", lp:[340,92], info:"Ожидаемая ветка: одно возобновление."},
+    {p:["starting:b:-30","failed:t:-30"], label:"второй сбой", info:"Второй сбой до готовности — failed."}
+  ]});
+
+/* ===== Облако ===== */
+diagram("d-cloud", { w:1000, h:420, first:"fleet",
+  bands:[{x:20,y:50,w:430,h:270,label:"Платформа — Worker Relay"},{x:500,y:10,w:490,h:400,label:"Службы — Worker без состояния"}],
+  nodes:[
+    {id:"fleet", x:130,y:90,w:210,h:60, label:"Объект флота", sub:"люди, пропуска, проекты, картина", info:"Один на флот. Нагрузка — подключения, проверки пропусков и изменения строк сессий. Картина хранится только здесь. Хранит свои записи сам; откат на любой момент за 30 дней даёт платформа.", json:{type:"people.set",id:"u-1",person:"~anya@example.com",projects:["site"],admin:false}},
+    {id:"machine", x:130,y:220,w:210,h:60, label:"Объект машины", sub:"соединения и поток", info:"Один на машину. Записей не ведёт: изменения строк передаёт в картину флота, поток событий — тем, кто смотрит сессию. Host ушёл — объект сообщает картине, и сессии машины остаются видны с пометкой «нет связи». Платформа обновляется, только когда изменился её код: обновление рвёт соединения, клиенты переподключаются вразброс."},
+    {id:"builds", x:520,y:44,w:215,h:46, label:"Выпуски", sub:"записи · сборки в R2", info:"Хранит сборки по номеру и строку флота: какая сборка стоит и какие машины закреплены на другой. Сам ничего не собирает — собирает CI.", json:{type:"builds.deploy",id:"d-2",build:412}},
+    {id:"ledger", x:755,y:44,w:215,h:46, label:"Журнал флота", sub:"записи", info:"События флота: выкладки, входы, сбои частей — со скоростью людей и выкладок, не сессий. Место в объекте записей кончилось — запись получает отказ словом, старое убирает агент.", json:{type:"ledger.add",what:"host.updated",machine:"laptop",build:412}},
+    {id:"points", x:520,y:104,w:215,h:46, label:"Архив сессий", sub:"записи с поиском · блоки в R2", info:"Сессия в архиве — её точки. Каталог сессий, поиск по словам, разговор сессии на любой точке страницами, подъём и перенос на другую машину, выгрузка в локальную папку. Блоки файлов сессии лежат в R2 под именем своего хэша; текст сообщений — в полнотекстовом индексе записей модуля. Объект записей архива — свой на каждую машину: точка лежит у машины, которая её сохранила, а поиск идёт только по машинам, до которых человек достаёт.", json:{type:"points.list",id:"l-4",q:"выкладка"}},
+    {id:"reach", x:755,y:104,w:215,h:46, label:"Связь с людьми", sub:"записи", info:"Устройства человека вне страницы: подписки веб-пуша и чаты Telegram — записи одного вида. Один запрос «позвать человека»; служба сама спрашивает объект флота, на связи ли он.", json:{type:"reach.subscribe",id:"s-1",kind:"webpush",endpoint:"https://push.example/…"}},
+    {id:"prefs", x:520,y:164,w:215,h:46, label:"Настройки", sub:"записи", info:"Настройки людей и общие записи флота: проекты на доске, имена, правила прокси. После записи в общие настройки машины получают кадр «изменилось».", json:{type:"prefs.set",id:"p-5",scope:"fleet",name:"proxy.rules",value:[{match:"internal\\.example",replace:"example"}]}},
+    {id:"fkeys", x:755,y:164,w:215,h:46, label:"Ключи флота", sub:"записи · секреты", info:"Ключи API для сессий без входа Claude. Host держит ключ только в памяти, в запрос его подставляет прокси модели; на диске машин копий нет. Ключ сменили — машины получают тот же кадр «изменилось», что и после записи настроек; Host забывает ключ и берёт новый при следующем запросе."},
+    {id:"github", x:520,y:224,w:215,h:46, label:"GitHub", sub:"записи · секреты", info:"Приложение GitHub и токен на репозиторий на час — для кусочков профилей."},
+    {id:"mcp", x:755,y:224,w:215,h:46, label:"Сервер MCP", sub:"без записей", info:"Один сервер инструментов флота для сессий и внешнего Claude. Список — запросы договоров с описанием для модели. Вызов превращает в кадр: службе — сразу, сессии или машине — объекту её машины. Своих инструментов и состояния нет."},
+    {id:"static", x:520,y:284,w:215,h:46, label:"Файлы страницы", sub:"статика", info:"Страница выкладывается вместе со службами и живёт на том же адресе: без списка адресов и без запросов между доменами. Домен у флота один: пути объектов флота и машин ведут в платформу, всё остальное — в службы."},
+    {id:"anal", x:520,y:344,w:215,h:46, label:"Аналитика", sub:"очередь → ClickHouse", info:"Расход флота: вызовы модели, токены, модели, время — по сессиям, машинам, людям и проектам. Архив, приняв точку, кладёт в очередь платформы записку «точка сохранена»; модуль аналитики читает блоки точки из R2 и пишет строки вызовов в ClickHouse. Текст разговоров туда не уходит: поиск по словам остаётся в архиве. Запрос отчёта видит только машины, до которых человек достаёт.", json:{type:"analytics.query",id:"q-1",report:"spend",by:"day",from:"2026-11-01",to:"2026-11-10"}},
+    {id:"ch", x:755,y:344,w:215,h:46, label:"ClickHouse", sub:"в стороне · может не работать", info:"Единственное, что стоит вне платформы. Главной копии данных в нём нет: всё, что в нём лежит, получено из блоков в R2 и может быть долито заново. Не отвечает — сохранение точек, подъём, перенос сессий и поиск работают как прежде; не работают только отчёты о расходе."},
+    {id:"rec", x:755,y:284,w:215,h:46, label:"Объект записей", sub:"на модуль и флот", info:"Записи модуля лежат в его объекте — отдельном на каждый флот, у архива сессий — ещё и на каждую машину. Один класс на все модули; объект создаётся при первом обращении. Модуль трогает только свой объект: чужие записи недоступны по устройству, а не по договорённости. Объект исполняет только короткие запросы к записям; сам обработчик, R2 и обращения наружу работают в Worker'е, так что объект не занят, пока модуль ждёт сеть."}
+  ],
+  edges:[
+    {p:["machine:t:0","fleet:b:0"], label:"кто? строки", info:"Объект машины спрашивает, кто подключается, и передаёт изменения строк — по вызову на изменение, после переподключения Host — снимок одним вызовом. Объект флота объекты машин не зовёт."},
+    {p:[[500,120],"fleet:r:0"], ends:["fleet"], label:"кто?", info:"Один вызов на запрос, из общего входа служб."},
+    {p:["anal:r:0","ch:l:0"], title:"Аналитика → ClickHouse", info:"Строки вызовов пачкой. Повторная подача той же точки строк не прибавляет. Не принял — очередь платформы повторяет; не принял и после повторов — строка в журнале флота, агент доливает пропущенное из архива командой.", json:{type:"analytics.fill",id:"f-1",from:"2026-11-09T00:00:00Z"}},
+    {p:[[500,250],"machine:r:0"], ends:["machine"], label:"кадр", info:"Службы отдают кадр объекту машины-адресата. Зависимость одна: службы знают платформу, платформа служб не знает."}
+  ]});
+
+/* ===== Машина ===== */
+(function(){
+  const m = diagram("d-machine", { w:1000, h:230,
+    nodes:[
+      {id:"os", x:30,y:90,w:120,h:56, label:"ОС", sub:"служба", info:"Служба Windows или юнит systemd поднимает Keeper при загрузке и после выхода."},
+      {id:"keeper", x:205,y:90,w:140,h:56, label:"Keeper", sub:"один файл, Go", info:"Исполняет план из двух строк: сборка Host и сборка Keeper. Общего механизма «частей машины» нет."},
+      {id:"hh", x:400,y:90,w:150,h:56, label:"Держатель", sub:"для Host", info:"Host тоже живёт в держателе — поэтому переживает обновление Keeper."},
+      {id:"host", x:605,y:90,w:140,h:56, label:"Host", sub:"Node, SDK", info:"После запуска поднимает своё из хранилища и подключается к держателям сессий."},
+      {id:"hc", x:800,y:24,w:180,h:50, label:"Держатели", sub:"для каждой сессии", info:"Тот же файл Keeper в режиме держателя."},
+      {id:"claude", x:800,y:160,w:180,h:50, label:"Процессы claude", info:"Живут, пока жив их держатель."}
+    ],
+    edges:[
+      {p:["os:r:0","keeper:l:0"], label:"поднимает", lp:[177,76], info:"Единственный перезапуск, за который отвечает ОС."},
+      {p:["keeper:r:0","hh:l:0"], label:"запускает", lp:[372,76], info:"Keeper запускает Host через держателя; после падения — один раз заново."},
+      {p:["hh:r:0","host:l:0"], label:"держит", lp:[577,76], info:"Ввод и вывод Host у держателя."},
+      {p:["host:r:-10","hc:l:0"], label:"подключается", lp:[735,50], info:"Локальное соединение на 127.0.0.1."},
+      {p:["hc:b:0","claude:t:0"], label:"держит", info:"Ввод и вывод процесса claude."}
+    ]});
+  const root = document.getElementById("d-machine"), bar = H("div", "seg"); bar.style.padding = "12px 14px 0"; root.insertBefore(bar, root.firstChild);
+  const lg = H("div", "legend"); H("span", "l-live", lg, "живёт дальше"); H("span", "l-again", lg, "запускается заново"); H("span", "l-dead", lg, "остановлен"); root.insertBefore(lg, root.lastChild);
+  const cases = [
+    ["Обновили Host", {os:"live",keeper:"live",hh:"again",host:"again",hc:"live",claude:"live"}, "Keeper ставит новую сборку и запускает новый Host. Процессы claude остаются в своих держателях; новый Host подключается к ним, ход продолжается."],
+    ["Упал процесс claude", {os:"live",keeper:"live",hh:"live",host:"live",hc:"again",claude:"again"}, "Host делает одно возобновление разговора. Второй сбой до готовности — сессия failed."],
+    ["Обновили Keeper", {os:"live",keeper:"again",hh:"live",host:"live",hc:"live",claude:"live"}, "Keeper подменяет свой файл и выходит, ОС поднимает новый. Host и сессии живут в держателях, Keeper подключается к своим."],
+    ["Host упал дважды", {os:"live",keeper:"live",hh:"dead",host:"dead",hc:"live",claude:"live"}, "Первый раз Keeper перезапускает Host, второй — оставляет failed и отвечает состоянием. Агент назначает другую сборку. Сессии ждут в держателях."]
+  ];
+  cases.forEach((c, i) => { const b = H("button", "", bar, c[0]); b.type = "button";
+    b.addEventListener("click", () => { bar.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); m.mark(c[1]); m.show(c[0], c[2]); });
+    if (!i) b.click(); });
+})();
+
+/* ===== Страница ===== */
+(function(){
+  const scr = [
+    ["you","Вам","Что ждёт именно вас: вопросы, законченные ходы, непрочитанное. Считает Host, поэтому на телефоне и пульте одно и то же."],
+    ["work","Работа","Сессии по проектам: порядок, фильтры, закрепление."],
+    ["card","Карточка сессии","Состояние, настройки документа сессии, пуск и стоп. Правка — один запрос session.update."],
+    ["chat","Чат","Лента сессии, ввод, вложения, панель контекста. Отметка «прочитано до» хранится у сессии."],
+    ["ask","Вопрос","Вопрос сессии, разрешение, план, форма. Берётся из строки сессии, своего списка страница не ведёт."],
+    ["open","Новая сессия","Собирает документ сессии: машина, папка, аккаунт, кусочки, модель."],
+    ["acc","Аккаунты","Входы Claude по машинам, лимиты, ключи флота."],
+    ["prof","Профили","Кусочки и из чего они собраны."],
+    ["pts","Сессии","Архив: каталог сессий с поиском, разговор сессии, линия её точек, откат, копия, перенос на другую машину."],
+    ["inc","Инциденты","Обращения служб компьютера и сессии, которые их разбирают."],
+    ["mach","Машины","Машины на связи и без связи, сборка на каждой. Берётся из картины."],
+    ["set","Настройки","Люди и проекты, пропуска, выпуски, правила прокси, GitHub, уведомления, журнал флота."]
+  ];
+  const nodes = [
+    {id:"objs", x:30,y:30,w:180,h:50, label:"Объект флота", sub:"один сокет", info:"Одно соединение на весь флот. Картина приходит готовой: страница её не склеивает и список машин нигде не спрашивает."},
+    {id:"pic", x:290,y:30,w:180,h:50, label:"Картина флота", sub:"снимок и изменения", info:"Одно состояние страницы: машины, сессии, их документы, вопросы, непрочитанное. Экраны читают его типизированными выборками, которые модуль отдаёт в своём договоре."},
+    {id:"mobj", x:30,y:125,w:180,h:50, label:"Объекты машин", sub:"запросы и лента", info:"Запрос сессии идёт объекту её машины. Соединение для ленты открыто, только пока сессия на экране."},
+    {id:"svc", x:30,y:220,w:180,h:50, label:"Службы", sub:"тот же адрес", info:"Журнал, архив сессий, настройки, выпуски, люди и пропуска — запросами к службам."}
+  ];
+  scr.forEach((s, i) => nodes.push({id:s[0], x:560+(i%3)*142, y:44+Math.floor(i/3)*58, w:130, h:44, label:s[1], info:s[2]}));
+  diagram("d-page", { w:1000, h:300, first:"pic",
+    bands:[{x:540,y:10,w:450,h:280,label:"Экраны — модули одной сборки"}],
+    nodes,
+    edges:[
+      {p:["objs:r:0","pic:l:0"], label:"изменения", info:"Снимок при подключении, дальше только изменения строк."},
+      {p:["pic:r:0",[540,55]], ends:["pic"], label:"выборки", lp:[505,38], info:"Экран подписывается на выборку и перерисовывается, когда она изменилась. Ошибка экрана не роняет остальные: у каждого своя граница ошибки и своя область стилей."},
+      {p:[[540,150],"mobj:r:0"], both:true, ends:["mobj"], label:"запросы, лента", info:"Запросы сессиям и машинам и лента открытой сессии."},
+      {p:[[540,245],"svc:r:0"], both:true, ends:["svc"], label:"запросы", info:"Запросы службам и их ответы. Типы — из договоров, общих со службами и Host."}
+    ]});
+})();
+
+/* ===== Поставка ===== */
+sequence("d-ship", { w:1000,
+  lanes:[
+    {id:"ci", label:"CI", sub:"main", info:"На каждый коммит в main: гейт импортов, проверка типов, тесты, затем сборка под одним номером."},
+    {id:"r2", label:"R2", sub:"сборки", info:"Сборки по номеру: архив Host и файлы Keeper."},
+    {id:"sv", label:"Службы", sub:"«Выпуски»", info:"Хранит, какая сборка стоит на флоте."},
+    {id:"ob", label:"Объект", sub:"машины", info:"Объект машины на платформе."},
+    {id:"kp", label:"Keeper", info:"Служба на машине."},
+    {id:"ho", label:"Host", info:"Заменяется целиком; сессии ждут в держателях."}
+  ],
+  scenarios:{ one:{ title:"", steps:[
+    {from:"ci",to:"r2",label:"сборка 412", info:"Архив Host, файлы Keeper. Worker'ы и страница этой же сборки загружены в Cloudflare версией 412, но ещё не включены."},
+    {from:"ci",to:"sv",label:"builds.deploy", info:"Команда выкладки: включает версию 412 у служб и страницы, у платформы — только если изменился её код, и называет сборку флоту. На тестовый флот — сама после зелёных тестов, на прод — по слову человека. Откат — та же команда с прежним номером.", json:{type:"builds.deploy",id:"d-2",build:412}},
+    {from:"sv",to:"ob",label:"plan.changed", info:"Короткий кадр без данных: «спроси план».", json:{type:"plan.changed",to:".keeper@laptop"}},
+    {from:"ob",to:"kp",label:"plan.changed", info:"Keeper не на связи — спросит план сам, когда подключится."},
+    {from:"kp",to:"sv",label:"builds.plan", info:"План приходит одним путём — ответом на этот запрос.", json:{type:"builds.plan",id:"p-1"}},
+    {from:"sv",to:"kp",label:"reply", info:"Сборка и ссылки на час.", json:{type:"reply",id:"p-1",ok:true,result:{build:412,host:{url:"https://…/builds/412/host.tgz?sig=…",sha256:"9f2c…"},keeper:{url:"https://…/builds/412/keeper-linux?sig=…",sha256:"41aa…"}}}},
+    {from:"kp",to:"r2",label:"скачать", info:"Скачивает по ссылке, сверяет хэш."},
+    {from:"kp",to:"ho",label:"подмена", info:"Останавливает прежний Host, запускает новый. Не запустился дважды — failed, Keeper на связи."}
+  ]}}});
+
+/* ===== Сбои ===== */
+[
+  ["Процесс claude умер","Host возобновляет разговор один раз","второй сбой до готовности — сессия failed"],
+  ["Host умер","Keeper перезапускает один раз","второй — failed; агент назначает другую сборку"],
+  ["Keeper умер или подменил себя","ОС поднимает","держатели живут, Keeper подключается к своим"],
+  ["Соединение с объектом оборвалось","клиент переподключается после случайной паузы","Host шлёт снимок, он заменяет строки машины в картине; страницам уходит только разница"],
+  ["Запрос службе не прошёл","отказ словом","повторов нет"],
+  ["ClickHouse не отвечает","очередь платформы повторяет подачу, затем строка в журнале флота","отчёты о расходе отвечают отказом; точки, подъём и поиск работают; агент доливает из архива"],
+  ["Ошибка в модуле","отказ module_failed и строка журнала","модуль не выключается, следующий запрос обслуживается"]
+].forEach(f => { const c = H("div", "inner card", document.getElementById("fails")); H("h3", "", c, f[0]); H("span", "arrow", c, "→ " + f[1]); H("span", "", c, f[2]); });
+
+/* ===== Эталоны ===== */
+[
+  ["Host машины laptop шлёт кадр для docs@server в свой сокет","приходит Host машины server; ответ возвращается тем же путём","new"],
+  ["На машине 300 сессий","страница получает картину целиком","fact","сейчас предел 16 КБ на соединение"],
+  ["Host переподключился с тем же снимком","строки машины в картине те же; страницам не ушло ни одного изменения","new"],
+  ["Ход на 1 000 событий","объект флота получил 2 изменения строки: ход начат, ход окончен; ни одного события","new"],
+  ["Два флота в одной выкладке","запрос одного флота не видит записей и файлов другого","new"],
+  ["Пропуск отозван при открытой ленте","соединение закрыто; новое подключение — отказ","new"],
+  ["Человек на связи, сессия спрашивает","reach.send принят, уведомление не ушло","new"],
+  ["Машина ушла со связи","её сессии видны с пометкой «нет связи»","new"],
+  ["Сессия спросила, человек не подключён","ровно один reach.send и одно уведомление","new"],
+  ["Два ответа на один вопрос","первый принят, второй — already_answered","word","первый ответ выигрывает"],
+  ["«Прочитано» отмечено с телефона","на пульте сессия тоже прочитана","new"],
+  ["session.update с негодным значением ключа","отказ словом хозяина ключа, документ не изменён","new"],
+  ["Аня шлёт запрос сессии на машине Олега","отказ forbidden; в её картине этой машины нет","new"],
+  ["Не админ зовёт выкладку сборки","отказ forbidden во входе, обработчик не вызван","new"],
+  ["Сессия site@laptop зовёт инструмент пропуском машины","отправитель в кадре — site@laptop; чужой позывной — отказ","new"],
+  ["Внешний Claude и сессия флота зовут один инструмент","список инструментов и ответ одинаковы","new"],
+  ["Правила прокси не прочитаны","запрос к провайдеру не уходит; claude повторяет сам","fact","опыт: порт закрыт 6 с — ход доходит"],
+  ["ClickHouse не отвечает, Host сохраняет точку","точка сохранена, подъём и поиск работают; в журнале флота одна строка о сбое аналитики","new"],
+  ["ClickHouse не отвечает, человек открывает отчёт о расходе","отказ analytics_unavailable словом","new"],
+  ["Одна и та же точка подана в аналитику дважды","строк вызовов столько же","new"],
+  ["После простоя ClickHouse агент доливает из архива","вызовов в аналитике столько же, сколько в блоках архива","new"],
+  ["Аня ищет слово по архиву сессий","сессии с этим словом со своих машин и машин Юры; объекты машин Олега не опрошены","fact","объекты платформы умеют полнотекстовый поиск"],
+  ["Импорт чужого модуля мимо договора","гейт сборки красный","word","части пользуются друг другом только через контракт"],
+  ["Подмена Host во время хода","процессы claude те же, ход продолжается","word","Keeper сессии не останавливает"],
+  ["Обработчик модуля бросил ошибку","отказ module_failed; следующий запрос обслужен","new"],
+  ["Страница зовёт запрос, которого нет на старой машине","отказ unknown_request словом","new"],
+  ["Новый Host не запустился дважды","failed; Keeper отвечает состоянием","word","второе падение — failed, дальше решает агент"]
+].forEach(e => { const c = H("div", "inner card", document.getElementById("etalons"));
+  H("span", "pill p-"+e[2], c, e[2]==="word" ? "слово пользователя" : e[2]==="fact" ? "факт" : "этот дизайн");
+  H("h3", "", c, e[0]); H("span", "", c, "→ " + e[1]); if (e[3]) H("span", "arrow", c, e[3]); });
+
+/* ===== Решения ===== */
+[
+  ["Живая связь","Два вида объектов: флот — люди и картина, машина — её сессии и поток. Растёт числом объектов.","Один объект на всё: весь флот вместе с лентами упирается в 1 000 запросов в секунду. Только объекты машин: страница держит сокет на каждую машину и клеит картину сама."],
+  ["Память объектов","Картину хранит объект флота: нет предела 16 КБ, машина без связи остаётся видна. Объекты машин записей не ведут.","Картина только из живых соединений: предел на число сессий и отдельный журнал ушедших машин. Строки и в объекте машины, и в картине: одно в двух местах."],
+  ["Проверка пропуска","Один вызов объекта флота на запрос и на подключение; пропуска лежат в одном месте.","Подписанные токены: второй вид удостоверения, отзыв с задержкой. Копии пропусков у объектов машин: одно в двух местах."],
+  ["Worker'ы","Два: платформа с объектами и службы без состояния. Модуль — папка с договором.","Worker на каждый модуль: 13 выкладок и 20 привязок."],
+  ["Записи","У модуля свой объект записей на каждый флот, у архива — на каждую машину: создаётся сам, флоты ничего не делят.","Базы D1: одна база на все флоты, запросы строго по одному, потолок 10 ГБ, заводится и привязывается руками. Один объект архива на флот: потолок 10 ГБ приближается с каждой новой машиной."],
+  ["Сборка","Приложения собирает CI из репозитория под одним номером. Чужой модуль — пакет npm или свой Worker на договорах платформы.","Каталог версий модулей и сборка приложений Worker'ом на лету; номер у каждого модуля и каждого имени."],
+  ["Страница","Одна страница с двумя раскладками.","Два приложения, которые различаются 21 строкой."],
+  ["Инструменты модели","Один сервер MCP в облаке для сессий флота и внешнего Claude.","Серверы инструментов внутри Host и отдельный сервер для внешних."],
+  ["Права","Человек достаёт до своих машин и до машин тех, с кем у него общий проект; админ флота — люди, выкладка, ключи, правила.","Без прав: любой пропуск — исполнение кода на всех машинах. Права мельче машины: видимость, а не защита."],
+  ["Пропуск сессии","Машина говорит за свои сессии: пропуск машины и позывной.","Пропуск на каждую сессию: выдавать при открытии, отзывать при удалении, а ключ машины сессия и так может прочитать."],
+  ["Аналитика","ClickHouse в стороне: получает только вызовы модели и расход, через очередь платформы; главная копия — в R2. Его отказ ломает только отчёты.","ClickHouse хранилищем блоков или каталогом разговоров: от него зависели бы подъём, перенос и поиск. Без ClickHouse совсем: расход по всему флоту пришлось бы собирать опросом каждой машины."],
+  ["Архив сессий","Блоки в R2, реестр и поиск по словам — в записях модуля, по объекту на машину. Серверов нет.","ClickHouse на своей машине: сервер, который надо ставить, обновлять и закрывать, и от него зависели бы подъём и перенос сессий."],
+  ["Ошибка модуля","Отказ словом и строка журнала; модуль работает дальше.","Выключение модуля: один плохой кадр выключал функцию на всей машине."],
+  ["Keeper","Держит Host и себя.","Общий механизм частей машины ради одной части."]
+].forEach(f => { const c = H("div", "inner card", document.getElementById("forks")); H("h3", "", c, f[0]); H("span", "rec", c, f[1]); H("span", "alt", c, "Отброшено: " + f[2]); });
+
+/* ===== Гейт ===== */
+(function(){
+  function bars(id, rows, onPick){
+    const root = document.getElementById(id), max = Math.max.apply(null, rows.map(r => Math.max(r[1], r[2])));
+    rows.forEach(r => {
+      const name = H("span", "", root);
+      if (onPick && r[3]){ const b = H("button", "", name, r[0]); b.type = "button"; b.addEventListener("click", () => onPick(r)); } else name.textContent = r[0];
+      const tr = H("div", "tr", root), b = H("div", "b", tr), a = H("div", "a", tr);
+      b.style.width = (r[1]/max*100)+"%"; a.style.width = (r[2]/max*100)+"%";
+      H("span", "n", root, r[1]+" → "+r[2]);
+    });
+  }
+  const info = document.getElementById("dups-info"), ih = H("b", "", info), it = H("span", "", info);
+  const dups = [
+    ["Ответственности",8,0,"Запрос на открытие сессии разбирают четыре модуля; пара сессий живёт в четырёх местах; инструмент модели повторяет то, что страница делает своими запросами; отзыв пропуска размазан по трём службам; список машин для рассылки спрашивают три службы; гейт манифестов работает в трёх местах; доставку человеку решают три части цепочкой; журнал машины читают два модуля."],
+    ["Состояния",6,0,"Адреса служб в двух файлах; непрочитанное и «ход окончен» — в памяти каждой страницы; вопросы — у Host и в хранилище страницы; ответы Keeper лежат в чужом модуле страницы; номер пропуска скопирован в подписки и чаты; картину флота склеивает каждая страница сама."],
+    ["Логики",11,0,"Каркас службы повторён 8 раз; поиск сессии по кадру — 3 копии; ответ модели — 4 копии; ожидание конца хода — 3 механизма; отбор устройств человека — 2 места; «как паковать часть» — 3 места; список методов SDK — 3 места; формы ответов Host переписаны на странице руками; владельца сессии считает страница; подпись ссылок R2 — 2 набора; ядро Host собирается иначе, чем его модули."],
+    ["Смысла",6,0,"Три способа назвать адресата; два запроса на ввод в сессию; сообщение из Telegram под своим именем; поле key занято пропуском, из-за чего ключи зовутся name и value; четыре рода номеров версий и три механизма их сверки; два приложения, которые суть одно."],
+    ["Других",6,0,"Две реализации хранилища блоков; два входа одного кадра у служб; четыре сервера инструментов в Host рядом с сервером MCP флота; три способа внести вклад в открытие сессии; шина строковых «меток» на странице рядом с импортами; общий механизм частей машины ради одной части."],
+    ["Лишние коммуникации",7,0,"Сетка сокетов каждый с каждым и полная картина всем на любое изменение; план машины двумя путями; сообщение и уведомление человеку двумя путями сразу; вопрос кадром плюс сверка списком плюс кадр «снят»; правка настройки чтением и записью; выкладка страницы шестью вызовами API из Worker'а; рассылка «ключи изменились» всем машинам."],
+    ["Циклы",0,0,""]
+  ];
+  bars("dups", dups, r => { ih.textContent = r[0] + " — что найдено"; it.textContent = r[3]; });
+  ih.textContent = dups[2][0] + " — что найдено"; it.textContent = dups[2][3];
+  bars("nums", [
+    ["Worker'ы",13,2],["привязки между Worker'ами",20,1],["модули Host",14,9],["имена договора",131,80],
+    ["постоянные сокеты · 10 машин, 2 страницы",130,22],["рода номеров версий",4,1],["файлы-манифесты",59,0],["правила гейта импортов",13,4],
+    ["точки подключения модуля Host",11,7],["секреты Worker'ов",9,4],["веб-приложения",2,1],["базы, общие на все флоты",9,0],["ожидаемые ветки сбоев",6,6]
+  ]);
+  document.getElementById("report").textContent =
+"«До» — main вместе с ветками в работе: прокси модели, блоки на ClickHouse, идентификация, сервер MCP\n" +
+"Гейт: дубликаты ответственности 8 → 0 · состояния 6 → 0 · логики 11 → 0 · смысла 6 → 0 · других 6 → 0 · лишние коммуникации 7 → 0 · циклы 0 → 0\n" +
+"Числа: Worker'ы 13 → 2 · привязки 20 → 1 · модули Host 14 → 9 · имена договора 131 → 80 · постоянные сокеты 130 → 22 · секреты 9 → 4 · рода версий 4 → 1 · общие базы 9 → 0\n" +
+"Масштаб: общего на все флоты состояния 0; через объект флота — подключения, проверки пропусков и изменения строк (2–3 за ход); поток событий — только через объект своей машины; архив — объект записей на машину\n" +
+"Работа: большая — меняет границы частей, протокол и поставку\n" +
+"Не трогал: Host как единственная точка к сессиям, держатели, Keeper на Go, прокси модели, Cloudflare, экраны страницы\n" +
+"Слепой архитектор: в самом дизайне найдено и сведено — строки сессий в двух объектах (остались в картине флота), архив в одном объекте на флот (стал на машину), отзыв пропуска не закрывал соединения; числа «до» сверены с репозиторием: Worker'ы 13, привязки 20, модули Host 14; циклов 0";
+})();
+
+/* ===== Порядок ===== */
+[
+  ["Договор-код","Запросы описаны в коде со схемой; один типизированный вызов; гейт импортов.","файлы-манифесты 59 → 0; гейт краснеет на подложенном импорте: 1 из 1"],
+  ["Платформа и службы","Платформа с объектами — один Worker; девять служб и страница — второй, без состояния, на одном адресе; записи модулей — в объектах на флот; сервер MCP отдаёт инструменты из договоров.","Worker'ы 13 → 2; привязки 20 → 1; общие базы 9 → 0; два флота в одной выкладке не видят записей друг друга: 2 из 2"],
+  ["Объекты флота и машины","Картина — в объекте флота, поток — в объектах машин; один постоянный сокет у каждого.","постоянные сокеты на тестовом флоте с 2 машинами и 1 страницей 8 → 5; 300 сессий на машине видны: 300 из 300; событий в объекте флота за ход на 1 000 событий: 0"],
+  ["Вход и права","Люди и проекты в объекте флота; проверка во входе платформы и во входе служб; машина говорит за свои сессии.","шесть сценариев блока «Кто пришёл и что может» на тестовом флоте: 6 из 6"],
+  ["Архив на R2 и записях","Блоки в R2, реестр и поиск по словам — в объекте записей на машину; экран «Сессии».","реализации хранилища 2 → 1; поиск по архиву тестового флота, с: замер; размер записей на сессию, КБ: замер"],
+  ["Сборки из CI","Один номер сборки; каталог модулей и сборщик в Worker'е убраны; план Keeper из двух строк.","рода номеров 4 → 1; выкладка страницы 15–45 с → замер"],
+  ["Документ сессии","session.open и session.update с документом; сессии и пара — в ядре; инструменты модели — только сервер MCP.","модули Host 14 → 9; имена Host 83 → 35"],
+  ["Аналитика в стороне","Архив кладёт записку в очередь платформы; модуль аналитики пишет вызовы модели в ClickHouse; отчёты о расходе и долив из архива.","четыре эталона аналитики: 4 из 4; при выключенном ClickHouse сохранение точки, подъём и поиск на тестовом флоте: 3 из 3"],
+  ["Связь с людьми","Пуш и Telegram в одном модуле; вопрос в строке сессии; «прочитано» у Host.","имена служб 48 → 43; непрочитанное на двух устройствах совпало: 1 из 1"],
+  ["Одна страница","Одна сборка с двумя раскладками; выборки вместо строковых меток.","веб-приложения 2 → 1; вес первой загрузки, КБ: замер до и после"],
+  ["Keeper без частей","Keeper держит только Host и себя.","строки Keeper 2740 → замер; четыре сценария блока «Машина» вживую на Windows и WSL: 4 из 4"]
+].forEach((s, i) => { const c = H("div", "inner stepc", document.getElementById("order")); H("span", "no", c, String(i+1)); H("h3", "", c, s[0]); H("span", "", c, s[1]); const d = H("span", "done", c); H("b", "", d, "Готово: "); d.appendChild(document.createTextNode(s[2])); });
+})();
+</script>
+
+<script>
+/* ===== Метки «прочитал» (устав): A — прочитал, Z — снять ===== */
+(function(){
+  let hovered = null, coll = null, ready = false;
+  const queue = [];
+  const blockOf = t => (t && t.closest) ? t.closest("[data-chg]") : null;
+  document.addEventListener("pointerover", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("pointerdown", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("focusin", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  function paint(id, on){ document.querySelectorAll('[data-chg="' + id + '"]').forEach(b => b.classList.toggle("read", on)); }
+  function idsOf(b){ const ids = [b.getAttribute("data-chg")]; b.querySelectorAll("[data-chg]").forEach(n => ids.push(n.getAttribute("data-chg"))); return ids; }
+  async function mark(ids, on){
+    ids.forEach(id => paint(id, on));
+    if (!coll) return;
+    for (const id of ids){
+      try { if (on) await coll.doc(id).set({read:true, at:Date.now()}); else await coll.doc(id).delete(); }
+      catch (_) { banner("Метка не сохранилась — обновите страницу"); }
+    }
+  }
+  function act(on){ if (!hovered) return; const ids = idsOf(hovered); if (ready) mark(ids, on); else queue.push([ids, on]); }
+  const A = new Set(["a","A","а","А"]), Z = new Set(["z","Z","я","Я"]);
+  document.addEventListener("keydown", e => {
+    const t = e.target;
+    if (t && t.matches && t.matches("input:not([type=range]):not([type=checkbox]),textarea,select,[contenteditable],[contenteditable=true]")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (A.has(e.key) || e.code === "KeyA"){ e.preventDefault(); act(true); }
+    else if (Z.has(e.key) || e.code === "KeyZ"){ e.preventDefault(); act(false); }
+  });
+  let bannerEl = null;
+  function banner(text){
+    if (!bannerEl){ bannerEl = document.createElement("div"); bannerEl.className = "mark-banner"; bannerEl.setAttribute("role","status"); document.body.appendChild(bannerEl); }
+    bannerEl.textContent = text;
+  }
+  // localhost: метки хранит локальный сервер страницы
+  if (location.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+    coll = { doc: id => ({
+      set: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:true})}).then(r => { if (!r.ok) throw new Error(); }),
+      delete: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:false})}).then(r => { if (!r.ok) throw new Error(); }),
+    }) };
+    fetch("/api/state").then(r => r.json()).then(d => {
+      document.querySelectorAll("[data-chg]").forEach(b => b.classList.toggle("read", !!d.marks[b.getAttribute("data-chg")]));
+    }).catch(() => banner("Метки не загрузились — сервер страницы недоступен"));
+    ready = true;
+    return;
+  }
+  (async function init(){
+    let db = null;
+    try { db = (window.claude && window.claude.use) ? await window.claude.use("db") : null; } catch (_) { db = null; }
+    if (db){
+      try {
+        coll = db.collection("accepted");
+        coll.onSnapshot(snap => {
+          const on = new Set();
+          snap.docs.forEach(d => { const v = d.data(); if (v && v.read) on.add(d.id); });
+          document.querySelectorAll("[data-chg]").forEach(b => { const id = b.getAttribute("data-chg"); b.classList.toggle("read", on.has(id)); });
+        }, () => banner("Метки не загрузились — хранилище недоступно"));
+      } catch (_) { coll = null; }
+    }
+    ready = true;
+    if (!coll) banner("Метки «прочитал» не сохраняются — хранилище недоступно");
+    while (queue.length){ const [ids, on] = queue.shift(); mark(ids, on); }
+  })();
+})();
+</script>

@@ -1,0 +1,9 @@
+{
+  "name": "@sb/host",
+  "private": true,
+  "type": "module",
+  "bin": { "sb-host": "./src/main.ts" },
+  "scripts": { "start": "node src/main.ts", "test": "vitest run", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@sb/protocol": "*", "@anthropic-ai/claude-agent-sdk": "0.3.321", "re2js": "2.9.1" },
+  "devDependencies": { "@types/node": "24.19.2" }
+}
