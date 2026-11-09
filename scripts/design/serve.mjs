@@ -138,6 +138,7 @@ const body = (req) => new Promise((ok, no) => {
 });
 const send = (res, code, type, v) => { res.writeHead(code, { "content-type": `${type}; charset=utf-8`, "cache-control": "no-store" }); res.end(v); };
 const json = (res, code, v) => send(res, code, "application/json", JSON.stringify(v));
+const FILE_TYPES = { ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".gif": "image/gif" };
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, "http://x");
@@ -188,6 +189,13 @@ const server = http.createServer(async (req, res) => {
       d.comments.push({ id: randomUUID(), at: new Date().toISOString(), text: c.text.trim(), where: c.where });
       saveNotes(d);
       return json(res, 200, d);
+    }
+    // файлы папки дизайна рядом со страницей (снимки shots/*.png и др.) — как у публикации
+    const file = path.join(DESIGN, decodeURIComponent(u.pathname));
+    const type = FILE_TYPES[path.extname(file).toLowerCase()];
+    if (req.method === "GET" && type && file.startsWith(DESIGN + path.sep) && fs.existsSync(file)) {
+      res.writeHead(200, { "content-type": type, "cache-control": "no-store" });
+      return res.end(fs.readFileSync(file));
     }
     send(res, 404, "text/plain", "нет такого адреса");
   } catch (e) {
