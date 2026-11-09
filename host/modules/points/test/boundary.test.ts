@@ -537,6 +537,20 @@ describe("поля точки", () => {
     expect(p).not.toHaveProperty("last");
   });
 
+  it("заголовок: Host назвал разговор именем сессии — в точке первый запрос; своё имя от человека — оно", async () => {
+    b = await bench({ home });
+    let info: Record<string, string> = { summary: "site", customTitle: "site", firstPrompt: "Перенеси журнал в ClickHouse" };
+    b.st.sdk.functions = { getSessionInfo: async () => info, importSessionToStore: async () => {}, getSessionMessages: async () => [] } as never;
+    const s = await b.st.open("site@laptop", { module: "host-points" });
+    write(s.info.cwd, s.info.session_id, conv(3));
+    await ask({ type: "session.archive", callsign: "site@laptop", on: true });
+    expect(puts("save").at(-1)!.title).toBe("Перенеси журнал в ClickHouse");
+    info = { summary: "Миграция журнала", customTitle: "Миграция журнала", firstPrompt: "Перенеси" };
+    appendFileSync(fileOf(s.info.cwd, s.info.session_id), line(9));
+    await ask({ type: "points.save", callsign: "site@laptop" });
+    expect(puts("save").at(-1)!.title).toBe("Миграция журнала");
+  });
+
   it("37 · файл разговора — блоками по переводу строки: каждая строка каждого блока — целая запись, строка длиннее блока — целиком в одном блоке", async () => {
     const lines = [...Array.from({ length: 30_000 }, (_, i) => JSON.stringify({ type: "user", n: i, text: "п".repeat(i % 97) })), JSON.stringify({ big: "x".repeat(BLOCK + 5000) }), '{"tail":1}'];
     const buf = Buffer.from(`${lines.join("\n")}\n`);

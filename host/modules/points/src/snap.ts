@@ -11,6 +11,8 @@ import { BUNDLE, projectDirOf, sha256, snapshot, type PointFile } from "@switchb
 /** Формат блоков — контракт хранилища: до 1 МиБ, отпечаток SHA-256 содержимого, тело по ссылке — zstd. */
 const BLOCK = 1 << 20;
 const pack = promisify(zstdCompress);
+/** Заголовок в строке точки — до 200 знаков. */
+const TITLE = 200;
 
 export type Why = "rule" | "save" | "start" | "raise" | "yield";
 export type PointExtra = { base?: number; expect?: string; by?: string };
@@ -75,7 +77,10 @@ type Said = { type?: string; message?: { id?: string; model?: string; usage?: Us
 async function summaryOf(host: Host, s: Session) {
   try {
     const messages = (await s.sdk("getSessionMessages")) as Said[];
-    const info = (await s.sdk("getSessionInfo")) as { summary?: string } | undefined;
+    const info = (await s.sdk("getSessionInfo")) as { summary?: string; customTitle?: string; firstPrompt?: string } | undefined;
+    // Host называет разговор именем сессии (customTitle при открытии) — тогда смысл разговора даёт первый запрос; имя от человека — оно
+    const named = info?.customTitle !== undefined && info.customTitle === s.info.callsign.split("@")[0];
+    const title = named ? (info.firstPrompt ?? info.summary) : info?.summary;
     const seen = new Set<string>();
     let tok_in = 0;
     let tok_out = 0;
@@ -89,7 +94,7 @@ async function summaryOf(host: Host, s: Session) {
       tok_in += (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
       tok_out += u.output_tokens ?? 0;
     }
-    return { msgs: messages.length, ...(info?.summary ? { title: info.summary } : {}), ...(model ? { model } : {}), tok_in, tok_out };
+    return { msgs: messages.length, ...(title ? { title: title.slice(0, TITLE) } : {}), ...(model ? { model } : {}), tok_in, tok_out };
   } catch (e) {
     host.log({ kind: "note", ev: "messages", callsign: s.info.callsign, why: e instanceof Error ? e.message : String(e) });
     return {};
