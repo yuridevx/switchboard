@@ -10,13 +10,13 @@
   "workers_dev": true,
   "preview_urls": false,
   "observability": { "enabled": true },
-  "vpc_services": [{ "binding": "CH", "service_id": "VPC_TEST" }],
+  "vpc_services": [{ "binding": "CH", "service_id": "01a1c198-31b1-76a3-9197-1d0743b9dde9" }],
   "vars": { "CH_USER": "sb_test", "BLOCKS_URL": "https://switchboard-blocks.yuridevx1608.workers.dev" },
   "env": {
     "prod": {
       "routes": [{ "pattern": "blocks.pfarm.app", "custom_domain": true }],
       "workers_dev": false,
-      "vpc_services": [{ "binding": "CH", "service_id": "VPC_PROD" }],
+      "vpc_services": [{ "binding": "CH", "service_id": "01a1c198-31b1-76a3-9197-1d0743b9dde9" }],
       "vars": { "CH_USER": "sb_prod", "BLOCKS_URL": "https://blocks.pfarm.app" }
     }
   }
