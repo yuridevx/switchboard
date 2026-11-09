@@ -2,7 +2,7 @@
 // Блоки точек лежат в хранилище флота (контракт blocks): ссылки на них points берёт у хранилища и отдаёт машине и CLI; байтов не видит.
 // Запросы — кадры с to: ".points", прямым POST с пропуском или через relay.
 
-export const CONTRACT = { "points.put": 3, "points.get": 2, "points.list": 2, "points.delete": 1 } as const;
+export const CONTRACT = { "points.put": 3, "points.get": 2, "points.list": 2, "points.history": 1, "points.delete": 1 } as const;
 
 /** Файл точки: путь относительно папки проектов Claude, размер и отпечатки блоков (SHA-256, hex) по порядку. */
 export type PointFile = { p: string; size: number; b: string[] };
@@ -80,6 +80,15 @@ export type PointsListFleet = {
   store: { bytes: number; blocks: number };
   sweep: { at: number; blocks: number; bytes: number } | null;
 };
+
+/**
+ * points.history — разговор точки страницами с конца, той же формы, что session.history живой сессии (getSessionMessages SDK
+ * над строками файла разговора точки). point — номер точки сессии, без него — последняя. calls — вызовы модели, чей ответ на странице
+ * или назван в before: из записей api-request файла, system — из api-request-shape.
+ */
+export type PointsHistory = { type: "points.history"; id: string; v?: 1; to: ".points"; sid: string; point?: number; before: string | null; limit: number };
+export type Call = { uuid: string; at: string; model: string; tok_in: number; tok_out: number; system: string };
+export type PointsHistoryResult = { point: number; messages: unknown[]; calls: Call[]; more: boolean };
 
 /** points.delete — стереть точки сессии и сразу убрать из хранилища её блоки без ссылок. Отмены нет. */
 export type PointsDelete = { type: "points.delete"; id: string; v?: 1; to: ".points"; sid: string; by?: string };

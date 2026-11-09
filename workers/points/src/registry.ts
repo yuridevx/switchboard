@@ -2,6 +2,7 @@
 import { accepts, fail, kindOf, machineOf, nameOf, ok, within, type Frame } from "@switchboard/protocol";
 import { CONTRACT, type Hit, type Listed, type Point, type PointFile, type Why } from "../contract.ts";
 import type { Env } from "./env.ts";
+import { callsOf, linesOf, messagesOf, page } from "./history.ts";
 import { expiries, lineOf, YEAR, type Node } from "./retention.ts";
 
 /** Отказ словом: reply — поля ответа рядом со словом. */
@@ -152,6 +153,22 @@ const REQUESTS: Record<keyof typeof CONTRACT, (env: Env, f: Frame) => Promise<un
 
   async "points.list"(env, f) {
     return typeof f.sid === "string" ? sessionLine(env.DB, f.sid) : catalog(env, f);
+  },
+
+  async "points.history"(env, f) {
+    const { sid, point, before, limit } = f;
+    if (typeof sid !== "string" || !sid) throw new Refusal("bad_frame", "нет sid");
+    if (!isInt(limit) || limit < 1 || (before !== null && typeof before !== "string") || (point !== undefined && !isInt(point))) throw new Refusal("bad_frame", "нужны limit ≥ 1, before — uuid или null, point — номер");
+    const session = await sessionOf(env.DB, sid);
+    const row = session && (await pointOf(env.DB, point === undefined ? session.head : (point as number)));
+    if (!row || row.sid !== sid) throw new Refusal("no_point", `у сессии ${sid} нет точки ${point ?? ""}`.trim(), { ids: point === undefined ? [] : [point] });
+    const file = (JSON.parse(row.files) as PointFile[]).find((x) => x.p === `${sid}.jsonl`);
+    const entries = file ? await linesOf(file, (await links(env, "GET", file.b)).links, (why) => new Refusal("store_failed", why)) : [];
+    const calls = callsOf(entries);
+    if (!calls.length && entries.some((e) => e.type === "assistant")) log({ kind: "refuse", ev: "points.history", word: "no_calls", sid, why: "в файле разговора нет записей api-request: вызовы модели не видны" });
+    const shown = page(await messagesOf(sid, entries), calls, before as string | null, limit as number);
+    if (!shown) throw new Refusal("bad_frame", `записи ${String(before)} в разговоре точки нет`);
+    return { point: row.id, ...shown };
   },
 
   async "points.delete"(env, f) {
