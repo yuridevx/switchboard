@@ -90,13 +90,12 @@ describe("кто может", () => {
     }
   });
 
-  it("set и remove только человеку: машина и сессия — not_user", async () => {
-    await set({ value: SECRET });
+  it("42 · права — мок: машина и сессия ставят и убирают ключ, как человек (слово пользователя 9 нояб.)", async () => {
     for (const from of [MACHINE, SESSION]) {
-      expect((await set({ value: "чужой" }, from)).error).toBe("not_user");
-      expect((await ask(from, "fleetkeys.remove", { name: "orca" })).error).toBe("not_user");
+      expect((await set({ value: SECRET }, from)).ok).toBe(true);
+      expect((await ask(MACHINE, "fleetkeys.key", { name: "orca" })).result?.key).toBe(SECRET);
+      expect((await ask(from, "fleetkeys.remove", { name: "orca" })).ok).toBe(true);
     }
-    expect((await ask(MACHINE, "fleetkeys.key", { name: "orca" })).result?.key).toBe(SECRET);
   });
 });
 
@@ -128,8 +127,7 @@ describe("кадр смены ключа", () => {
     expect(JSON.stringify(sent)).not.toContain(SECRET);
   });
 
-  it("отказ кадра не шлёт: нет права, нет ключа", async () => {
-    await set({ value: SECRET }, MACHINE);
+  it("отказ кадра не шлёт: нет ключа", async () => {
     await ask(PULT, "fleetkeys.remove", { name: "нет" });
     expect(sent).toEqual([]);
   });

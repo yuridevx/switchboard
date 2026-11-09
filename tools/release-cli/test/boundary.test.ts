@@ -488,7 +488,7 @@ async function bench(serve: Answer) {
     if (f.type === "hello" || f.type === "reply" || typeof f.id !== "string") return;
     // список машин — у gate; тест может ответить сам
     const got = serve(f);
-    const r = got === null ? undefined : (got ?? (f.type === "keys.list" ? { ok: true, result: { passes: MACHINES.map((name) => ({ name })) } } : undefined));
+    const r = got === null ? undefined : (got ?? (f.type === "keys.list" ? { ok: true, result: { passes: MACHINES.map((name) => ({ kid: name, addr: `@${name}`, owner: null, wait: false })) } } : undefined));
     if (r) queueMicrotask(() => st.relay.deliver({ type: "reply", id: f.id as string, from: f.to ?? "x", ...r } as Frame));
   };
   const call = async (name: string, args: Record<string, unknown>, cwd = tmpdir(), extra: unknown = {}) => {
@@ -509,7 +509,7 @@ const LISTED = {
 };
 const STATE = { keeper: "1.1.5", rev: 47, os: "linux", parts: [{ part: "host", version: "1.2.23", state: "running" }] };
 const EIGHT = ["base1", "base2", "hz-ex44-1", "hz-ex44-2", "hz-ex44-win-1", "hz-win11", "rog-win-pro", "rog-wsl"];
-const passes = (names: string[]) => ({ ok: true, result: { passes: names.map((name) => ({ name })) } });
+const passes = (names: string[]) => ({ ok: true, result: { passes: names.map((name) => ({ kid: name, addr: `@${name}`, owner: null, wait: false })) } });
 const osModule = (version = "1.4.0") => {
   const dir = tmp("parts-app-");
   writeFileSync(join(dir, "app.json"), "{}");

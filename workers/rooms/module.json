@@ -1,13 +1,13 @@
 {
   "name": "rooms",
   "type": "worker",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "provides": {
     "rooms.send": 1,
     "rooms.message": 1
   },
   "uses": {
-    "gate.revoked@gate": 1,
+    "keys.list@gate": 2,
     "gate.redeem@gate": 1,
     "relay.deliver@relay": 1
   },

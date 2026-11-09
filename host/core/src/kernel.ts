@@ -603,6 +603,11 @@ export class Kernel {
         probe: (o) => this.probe(m, o),
         cli: (args, o = {}) => this.sdk.cli(args, this.env(o.env), o.input),
         roster: () => this.roster,
+        worker: (name) => {
+          const ref = usesName(m.manifest, name);
+          if (!ref) throw this.violate(m, `${name} нет в uses`);
+          return release.workers[ownerOf(ref)];
+        },
       };
       this.hosts.set(m, host);
     }

@@ -1,11 +1,21 @@
 {
   "name": "prefs",
   "type": "worker",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "provides": {
     "prefs.get": 1,
     "prefs.set": 1,
     "prefs.changed": 1
+  },
+  "tools": {
+    "prefs.get": {
+      "about": "Настройки флота или свои по ключу: scope global — весь флот (правила прокси — ключ proxy.rules), без scope — свои; prefix — только ключи с этим началом.",
+      "type": "PrefsGet"
+    },
+    "prefs.set": {
+      "about": "Записать одну настройку целиком: name — ключ, value — значение; scope global — для всего флота, машины получают prefs.changed.",
+      "type": "PrefsSet"
+    }
   },
   "uses": {
     "gate.verify@gate": 1,

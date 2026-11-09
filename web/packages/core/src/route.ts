@@ -14,9 +14,15 @@ export function createRoute(page: Page, mods: Modules) {
     return `#${mods.screens.get(screen)?.def.path ?? screen}${query ? `?${query}` : ""}`;
   }
 
-  /** Экран адреса; незнакомый адрес — домашний раздел. */
+  /**
+   * Экран адреса; незнакомый адрес — домашний раздел. Адрес без # с ?open=<экран> — этот экран с параметрами query:
+   * так страницу открывают снаружи (точка authorize OAuth сохраняет свой query, RFC 6749 §3.1).
+   */
   function parse(): { screen: string; params: Params } {
-    const hash = win.location.hash.slice(1);
+    const query = new URLSearchParams(win.location.search);
+    const outside = win.location.hash ? null : query.get("open");
+    query.delete("open");
+    const hash = outside ? `${outside}?${query}` : win.location.hash.slice(1);
     const at = hash.indexOf("?");
     const path = at < 0 ? hash : hash.slice(0, at);
     const s = [...mods.screens.values()].find((x) => (x.def.path ?? x.name) === path && !mods.isTop(x));

@@ -11,6 +11,11 @@ export type Manifest = {
   into?: string[];
   /** Модуль-контракт, чьи имена этот модуль исполняет: владелец имён — контракт, во флоте стоит одна его реализация. */
   implements?: string;
+  /**
+   * Инструменты MCP: запрос из provides виден инструментом с именем запроса через _ вместо точки. type — тип запроса в contract.ts,
+   * схему входа input из него строит упаковка; omit — поля типа, которых в схеме нет.
+   */
+  tools?: Record<string, Tool>;
   pkg?: string;
   // Факты кода; их кладёт loadRepo, манифест из каталога или сборки их не несёт.
   /** Пакеты @switchboard, которые импортирует код. */
@@ -21,7 +26,11 @@ export type Manifest = {
   testReach?: string[];
   /** Вызовы привязок Worker: `env.GATE.verify()` — `gate.verify`. */
   rpc?: string[];
+  /** Типы, которые отдаёт contract.ts модуля. */
+  types?: string[];
 };
+
+export type Tool = { about: string; type: string; omit?: string[]; input?: Record<string, unknown> };
 
 /** Тип модуля, который входит в сборку, → тип её корня. */
 const ROOT: Record<string, string> = { sdk: "sdk-core", web: "web-app" };
@@ -110,10 +119,12 @@ function faults(m: Manifest, byName: Map<string, Manifest>, byPkg: Map<string | 
     const owner = spec.split("/")[0];
     return entered(spec, owner, spec === `${owner}/contract.ts`, owner);
   };
-  const called = (name: string) => {
-    const owner = name.split(".")[0];
-    const contract = owner !== m.name && byName.get(owner)?.provides[name];
-    return contract && !m.uses[`${name}@${owner}`] ? `зовёт ${name} — нет в uses` : undefined;
+  /** Вызов привязки владелец.метод — имя контракта владельца с последним словом «метод»: env.GATE.list — keys.list у gate. */
+  const called = (call: string) => {
+    const [owner, method] = call.split(".");
+    const provides = owner !== m.name ? byName.get(owner)?.provides : undefined;
+    const name = provides && Object.keys(provides).find((n) => n === call || n.endsWith(`.${method}`));
+    return name && !m.uses[`${name}@${owner}`] ? `зовёт ${name} — нет в uses` : undefined;
   };
   const into = (root: string) => {
     const want = ROOT[m.type];
@@ -132,8 +143,14 @@ function faults(m: Manifest, byName: Map<string, Manifest>, byPkg: Map<string | 
     if (Object.keys(m.provides).length) return `implements ${m.implements} — своих provides у реализации нет`;
     return m.imports && !m.imports.includes(target.pkg ?? "") ? `implements ${m.implements} — код не берёт контракт ${target.pkg}` : undefined;
   };
+  const tooled = ([name, t]: [string, Tool]) => {
+    if (!m.provides[name]) return `tool у ${name} — такого запроса в provides нет`;
+    if (typeof t?.about !== "string" || !t.about.trim() || typeof t.type !== "string") return `tool у ${name} — нужны about и type`;
+    return m.types && !m.types.includes(t.type) ? `tool у ${name} — типа ${t.type} нет в contract.ts` : undefined;
+  };
   return [
     implemented(),
+    ...Object.entries(m.tools ?? {}).map(tooled),
     ...Object.entries(m.uses).map(uses),
     ...(m.imports ?? []).map(imported),
     ...(m.reach ?? []).map(reached),

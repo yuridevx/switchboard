@@ -20,7 +20,7 @@ if (!prod && process.env.FLEET !== "test") {
   process.exit(2);
 }
 if (prod) {
-  process.env.SWITCHBOARD_WORKERS = JSON.stringify(Object.fromEntries(["relay", "gate", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases"].map((n) => [n, `https://${n}.pfarm.app/`])));
+  process.env.SWITCHBOARD_WORKERS = JSON.stringify(Object.fromEntries(["relay", "gate", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "mcp"].map((n) => [n, `https://${n}.pfarm.app/`])));
 }
 const PAGES = ["pult", "phone"].map((app) => pageOf(prod ? "prod" : "test", app));
 const VIEWPORT = { width: 1280, height: 800 };
@@ -78,7 +78,7 @@ function snapshot(action: string, file: string): number {
 
 /** Страница вошла: приглашение принято, на экране раздел «Вам», ошибок страницы нет. Приглашение одноразовое: своё на страницу. */
 async function openPage(browser: { newContext(o: unknown): Promise<any> }, url: string): Promise<boolean> {
-  const invite = await ask({ type: "keys.invite", to: ".gate", role: "client", name: "fleet-check", person: "fleet-check@example.com" });
+  const invite = await ask({ type: "keys.invite", v: 2, to: ".gate", addr: "fleet-check~fleet-check@example.com" });
   if (!invite.ok) throw new Error(`keys.invite: ${invite.error}`);
   try {
     const context = await browser.newContext({ viewport: VIEWPORT });

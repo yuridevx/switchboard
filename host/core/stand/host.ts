@@ -52,6 +52,8 @@ export type StandOptions = {
   machine?: string;
   /** relay в host.json; по умолчанию есть */
   relay?: boolean;
+  /** Worker'ы сверх стандартных в списке сборки: модуль включает своё по наличию адреса */
+  workers?: Record<string, string>;
   /** core.json до старта: сессии прежнего Host */
   sessions?: Array<Partial<CoreRecord> & { callsign: string }>;
   /** папка ~/.switchboard — та же между перезапусками Host */
@@ -141,7 +143,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     config,
     core: CORE,
     // адреса флота — в списке сборки: relay: false — сборка без relay
-    release: { version: o.version ?? "1.4.0", sdk: sdk.version, modules: o.modules ?? [], workers: o.relay === false ? {} : FakeRelay.WORKERS },
+    release: { version: o.version ?? "1.4.0", sdk: sdk.version, modules: o.modules ?? [], workers: o.relay === false ? {} : { ...FakeRelay.WORKERS, ...o.workers } },
     sdk,
     holders,
     relayKey: `host.${machine}.k7f3.stand`,

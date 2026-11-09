@@ -24,25 +24,14 @@
 .st-tbl{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
 .st-tbl th{font:600 11.5px var(--body);color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line2)}
 .st-tbl td{padding:7px 8px;border-bottom:1px solid var(--line2);vertical-align:middle;overflow:hidden;text-overflow:ellipsis}
-.st-w14{width:14%}
-.st-w16{width:16%}
 .st-w20{width:20%}
-.st-w22{width:22%}
-.st-w28{width:28%}
 .st-w30{width:30%}
-.st-inv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start}
-.st-invl{display:flex;flex-direction:column;gap:8px;min-width:0}
-.st-lbl{min-width:72px}
-.st-link{flex:1;min-width:0;overflow-wrap:anywhere}
-.st-qr{width:156px;padding:12px;background:#fff;border-radius:10px;line-height:0}
-.st-qr svg{width:100%;height:auto;display:block}
 .st-grow{flex:1}
 .st-end{margin-left:auto}
 .st-rq{max-width:220px}
 .st-ver{width:110px}
 .st-ml8{margin-left:8px}
 .st-nowrap{flex-wrap:nowrap}
-@media (max-width:640px){.st-inv{grid-template-columns:minmax(0,1fr)}.st-qr{justify-self:center}}
 @media (max-width:900px){.st-grid{grid-template-columns:minmax(0,1fr)}}
 
 /* репозитории профилей */

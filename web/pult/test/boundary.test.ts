@@ -60,7 +60,7 @@ async function browser(list: BuildList, relay = fleetRelay()) {
 
 describe("состав приложения", () => {
   it.each([
-    ["pult", pultParts, 18],
+    ["pult", pultParts, 19],
     ["phone", phoneParts, 14],
   ])("5138 5139 · модули стенда %s — те же, что в его into; набор проходит гейт ядра", (name, parts, count) => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
@@ -150,7 +150,7 @@ describe("оболочка страницы", () => {
   it("6903 · колонка разделов: «Перейти… Ctrl K», Вам, Работа, Инциденты, группа «Флот» с профилями; машин и имени устройства в колонке нет", async () => {
     // источник: прототип «Пульт и телефон» (подписан пользователем 2 нояб.); «не нужны внизу машины» — комментарий пользователя
     const t = await pult();
-    expect(t.$$(".sb-navcol .sb-nv").map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "accounts", "profiles", "journal", "points", "settings"]);
+    expect(t.$$(".sb-navcol .sb-nv").map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "accounts", "profiles", "journal", "points", "people", "settings"]);
     expect(t.$$(".sb-navcol .sb-grp").map((x) => x.textContent)).toEqual(["Флот"]);
     expect(t.$(".sb-navcol .sb-nv.sub")).toBeNull();
     expect(t.$(".sb-goto")).not.toBeNull();
@@ -340,7 +340,7 @@ describe("статика и архив", () => {
       workers: { ...FakeRelay.WORKERS, relay: "https://relay.from-build/" },
     };
     const files = webBuild(shell.tgz, packed, list);
-    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(19);
+    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(20);
 
     // сборка на диске; m/<модуль>.<версия>.js — пакетом @switchboard/<модуль>, как import map страницы
     const dir = mkdtempSync(join(tmpdir(), "switchboard-pult-build-"));
@@ -389,7 +389,7 @@ describe("статика и архив", () => {
     await flush();
     const rows = [...document.querySelectorAll(".sb-palit")].filter((r) => ["раздел", "Флот"].includes(r.querySelector(".k")?.textContent ?? "")).map((r) => r.querySelector(".l")!.textContent);
     expect(document.querySelector(".sb-palit.first .l")!.textContent).toBe("Вам");
-    expect(rows).toEqual(["Вам", "Работа", "Инциденты", "Аккаунты", "Профили", "Журнал", "Сессии", "Настройки", "Настройки: выпуски", "Настройки: пропуска", "Настройки: правила модели", "Настройки: github и устройство"]);
+    expect(rows).toEqual(["Вам", "Работа", "Инциденты", "Аккаунты", "Профили", "Журнал", "Сессии", "Люди", "Настройки", "Настройки: выпуски", "Настройки: правила модели", "Настройки: github и устройство"]);
   }, 120_000);
 });
 

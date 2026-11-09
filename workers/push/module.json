@@ -1,7 +1,7 @@
 {
   "name": "push",
   "type": "worker",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "provides": {
     "push.key": 1,
     "push.send": 1,
@@ -10,7 +10,7 @@
   },
   "uses": {
     "gate.verify@gate": 1,
-    "gate.revoked@gate": 1,
+    "keys.list@gate": 2,
     "rooms.send@rooms": 1
   },
   "config": {

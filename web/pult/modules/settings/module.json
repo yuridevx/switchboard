@@ -1,7 +1,7 @@
 {
   "name": "pult-settings",
   "type": "web",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "into": [
     "pult",
     "phone"
@@ -23,13 +23,10 @@
     "releases.set@releases": 1,
     "releases.deploy@releases": 1,
     "keeper.state@keeper": 1,
-    "keys.list@gate": 1,
-    "keys.invite@gate": 1,
-    "keys.revoke@relay": 1,
+    "keys.list@gate": 2,
     "github.app@github": 1,
     "github.setup@github": 1,
     "alerts.state@web-alerts": 1,
-    "page@phone": 1,
     "machine.profiles@host-profiles": 2,
     "session.reload@host-manage": 1,
     "session.open@host-manage": 2,
@@ -40,7 +37,8 @@
     "records.format@records": 1,
     "rules.apply@rules": 1,
     "points.history@points": 1,
-    "points.list@points": 2
+    "points.list@points": 2,
+    "people@pult-people": 1
   },
   "config": {}
 }

@@ -8,7 +8,7 @@ import { gateStand } from "./contract.ts";
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 const migrations = await readD1Migrations(here("./migrations"));
 // настоящий вывод seed: Worker проверяет инструкцию и приглашение целиком
-const seeded = spawnSync(process.execPath, [here("./seed.ts"), "host", "first"], { encoding: "utf8", timeout: 30_000 });
+const seeded = spawnSync(process.execPath, [here("./seed.ts"), "@first"], { encoding: "utf8", timeout: 30_000 });
 const seed = { sql: seeded.stdout, invite: seeded.stderr.trim() };
 
 export default defineConfig({

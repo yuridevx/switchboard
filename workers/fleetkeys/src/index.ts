@@ -1,6 +1,6 @@
 // Worker fleetkeys: кадр с пропуском → строки своей базы. Значения ключей в журнал не идут.
 import { entrance, type GateApi } from "@switchboard/gate";
-import { accepts, fail, kindOf, ok, userOf, within, type Frame } from "@switchboard/protocol";
+import { accepts, fail, kindOf, ok, within, type Frame } from "@switchboard/protocol";
 import { CONTRACT, KEY_NAME, type KeyConfig } from "../contract.ts";
 
 type Env = { DB: D1Database; GATE: GateApi; RELAY: { broadcast(f: Frame): Promise<number> } };
@@ -39,7 +39,6 @@ async function frame(f: Frame, env: Env): Promise<Frame[]> {
     const r = await row();
     return r ? [{ ...ok(id, { ...config(r), key: r.key }), to: from }] : refuse("no_key", `ключа ${name} нет`);
   }
-  if (!userOf(from!)) return refuse("not_user", `${from} — не человек и не его устройство`);
 
   if (type === "fleetkeys.remove") {
     const { meta } = await env.DB.prepare("DELETE FROM keys WHERE name = ?").bind(name).run();

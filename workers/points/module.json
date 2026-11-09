@@ -1,13 +1,23 @@
 {
   "name": "points",
   "type": "worker",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "provides": {
     "points.put": 3,
     "points.get": 2,
     "points.list": 2,
     "points.history": 1,
     "points.delete": 1
+  },
+  "tools": {
+    "points.list": {
+      "about": "Каталог сессий архива: заголовок, callsign, модель, токены, последняя точка. q — только сессии с этими словами; sid — точки одной сессии.",
+      "type": "PointsList"
+    },
+    "points.history": {
+      "about": "Разговор сессии на точке (по умолчанию последней) страницами с конца: сообщения и вызовы модели. before — uuid, до которого читать, null — с конца.",
+      "type": "PointsHistory"
+    }
   },
   "uses": {
     "ledger.add@ledger": 1,

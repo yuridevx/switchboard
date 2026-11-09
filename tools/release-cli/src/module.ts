@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildSync } from "esbuild";
 import { packModule, type PackedModule } from "@switchboard/release";
+import { inputSchema } from "./schema.ts";
 
 const BUILD_MS = 120_000;
 const VIEW = "@switchboard/web-view";
@@ -31,5 +32,5 @@ function bundle(dir: string, name: string): Buffer {
 export function packFromRepo(dir: string): PackedModule {
   const { type, name } = JSON.parse(readFileSync(join(dir, "module.json"), "utf8")) as { type: string; name: string };
   if (type === "web-app") execFileSync(process.execPath, ["build.mjs"], { cwd: dir, timeout: BUILD_MS, stdio: "pipe" });
-  return packModule(dir, type === "web" ? { bundle: () => bundle(dir, name) } : {});
+  return packModule(dir, type === "web" ? { bundle: () => bundle(dir, name) } : { schema: inputSchema });
 }

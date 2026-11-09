@@ -16,13 +16,14 @@ import * as incidents from "../modules/incidents/contract.ts";
 import * as journal from "../modules/journal/contract.ts";
 import * as machines from "../modules/machines/contract.ts";
 import * as open from "../modules/open/contract.ts";
+import * as people from "../modules/people/contract.ts";
 import * as points from "../modules/points/contract.ts";
 import * as profiles from "../modules/profiles/contract.ts";
 import * as settings from "../modules/settings/contract.ts";
 
 export { PULT } from "../src/options.ts";
 
-const MODULES = [labels, inbox, board, open, card, chat, ask, points, accounts, machines, profiles, journal, incidents, settings];
+const MODULES = [labels, inbox, board, open, card, chat, ask, points, accounts, machines, profiles, people, journal, incidents, settings];
 
 export function pultParts(browser?: BrowserPush): AppPart[] {
   return [

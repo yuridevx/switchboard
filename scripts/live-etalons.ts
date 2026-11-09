@@ -54,12 +54,12 @@ const gateUrl = "https://switchboard-gate.yuridevx1608.workers.dev/";
 const relayUrl = "https://switchboard.yuridevx1608.workers.dev/";
 const post = (u: string, f: Record<string, unknown>) =>
   fetch(u, { method: "POST", body: JSON.stringify({ id: "e", v: 1, ...f }) }).then((r) => r.json() as Promise<{ ok: boolean; result?: any; error?: string }>);
-const seeded = spawnSync(process.execPath, [join(root, "workers/gate/seed.ts"), "client", "etalon-agent", "etalon@example.com"], { encoding: "utf8" });
+const seeded = spawnSync(process.execPath, [join(root, "workers/gate/seed.ts"), "etalon-agent~etalon@example.com"], { encoding: "utf8" });
 wrangler("gate", ["d1", "execute", "switchboard-gate", "--remote", "--command", seeded.stdout.trim()]);
 const agent = (await post(gateUrl, { type: "gate.redeem", invite: seeded.stderr.trim() })).result.key as string;
-const mine: string[] = [agent.split(".")[2]];
+const mine: string[] = [agent.split(".").at(-2)!];
 const pass = async (role: "host" | "client", name: string) => {
-  const inv = await post(gateUrl, { type: "keys.invite", key: agent, role, name, ...(role === "client" ? { person: "etalon@example.com" } : {}) });
+  const inv = await post(gateUrl, { type: "keys.invite", v: 2, key: agent, addr: role === "host" ? `@${name}` : `${name}~etalon@example.com` });
   mine.push(inv.result.kid);
   return (await post(gateUrl, { type: "gate.redeem", invite: inv.result.invite })).result.key as string;
 };
@@ -103,7 +103,7 @@ again.close();
 mHost.close(1000, "done");
 // живых пропусков эталона после прогона — 0: отзыв своих, последним — пропуск агента
 for (const kid of mine.reverse()) await post(relayUrl, { type: "keys.revoke", key: agent, kid });
-const left = (await post(gateUrl, { type: "keys.list", key: agent })).error;
+const left = (await post(gateUrl, { type: "keys.list", v: 2, key: agent })).error;
 check("живых пропусков эталона после прогона 0", left === "bad_key", left);
 
 for (const l of [host, phone, phone2, victim]) l.close(1000, "done");

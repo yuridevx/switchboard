@@ -22,9 +22,9 @@ async function revoke(f: Frame, env: Env): Promise<Frame[]> {
     console.log(`${done.error} ${kid} от ${f.from}`);
     return answer(fail(f.id, done.error));
   }
-  const passes = await within(env.GATE.list("host"), "gate не ответил на list", limit);
+  const passes = await within(env.GATE.list({ kind: "machine" }), "gate не ответил на keys.list", limit);
   // отозванной машины в списке уже нет, а её соединения живы: объект — из адреса
-  const machines = new Set([...passes.map((p) => p.name), machineOf(done.addr)].filter((m) => m !== null));
+  const machines = new Set([...passes.map((p) => machineOf(p.addr)), machineOf(done.addr)].filter((m) => m !== null));
   const counts = await within(Promise.all([...machines].map((m) => objectOf(env, m).revoke(kid))), "объекты машин не ответили на отзыв", limit);
   const closed = counts.reduce((a, b) => a + b, 0);
   console.log(`revoke ${kid} ${done.addr} от ${f.from} · закрыто ${closed}`);
@@ -40,11 +40,11 @@ export class Relay extends WorkerEntrypoint<Env> {
   /** Кадр Worker'а каждой машине флота (to: @машина). Машина вне связи получит своё при подключении у владельца: сбой — строка журнала. */
   async broadcast(f: Frame): Promise<number> {
     const limit = callMs(this.env);
-    const passes = await within(this.env.GATE.list("host"), "gate не ответил на list", limit);
+    const passes = (await within(this.env.GATE.list({ kind: "machine" }), "gate не ответил на keys.list", limit)).filter((p) => !p.wait);
     const counts = await Promise.all(
       passes.map((p) =>
-        this.deliver({ ...f, to: `@${p.name}` }).catch((e) => {
-          console.log(`offline ${f.from} → @${p.name} ${f.type}: ${e}`);
+        this.deliver({ ...f, to: p.addr }).catch((e) => {
+          console.log(`offline ${f.from} → ${p.addr} ${f.type}: ${e}`);
           return 0;
         }),
       ),

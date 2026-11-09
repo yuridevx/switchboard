@@ -12,8 +12,8 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WRANGLER = path.join(ROOT, "node_modules", "wrangler", "bin", "wrangler.js");
 /** Настоящая выкладка 5 нояб.: при 45 с wrangler выложил prefs, но не завершился под нагрузкой. */
 const LIMIT_MS = 300_000;
-/** relay смотрит привязками на остальных — последним; хранилище блоков (реализация контракта blocks) — раньше points, который смотрит на него привязкой. */
-const WORKERS = ["gate", "rooms", "push", "blocks-r2", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
+/** relay смотрит привязками на остальных — последним; mcp — после releases и gate, на которые смотрит привязками; хранилище блоков (реализация контракта blocks) — раньше points, который смотрит на него привязкой. */
+const WORKERS = ["gate", "rooms", "push", "blocks-r2", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "mcp", "relay"];
 const WEB = ["phone", "pult"];
 
 const stop = (word) => {

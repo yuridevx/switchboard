@@ -2,13 +2,13 @@
 import { useRef, type ReactNode } from "react";
 import { Btn, Cmd, Cta, In } from "@switchboard/web-ui";
 import { PROTO } from "@switchboard/relay";
-import { inviteNumber, keyId, UNREACHED } from "../pass.ts";
+import { inviteNumber, keyId, keyName, UNREACHED } from "../pass.ts";
 import { useCore } from "./place.tsx";
 
 const Logo = () => <div className="sb-logo xl">S</div>;
 const Ring = ({ tone, children }: { tone: "bad" | "wait"; children: string }) => <div className={`sb-ring ${tone}`}>{children}</div>;
 const Full = ({ children }: { children: ReactNode }) => <div className="sb-full">{children}</div>;
-const invite = (who: string) => `keys.invite client ${who} <почта>`;
+const invite = (who: string) => `keys.invite ${who}~<почта>`;
 
 const Wipe = ({ as: Button = Cta }: { as?: typeof Cta | typeof Btn }) => {
   const { pass } = useCore();
@@ -86,7 +86,7 @@ const Refused = ({ word, pass }: { word: string; pass: string }) => (
     <Ring tone="bad">×</Ring>
     <div className="sb-big">{REFUSED[word].title}</div>
     <p>{`${keyId(pass)} ${REFUSED[word].text}. Новый пропуск — приглашением от агента флота:`}</p>
-    <Cmd>{invite(pass.split(".")[1])}</Cmd>
+    <Cmd>{invite(keyName(pass))}</Cmd>
     <p>Откройте ссылку-приглашение в этом приложении. Само приложение больше не подключается.</p>
     <Wipe />
   </Full>

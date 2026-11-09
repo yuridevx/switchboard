@@ -15,6 +15,9 @@
 //   1000 replaced — вытеснил новый hello той же машины; 1012 relay_updated — выпуск relay, клиенты переподключаются.
 export type { Frame, Reply } from "@switchboard/protocol";
 
+/** keys.revoke — POST по адресу relay: kid — номер пропуска. Ответ — {addr, closed}. */
+export type KeysRevoke = { type: "keys.revoke"; id: string; v?: 1; key?: string; kid: string };
+
 /** Запись сессии в карточке Host: callsign и поля модулей Host — relay их не читает. */
 export type SessionRecord = { callsign: string; state?: string | null; [field: string]: unknown };
 

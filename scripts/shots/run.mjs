@@ -20,6 +20,8 @@ const row = click(".bd-row");
 const place = click(".pj-add");
 const path_ = (p) => p.fill('[data-f="addr"]', "~/projects/new/deep");
 
+/** Точка authorize: Claude Code просит вход, его прежнее устройство с этим именем уже есть. */
+const CONSENT = `#consent?client_id=${encodeURIComponent("https://claude.ai/oauth/claude-code-client-metadata")}&redirect_uri=${encodeURIComponent("http://127.0.0.1:5311/callback")}&state=s1&code_challenge=${"C".repeat(43)}`;
 const PAIR = `#card?callsign=${encodeURIComponent("audit@win")}`;
 
 /** Снимок: имя, адрес, что сделать; only — только на этом флоте. */
@@ -73,7 +75,10 @@ const PULT_SCREENS = [
   ["points-archive", "#points?sid=s2", null, "small"],
   ["card-archive", `#card?callsign=${encodeURIComponent("refactor@win")}`, steps(click('[data-tab="session.points"]')), "small"],
   ["settings", "#settings", null, "small"],
-  ["settings-passes", "#settings", steps(click('[data-tab="passes"]')), "small"],
+  ["people", "#people", null, "small"],
+  ["people-invite", "#people", steps(click('[data-act="invite-person"]')), "small"],
+  ["person", `#people?who=${encodeURIComponent("kira@example.com")}`, steps(click('[data-act="invite-kira@example.com"]')), "small"],
+  ["consent", CONSENT, null, "small"],
   ["settings-general", "#settings", steps(click('[data-tab="general"]')), "small"],
   ["settings-rules", "#settings?tab=rules", steps(click('[data-rule="Имя агента"] button[aria-expanded]')), "small"],
   ["settings-rules-call", "#settings?tab=rules&call=s1/a2", null, "small"],
@@ -102,6 +107,9 @@ const PULT_NARROW = [
   ["points", "#points", null, "small"],
   ["points-session", "#points?sid=s1", null, "small"],
   ["points-points", "#points?sid=s1&point=38&pane=points", null, "small"],
+  ["people", "#people", null, "small"],
+  ["person", `#people?who=${encodeURIComponent("kira@example.com")}`, steps(click('[data-act="invite-kira@example.com"]')), "small"],
+  ["consent", CONSENT, null, "small"],
 ];
 
 mkdirSync(OUT, { recursive: true });

@@ -224,10 +224,7 @@ export function answerRequests(relay: FakeRelay, F: Fleet, roster: { sessions: A
     { type: "assistant", uuid: "a3", timestamp: iso(127), message: { id: "m3", role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Точки стоят разделителями, после выбранной разговор приглушён." }] } },
   ];
   // вызов модели из архива — и для проверки правил прокси
-  const system = ["You are Claude Code, Anthropic's official CLI for Claude.", "You are a Claude agent, built on Anthropic's Claude Agent SDK.", "# Tone and style
-Your responses should be short and concise."].join("
-
-");
+  const system = ["You are Claude Code, Anthropic's official CLI for Claude.", "You are a Claude agent, built on Anthropic's Claude Agent SDK.", "# Tone and style\nYour responses should be short and concise."].join("\n\n");
   const archCalls = [
     { uuid: "a1", at: iso(4), model: "claude-opus-5-5", tok_in: 182000, tok_out: 4200, system },
     { uuid: "a2", at: iso(66), model: "claude-opus-5-5", tok_in: 410000, tok_out: 9100, system },
@@ -262,5 +259,14 @@ Your responses should be short and concise."].join("
       modules: { "web-board": { into: ["pult", "phone"], built: { pult: "2.0.0", phone: "2.0.0" }, edge: "2.0.0" }, "web-core": { into: ["pult", "phone"], built: { pult: "1.8.0", phone: "1.8.0" }, edge: "1.8.0" } },
     },
   });
-  h["keys.list"] = () => ({ ok: true, result: { passes: [...F.ms.slice(0, 6).map((name, i) => ({ id: `kh${i}`, role: "host", name, person: null, addr: `@${name}`, state: "ok", by: "агент", at: Date.now() - 86400000 })), { id: "kc1", role: "client", name: "pult", person: ME, addr: `pult~${ME}`, state: "ok", by: "@win", at: Date.now() - 86400000 }, { id: "kc2", role: "client", name: "phone", person: ME, addr: `phone~${ME}`, state: "ok", by: `pult~${ME}`, at: Date.now() - 86400000 }] } });
+  // люди флота: вы, bob и kira; машины — по владельцам, у kira — приглашение, которое ждёт входа
+  const owners = [ME, ME, ME, "kira@example.com", "bob@example.com", "kira@example.com"];
+  const people: Array<[string, string, boolean?]> = [["pult", ME], ["phone", ME], ["tg", ME], ["code", ME], ["alerts", ME], ["pult", "bob@example.com"], ["phone", "bob@example.com"], ["pult", "kira@example.com"], ["ci", "kira@example.com", true]];
+  const passes = [
+    ...F.ms.slice(0, 6).map((name, i) => ({ kid: `kh${i}`, addr: `@${name}`, owner: `~${owners[i]}`, wait: false })),
+    ...people.map(([name, who, wait], i) => ({ kid: `kc${i}`, addr: `${name}~${who}`, owner: null, wait: !!wait })),
+  ];
+  h["keys.list"] = () => ({ ok: true, result: { passes, you: `pult~${ME}` } });
+  h["keys.invite"] = (f) => ({ ok: true, result: { kid: "kn01", invite: "kn01.Qx3secretSECRETsecretSECRETsecretSECRETsec", addr: String(f.addr) } });
+  h["keys.revoke"] = (f) => ({ ok: true, result: { addr: passes.find((p) => p.kid === f.kid)?.addr ?? "?", closed: 1 } });
 }

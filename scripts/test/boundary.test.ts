@@ -158,7 +158,7 @@ globalThis.fetch = async (url, init) => {
   const SECRETS = { VAPID_PRIVATE: "vapid", R2_SECRET_ACCESS_KEY: "r2-test", R2_ACCESS_KEY_ID: "r2-id", PROD_R2_SECRET_ACCESS_KEY: "r2-prod", TELEGRAM_BOT_TOKEN: "bot-test", PROD_TELEGRAM_BOT_TOKEN: "bot-prod" };
   const envFile = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `${k}=${v}`).join("\n");
   const moduleOf = (c: Call) => c.cwd.split(/[\\/]/).pop();
-  const WORKERS = ["gate", "rooms", "push", "blocks-r2", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
+  const WORKERS = ["gate", "rooms", "push", "blocks-r2", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "mcp", "relay"];
 
   it.each([
     ["", [], ""],

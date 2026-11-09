@@ -70,10 +70,10 @@ relay.values["web-board.filters"] = big
 
 Object.assign(window, { relay });
 
-/** Пропуска экрана настроек — у обработчика стенда; список машин (role: host) — у подделки. */
+/** Пропуска экранов «Люди» и настроек — у обработчика стенда; список машин клиента флота (kind: machine) — у подделки. */
 const askGate: typeof fetch = async (url, init) => {
   const f = JSON.parse(String(init?.body));
-  return f.type === "keys.list" && !f.role ? Response.json({ type: "reply", id: f.id, ...relay.handlers["keys.list"](f) }) : relay.fetch(url, init);
+  return f.type === "keys.list" && !f.kind ? Response.json({ type: "reply", id: f.id, ...relay.handlers["keys.list"](f) }) : relay.fetch(url, init);
 };
 
 startApp({

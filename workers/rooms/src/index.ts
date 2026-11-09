@@ -50,7 +50,8 @@ async function hookSecret(env: Env): Promise<string> {
 /** Чат без отозванных: отозванный удаляется, адрес больше не отвечает. */
 async function alive(env: Env, chats: Chat[]): Promise<Chat[]> {
   if (!chats.length) return [];
-  const revoked = new Set(await within(env.GATE.revoked(chats.map((c) => c.kid)), "gate не ответил на revoked"));
+  const live = new Set((await within(env.GATE.list({ ids: chats.map((c) => c.kid) }), "gate не ответил на keys.list")).map((p) => p.kid));
+  const revoked = new Set(chats.filter((c) => !live.has(c.kid)).map((c) => c.kid));
   for (const c of chats.filter((x) => revoked.has(x.kid))) {
     await env.DB.batch([env.DB.prepare("DELETE FROM chats WHERE chat = ?").bind(c.chat), env.DB.prepare("DELETE FROM threads WHERE chat = ?").bind(c.chat)]);
     log({ kind: "refuse", ev: "revoked", word: "gone", why: `пропуск ${c.kid} отозван: ${c.addr} отвязан`, client: c.addr });

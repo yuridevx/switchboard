@@ -8,6 +8,7 @@ import type { Page } from "./page.ts";
 import type { Route } from "./route.ts";
 import { Slot } from "./view/place.tsx";
 import type { App, Params, Result, Section, SlotProps } from "./types.ts";
+import { keyName } from "./pass.ts";
 
 export type Core = { page: Page; mods: Modules; route: Route; link: Link; toast(text: string, tone?: "ok" | "bad"): void };
 
@@ -30,7 +31,7 @@ export function appOf(mod: Mod, core: Core): App {
 
   return {
     get name() {
-      return page.key?.split(".")[1] ?? "";
+      return page.key ? keyName(page.key) : "";
     },
     address: () => page.address,
     application: o.application,

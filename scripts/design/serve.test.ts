@@ -32,13 +32,13 @@ function run(script: string, args: string[], env: Record<string, string> = {}) {
 /** Поддельный флот: gate и relay одним адресом; копит типы кадров, живые пропуска — по приглашениям. */
 async function fakeFleet() {
   const asked: string[] = [];
-  const passes: Array<{ id: string; role: string; name: string; addr: string }> = [];
+  const passes: Array<{ kid: string; name: string; addr: string; owner: null; wait: boolean }> = [];
   const answer = (f: Record<string, unknown>) => {
     if (f.type === "keys.invite") {
-      passes.push({ id: `k${passes.length}`, role: "client", name: String(f.name), addr: `${f.name}~a@b` });
+      passes.push({ kid: `k${passes.length}`, name: String(f.addr).split("~")[0], addr: String(f.addr), owner: null, wait: true });
       return { invite: `k${passes.length - 1}.code` };
     }
-    if (f.type === "keys.revoke") passes.splice(passes.findIndex((p) => p.id === f.kid), 1);
+    if (f.type === "keys.revoke") passes.splice(passes.findIndex((p) => p.kid === f.kid), 1);
     return { passes, you: "agent~a@b" };
   };
   const server = http.createServer((req, res) => {

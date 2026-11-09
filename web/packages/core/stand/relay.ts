@@ -32,7 +32,8 @@ export class FakeRelay {
   readonly fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const { key, ...f } = JSON.parse(String(init?.body)) as Frame;
     if (String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list") {
-      return Response.json({ type: "reply", id: f.id, ok: true, result: { you: this.you ?? this.roster.clients.find((c) => c.startsWith(`${String(key).split(".")[1]}~`)), passes: this.roster.machines.map((m) => ({ name: m.machine, role: "host", state: "ok" })) } });
+      const name = String(key).split(".").at(-3);
+      return Response.json({ type: "reply", id: f.id, ok: true, result: { you: this.you ?? this.roster.clients.find((c) => c.startsWith(`${name}~`)), passes: this.roster.machines.map((m) => ({ kid: `k-${m.machine}`, addr: `@${m.machine}`, owner: null, wait: false })) } });
     }
     this.got.push(f as Frame);
     if (typeof f.id !== "string") return new Response(null, { status: 204 });

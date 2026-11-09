@@ -1,7 +1,7 @@
 {
   "name": "host-fleet",
   "type": "sdk",
-  "version": "2.2.4",
+  "version": "2.3.0",
   "into": [
     "host"
   ],
@@ -31,7 +31,11 @@
     "machine.profiles@host-profiles": 2,
     "profile.view@host-profiles": 1,
     "machine.accounts@host-logins": 2,
-    "fleetkeys.list@fleetkeys": 1
+    "fleetkeys.list@fleetkeys": 1,
+    "keys.invite@gate": 2,
+    "gate.redeem@gate": 1,
+    "keys.revoke@relay": 1,
+    "mcp@mcp": 1
   },
   "calls": [],
   "config": {}

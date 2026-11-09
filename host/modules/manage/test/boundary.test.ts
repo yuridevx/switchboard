@@ -140,7 +140,7 @@ describe("контракт: пакеты и вклад в query()", () => {
         "Если тебя открыла другая сессия, итог твоего хода, начатого ею, уйдёт ей сам — отвечать ей отдельно не нужно. " +
           'Человек из Telegram приходит тегом с from="telegram~почта" или, из группы, from="имя~почта" и автором в начале текста; ответ — fleet.send на этот адрес, твой обычный ответ он не увидит. ' +
           "На вопрос AskUserQuestion человек из Telegram отвечает кнопкой или текстом; один вопрос с вариантами приходит кнопками. Восстановить переписку с людьми — fleet.history с people. " +
-          "Привязать чат: keys.invite с именем telegram для лички или другим именем для группы, приглашение человек отправляет боту, в группе — /start@бот <приглашение>.",
+          "Привязать чат: keys_invite сервера switchboard с адресом telegram~почта для лички или имя~почта для группы, приглашение человек отправляет боту, в группе — /start@бот <приглашение>.",
     );
     const tools = makeFleet().tools("me@pc") as Array<{ name: string; description: string; inputSchema: Record<string, { description?: string }> }>;
     const params = (t: (typeof tools)[number]) => Object.fromEntries(Object.entries(t.inputSchema).map(([k, v]) => [k, v.description ?? null]));

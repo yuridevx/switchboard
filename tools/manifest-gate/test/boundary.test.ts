@@ -240,6 +240,16 @@ describe("устройство кода против манифеста", () => 
     expect(gate({ "workers/gate/module.json": owner, "workers/own/module.json": mod("own", { provides: { "own.key": 1 }, uses }), [`workers/own/${path}`]: code })).toEqual(want);
   });
 
+  // источник: дизайн «Прокси модели», шаг 7 — tool только у запроса с типом, который есть в контракте
+  it.each<[string, Record<string, unknown>, string[]]>([
+    ["запрос с типом из контракта", { "own.key": { about: "ключ", type: "OwnKey" } }, []],
+    ["запроса нет в provides", { "own.nope": { about: "x", type: "OwnKey" } }, ["модуль own: tool у own.nope — такого запроса в provides нет"]],
+    ["типа нет в contract.ts", { "own.key": { about: "x", type: "Nope" } }, ["модуль own: tool у own.key — типа Nope нет в contract.ts"]],
+    ["без описания", { "own.key": { about: "", type: "OwnKey" } }, ["модуль own: tool у own.key — нужны about и type"]],
+  ])("инструмент MCP в манифесте: %s", (_n, tools, want) => {
+    expect(gate({ "workers/own/module.json": mod("own", { provides: { "own.key": 1 }, tools }), "workers/own/contract.ts": "export type OwnKey = { name: string };\nexport interface Other {}\n" })).toEqual(want);
+  });
+
   const packages: Files = {
     "web/packages/a/module.json": mod("a"),
     "web/packages/a/package.json": { name: "@switchboard/a" },
