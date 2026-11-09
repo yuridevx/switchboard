@@ -7,7 +7,7 @@ import { zstdDecompress } from "node:zlib";
 import { claudeDir, clientPath, refuse } from "@switchboard/host";
 import type { Ctx, Frame, Host, Result, Session } from "@switchboard/host";
 import { bring, BUNDLE, folderOf, type Folder, type Summary } from "./git.ts";
-import { projectDir, r2Fetch, sha256, type PointExtra, type PointFile, type Why } from "./snap.ts";
+import { projectDir, sha256, storeFetch, type PointExtra, type PointFile, type Why } from "./snap.ts";
 
 const unpack = promisify(zstdDecompress);
 
@@ -48,7 +48,7 @@ async function plan(host: Host, req: Frame): Promise<Plan> {
 }
 
 async function block(hash: string, url: string, host: Host): Promise<Buffer> {
-  const res = await r2Fetch(host, url);
+  const res = await storeFetch(host, url);
   const packed = Buffer.from(await res.arrayBuffer());
   const part = await unpack(packed).catch(() => {
     throw refuse("bad_point", `блок ${hash} не открылся`);

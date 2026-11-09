@@ -67,6 +67,32 @@ describe("набор модулей", () => {
       [m("push", { provides: { "push.send": 1 } }), m("watch", { uses: { "push.key@push": 1 }, imports: ["@switchboard/ghost"] })],
       ["модуль watch: uses push.key@push — push не отдаёт push.key", "модуль watch: импорт @switchboard/ghost — такого модуля нет"],
     ],
+    [
+      "хранилище модулем: две реализации контракта blocks, points зовёт имя контракта — годно",
+      [
+        m("blocks", { type: "contract", provides: { "blocks.links": 1 } }),
+        m("blocks-r2", { implements: "blocks", imports: ["@switchboard/blocks"], config: { BUCKET: "binding" } }),
+        m("blocks-ch", { implements: "blocks", imports: ["@switchboard/blocks"] }),
+        m("points", { uses: { "blocks.links@blocks": 1 } }),
+      ],
+      [],
+    ],
+    [
+      "реализация: своё имя, не контракт, код без контракта; у контракта config",
+      [
+        m("blocks", { type: "contract", provides: { "blocks.links": 1 }, config: { X: "var" } }),
+        m("relay", { provides: { hello: 1 } }),
+        m("blocks-r2", { implements: "blocks", provides: { "blocks.mine": 1 }, imports: ["@switchboard/blocks"] }),
+        m("blocks-ch", { implements: "blocks" }),
+        m("blocks-kv", { implements: "relay", imports: ["@switchboard/relay"] }),
+      ],
+      [
+        "модуль blocks: у модуля-контракта нет config, uses и implements",
+        "модуль blocks-r2: implements blocks — своих provides у реализации нет",
+        "модуль blocks-ch: implements blocks — код не берёт контракт @switchboard/blocks",
+        "модуль blocks-kv: implements relay — не модуль-контракт",
+      ],
+    ],
     ["повтор имени модуля", [m("relay"), m("relay")], ["модуль relay: имя уже занято"]],
     ["секрет в двух модулях; не секрет — можно", [m("gate", { config: { S: "secret", V: "var" } }), m("relay", { config: { S: "secret", V: "var" } })], ["секрет S: в config двух модулей — gate и relay"]],
   ])("%s", (_n, set, want) => {

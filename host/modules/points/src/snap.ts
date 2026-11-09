@@ -1,4 +1,4 @@
-// Снять точку: файлы разговора и пакет git → блоки → points.put → недостающие блоки PUT по ссылкам реестра.
+// Снять точку: файлы разговора и пакет git → блоки → points.put → недостающие блоки PUT по ссылкам хранилища, что отдал реестр.
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -9,10 +9,8 @@ import { CALL_MS } from "@switchboard/protocol";
 import type { Host, Result, Session } from "@switchboard/host";
 import { BUNDLE, snapshot } from "./git.ts";
 
-/** Формат блоков — контракт хранилища: 1 МиБ, отпечаток SHA-256 содержимого, в R2 — zstd. */
+/** Формат блоков — контракт хранилища: до 1 МиБ, отпечаток SHA-256 содержимого, тело по ссылке — zstd. */
 const BLOCK = 1 << 20;
-const EXCHANGES = 10;
-const WORDS = 160;
 const pack = promisify(zstdCompress);
 
 export type PointFile = { p: string; size: number; b: string[] };
@@ -24,26 +22,36 @@ export const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("
 /** Папка проекта рабочей папки: так её называет Claude Code. */
 export const projectDir = (cwd: string) => join(claudeDir(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
 export const conversationOf = (s: Session) => join(projectDir(s.info.cwd), `${s.info.session_id}.jsonl`);
-const r2Failed = (host: Host, why: string) => {
-  host.log({ kind: "refuse", ev: "r2", word: "r2_failed", why });
-  return refuse("r2_failed", why);
+const storeFailed = (host: Host, why: string) => {
+  host.log({ kind: "refuse", ev: "store", word: "store_failed", why });
+  return refuse("store_failed", why);
 };
 
-/** Запрос к R2 по ссылке реестра: сеть или отказ — слово r2_failed. */
-export async function r2Fetch(host: Host, url: string, init: RequestInit = {}): Promise<Response> {
+/** Запрос к хранилищу по ссылке: сеть или отказ — слово store_failed. */
+export async function storeFetch(host: Host, url: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(url, { ...init, signal: AbortSignal.timeout(CALL_MS) }).catch((e) => {
-    throw r2Failed(host, `R2: ${e}`);
+    throw storeFailed(host, `хранилище: ${e}`);
   });
-  if (!res.ok) throw r2Failed(host, `R2 ответил ${res.status}`);
+  if (!res.ok) throw storeFailed(host, `хранилище ответило ${res.status}`);
   return res;
 }
 
+/** Конец блока с off: у разговора — последний перевод строки до 1 МиБ, чтобы каждая строка блока была целой записью; строка длиннее — целиком. */
+function endOf(buf: Buffer, off: number, size: number, lines: boolean): number {
+  const end = Math.min(size, off + BLOCK);
+  if (!lines || end === size) return end;
+  const nl = buf.lastIndexOf(0x0a, end - 1);
+  return nl >= off ? nl + 1 : buf.indexOf(0x0a, end) + 1 || size;
+}
+
 /** Файл блоками; разговор — по последний перевод строки: хвост ещё дописывается. */
-function toBlocks(p: string, buf: Buffer, blocks: Blocks): PointFile {
-  const size = p.endsWith(".jsonl") ? buf.lastIndexOf(0x0a) + 1 : buf.length;
+export function toBlocks(p: string, buf: Buffer, blocks: Blocks): PointFile {
+  const lines = p.endsWith(".jsonl");
+  const size = lines ? buf.lastIndexOf(0x0a) + 1 : buf.length;
   const b: string[] = [];
-  for (let off = 0; off < size; off += BLOCK) {
-    const part = buf.subarray(off, Math.min(size, off + BLOCK));
+  for (let off = 0, end = 0; off < size; off = end) {
+    end = endOf(buf, off, size, lines);
+    const part = buf.subarray(off, end);
     const hash = sha256(part);
     b.push(hash);
     blocks.set(hash, part);
@@ -60,24 +68,31 @@ function conversation(s: Session, blocks: Blocks): PointFile[] {
   return [`${sid}.jsonl`, ...names.sort()].map((p) => toBlocks(p, readFileSync(join(dir, p)), blocks));
 }
 
-const textOf = (m: { message?: { content?: unknown } }) => {
-  const c = m.message?.content;
-  if (typeof c === "string") return c;
-  return Array.isArray(c) ? ((c as Array<{ type?: string; text?: string }>).find((x) => x.type === "text")?.text ?? "") : "";
-};
+type Usage = { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; output_tokens?: number };
+type Said = { type?: string; message?: { id?: string; model?: string; usage?: Usage } };
 
-/** Первые слова: последние обмены вопрос → ответ, обрезанные; сообщений — сколько отдал SDK. */
-async function words(host: Host, s: Session) {
+/**
+ * Сводка сессии в строке точки: заголовок — getSessionInfo SDK, модель последнего ответа и токены основной нити — по ответам модели
+ * (запись одного ответа повторяется на каждый блок содержимого: считается один раз по id); сообщений — сколько отдал SDK.
+ */
+async function summaryOf(host: Host, s: Session) {
   try {
-    const messages = (await s.sdk("getSessionMessages")) as Array<{ type?: string; message?: { content?: unknown } }>;
-    const pairs: string[][] = [];
+    const messages = (await s.sdk("getSessionMessages")) as Said[];
+    const info = (await s.sdk("getSessionInfo")) as { summary?: string } | undefined;
+    const seen = new Set<string>();
+    let tok_in = 0;
+    let tok_out = 0;
+    let model: string | undefined;
     for (const m of messages) {
-      const text = textOf(m).slice(0, WORDS);
-      if (!text) continue;
-      if (m.type === "user") pairs.push([text, ""]);
-      else if (m.type === "assistant" && pairs.length) pairs[pairs.length - 1][1] ||= text;
+      if (m.type !== "assistant" || !m.message?.usage) continue;
+      const { id, usage: u, model: said } = m.message;
+      if (said && said !== "<synthetic>") model = said;
+      if (id && seen.has(id)) continue;
+      if (id) seen.add(id);
+      tok_in += (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+      tok_out += u.output_tokens ?? 0;
     }
-    return { msgs: messages.length, last: pairs.slice(-EXCHANGES) };
+    return { msgs: messages.length, ...(info?.summary ? { title: info.summary } : {}), ...(model ? { model } : {}), tok_in, tok_out };
   } catch (e) {
     host.log({ kind: "note", ev: "messages", callsign: s.info.callsign, why: e instanceof Error ? e.message : String(e) });
     return {};
@@ -85,7 +100,7 @@ async function words(host: Host, s: Session) {
 }
 
 async function upload(host: Host, links: Record<string, string>, blocks: Blocks) {
-  for (const [hash, url] of Object.entries(links)) await r2Fetch(host, url, { method: "PUT", body: new Uint8Array(await pack(blocks.get(hash)!)) });
+  for (const [hash, url] of Object.entries(links)) await storeFetch(host, url, { method: "PUT", body: new Uint8Array(await pack(blocks.get(hash)!)) });
 }
 
 /** Снять точку сессии; ответ реестра — номер и same. Отказ реестра — его словом. */
@@ -98,7 +113,7 @@ export async function snap(host: Host, s: Session, why: Why, extra: PointExtra =
   if (git?.bundle) files.push(toBlocks(BUNDLE, git.bundle, blocks));
   const bytes = files.reduce((n, f) => n + f.size, 0);
   const spec = await host.read("session.spec", { callsign });
-  const frame = { to: ".points", sid, why, files, callsign, dir: cwd, bytes, git: git?.summary, spec: spec.ok ? spec.result : undefined, ...(await words(host, s)), ...extra };
+  const frame = { to: ".points", sid, why, files, callsign, dir: cwd, bytes, git: git?.summary, spec: spec.ok ? spec.result : undefined, ...(await summaryOf(host, s)), ...extra };
   let put: Result = await host.request("points.put", frame);
   if (!put.ok && put.error === "missing") {
     await upload(host, put.links as Record<string, string>, blocks);

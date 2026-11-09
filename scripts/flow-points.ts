@@ -21,7 +21,7 @@ const state = (cs: string) => l.roster?.sessions.find((s) => s.callsign === cs)?
 let copy = "";
 try {
   await wait("связь", () => l.state === "open", 15000);
-  await req({ type: "session.r2", callsign: from, on: true });
+  await req({ type: "session.archive", callsign: from, on: true });
   const saved = await req({ type: "points.save", callsign: from });
   // sid сессии — из обзора флота у points, как у пульта
   const fleet = await req({ type: "points.list", to: ".points" });
@@ -41,7 +41,7 @@ try {
   console.log("points: FAIL ·", (e as Error).message);
   process.exitCode = 1;
 } finally {
-  const off = await l.request({ type: "session.r2", v: 1, callsign: from, on: false });
+  const off = await l.request({ type: "session.archive", v: 1, callsign: from, on: false });
   console.log("снять пометку:", JSON.stringify(off.ok ? off.result : off));
   if (copy) await l.request({ type: "session.remove", v: 1, callsign: copy });
   l.close(1000, "done");

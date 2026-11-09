@@ -9,6 +9,8 @@ export type Manifest = {
   config: Record<string, "secret" | "var" | "binding">;
   /** Корни сборки, в которые модуль входит. */
   into?: string[];
+  /** Модуль-контракт, чьи имена этот модуль исполняет: владелец имён — контракт, во флоте стоит одна его реализация. */
+  implements?: string;
   pkg?: string;
   // Факты кода; их кладёт loadRepo, манифест из каталога или сборки их не несёт.
   /** Пакеты @switchboard, которые импортирует код. */
@@ -28,8 +30,10 @@ const PROTOCOL = "@switchboard/protocol";
 
 export const nameOf = (ref: string) => ref.replace(/@[^@]*$/, "");
 export const ownerOf = (ref: string) => /@([^@]*)$/.exec(ref)?.[1] ?? "";
-/** Чужие владельцы имён из uses: своё имя зависимостью не бывает. */
-const ownersOf = (m: Manifest) => Object.keys(m.uses).map(ownerOf).filter((owner) => owner !== m.name);
+/** Чужие владельцы имён из uses и исполняемый контракт: своё имя зависимостью не бывает. */
+const ownersOf = (m: Manifest) => [...Object.keys(m.uses).map(ownerOf), ...(m.implements ? [m.implements] : [])].filter((owner) => owner !== m.name);
+/** Модуль-контракт: только имена и типы, без кода и выкладки; исполняют его модули с implements. */
+const CONTRACT = "contract";
 
 /** Владелец раньше того, кто им пользуется; из готовых — первый по имени. Цикл не чинит: его называет check. */
 export function order<T extends Manifest>(mods: T[]): T[] {
@@ -118,7 +122,18 @@ function faults(m: Manifest, byName: Map<string, Manifest>, byPkg: Map<string | 
     if (!target) return `into ${root} — такого приложения нет в наборе`;
     return target.type === want ? undefined : `into ${root} — ${root} не ${want}`;
   };
+  /** Реализация отвечает ровно на имена контракта: код берёт CONTRACT его пакета, полноту ключей держит тип. */
+  const implemented = () => {
+    if (m.type === CONTRACT) return Object.keys(m.config).length || Object.keys(m.uses).length || m.implements ? "у модуля-контракта нет config, uses и implements" : undefined;
+    if (!m.implements) return undefined;
+    const target = byName.get(m.implements);
+    if (!target) return `implements ${m.implements} — такого модуля нет в наборе`;
+    if (target.type !== CONTRACT) return `implements ${m.implements} — не модуль-контракт`;
+    if (Object.keys(m.provides).length) return `implements ${m.implements} — своих provides у реализации нет`;
+    return m.imports && !m.imports.includes(target.pkg ?? "") ? `implements ${m.implements} — код не берёт контракт ${target.pkg}` : undefined;
+  };
   return [
+    implemented(),
     ...Object.entries(m.uses).map(uses),
     ...(m.imports ?? []).map(imported),
     ...(m.reach ?? []).map(reached),

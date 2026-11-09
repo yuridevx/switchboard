@@ -1,5 +1,4 @@
-// Worker points: реестр точек, участник рации и прямой вход по адресу.
-// Секрет R2_KEY_SECRET — секрет пары S3 токена R2 бакета точек (id пары — R2_KEY_ID в vars); wrangler secret put из stdin.
+// Worker points: реестр точек, участник рации и прямой вход по адресу. Блоки — в хранилище флота по привязке STORE.
 {
   "name": "switchboard-points",
   "main": "src/index.ts",
@@ -10,23 +9,19 @@
   "services": [
     { "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" },
     // журнал: строки о сессиях точек
-    { "binding": "LEDGER", "service": "switchboard-ledger", "entrypoint": "Participant" }
+    { "binding": "LEDGER", "service": "switchboard-ledger", "entrypoint": "Participant" },
+    // хранилище блоков: одна реализация контракта blocks под именем службы
+    { "binding": "STORE", "service": "switchboard-blocks", "entrypoint": "Blocks" }
   ],
   // уборка раз в сутки: правило хранения и блоки без ссылок
   "triggers": { "crons": ["17 3 * * *"] },
   "preview_urls": false,
   "observability": { "enabled": true },
-  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-points" }],
   // записи модуля — база D1 модуля во флоте
   "d1_databases": [{ "binding": "DB", "database_name": "switchboard-points", "database_id": "b1547083-f378-46a0-ade5-02a137f27ff4", "migrations_dir": "migrations" }],
   // объект реестра ушёл: записи перенесены в базу D1
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Registry"] }, { "tag": "v2", "deleted_classes": ["Registry"] }],
-  "vars": {
-    "CF_ACCOUNT_ID": "e2bbfeb848083376095e5ebbd42dba2e",
-    "R2_KEY_ID": "52ff079797a7b57156228a0ad6e9b30e",
-    "POINTS_BUCKET": "switchboard-points"
-  },
-  // прод: свой бакет точек; R2_KEY_ID — пара токена R2 прода (бакеты switchboard-points-prod и switchboard-releases)
+  // прод: своя база и свои службы
   "env": {
     "prod": {
       // свой домен прода: адрес Worker'а в сборках страниц и keeper.json машин прода
@@ -34,16 +29,11 @@
       "workers_dev": false,
       "services": [
         { "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" },
-        { "binding": "LEDGER", "service": "switchboard-ledger-prod", "entrypoint": "Participant" }
+        { "binding": "LEDGER", "service": "switchboard-ledger-prod", "entrypoint": "Participant" },
+        { "binding": "STORE", "service": "switchboard-blocks-prod", "entrypoint": "Blocks" }
       ],
       "triggers": { "crons": ["17 3 * * *"] },
-      "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-points-prod" }],
-      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-points-prod", "database_id": "344cbc13-9127-48c3-92a0-6078cffc8b30", "migrations_dir": "migrations" }],
-      "vars": {
-        "CF_ACCOUNT_ID": "e2bbfeb848083376095e5ebbd42dba2e",
-        "R2_KEY_ID": "d9a6cd9efef5927581212086e2ff4ede",
-        "POINTS_BUCKET": "switchboard-points-prod"
-      }
+      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-points-prod", "database_id": "344cbc13-9127-48c3-92a0-6078cffc8b30", "migrations_dir": "migrations" }]
     }
   }
 }

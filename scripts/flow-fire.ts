@@ -33,7 +33,7 @@ const turn = async (cs: string, text: string) => {
 };
 
 await wait(() => l.state === "open", 15000);
-if (!rec(CS)?.r2) await req({ type: "session.r2", callsign: CS, on: true });
+if (!rec(CS)?.archive) await req({ type: "session.archive", callsign: CS, on: true });
 const headOf = async () => ((await req({ type: "points.list", to: ".points" })).result.sessions as any[]).find((s) => s.callsign === CS);
 const before = (await headOf())?.head?.id;
 console.log("до пожара:", await turn(CS, "Повтори дословно одно слово: «уголь». Ничего не сохраняй в память."));
@@ -63,7 +63,7 @@ check(`машина ${DEAD} вернулась`, await wait(() => !!roster()?.ma
 check("вернувшаяся машина уступила сессию: прежней копии нет в roster", await wait(() => !rec(CS), 180000), rec(CS));
 check("новая копия жива", rec(NEW)?.state === "idle", rec(NEW)?.state);
 
-await req({ type: "session.r2", callsign: NEW, on: false });
+await req({ type: "session.archive", callsign: NEW, on: false });
 await req({ type: "session.remove", callsign: NEW });
 l.close(1000, "done");
 console.log(fails.length ? `fire: ${fails.length} провалов` : "fire: ok");

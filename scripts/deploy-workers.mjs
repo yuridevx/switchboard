@@ -12,8 +12,10 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WRANGLER = path.join(ROOT, "node_modules", "wrangler", "bin", "wrangler.js");
 /** Настоящая выкладка 5 нояб.: при 45 с wrangler выложил prefs, но не завершился под нагрузкой. */
 const LIMIT_MS = 300_000;
-/** relay смотрит привязками на остальных — последним. */
-const WORKERS = ["gate", "rooms", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
+/** relay смотрит привязками на остальных — последним; хранилище блоков — раньше points, который смотрит на него привязкой. */
+const WORKERS = ["gate", "rooms", "push", "blocks-r2", "blocks-ch", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
+/** Реализации одного модуля-контракта: во флоте стоит одна, под одним именем службы. Какая — у флота. */
+const STORES = ["blocks-r2", "blocks-ch"];
 const WEB = ["phone", "pult"];
 
 const stop = (word) => {
@@ -31,6 +33,8 @@ const upload = flag("--upload");
 if (env !== undefined && env !== "prod") stop("--env — только prod");
 if (upload !== undefined && !/^\d+\.\d+\.\d+$/.test(upload)) stop("--upload <номер вида 1.1.58>");
 const prod = env === "prod";
+/** Хранилище блоков флота: тест и прод — R2, пока у флота нет ClickHouse. */
+const STORE = prod ? "blocks-r2" : "blocks-r2";
 const envArgs = prod ? ["--env", "prod"] : [];
 const tail = prod ? " prod" : "";
 
@@ -46,7 +50,7 @@ if (!CLOUDFLARE_API_TOKEN || !CLOUDFLARE_ACCOUNT_ID) stop("нет CLOUDFLARE_API
 const secrets = {
   push: { VAPID_PRIVATE: "VAPID_PRIVATE" },
   rooms: { TELEGRAM_BOT_TOKEN: prod ? "PROD_TELEGRAM_BOT_TOKEN" : "TELEGRAM_BOT_TOKEN" },
-  points: { R2_KEY_SECRET: prod ? "PROD_R2_SECRET_ACCESS_KEY" : "R2_SECRET_ACCESS_KEY" },
+  "blocks-r2": { R2_KEY_SECRET: prod ? "PROD_R2_SECRET_ACCESS_KEY" : "R2_SECRET_ACCESS_KEY" },
   releases: { CLOUDFLARE_API_TOKEN: "CLOUDFLARE_API_TOKEN", R2_LINK_KEY_ID: "R2_ACCESS_KEY_ID", R2_LINK_SECRET: "R2_SECRET_ACCESS_KEY" },
 };
 
@@ -70,8 +74,11 @@ async function hookRooms() {
   console.log("rooms: вебхук зарегистрирован");
 }
 
+/** Флот без чужой реализации контракта: вторая на то же имя службы подменила бы первую. */
+const fleetWorkers = WORKERS.filter((w) => !STORES.includes(w) || w === STORE);
+
 if (upload) {
-  for (const name of WORKERS) {
+  for (const name of fleetWorkers) {
     console.log(`=== workers/${name} ${upload}${tail} ===`);
     wrangler(`workers/${name}`, ["versions", "upload"], ["--tag", upload, "--message", upload]);
   }
@@ -79,7 +86,9 @@ if (upload) {
   process.exit(0);
 }
 
-const named = args.length ? args : WORKERS;
+const named = args.length ? args : fleetWorkers;
+const foreign = named.filter((w) => STORES.includes(w) && w !== STORE);
+if (foreign.length) stop(`${foreign.join(", ")}: хранилище флота${tail || " test"} — ${STORE}, вторая реализация контракта blocks на то же имя службы не выкладывается`);
 const workers = WORKERS.filter((w) => named.includes(w));
 const web = WEB.filter((w) => named.includes(w));
 for (const w of workers) for (const from of Object.values(secrets[w] ?? {})) if (!known[from]) stop(`нет секрета ${from}`);

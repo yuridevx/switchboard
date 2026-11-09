@@ -1,24 +1,22 @@
 {
   "name": "points",
   "type": "worker",
-  "version": "1.1.3",
+  "version": "1.2.0",
   "provides": {
-    "points.put": 2,
+    "points.put": 3,
     "points.get": 2,
-    "points.list": 1,
+    "points.list": 2,
     "points.delete": 1
   },
   "uses": {
     "ledger.add@ledger": 1,
-    "release.format@release": 1,
-    "gate.verify@gate": 1
+    "gate.verify@gate": 1,
+    "blocks.links@blocks": 1,
+    "blocks.drop@blocks": 1,
+    "blocks.search@blocks": 1
   },
   "config": {
-    "R2_KEY_SECRET": "secret",
-    "CF_ACCOUNT_ID": "var",
-    "R2_KEY_ID": "var",
-    "POINTS_BUCKET": "var",
-    "BUCKET": "binding",
+    "STORE": "binding",
     "GATE": "binding",
     "DB": "binding",
     "LEDGER": "binding"

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { claudeDir, stand } from "@switchboard/host";
 import type { Frame, Session } from "@switchboard/host";
 import { bench, BLOCK, FakeRegistry, tmpHome } from "./bench.ts";
+import { toBlocks } from "../src/snap.ts";
 import type { Bench } from "./bench.ts";
 
 const { msg, turn, until } = stand;
@@ -51,7 +52,7 @@ const git = (cwd: string, ...a: string[]) => execFileSync("git", a, { cwd, env: 
 async function marked(cs = "site@laptop", buf = conv(20)): Promise<Session> {
   const s = await b!.st.open(cs, { module: "host-points" });
   write(s.info.cwd, s.info.session_id, buf);
-  const r = await ask({ type: "session.r2", callsign: cs, on: true });
+  const r = await ask({ type: "session.archive", callsign: cs, on: true });
   expect(r.ok).toBe(true);
   return s;
 }
@@ -63,7 +64,7 @@ function at(ms: number, base: number) {
 }
 
 describe("эталоны points", () => {
-  it("5548 · чтение разговора бросило при снятии точки: точка снята без msgs и last, причина в журнале, points не выключен", async () => {
+  it("5548 · чтение разговора бросило при снятии точки: точка снята без msgs и сводки, причина в журнале, points не выключен", async () => {
     // чьё: код — points.ts snapOnce: msgs необязательны
     b = await bench({ home });
     await marked();
@@ -79,7 +80,8 @@ describe("эталоны points", () => {
     expect(r.result.point).toBeTypeOf("number");
     const put = puts().at(-1)!;
     expect(put.msgs).toBeUndefined();
-    expect(put.last).toBeUndefined();
+    expect(put.title).toBeUndefined();
+    expect(put.tok_in).toBeUndefined();
     expect(b.st.journal()).toContainEqual(expect.objectContaining({ kind: "note", ev: "messages", why: "файл разговора не читается" }));
     expect((await ask({ type: "points.save", callsign: "site@laptop" })).ok).toBe(true);
   });
@@ -153,7 +155,8 @@ describe("эталоны points", () => {
     writeFileSync(fileOf(s.info.cwd, s.info.session_id), Buffer.concat([Buffer.alloc(100, 0x20), now]));
     const n1 = b.reg.r2puts.length;
     await ask({ type: "points.save", callsign: "site@laptop" });
-    const blocks = Math.ceil((now.length + 100) / BLOCK);
+    const blocks = (puts("save").at(-1)!.files as Array<{ b: string[] }>)[0].b.length;
+    expect(blocks).toBeGreaterThanOrEqual(6);
     expect(b.reg.r2puts.length - n1).toBe(blocks);
   });
 
@@ -186,8 +189,8 @@ describe("эталоны points", () => {
     expect(b.remote).toEqual([expect.objectContaining({ type: "session.remove", callsign: "site@laptop" })]);
     expect(r.result).toMatchObject({ callsign: "site@pc", point: b.reg.sessions.get(SID)!.head, folder: "nogit" });
     b.st.proc("site@pc").send(msg.state("idle"));
-    await until(() => last("site@pc").r2 !== undefined);
-    expect(last("site@pc").r2).toEqual({});
+    await until(() => last("site@pc").archive !== undefined);
+    expect(last("site@pc").archive).toEqual({});
   });
 
   it("214 · manage на pc ответил open_failed — точки подъёма нет, на laptop session.start, ответ open_failed", async () => {
@@ -301,7 +304,7 @@ describe("эталоны points", () => {
     b = null;
   });
 
-  it("218 · сессия без пометки: ходы, закрытие, перезапуск — ни одного put; points.save — not_r2; поля r2 нет", async () => {
+  it("218 · сессия без пометки: ходы, закрытие, перезапуск — ни одного put; points.save — not_archived; поля archive нет", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: Date.UTC(2026, 9, 31, 14, 0) });
     b = await bench({ home });
     const s = await b.st.open("board@laptop", { module: "host-points" });
@@ -315,38 +318,38 @@ describe("эталоны points", () => {
     await s.restart();
     await s.stop();
     const r = await ask({ type: "points.save", callsign: "board@laptop" });
-    expect(r).toMatchObject({ ok: false, error: "not_r2" });
+    expect(r).toMatchObject({ ok: false, error: "not_archived" });
     expect(b.reg.puts).toEqual([]);
     expect(b.reg.r2puts).toEqual([]);
-    expect(b.st.states("board@laptop").every((f) => !("r2" in f))).toBe(true);
+    expect(b.st.states("board@laptop").every((f) => !("archive" in f))).toBe(true);
   });
 
-  it("250 · пометка: поставили — точка сразу и по правилу; сняли — точки удалены из R2, правило молчит", async () => {
+  it("250 · пометка: поставили — точка сразу и по правилу; сняли — точки удалены из архива, правило молчит", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: Date.UTC(2026, 9, 31, 14, 0) });
     b = await bench({ home });
     const s = await b.st.open("site@laptop", { module: "host-points" });
     write(s.info.cwd, s.info.session_id, conv(4));
-    const r = await ask({ type: "session.r2", callsign: "site@laptop", on: true });
+    const r = await ask({ type: "session.archive", callsign: "site@laptop", on: true });
     expect(r.result).toEqual({ point: b.reg.sessions.get(s.info.session_id)!.head });
     expect(b.reg.puts.map((x) => x.result)).toEqual(["missing", "ok"]); // missing → блоки → точка
-    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site@laptop"]).toEqual({ r2: true });
+    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site@laptop"]).toEqual({});
     vi.advanceTimersByTime(GAP_MS + 1000);
     b.st.proc("site@laptop").send(msg.state("running"));
     appendFileSync(fileOf(s.info.cwd, s.info.session_id), line(77));
     turn(b.st.proc("site@laptop"));
     await until(() => puts("rule").length >= 1);
-    await until(() => last("site@laptop").r2 !== undefined);
-    expect(last("site@laptop").r2).toEqual({});
-    const off = await ask({ type: "session.r2", callsign: "site@laptop", on: false });
+    await until(() => last("site@laptop").archive !== undefined);
+    expect(last("site@laptop").archive).toEqual({});
+    const off = await ask({ type: "session.archive", callsign: "site@laptop", on: false });
     expect(off.result.deleted).toBeGreaterThan(0);
     expect(b.reg.deletes[0]).toMatchObject({ sid: s.info.session_id, to: ".points", by: "panel-desk~owner@example.com" });
-    expect(b.st.journal()).toContainEqual(expect.objectContaining({ ev: "r2_off", callsign: "site@laptop", why: "site@laptop: пометка «в R2» снята, точки удалены из R2" }));
+    expect(b.st.journal()).toContainEqual(expect.objectContaining({ ev: "archive_off", callsign: "site@laptop", why: "site@laptop: пометка «в архиве» снята, точки удалены из архива" }));
     expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions?.["site@laptop"]).toBeUndefined();
     const n = b.reg.puts.length;
     vi.advanceTimersByTime(GAP_MS + 1000);
     b.st.proc("site@laptop").send(msg.state("running"));
     turn(b.st.proc("site@laptop"));
-    await until(() => last("site@laptop").state === "idle" && !("r2" in last("site@laptop")));
+    await until(() => last("site@laptop").state === "idle" && !("archive" in last("site@laptop")));
     expect(b.reg.puts.length).toBe(n);
   });
 
@@ -363,7 +366,7 @@ describe("эталоны points", () => {
     const c = b.st.session("host-points", "site2@laptop")!;
     expect(c.info.cwd).toBe(dir);
     // точка подъёма копии — на первом конце хода, когда claude записал файл нового разговора
-    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site2@laptop"]).toEqual({ r2: true, base: point });
+    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site2@laptop"]).toEqual({ base: point });
     writeFileSync(fileOf(dir, c.info.session_id), conv(11));
     b.st.proc("site2@laptop").send(msg.state("running"));
     await until(() => c.state === "busy");
@@ -459,11 +462,11 @@ describe("points: ветки и стыки", () => {
     b.reg.refuseNext = { error: "disconnected" };
     expect(await ask({ type: "points.save", callsign: "site@laptop" })).toMatchObject({ ok: false, error: "disconnected" });
     b.st.proc("site@laptop").send(msg.state("idle"));
-    await until(() => (last("site@laptop").r2 as { error?: string; at?: number })?.error === "disconnected" && typeof (last("site@laptop").r2 as { at?: number }).at === "number");
+    await until(() => (last("site@laptop").archive as { error?: string; at?: number })?.error === "disconnected" && typeof (last("site@laptop").archive as { at?: number }).at === "number");
     appendFileSync(fileOf(s.info.cwd, s.info.session_id), line(5));
     expect((await ask({ type: "points.save", callsign: "site@laptop" })).ok).toBe(true);
     b.st.proc("site@laptop").send(msg.assistant("x"));
-    await until(() => JSON.stringify(last("site@laptop").r2) === "{}");
+    await until(() => JSON.stringify(last("site@laptop").archive) === "{}");
   });
 
   it("снимок git: свои правки — пакет из временного индекса, индекс папки не тронут; подъём в пустую папку — клон и ветка points-…", async () => {
@@ -484,7 +487,7 @@ describe("points: ветки и стыки", () => {
     b = await bench({ home });
     const s = await b.st.open("site@laptop", { module: "host-points", cwd: work });
     write(work, s.info.session_id, conv(3));
-    await ask({ type: "session.r2", callsign: "site@laptop", on: true });
+    await ask({ type: "session.archive", callsign: "site@laptop", on: true });
     expect(git(work, "status", "--porcelain")).toBe(idx);
     expect(git(work, "for-each-ref", "refs/points")).toBe("");
     const pt = puts("save").at(-1)!;
@@ -508,31 +511,50 @@ describe("points: ветки и стыки", () => {
 });
 
 describe("поля точки", () => {
-  it("строка точки: sid, повод, callsign, папка, байты, спецификация; файлы — разговор и файлы рядом, блоками; «первые слова» — 10 последних обменов по 160 знаков, сообщений столько, сколько отдал SDK", async () => {
+  it("строка точки: sid, повод, callsign, папка, байты, спецификация; файлы — разговор и файлы рядом, блоками; сводка — заголовок getSessionInfo, модель последнего ответа, токены по ответу один раз; сообщений столько, сколько отдал SDK", async () => {
     b = await bench({ home });
+    const usage = { input_tokens: 10, cache_creation_input_tokens: 100, cache_read_input_tokens: 1000, output_tokens: 7 };
     const messages = Array.from({ length: 12 }, (_, i) => [
       { type: "user", message: { content: `вопрос ${i}` } },
-      { type: "assistant", message: { content: [{ type: "text", text: "о".repeat(200) }, { type: "tool_use" }] } },
-      { type: "user", message: { content: [{ type: "tool_result" }] } },
+      // один ответ модели — две записи (текст и инструмент) с одним id и одним usage
+      { type: "assistant", message: { id: `msg_${i}`, model: i < 11 ? "claude-sonnet-5-5" : "claude-opus-5-5", usage, content: [{ type: "text", text: "о".repeat(200) }] } },
+      { type: "assistant", message: { id: `msg_${i}`, model: i < 11 ? "claude-sonnet-5-5" : "claude-opus-5-5", usage, content: [{ type: "tool_use" }] } },
     ]).flat();
-    b.st.sdk.functions = { getSessionInfo: async () => ({}), importSessionToStore: async () => {}, getSessionMessages: async () => messages } as never;
+    b.st.sdk.functions = { getSessionInfo: async () => ({ summary: "Перенеси журнал" }), importSessionToStore: async () => {}, getSessionMessages: async () => messages } as never;
     const s = await b.st.open("site@laptop", { module: "host-points" });
     write(s.info.cwd, s.info.session_id, conv(3));
     const sideDir = join(projectDir(s.info.cwd), s.info.session_id, "subagents");
     mkdirSync(sideDir, { recursive: true });
     writeFileSync(join(sideDir, "a.jsonl"), "{}\n");
-    await ask({ type: "session.r2", callsign: "site@laptop", on: true });
+    await ask({ type: "session.archive", callsign: "site@laptop", on: true });
     const p = puts("save").at(-1)!;
     const files = p.files as Array<{ p: string; size: number; b: string[] }>;
     expect(files.map((x) => x.p)).toEqual([`${s.info.session_id}.jsonl`, `${s.info.session_id}/subagents/a.jsonl`]);
     expect(p).toMatchObject({ sid: s.info.session_id, why: "save", callsign: "site@laptop", dir: s.info.cwd, bytes: conv(3).length + 3, spec: { title: "Сайт" }, to: ".points" });
     expect(p.git).toBeUndefined();
     expect(b.reg.bytes(b.reg.sessions.get(s.info.session_id)!.head, files[0].p)).toEqual(conv(3));
-    expect(p.msgs).toBe(36);
-    const last = p.last as string[][];
-    expect(last).toHaveLength(10);
-    expect(last[0][0]).toBe("вопрос 2");
-    expect(last[9][1]).toHaveLength(160);
+    expect([p.msgs, p.title, p.model, p.tok_in, p.tok_out]).toEqual([36, "Перенеси журнал", "claude-opus-5-5", 12 * 1110, 12 * 7]);
+    expect(p).not.toHaveProperty("last");
+  });
+
+  it("37 · файл разговора — блоками по переводу строки: каждая строка каждого блока — целая запись, строка длиннее блока — целиком в одном блоке", async () => {
+    const lines = [...Array.from({ length: 30_000 }, (_, i) => JSON.stringify({ type: "user", n: i, text: "п".repeat(i % 97) })), JSON.stringify({ big: "x".repeat(BLOCK + 5000) }), '{"tail":1}'];
+    const buf = Buffer.from(`${lines.join("\n")}\n`);
+    const blocks = new Map<string, Buffer>();
+    const f = toBlocks("s.jsonl", buf, blocks);
+    const parts = f.b.map((h) => blocks.get(h)!);
+    expect(Buffer.concat(parts).equals(buf)).toBe(true);
+    const broken = parts.flatMap((x) => x.toString("utf8").split("\n").filter(Boolean)).filter((l) => {
+      try {
+        JSON.parse(l);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    expect(broken).toHaveLength(0);
+    expect(parts.every((x) => x.at(-1) === 0x0a)).toBe(true);
+    expect(parts.filter((x) => x.length > BLOCK)).toHaveLength(1);
   });
 
 });
@@ -542,12 +564,12 @@ describe("points: покрытие плана host-modules", () => {
     // источник: опыт на настоящем SDK 5 нояб. — до первого сообщения файла разговора нет: экран новой сессии показывал «в R2 не включилось»
     b = await bench({ home });
     const s = await b.st.open("site@laptop", { module: "host-points" });
-    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: true, result: { point: null } });
-    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site@laptop"]).toEqual({ r2: true });
+    expect(await ask({ type: "session.archive", callsign: "site@laptop", on: true })).toMatchObject({ ok: true, result: { point: null } });
+    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site@laptop"]).toEqual({});
     expect(b.reg.puts).toEqual([]);
     const p = b.st.proc("site@laptop");
     p.send(msg.state("idle"));
-    await until(() => JSON.stringify(last("site@laptop").r2) === "{}");
+    await until(() => JSON.stringify(last("site@laptop").archive) === "{}");
     write(s.info.cwd, s.info.session_id, conv(2));
     p.send(msg.state("running"));
     await until(() => s.state === "busy");
@@ -558,36 +580,36 @@ describe("points: покрытие плана host-modules", () => {
   it("3082 · сохранение помеченной без файла разговора — отказ no_file, поле r2 { error, at }", async () => {
     b = await bench({ home });
     const s = await b.st.open("site@laptop", { module: "host-points" });
-    await ask({ type: "session.r2", callsign: "site@laptop", on: true });
+    await ask({ type: "session.archive", callsign: "site@laptop", on: true });
     expect(await ask({ type: "points.save", callsign: s.info.callsign })).toMatchObject({ ok: false, error: "no_file" });
     b.st.proc("site@laptop").send(msg.state("idle"));
-    await until(() => (last("site@laptop").r2 as { error?: string })?.error === "no_file");
+    await until(() => (last("site@laptop").archive as { error?: string })?.error === "no_file");
     expect(b.st.journal().some((l) => l.ev === "point" && l.kind === "refuse" && l.word === "no_file")).toBe(true);
   });
 
   it("3083 · отказ словом: сессии нет — offline; points.delete отказал — пометка стоит", async () => {
     // источник: чьё: код (points.ts:299, :307, :317)
     b = await bench({ home });
-    expect(await ask({ type: "session.r2", callsign: "nope@laptop", on: true })).toMatchObject({ ok: false, error: "offline" });
+    expect(await ask({ type: "session.archive", callsign: "nope@laptop", on: true })).toMatchObject({ ok: false, error: "offline" });
     expect(await ask({ type: "points.save", callsign: "nope@laptop" })).toMatchObject({ ok: false, error: "offline" });
     await marked();
     const orig = b.reg.handle.bind(b.reg);
     b.reg.handle = (f, m) => (f.type === "points.delete" ? { ok: false, error: "not_owner" } : orig(f, m));
-    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: false })).toMatchObject({ ok: false, error: "not_owner" });
-    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site@laptop"]).toMatchObject({ r2: true });
+    expect(await ask({ type: "session.archive", callsign: "site@laptop", on: false })).toMatchObject({ ok: false, error: "not_owner" });
+    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site@laptop"]).toEqual({});
   });
 
   it.each([
     ["3115 · сеть до R2 оборвалась", (x: FakeRegistry) => void (x.netDown = true)],
-  ])("%s при сохранении — r2_failed, строка журнала, поле r2 { error }", async (_n, down) => {
+  ])("%s при сохранении — store_failed, строка журнала, поле archive { error }", async (_n, down) => {
     b = await bench({ home });
     const s = await b.st.open("site@laptop", { module: "host-points" });
     write(s.info.cwd, s.info.session_id, conv(4));
     down(b.reg);
-    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: false, error: "r2_failed" });
-    expect(b.st.journal().some((l) => l.ev === "r2" && l.word === "r2_failed")).toBe(true);
+    expect(await ask({ type: "session.archive", callsign: "site@laptop", on: true })).toMatchObject({ ok: false, error: "store_failed" });
+    expect(b.st.journal().some((l) => l.ev === "store" && l.word === "store_failed")).toBe(true);
     b.st.proc("site@laptop").send(msg.state("idle"));
-    await until(() => (last("site@laptop").r2 as { error?: string })?.error === "r2_failed");
+    await until(() => (last("site@laptop").archive as { error?: string })?.error === "store_failed");
   });
 
   it.each([
@@ -599,7 +621,7 @@ describe("points: покрытие плана host-modules", () => {
     const row = b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
     down(b.reg, row.files[0].b[0]);
     const dir = join(home, "Projects", "site");
-    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point" })).toMatchObject({ ok: false, error: "r2_failed" });
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point" })).toMatchObject({ ok: false, error: "store_failed" });
     expect(existsSync(fileOf(dir, SID))).toBe(false);
     expect(b.st.journal().some((l) => l.ev === "module_failed")).toBe(false);
     b.reg.netDown = false;
@@ -645,7 +667,7 @@ describe("points: покрытие плана host-modules", () => {
     expect(existsSync(fileOf(s.info.cwd, open.resume as string))).toBe(false);
   });
 
-  it.each(["points.save", "session.r2"])("%s без callsign: отказ offline, модуль на машине работает дальше", async (type) => {
+  it.each(["points.save", "session.archive"])("%s без callsign: отказ offline, модуль на машине работает дальше", async (type) => {
     // чьё: код — прежний sessionOf: сессии нет — offline; вход рации: кадр доходит по machine от любого пропуска
     b = await bench({ home });
     await marked();
@@ -865,7 +887,7 @@ describe("папка подъёма и git", () => {
     b = await bench({ home });
     const s = await b.st.open("site@laptop", { module: "host-points", cwd: work });
     write(work, s.info.session_id, conv(5));
-    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: true, result: { point: expect.any(Number) } });
+    expect(await ask({ type: "session.archive", callsign: "site@laptop", on: true })).toMatchObject({ ok: true, result: { point: expect.any(Number) } });
     expect(puts("save").at(-1)!.git).toMatchObject({ state: "dirty", snap: expect.any(String) });
   });
 
@@ -883,7 +905,7 @@ describe("папка подъёма и git", () => {
     b = await bench({ home });
     const s = await b.st.open("site@laptop", { module: "host-points", cwd: work });
     write(work, s.info.session_id, conv(3));
-    await ask({ type: "session.r2", callsign: "site@laptop", on: true });
+    await ask({ type: "session.archive", callsign: "site@laptop", on: true });
     const pt = puts("save").at(-1)!;
     expect(pt.git).toMatchObject({ state: "clean", files: 0, unpushed: 1, url: origin, commit: head, snap: head });
     expect((pt.files as Array<{ p: string }>).map((x) => x.p)).toContain("git.bundle");

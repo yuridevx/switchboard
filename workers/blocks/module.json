@@ -1,0 +1,10 @@
+{
+  "name": "blocks",
+  "type": "contract",
+  "version": "1.0.0",
+  "provides": {
+    "blocks.links": 1,
+    "blocks.drop": 1,
+    "blocks.search": 1
+  }
+}

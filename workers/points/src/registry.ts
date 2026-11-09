@@ -1,7 +1,6 @@
-// Реестр точек: кадр → запрос в D1 → ответ. Байтов точек Worker не видит: блоки машина кладёт и берёт по ссылкам.
+// Реестр точек: кадр → запрос в D1 → ответ. Байтов точек Worker не видит: блоки машина кладёт и берёт по ссылкам хранилища флота.
 import { accepts, fail, kindOf, machineOf, nameOf, ok, within, type Frame } from "@switchboard/protocol";
-import { presign } from "@switchboard/release";
-import { CONTRACT, type Point, type PointFile, type Why } from "../contract.ts";
+import { CONTRACT, type Hit, type Listed, type Point, type PointFile, type Why } from "../contract.ts";
 import type { Env } from "./env.ts";
 import { expiries, lineOf, YEAR, type Node } from "./retention.ts";
 
@@ -19,17 +18,30 @@ class Refusal extends Error {
 /** Журнал — Workers Logs, строка JSON в общем формате журналов. Ключей здесь нет. */
 const log = (row: Record<string, unknown>) => console.log(JSON.stringify({ t: new Date().toISOString(), part: "points", ...row }));
 
-type Row = { id: number; sid: string; machine: string; at: number; why: Why; base: number | null; callsign: string | null; dir: string | null; msgs: number | null; bytes: number | null; git: string | null; files: string; spec: string | null; last: string | null };
+type Row = {
+  id: number; sid: string; machine: string; at: number; why: Why; base: number | null; callsign: string | null; dir: string | null; msgs: number | null; bytes: number | null;
+  git: string | null; files: string; spec: string | null; title: string | null; model: string | null; tok_in: number | null; tok_out: number | null;
+};
 type SessionRow = { owner: string; head: number };
 
 const WHY = new Set(["rule", "save", "start", "raise", "yield"]);
-const HASH = /^[0-9a-f]{1,64}$/;
-const R2_BATCH = 1000;
+const HASH = /^[0-9a-f]{64}$/;
+/** Каталог и поиск: сессий в ответе по умолчанию. */
+const LIMIT = 50;
+/** Отрывок совпадения: знаков до и после. */
+const AROUND = 60;
 
-const key = (hash: string) => `f/${hash}`;
-const link = (env: Env, method: "GET" | "PUT", hash: string) =>
-  presign({ accessKeyId: env.R2_KEY_ID, secretAccessKey: env.R2_KEY_SECRET }, { method, host: `${env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`, path: `/${env.POINTS_BUCKET}/${key(hash)}` });
-const links = async (env: Env, method: "GET" | "PUT", hashes: string[]) => Object.fromEntries(await Promise.all(hashes.map(async (h) => [h, await link(env, method, h)])));
+/** Запрос к хранилищу флота по привязке: отказ — его словом, молчание или сбой — store_failed. */
+async function store<T>(env: Env, f: Record<string, unknown>): Promise<T> {
+  const out = await within(env.STORE.frame({ id: "s", v: 1, ...f } as Frame), "хранилище не ответило").catch((e) => {
+    throw new Refusal("store_failed", `${f.type}: ${e}`);
+  });
+  const r = out[0] as Frame & { ok?: boolean; result?: T; error?: string };
+  if (!r?.ok) throw new Refusal(r?.error ?? "store_failed", `${f.type}: хранилище отказало ${r?.error ?? "без ответа"}`);
+  return r.result as T;
+}
+type Linked = { have?: Record<string, number>; links: Record<string, string> };
+const links = async (env: Env, method: "GET" | "PUT", hashes: string[]): Promise<Linked> => (hashes.length ? store<Linked>(env, { type: "blocks.links", method, hashes }) : { have: {}, links: {} });
 
 const hashesOf = (files: PointFile[]) => [...new Set(files.flatMap((f) => f.b))];
 const present = <T extends object>(o: T) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined));
@@ -48,13 +60,14 @@ async function ledger(env: Env, row: { ev: string; text: string; machine: string
   await within(env.LEDGER.frame(line), "журнал флота не ответил").catch((e) => log({ kind: "refuse", ev: "ledger.add", word: "offline", why: `${row.text}: ${e}` }));
 }
 
-/** Блоки без единой ссылки уходят из R2 и из реестра; чужих объектов бакета уборка не знает. */
+/** Блоки без единой ссылки уходят из хранилища одним запросом и из реестра; чужих блоков уборка не знает. */
 async function dropOrphans(env: Env): Promise<{ blocks: number; bytes: number }> {
-  const { results } = await env.DB.prepare("SELECT hash, size FROM blocks WHERE hash NOT IN (SELECT hash FROM refs)").all<{ hash: string; size: number }>();
+  const { results } = await env.DB.prepare("SELECT hash FROM blocks WHERE hash NOT IN (SELECT hash FROM refs)").all<{ hash: string }>();
   const hashes = results.map((r) => r.hash);
-  for (let i = 0; i < hashes.length; i += R2_BATCH) await env.BUCKET.delete(hashes.slice(i, i + R2_BATCH).map(key));
+  if (!hashes.length) return { blocks: 0, bytes: 0 };
+  const dropped = await store<{ blocks: number; bytes: number }>(env, { type: "blocks.drop", hashes });
   await env.DB.prepare("DELETE FROM blocks WHERE hash IN (SELECT value FROM json_each(?))").bind(JSON.stringify(hashes)).run();
-  return { blocks: hashes.length, bytes: results.reduce((n, r) => n + r.size, 0) };
+  return dropped;
 }
 
 function checkPut(f: Frame): { machine: string; sid: string; why: Why; files: PointFile[]; base?: number } {
@@ -69,12 +82,12 @@ function checkPut(f: Frame): { machine: string; sid: string; why: Why; files: Po
   return { machine: machineOf(from as string)!, sid, why: why as Why, files, base };
 }
 
-/** Каких блоков нет в реестре и в R2; те, что нашлись в R2, — новые строки блоков. */
+/** Блоки, которых нет в реестре, — одним blocks.links PUT: лежащие (have) — новые строки блоков, на остальные — ссылки PUT. */
 async function blocksOf(env: Env, hashes: string[]) {
   const { results } = await env.DB.prepare("SELECT hash FROM blocks WHERE hash IN (SELECT value FROM json_each(?))").bind(JSON.stringify(hashes)).all<{ hash: string }>();
   const known = new Set(results.map((r) => r.hash));
-  const heads = await Promise.all(hashes.filter((h) => !known.has(h)).map(async (hash) => ({ hash, object: await env.BUCKET.head(key(hash)) })));
-  return { missing: heads.filter((x) => !x.object).map((x) => x.hash), fresh: heads.flatMap((x) => (x.object ? [{ hash: x.hash, size: x.object.size }] : [])) };
+  const { have = {}, links: put } = await links(env, "PUT", hashes.filter((h) => !known.has(h)));
+  return { put, fresh: Object.entries(have).map(([hash, size]) => ({ hash, size })) };
 }
 
 function checkOwner(session: SessionRow, owner: unknown) {
@@ -106,16 +119,17 @@ const REQUESTS: Record<keyof typeof CONTRACT, (env: Env, f: Frame) => Promise<un
     const text = JSON.stringify(files);
     if (why !== "raise" && own?.files === text) return { id: own.id, same: true };
 
-    const { missing, fresh } = await blocksOf(env, hashesOf(files));
-    if (missing.length) throw new Refusal("missing", `нет блоков: ${missing.length}`, { missing, links: await links(env, "PUT", missing) });
+    const { put, fresh } = await blocksOf(env, hashesOf(files));
+    const missing = Object.keys(put);
+    if (missing.length) throw new Refusal("missing", `нет блоков: ${missing.length}`, { missing, links: put });
 
     const json = (x: unknown) => (x === undefined ? null : JSON.stringify(x));
     const value = (x: unknown) => x ?? null;
     const [, inserted] = await db.batch<{ id: number }>([
       db.prepare("INSERT OR IGNORE INTO blocks (hash, size) SELECT json_extract(value, '$.hash'), json_extract(value, '$.size') FROM json_each(?)").bind(JSON.stringify(fresh)),
       db
-        .prepare("INSERT INTO points (sid, machine, at, why, base, callsign, dir, msgs, bytes, git, files, spec, last) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
-        .bind(sid, machine, Date.now(), why, base ?? own?.id ?? null, value(f.callsign), value(f.dir), value(f.msgs), value(f.bytes), json(f.git), text, json(f.spec), json(f.last)),
+        .prepare("INSERT INTO points (sid, machine, at, why, base, callsign, dir, msgs, bytes, git, files, spec, title, model, tok_in, tok_out) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
+        .bind(sid, machine, Date.now(), why, base ?? own?.id ?? null, value(f.callsign), value(f.dir), value(f.msgs), value(f.bytes), json(f.git), text, json(f.spec), value(f.title), value(f.model), value(f.tok_in), value(f.tok_out)),
       db.prepare("INSERT INTO refs (point, hash) SELECT (SELECT MAX(id) FROM points), value FROM json_each(?)").bind(JSON.stringify(hashesOf(files))),
       ...(yielding ? [] : [db.prepare("INSERT INTO sessions (sid, owner, head) VALUES (?, ?, (SELECT MAX(id) FROM points)) ON CONFLICT (sid) DO UPDATE SET owner = excluded.owner, head = excluded.head").bind(sid, machine)]),
     ]);
@@ -133,11 +147,11 @@ const REQUESTS: Record<keyof typeof CONTRACT, (env: Env, f: Frame) => Promise<un
     if (absent.length) throw new Refusal("no_point", `нет точек: ${absent.join(", ")}`, { ids: absent });
     const points = results.map(toPoint);
     const session = await sessionOf(env.DB, points[0].sid);
-    return { owner: session?.owner ?? null, points, ...(kindOf(from) === "machine" ? { links: await links(env, "GET", hashesOf(points.flatMap((p) => p.files))) } : {}) };
+    return { owner: session?.owner ?? null, points, ...(kindOf(from) === "machine" ? { links: (await links(env, "GET", hashesOf(points.flatMap((p) => p.files)))).links } : {}) };
   },
 
   async "points.list"(env, f) {
-    return typeof f.sid === "string" ? sessionLine(env.DB, f.sid) : fleet(env.DB);
+    return typeof f.sid === "string" ? sessionLine(env.DB, f.sid) : catalog(env, f);
   },
 
   async "points.delete"(env, f) {
@@ -158,40 +172,92 @@ const REQUESTS: Record<keyof typeof CONTRACT, (env: Env, f: Frame) => Promise<un
     const callsign = head?.callsign ?? sid;
     const by = f.by ?? from;
     log({ kind: "note", ev: "points.delete", sid, by, points, ...dropped });
-    await ledger(env, { ev: "session.deleted", text: `${shortName(callsign)} удалена из R2 · ${points} точек`, machine: session.owner, callsign, by });
+    await ledger(env, { ev: "session.deleted", text: `${shortName(callsign)} удалена из архива · ${points} точек`, machine: session.owner, callsign, by });
     return { points, ...dropped };
   },
 };
 
 function toPoint(r: Row): Point {
-  const { git, files, spec, last, ...rest } = r;
-  return { ...present(rest), base: r.base, files: JSON.parse(files), ...present({ git: parsed(git), spec: parsed(spec), last: parsed(last) }) } as Point;
+  const { git, files, spec, ...rest } = r;
+  return { ...present(rest), base: r.base, files: JSON.parse(files), ...present({ git: parsed(git), spec: parsed(spec) }) } as Point;
 }
 
 async function sessionLine(db: D1Database, sid: string) {
   const session = await sessionOf(db, sid);
   if (!session) return { owner: null, head: null, points: [] };
-  const { results } = await db.prepare("SELECT id, machine, at, why, base, callsign, dir, msgs, bytes, git FROM points WHERE sid = ? ORDER BY id DESC").bind(sid).all<Node & Pick<Row, "git">>();
+  const { results } = await db.prepare("SELECT id, machine, at, why, base, callsign, dir, msgs, bytes, git, title, model, tok_in, tok_out FROM points WHERE sid = ? ORDER BY id DESC").bind(sid).all<Node & Pick<Row, "git">>();
   const line = lineOf(results, session.head);
   const until = expiries(results, session.head);
   const points = results.map(({ git, ...r }) => ({ ...present(r), base: r.base, ...present({ git: parsed(git) }), line: line.has(r.id), until: until.get(r.id) }));
   return { ...session, points };
 }
 
-async function fleet(db: D1Database) {
-  type Line = { sid: string; owner: string; head: number; at: number; callsign: string | null; dir: string | null; points: number; branches: number };
-  const [sessions, r2, sweep] = await Promise.all([
-    db.prepare(`SELECT s.sid, s.owner, s.head, h.at, h.callsign, h.dir, COUNT(p.id) AS points,
+type Line = { sid: string; owner: string; head: number; at: number; callsign: string | null; dir: string | null; title: string | null; model: string | null; tok_in: number | null; tok_out: number | null; files: string; points: number; branches: number };
+
+/** Текст записи разговора для отрывка: текст сообщения, если q в нём; иначе строка как есть. */
+function textOf(record: Record<string, any>, line: string, q: string): string {
+  const c = record.message?.content;
+  const text = typeof c === "string" ? c : Array.isArray(c) ? c.map((x: Record<string, any>) => (typeof x.text === "string" ? x.text : typeof x.content === "string" ? x.content : "")).join("\n") : "";
+  return text.toLowerCase().includes(q) ? text : line;
+}
+
+/** Совпадение — запись разговора с uuid; строка без uuid (служебная запись) совпадением не считается. */
+function hitOf(line: string, q: string, point: number): Hit | null {
+  let record: Record<string, any>;
+  try {
+    record = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (typeof record.uuid !== "string") return null;
+  const text = textOf(record, line, q);
+  const at = Math.max(0, text.toLowerCase().indexOf(q));
+  const from = Math.max(0, at - AROUND);
+  return { uuid: record.uuid, point, at: String(record.timestamp ?? ""), text: `${from ? "…" : ""}${text.slice(from, at + q.length + 2 * AROUND)}` };
+}
+
+/** Каталог из реестра; с q — сессии с совпадением в файле разговора последней точки: поиск — у хранилища по отпечаткам блоков. */
+async function catalog(env: Env, f: Frame) {
+  const db = env.DB;
+  const since = typeof f.since === "string" ? Date.parse(f.since) || 0 : 0;
+  const limit = Number.isInteger(f.limit) && (f.limit as number) > 0 ? (f.limit as number) : LIMIT;
+  const q = typeof f.q === "string" ? f.q.trim().toLowerCase() : "";
+  const order = f.order === "tokens" ? "COALESCE(h.tok_in, 0) + COALESCE(h.tok_out, 0) DESC" : "h.at DESC";
+  const [sessions, totals, sweep] = await Promise.all([
+    db
+      .prepare(`SELECT s.sid, s.owner, s.head, h.at, h.callsign, h.dir, h.title, h.model, h.tok_in, h.tok_out, h.files, COUNT(p.id) AS points,
         SUM(p.id != s.head AND NOT EXISTS (SELECT 1 FROM points c WHERE c.base = p.id)) AS branches
-      FROM sessions s JOIN points h ON h.id = s.head JOIN points p ON p.sid = s.sid GROUP BY s.sid ORDER BY h.at DESC`).all<Line>(),
-    db.prepare("SELECT COALESCE(SUM(size), 0) AS bytes, COUNT(*) AS blocks FROM blocks").first(),
+      FROM sessions s JOIN points h ON h.id = s.head JOIN points p ON p.sid = s.sid WHERE h.at >= ? GROUP BY s.sid ORDER BY ${order}, s.sid`)
+      .bind(since)
+      .all<Line>(),
+    db.prepare("SELECT COALESCE(SUM(size), 0) AS bytes, COUNT(*) AS blocks FROM blocks").first<{ bytes: number; blocks: number }>(),
     db.prepare("SELECT v FROM meta WHERE k = 'sweep'").first<{ v: string }>(),
   ]);
-  return {
-    sessions: sessions.results.map(({ head, at, ...s }) => ({ ...present(s), head: { id: head, at } })),
-    r2,
-    sweep: sweep && JSON.parse(sweep.v),
+  const listed = (x: Line, hits?: Hit[]): Listed => {
+    const { head, at, files: _files, ...rest } = x;
+    return { ...present(rest), head: { id: head, at }, ...(hits ? { hits } : {}) } as Listed;
   };
+  const tail = { store: totals!, sweep: sweep && JSON.parse(sweep.v) };
+  if (!q) {
+    // умеет ли хранилище искать — его же ответом на пустой поиск
+    const search = await store(env, { type: "blocks.search", q: "", hashes: [], limit: 1 }).then(
+      () => true,
+      (e) => (e instanceof Refusal && e.word === "no_search" ? false : Promise.reject(e)),
+    );
+    return { search, sessions: sessions.results.slice(0, limit).map((x) => listed(x)), ...tail };
+  }
+  // отпечаток блока → сессии, в чьём файле разговора последней точки он есть: у копий начало разговора общее
+  const owners = new Map<string, Line[]>();
+  for (const x of sessions.results) for (const file of JSON.parse(x.files) as PointFile[]) if (file.p === `${x.sid}.jsonl`) for (const h of file.b) owners.set(h, [...(owners.get(h) ?? []), x]);
+  const found = await store<Array<{ hash: string; line: string }>>(env, { type: "blocks.search", q, hashes: [...owners.keys()], limit: owners.size });
+  const hits = new Map<string, Hit[]>();
+  for (const { hash, line } of found) {
+    for (const x of owners.get(hash) ?? []) {
+      const hit = hitOf(line, q, x.head);
+      if (hit) hits.set(x.sid, [...(hits.get(x.sid) ?? []), hit]);
+    }
+  }
+  return { search: true, sessions: sessions.results.filter((x) => hits.has(x.sid)).slice(0, limit).map((x) => listed(x, hits.get(x.sid))), ...tail };
 }
 
 /** Кадр → ответ. Отказ — Refusal: строка журнала и ответ со словом здесь; остальное летит дальше, вход отвечает failed. */
