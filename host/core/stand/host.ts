@@ -167,7 +167,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     config,
     core: CORE,
     // адреса флота — в списке сборки: relay: false — сборка без relay
-    release: { version: o.version ?? "1.4.1", sdk: sdk.version, modules: o.modules ?? [], workers: o.relay === false ? {} : { ...FakeRelay.WORKERS, ...o.workers } },
+    release: { version: o.version ?? "1.4.0", sdk: sdk.version, modules: o.modules ?? [], workers: o.relay === false ? {} : { ...FakeRelay.WORKERS, ...o.workers } },
     sdk,
     holders,
     relayKey: `host.${machine}.k7f3.stand`,
