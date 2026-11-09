@@ -13,9 +13,9 @@ const WRANGLER = path.join(ROOT, "node_modules", "wrangler", "bin", "wrangler.js
 /** Настоящая выкладка 5 нояб.: при 45 с wrangler выложил prefs, но не завершился под нагрузкой. */
 const LIMIT_MS = 300_000;
 /** relay смотрит привязками на остальных — последним; хранилище блоков — раньше points, который смотрит на него привязкой. */
-const WORKERS = ["gate", "rooms", "push", "blocks-r2", "blocks-ch", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
+const WORKERS = ["gate", "rooms", "push", "blocks-r2", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
 /** Реализации одного модуля-контракта: во флоте стоит одна, под одним именем службы. Какая — у флота. */
-const STORES = ["blocks-r2", "blocks-ch"];
+const STORES = ["blocks-r2"];
 const WEB = ["phone", "pult"];
 
 const stop = (word) => {
@@ -33,8 +33,8 @@ const upload = flag("--upload");
 if (env !== undefined && env !== "prod") stop("--env — только prod");
 if (upload !== undefined && !/^\d+\.\d+\.\d+$/.test(upload)) stop("--upload <номер вида 1.1.58>");
 const prod = env === "prod";
-/** Хранилище блоков флота: тест и прод — R2, пока у флота нет ClickHouse. */
-const STORE = prod ? "blocks-r2" : "blocks-r2";
+/** Хранилище блоков флота. */
+const STORE = "blocks-r2";
 const envArgs = prod ? ["--env", "prod"] : [];
 const tail = prod ? " prod" : "";
 
