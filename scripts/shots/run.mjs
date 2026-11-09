@@ -66,6 +66,12 @@ const PULT_SCREENS = [
   ["incidents", "#incidents", null, "small"],
   ["journal", "#journal", null, "small"],
   ["points", "#points", null, "small"],
+  ["points-search", "#points", steps((p) => p.fill('[data-f="q"]', "поиск"), click('.ss-q button[type="submit"]')), "small"],
+  ["points-session", "#points?sid=s1", null, "small"],
+  ["points-point", "#points?sid=s1&point=38", steps(click('[data-card="38"] [data-act="pull"]')), "small"],
+  ["points-move", "#points?sid=s1", steps(click('[data-card="41"] [data-act="move"]')), "small"],
+  ["points-archive", "#points?sid=s2", null, "small"],
+  ["card-archive", `#card?callsign=${encodeURIComponent("refactor@win")}`, steps(click('[data-tab="session.points"]')), "small"],
   ["settings", "#settings", null, "small"],
   ["settings-passes", "#settings", steps(click('[data-tab="passes"]')), "small"],
   ["settings-general", "#settings", steps(click('[data-tab="general"]')), "small"],
@@ -89,18 +95,26 @@ const PHONE_SCREENS = [
   ["fleet-settings", "#settings", null, "small"],
 ];
 
+/** Пульт на телефоне (390): экраны, у которых свой узкий вид. */
+const PULT_NARROW = [
+  ["points", "#points", null, "small"],
+  ["points-session", "#points?sid=s1", null, "small"],
+  ["points-points", "#points?sid=s1&point=38&pane=points", null, "small"],
+];
+
 mkdirSync(OUT, { recursive: true });
 await prepare();
 const browser = await launch();
 const notes = [];
 const trees = {};
 
-async function shot(app, kind, scheme, [name, hash, act, only]) {
-  const id = `${app}-${kind}-${scheme}-${name}`;
+async function shot(app, kind, scheme, [name, hash, act, only], viewport = app === "pult" ? WIDE : NARROW) {
+  const id = `${app}${viewport === NARROW && app === "pult" ? "390" : ""}-${kind}-${scheme}-${name}`;
   if ((only && only !== kind) || !id.includes(filter)) return;
   const open = async (p) => {
     await p.goto(url(app, kind, "#sessions"));
-    await p.waitForSelector(".bd-list");
+    // узкий пульт открывает «Работу» списком без .bd-list: ждём доставки кадров
+    if (viewport !== NARROW || app !== "pult") await p.waitForSelector(".bd-list");
     await p.waitForFunction(() => window.delivered);
     await p.evaluate((h) => (location.hash = h), hash);
     await p.waitForTimeout(400);
@@ -108,7 +122,7 @@ async function shot(app, kind, scheme, [name, hash, act, only]) {
     await p.waitForTimeout(150);
   };
   const after = async (p) => void (trees[id] = await treeOf(p));
-  await snap(browser, { id, app, viewport: app === "pult" ? WIDE : NARROW, scheme, dir: OUT, scope: "#app *", allowed: ".fscroll, .op-pre, .sb-navrow, .cw-tabs", open, after }, notes);
+  await snap(browser, { id, app, viewport, scheme, dir: OUT, scope: "#app *", allowed: ".fscroll, .op-pre, .sb-navrow, .cw-tabs", open, after }, notes);
 }
 
 for (const [app, screens] of [["pult", PULT_SCREENS], ["phone", PHONE_SCREENS]]) {
@@ -116,6 +130,7 @@ for (const [app, screens] of [["pult", PULT_SCREENS], ["phone", PHONE_SCREENS]])
     for (const screen of screens) await shot(app, kind, scheme, screen);
   }
 }
+for (const [kind, scheme] of [["small", "light"], ["small", "dark"]]) for (const screen of PULT_NARROW) await shot("pult", kind, scheme, screen, NARROW);
 await browser.close();
 if (process.env.SHOTS_DOM) writeFileSync(process.env.SHOTS_DOM, JSON.stringify(trees));
 console.log(notes.length ? notes.join("\n") : `без замечаний · снимки в ${OUT}`);

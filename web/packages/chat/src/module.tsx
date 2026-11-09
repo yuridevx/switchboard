@@ -1,9 +1,10 @@
-// Модуль разговора с сессией: стор разговоров, кадры ленты и сообщений, экран chat, метки unread и models.
+// Модуль разговора с сессией: стор разговоров, кадры ленты и сообщений, экраны chat и chat.view (лента из архива), метки unread и models.
 import { machineOf } from "@switchboard/protocol";
 import { isLive, sessionLabel, sessionLine, sessionOf, stateLabel, type App } from "@switchboard/web-ui";
 import type { AppModule } from "@switchboard/web-core";
 import css from "./chat.css";
 import { createTalks } from "./talk.ts";
+import { ArchiveScreen } from "./view/Archive.tsx";
 import { ChatScreen } from "./view/Screen.tsx";
 
 export function createChat(app: App): AppModule {
@@ -22,6 +23,7 @@ export function createChat(app: App): AppModule {
           return { title: sessionLabel(app, callsign).text, mono: true, sub: s ? sessionLine(s, true) : `${machineOf(callsign)!} не на связи`, ...(s ? { pill: { text: st.text, tone: st.tone } } : {}) };
         },
       },
+      "chat.view": { label: "Разговор", view: ArchiveScreen },
     },
     marks: {
       unread: (cs: string) => talks.get(cs).unread ?? undefined,

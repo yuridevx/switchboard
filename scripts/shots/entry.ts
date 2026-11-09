@@ -32,7 +32,7 @@ const session = (s: S): SessionRecord => ({
   slot: { name: s.slot ?? "main", wait: null },
   account: "dev@mail.ru",
   mode: "bypassPermissions",
-  ...(s.cs === "refactor@win" ? { r2: {} } : {}),
+  ...(s.cs === "refactor@win" ? { archive: {} } : {}),
   ...(s.prof ? { profile: [{ id: `team/profiles/${s.prof}`, state: "ok" }] } : {}),
   ...(s.fail ? { failed: { start: s.fail } } : {}),
   ...(s.inc ? { incident: { type: s.inc, key: "switchboard#main" } } : {}),

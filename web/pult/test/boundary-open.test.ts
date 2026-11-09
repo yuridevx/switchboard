@@ -38,7 +38,7 @@ describe("Новая сессия", () => {
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": { model: "opus", effort: "high" }, "team/profiles/writer": { model: "haiku", effort: "low" } }, repos: {} } });
     relay.handlers["machine.dirs"] = (f) => ({ ok: true, result: { path: f.path, dirs: ["api", ".git", "site"] } });
     relay.handlers["session.open"] = (f) => ({ ok: true, result: { callsign: `${f.name}@${f.machine}` } });
-    relay.handlers["session.r2"] = () => ({ ok: true, result: { point: 1 } });
+    relay.handlers["session.archive"] = () => ({ ok: true, result: { point: 1 } });
     relay.handlers["session.prompt"] = () => ({ ok: true, result: { uuid: "u1" } });
     return relay;
   }
@@ -235,14 +235,14 @@ describe("Новая сессия", () => {
       expect(relay.sent("session.open")[0]).toMatchObject({ profile: ["team/profiles/ops"] });
     });
 
-    it("4130 · «в R2» не включилось — тост со словом, карточка новой сессии открыта", async () => {
+    it("4130 · архив не включился — тост со словом, карточка новой сессии открыта", async () => {
       const relay = openRelay();
-      relay.handlers["session.r2"] = () => ({ ok: false, error: "offline" });
+      relay.handlers["session.archive"] = () => ({ ok: false, error: "offline" });
       const t = await openScreen(relay);
       await named(t, "a");
       await t.click(t.$("[data-r2]"));
       await t.click(t.$('[data-act="open"]'));
-      expect(t.$(".sb-toast")!.textContent).toBe("a@laptop: «в R2» не включилось — offline");
+      expect(t.$(".sb-toast")!.textContent).toBe("a@laptop: архив не включился — offline");
       expect(location.hash).toBe("#card?callsign=a%40laptop");
     });
 
@@ -265,7 +265,7 @@ describe("Новая сессия", () => {
       expect(c.$('[data-screen="open.near"]')).toBeNull();
     });
 
-    it("V-O1 · подписи: поля, последние места; настройки на странице; поиск профиля; без окон — подписи и «Точки в R2»", async () => {
+    it("V-O1 · подписи: поля, последние места; настройки на странице; поиск профиля; без окон — подписи и «Хранить в архиве»", async () => {
       const relay = openRelay();
       relay.values["pult-open.recent"] = [{ m: "pc", dir: "~/p" }];
       const t = await openScreen(relay);
@@ -284,8 +284,8 @@ describe("Новая сессия", () => {
       expect(t.$$('[data-side="Ведущий"] [data-profile]').map((b) => b.dataset.profile)).toEqual(["team/profiles/writer"]);
       await t.click(t.$('[data-profile="team/profiles/writer"]'));
       expect(t.$$("[data-chosen]").map((x) => x.dataset.chosen)).toEqual(["team/profiles/ops", "team/profiles/writer"]);
-      expect(t.$(".op-sw")!.textContent).toContain("Точки в R2");
-      expect(t.$("[data-r2]")!.getAttribute("aria-label")).toBe("Точки в R2");
+      expect(t.$(".op-sw")!.textContent).toContain("Хранить в архиве");
+      expect(t.$("[data-r2]")!.getAttribute("aria-label")).toBe("Хранить в архиве");
       await t.click(t.$("[data-r2]"));
       expect(t.$("[data-r2]")!.getAttribute("aria-checked")).toBe("true");
       // Ctrl Enter запускает
@@ -307,7 +307,7 @@ describe("Новая сессия: выбор и запуск", () => {
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": { model: "opus", effort: "high" } }, repos: {} } });
     relay.handlers["machine.dirs"] = (f) => ({ ok: true, result: { path: f.path, dirs: ["api", "site"] } });
     relay.handlers["session.open"] = (f) => ({ ok: true, result: { callsign: `${f.name}@${f.machine}` } });
-    relay.handlers["session.r2"] = () => ({ ok: true, result: { point: 1 } });
+    relay.handlers["session.archive"] = () => ({ ok: true, result: { point: 1 } });
     relay.handlers["session.prompt"] = () => ({ ok: true, result: { uuid: "u1" } });
     return relay;
   }
@@ -324,12 +324,12 @@ describe("Новая сессия: выбор и запуск", () => {
 
   describe("новая сессия: выбор", () => {
     it("7254 · машина научилась точкам при открытой форме — переключатель становится доступен", async () => {
-      // источник: чьё: код — переключатель виден, когда машина умеет session.r2; roster меняется и при открытом окне
+      // источник: чьё: код — переключатель виден, когда машина умеет session.archive; roster меняется и при открытом окне
       const relay = openRelay();
       const without = fleetRoster();
       without.machines = without.machines.map((m) => {
         const contract = { ...m.contract };
-        delete contract["session.r2"];
+        delete contract["session.archive"];
         return { ...m, contract };
       });
       relay.setRoster(without);
@@ -398,10 +398,10 @@ describe("Новая сессия: выбор и запуск", () => {
       expect(second.sent("session.open")[0]).toMatchObject({ model: "sonnet" });
     });
 
-    it("6918 · машина не умеет slots, profiles и r2: запросов нет, слов отказа нет, переключатель неактивен", async () => {
+    it("6918 · машина не умеет slots, profiles и архив: запросов нет, слов отказа нет, переключатель неактивен", async () => {
       // источник: факт — машина такого запроса не умеет: не спрашиваем, данных нет
       const r = fleetRoster();
-      for (const n of ["machine.accounts", "machine.profiles", "session.r2"]) delete r.machines[0].contract![n];
+      for (const n of ["machine.accounts", "machine.profiles", "session.archive"]) delete r.machines[0].contract![n];
       const relay = openRelay(r);
       const t = await openScreen(relay);
       expect(t.$(".pt-grid .op-err")).toBeNull();
@@ -498,7 +498,7 @@ describe("Новая сессия: выбор и запуск", () => {
       expect(location.hash).toBe("#card?callsign=a%40laptop");
     });
 
-    it("6914 · с задачей и R2: session.open, затем session.r2 и session.prompt с текстом; открыта карточка", async () => {
+    it("6914 · с задачей и архивом: session.open, затем session.archive и session.prompt с текстом; открыта карточка", async () => {
       // источник: чьё: код
       const relay = openRelay();
       const t = await openScreen(relay);
@@ -508,8 +508,8 @@ describe("Новая сессия: выбор и запуск", () => {
       expect(t.$('[data-act="open"]')!.textContent).toBe("Начать");
       await start(t);
       await flush(5);
-      const types = relay.got.map((f) => f.type).filter((x) => ["session.open", "session.r2", "session.prompt"].includes(x));
-      expect(types).toEqual(["session.open", "session.r2", "session.prompt"]);
+      const types = relay.got.map((f) => f.type).filter((x) => ["session.open", "session.archive", "session.prompt"].includes(x));
+      expect(types).toEqual(["session.open", "session.archive", "session.prompt"]);
       expect(relay.sent("session.prompt")[0]).toMatchObject({ callsign: "a@laptop", text: "почини сборку" });
       expect(location.hash).toBe("#card?callsign=a%40laptop");
     });
@@ -585,7 +585,7 @@ describe("Новая сессия и карточка с «Работы»", () =
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": { model: "opus", effort: "high", sessions: [] } }, repos: {} } });
     relay.handlers["machine.dirs"] = (f) => ({ ok: true, result: { path: f.path, dirs: f.path === "~" ? ["Projects"] : f.path === "~/Projects" ? ["api", "poe2", "profiles", "site", "switchboard", "wiki"] : [] } });
     relay.handlers["session.open"] = (f) => (f.name === "site" ? { ok: false, error: "name_taken" } : { ok: true, result: { callsign: `${f.name}@${f.machine}`, session_id: "s-1" } });
-    relay.handlers["session.r2"] = () => ({ ok: true, result: { point: 1 } });
+    relay.handlers["session.archive"] = () => ({ ok: true, result: { point: 1 } });
     return relay;
   }
 
@@ -625,23 +625,23 @@ describe("Новая сессия и карточка с «Работы»", () =
     expect(t2.$('.sb-detail [data-screen="open"]')).not.toBeNull();
   });
 
-  it("260 · «Точки в R2» по умолчанию выключены: session.r2 нет; включили — после reply session.r2 { callsign, on: true }; поля r2 в session.open нет", async () => {
+  it("260 · «Хранить в архиве» по умолчанию выключено: session.archive нет; включили — после reply session.archive { callsign, on: true }; поля archive в session.open нет", async () => {
     // источник: слово пользователя 3 нояб.: «точка р2 по умолчанию выключено»
     const t = await pult({ relay: openRelay() });
     await fillOpen(t, "board");
     await t.click(t.$('[data-act="open"]'));
     expect(t.relay.sent("session.open")).toHaveLength(1);
-    expect(t.relay.sent("session.r2")).toHaveLength(0);
-    expect(t.relay.sent("session.open")[0]).not.toHaveProperty("r2");
+    expect(t.relay.sent("session.archive")).toHaveLength(0);
+    expect(t.relay.sent("session.open")[0]).not.toHaveProperty("archive");
 
     const t2 = await pult({ relay: openRelay() });
     await fillOpen(t2, "board");
     await t2.click(t2.$("[data-r2]"));
     await t2.click(t2.$('[data-act="open"]'));
     const types = t2.relay.got.map((f) => f.type);
-    expect(types.indexOf("session.r2")).toBeGreaterThan(types.indexOf("session.open"));
-    expect(t2.relay.sent("session.r2")).toEqual([expect.objectContaining({ v: 1, callsign: "board@laptop", on: true })]);
-    expect(t2.relay.sent("session.open")[0]).not.toHaveProperty("r2");
+    expect(types.indexOf("session.archive")).toBeGreaterThan(types.indexOf("session.open"));
+    expect(t2.relay.sent("session.archive")).toEqual([expect.objectContaining({ v: 1, callsign: "board@laptop", on: true })]);
+    expect(t2.relay.sent("session.open")[0]).not.toHaveProperty("archive");
     expect(location.hash).toBe("#card?callsign=board%40laptop");
   });
 

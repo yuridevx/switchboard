@@ -18,7 +18,7 @@ export function OpenScreen({ params }: ScreenProps) {
   const machines = app.use(() => byLoad(machinesWith(app, "session.open"), app.roster()?.sessions ?? []));
   const places = app.use(() => recent.get<Place[]>("recent") ?? []);
   const ready = app.use(() => recent.ready() || app.link() !== "open");
-  const canR2Of = app.use(() => machinesWith(app, "session.r2"));
+  const canR2Of = app.use(() => machinesWith(app, "session.archive"));
 
   const [machine, setMachine] = useState(params.machine ?? "");
   const [addr, setAddr] = useState(params.dir ?? "");
@@ -129,8 +129,8 @@ export function OpenScreen({ params }: ScreenProps) {
     recent.edit<Place[]>("recent", (old) => pushRecent(old, { m: machine, dir }));
     for (const p of app.placed("open.after", { ...params, callsign })) app.run(p.name, { ...params, callsign });
     if (r2 && canR2) {
-      const r = await app.request("session.r2", { callsign, on: true });
-      if (!r.ok) app.toast(`${callsign}: «в R2» не включилось — ${r.error}`);
+      const r = await app.request("session.archive", { callsign, on: true });
+      if (!r.ok) app.toast(`${callsign}: архив не включился — ${r.error}`);
     }
     if (text.trim()) {
       const r = await app.request("session.prompt", { callsign, text: text.trim() });
@@ -248,8 +248,8 @@ export function OpenScreen({ params }: ScreenProps) {
         ) : null}
         <div className="op-foot">
           <span className="op-sw">
-            <span>Точки в R2</span>
-            <Switch on={r2} data-r2="1" aria-label="Точки в R2" disabled={!canR2} onClick={() => setR2(!r2)} />
+            <span>Хранить в архиве</span>
+            <Switch on={r2} data-r2="1" aria-label="Хранить в архиве" disabled={!canR2} onClick={() => setR2(!r2)} />
           </span>
           <Btn pri data-act="open" disabled={busy || !here || noSlots} onClick={() => void open()}>
             {isNew ? "Создать и открыть" : text.trim() ? "Начать" : "Открыть"}

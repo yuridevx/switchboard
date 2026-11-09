@@ -109,10 +109,25 @@ export { flush };
 /** sid сессии site@laptop в реестре точек стенда. */
 export const SID = "42bc5ad4";
 
-/** site@laptop в R2 с линией точек; ответы реестра и host-points. */
+/** Разговор site@laptop на голове: три обмена и вызовы модели к ответам. */
+export const TALK = [
+  { type: "user", uuid: "u1", message: { role: "user", content: "обнови зависимости и прогони тесты" } },
+  { type: "assistant", uuid: "a1", message: { id: "msg_a1", role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Обновил 14 пакетов, тесты зелёные." }] } },
+  { type: "user", uuid: "u2", message: { role: "user", content: "перенеси журнал в ClickHouse" } },
+  { type: "assistant", uuid: "a2", message: { id: "msg_a2", role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Журнал перенесён." }] } },
+];
+export const CALLS = [
+  { uuid: "a1", at: "2026-10-31T09:58:00.000Z", model: "claude-opus-5-5", tok_in: 18000, tok_out: 420, system: "You are Claude Code." },
+  { uuid: "a2", at: "2026-10-31T14:48:00.000Z", model: "claude-opus-5-5", tok_in: 3100000, tok_out: 88000, system: "You are Claude Code." },
+];
+
+/** Строка каталога site@laptop: заголовок, модель и токены. */
+export const SITE_ROW = { sid: SID, callsign: "site@laptop", title: "Перенеси журнал в ClickHouse", model: "claude-opus-5-5", tok_in: 3118000, tok_out: 88420, dir: "~/Projects/site", owner: "laptop", head: { id: 41, at: Date.UTC(2026, 9, 31, 14, 49) }, points: 3, branches: 1 };
+
+/** site@laptop в архиве с линией точек; ответы каталога, points.history и host-points. */
 export function pointsRelay(over: (r: Roster) => void = () => {}) {
   const r = fleetRoster();
-  Object.assign(r.sessions[2], { r2: {} });
+  Object.assign(r.sessions[2], { archive: {} });
   over(r);
   const relay = fleetRelay(r);
   const at = (hh: number, mm: number) => Date.UTC(2026, 9, 31, hh, mm);
@@ -124,21 +139,21 @@ export function pointsRelay(over: (r: Roster) => void = () => {}) {
             owner: "laptop",
             head: 41,
             points: [
-              { id: 41, at: at(14, 49), machine: "laptop", why: "rule", base: 40, dir: "~/Projects/site", msgs: 212, git: { state: "dirty", files: 2, branch: "main" }, line: true, until: null },
-              { id: 38, at: at(10, 0), machine: "laptop", why: "rule", base: 37, dir: "~/Projects/site", msgs: 194, git: { state: "clean", branch: "main" }, line: true, until: 1824993120000 },
+              { id: 41, at: at(14, 49), machine: "laptop", why: "rule", base: 40, dir: "~/Projects/site", msgs: 4, git: { state: "dirty", files: 2, branch: "main" }, line: true, until: null },
+              { id: 38, at: at(10, 0), machine: "laptop", why: "rule", base: 37, dir: "~/Projects/site", msgs: 2, git: { state: "clean", branch: "main" }, line: true, until: 1824993120000 },
               { id: 33, at: at(8, 15), machine: "laptop", why: "rule", base: 31, dir: "~/Projects/site", line: false, until: 1824993120000 },
             ],
           },
         }
       : {
           ok: true,
-          result: {
-            sessions: [{ sid: SID, callsign: "site@laptop", dir: "~/Projects/site", owner: "laptop", head: { id: 41, at: at(14, 49) }, points: 41, branches: 1 }],
-            r2: { bytes: 432013312, blocks: 2410 },
-            sweep: null,
-          },
+          result: { search: true, sessions: [SITE_ROW], store: { bytes: 432013312, blocks: 2410 }, sweep: null },
         };
-  relay.handlers["points.get"] = (f) => ({ ok: true, result: { owner: "laptop", points: (f.ids as number[]).map((id) => ({ id, last: [["обнови зависимости и прогони тесты", "Обновил 14 пакетов"]] })) } });
+  // точка 38 — после первого обмена, голова 41 — весь разговор
+  relay.handlers["points.history"] = (f) => {
+    const n = f.point === 38 ? 2 : TALK.length;
+    return { ok: true, result: { point: f.point ?? 41, messages: TALK.slice(0, n), calls: CALLS.slice(0, n / 2), more: false } };
+  };
   relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: [] } } } });
   return relay;
 }
