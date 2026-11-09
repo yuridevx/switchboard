@@ -107,26 +107,30 @@ async function consent(authorize: string, back: (url: string) => boolean): Promi
 async function claudeCode(): Promise<boolean> {
   const home = mkdtempSync(join(tmpdir(), "sb-cc-"));
   const env = { ...process.env, CLAUDE_CONFIG_DIR: home } as Record<string, string>;
+  let login: { kill(): void } | undefined;
   try {
     const add = spawnSync("claude", ["mcp", "add", "--transport", "http", "-s", "user", "switchboard", MCP], { env, encoding: "utf8", timeout: 60_000, shell: process.platform === "win32" });
     if (add.status !== 0) throw new Error(`claude mcp add: ${add.stderr || add.stdout}`);
     const pty = createRequire(join(ROOT, "package.json"))("@lydell/node-pty");
-    const login = pty.spawn(process.platform === "win32" ? "claude.exe" : "claude", ["mcp", "login", "switchboard", "--no-browser"], { env, cols: 4000, rows: 50 });
+    const term = pty.spawn(process.platform === "win32" ? "claude.exe" : "claude", ["mcp", "login", "switchboard", "--no-browser"], { env, cols: 4000, rows: 50 });
+    login = term;
     let out = "";
     let exited: number | null | undefined;
-    login.onData((d: string) => (out += d));
-    login.onExit(({ exitCode }: { exitCode: number }) => (exited = exitCode));
+    term.onData((d: string) => (out += d));
+    term.onExit(({ exitCode }: { exitCode: number }) => (exited = exitCode));
     // адрес — до управляющих последовательностей терминала (ссылка OSC 8 повторяет его)
     const url = await wait("адрес входа Claude Code", () => /https:\/\/[^\s\x1b\x07\\]*open=consent[^\s\x1b\x07\\]*/.exec(out)?.[0], 60_000);
     const landed = await consent(url, (u) => /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/callback/.test(u));
-    login.write(`${landed}\r`);
+    term.write(`${landed}\r`);
     const code = await wait("выход claude mcp login", () => (exited === undefined ? undefined : { exited }), 60_000)
       .then((x) => x.exited)
-      .catch(() => (login.kill(), null));
+      .catch(() => null);
     const got = spawnSync("claude", ["mcp", "get", "switchboard"], { env, encoding: "utf8", timeout: 60_000, shell: process.platform === "win32" });
     check("23 · Claude Code вошёл по OAuth: login и сервер на связи", code === 0 && /connected/i.test(got.stdout), `выход ${code} · ${got.stdout.split("\n").find((x) => /status/i.test(x)) ?? out.slice(-200)}`);
     return code === 0;
   } finally {
+    // псевдотерминал Windows держит процесс сценария и после выхода claude
+    try { login?.kill(); } catch {}
     rmSync(home, { recursive: true, force: true });
   }
 }
@@ -196,5 +200,5 @@ try {
   l.close(1000, "done");
   const bad = results.filter(([, ok]) => !ok).length;
   console.log(`identity: ${results.length - bad} ok, ${bad} FAIL`);
-  process.exitCode = bad ? 1 : 0;
+  process.exit(bad ? 1 : 0);
 }

@@ -291,14 +291,14 @@ describe("статика и архив", () => {
   it.each(["pult", "phone"])("4185 4187 · %s: dist — app.js, sw.js, статика и значки; адресов relay и Worker'ов, модулей и ключа флота нет; значки те же; обработчик пушей работает из своего файла", async (name) => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): адресов relay в коде оболочек 0
     const app = join(root, "web", name);
-    const dist = join(app, "dist");
+    // своя папка вывода: настоящий dist/ в это время собирает упаковщик модулей в тестах release-cli
+    const dist = join(mkdtempSync(join(tmpdir(), `switchboard-shell-${name}-`)), "dist");
     // чьё: код; в архив каталога идёт вся папка: сборка начинает с чистой, в том числе в свежей копии репо без dist
-    rmSync(dist, { recursive: true, force: true });
     if (name === "pult") {
       mkdirSync(dist);
       writeFileSync(join(dist, "stale.js"), "");
     }
-    const r = spawnSync(process.execPath, [join(app, "build.mjs")], { encoding: "utf8", timeout: 60_000 });
+    const r = spawnSync(process.execPath, [join(app, "build.mjs"), dist], { encoding: "utf8", timeout: 60_000 });
     expect(r.status).toBe(0);
     expect(readdirSync(dist).sort()).toEqual(["app.js", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "index.html", "manifest.webmanifest", "sw.js"]);
     for (const f of ["app.js", "sw.js", "index.html"]) {
