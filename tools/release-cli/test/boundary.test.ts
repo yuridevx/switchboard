@@ -363,7 +363,7 @@ describe("CLI выпуска", () => {
     expect(text(tgz, "host")).toBe('// Вход выпуска Host: keeper запускает node host в папке версии.\nimport "./packages/host/main.ts";\n');
     expect(JSON.parse(text(tgz, "package.json"))).toEqual({ name: "switchboard-host-release", version: HOST, private: true, type: "module", workspaces: ["packages/*"] });
     const corePj = JSON.parse(text(tgz, "packages/host/package.json"));
-    expect(corePj.dependencies).toEqual({ "@anthropic-ai/claude-agent-sdk": "0.3.311", zod: "4.4.3" });
+    expect(corePj.dependencies).toEqual({ "@anthropic-ai/claude-agent-sdk": "0.3.321", zod: "4.4.3" });
     expect(corePj.scripts).toBeUndefined();
     expect(corePj).toMatchObject({ name: "@switchboard/host", private: true, type: "module" });
     // Host — часть машины, как приложение: keeper ставит его по app.json
