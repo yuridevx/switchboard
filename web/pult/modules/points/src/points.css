@@ -1,11 +1,89 @@
-.pt-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;border-top:1px solid var(--line2);padding-top:7px;font-size:13px}
-.pt-row b{font:600 13px var(--mono)}
+/* «Сессии»: список — строки одной сетки; страница сессии — разговор и колонка точек; линия точек — время, метка, первые слова. */
+.ss-page{gap:14px}
+.ss-q{display:flex;gap:8px;align-items:center;flex:1 1 300px;max-width:520px;margin-left:auto}
+.ss-q>input{flex:1;min-width:0}
+.ss-filters{column-gap:20px;row-gap:8px}
+.ss-list{padding:4px 6px;gap:0}
+
+.ss-row{display:grid;grid-template-columns:12px minmax(0,1fr) 104px 120px 116px 84px;gap:14px;align-items:center;width:100%;text-align:left;font:inherit;color:inherit;background:none;border:0;border-top:1px solid var(--line2);border-radius:0;padding:10px 8px;cursor:pointer}
+.ss-row:first-child{border-top:0}
+@media (hover:hover){.ss-row:hover,.ss-hit:hover{background:var(--surface2)}}
+.ss-name{display:flex;flex-direction:column;gap:3px;min-width:0}
+.ss-title{font-weight:600;font-size:14px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ss-name .sb-m,.ss-hh .sb-m{font-size:12px;color:var(--muted)}
+.ss-proj{font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ss-model{font:500 12px var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ss-num{font:500 12.5px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+.ss-when{font:500 12px var(--mono);color:var(--muted);white-space:nowrap;text-align:right}
+
+.ss-group{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line2);padding:10px 0 8px}
+.ss-group:first-child{border-top:0}
+.ss-hh{display:flex;gap:12px;align-items:baseline;min-width:0;flex-wrap:wrap;padding:0 8px 4px}
+.ss-hh .ss-title{flex:0 1 auto;white-space:normal}
+.ss-hit{display:grid;grid-template-columns:52px minmax(0,1fr);gap:12px;align-items:baseline;width:100%;text-align:left;font:inherit;color:inherit;background:none;border:0;border-radius:8px;padding:6px 8px;cursor:pointer}
+.ss-hit .ss-when{text-align:left}
+.ss-txt{font-size:13.5px;line-height:1.5;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.ss-txt mark{background:var(--wait-weak);color:var(--ink);border-radius:3px;padding:0 2px}
+
+/* страница сессии */
+.ss-head{display:flex;flex-direction:column;gap:6px}
+.ss-back{align-self:flex-start;color:var(--muted);font-size:13px}
+.ss-hrow{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.ss-h{margin:0;font-size:19px;font-weight:650;line-height:1.3;text-wrap:balance;flex:1 1 360px;min-width:0}
+.ss-hacts{flex:none}
+.ss-meta{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;font-size:13px;color:var(--muted)}
+.ss-meta .sb-m{color:var(--ink)}
+.ss-panes{display:none;gap:6px}
+.ss-panes button[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.ss-body{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:start}
+.ss-talk{min-width:0}
+.ss-side{position:sticky;top:0;max-height:calc(100vh - 96px);overflow-y:auto;display:flex;flex-direction:column;gap:12px;min-width:0;border-left:1px solid var(--line2);padding:0 2px 12px 20px}
+/* выбранная точка раскрыта в линии: факты, действия, окно действия, pull, вызовы */
+.pt-item.on{background:var(--surface);border:1px solid var(--line);border-radius:10px;margin:2px 0 6px}
+.pt-item.on>.pt-pt{background:var(--accent-weak);border-radius:9px 9px 0 0}
+.ss-card{display:flex;flex-direction:column;gap:10px;padding:10px 10px 12px}
+.ss-card .sb-sec[data-dlg]{margin:0}
+.ss-facts{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:12.5px;color:var(--muted)}
+.ss-acts{gap:6px}
+.ss-pull{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ss-pull .sb-cmd{flex:1 1 200px;min-width:0;word-break:normal}
+.ss-calls{display:flex;flex-direction:column;gap:2px}
+.ss-calls .sb-h4{margin-bottom:4px}
+.ss-calls>.sb-tx{align-self:flex-start}
+.ss-call{display:grid;grid-template-columns:44px minmax(0,1fr) auto auto;gap:10px;align-items:center;font-size:12.5px;padding:3px 0}
+.ss-call .ss-when{text-align:left}
+.ss-line{display:flex;flex-direction:column;gap:2px}
+.ss-keep{margin-top:4px}
+
 .pt-day{font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding-top:6px}
-.pt-pt{display:grid;grid-template-columns:52px 14px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;text-align:left;border:1px solid transparent;background:none;border-radius:8px;padding:5px 6px;font-size:13px}
+.pt-pt{display:grid;grid-template-columns:44px 12px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;text-align:left;border:1px solid transparent;background:none;border-radius:8px;padding:5px 6px;font-size:13px}
 @media (hover:hover){.pt-pt:hover{border-color:var(--line)}}
 .pt-pt[aria-pressed="true"]{background:var(--accent-weak)}
 .pt-pt i{width:10px;height:10px;border-radius:50%;background:var(--accent)}
-.pt-pt.br{padding-left:26px}
+.pt-pt.br{padding-left:22px}
 .pt-pt.br i{background:transparent;border:2px solid var(--wait)}
 .pt-pt span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pt-pt em{font:600 12px var(--mono);font-style:normal;color:var(--muted)}
+
+@media (max-width:960px){
+  .ss-panes{display:flex}
+  .ss-body{grid-template-columns:minmax(0,1fr)}
+  .ss-side{position:static;max-height:none;overflow:visible;border-left:0;padding:0}
+  .ss-body[data-pane="talk"] .ss-side{display:none}
+  .ss-body[data-pane="points"] .ss-talk{display:none}
+}
+@media (max-width:640px){
+  .ss-q{max-width:none;margin-left:0}
+  .ss-row{grid-template-columns:12px minmax(0,1fr) auto;row-gap:4px}
+  .ss-row .ss-proj,.ss-row .ss-model{display:none}
+  .ss-row .ss-num{grid-column:2;grid-row:2;text-align:left}
+  .ss-row .ss-when{grid-column:3;grid-row:1}
+  .ss-row>.sb-dot{grid-row:1}
+  .ss-row .ss-title{white-space:normal}
+}
+
+.ss-pull .sb-cmd span{white-space:nowrap}
+.ss-body.solo{grid-template-columns:minmax(0,1fr)}
+.ss-body.solo .ss-side{position:static;max-height:none;overflow:visible;border-left:0;padding:0;max-width:640px}
+.ss-cs{padding:0;background:none;border:0;min-height:0}
+.ss-cs .sb-m{color:var(--accent);text-decoration:underline;text-underline-offset:3px}

@@ -208,14 +208,45 @@ export function answerRequests(relay: FakeRelay, F: Fleet, roster: { sessions: A
     relay.setRoster({ ...relay.roster, sessions: roster.sessions } as never);
     return { ok: true, result: { callsign: cs } };
   };
-  h["session.r2"] = () => ({ ok: true, result: { point: 1 } });
+  h["session.archive"] = () => ({ ok: true, result: { point: 1 } });
   h["keeper.state"] = (f) => ({ ok: true, result: { keeper: "1.1.3", rev: 9, os: String(f.to).includes("win") ? "windows" : "linux", parts: [{ part: "host", version: "1.2.9+4", state: "running", pid: 4120, restarts: 0 }, { part: "keeper", version: "1.1.3", state: "running" }] } });
   h["machine.journal"] = () => ({ ok: true, result: { more: false, records: [{ t: new Date().toISOString(), part: "host", who: "session", kind: "note", ev: "session.open", word: "ok" }, { t: new Date().toISOString(), part: "host", who: "slots", kind: "refuse", ev: "slot.wait", word: "limit", why: "у порога" }] } });
   h["ledger.read"] = () => ({ ok: true, result: { more: false, events: [{ id: 2, t: Date.now() - 30000, ev: "session.failed", from: "night@wsl", text: "слот main: все аккаунты у порога" }, { id: 1, t: Date.now() - 60000, ev: "machine.joined", from: ".relay", text: "win на связи" }] } });
-  h["points.list"] = (f) =>
-    f.sid
-      ? { ok: true, result: { owner: "win", head: 41, points: [{ id: 41, at: Date.now() - 60000, machine: "win", why: "rule", base: 40, dir: "~/Projects/switchboard", msgs: 212, git: { state: "clean", branch: "main" }, line: true }] } }
-      : { ok: true, result: { sessions: [{ sid: "s1", callsign: "refactor@win", dir: "~/Projects/switchboard", owner: "win", head: { id: 41, at: Date.now() - 60000 }, points: 41, branches: 1 }, { sid: "s2", callsign: "old-bot@wsl", dir: "~/old", owner: "wsl", head: { id: 3, at: Date.now() - 86400000 }, points: 3, branches: 0 }], r2: { bytes: 432013312, blocks: 2410 }, sweep: { at: Date.now() - 3600000, blocks: 12, bytes: 10485760 } } };
+  // архив сессий: refactor@win идёт, old-bot@wsl только в архиве; у refactor — линия точек 38 → 41 и ветка 33
+  const T0 = Date.now() - 3 * 3_600_000;
+  const iso = (min: number) => new Date(T0 + min * 60_000).toISOString();
+  const archTalk = [
+    { type: "user", uuid: "u1", timestamp: iso(0), message: { role: "user", content: "Переделай список сессий: строка — заголовок, модель и токены" } },
+    { type: "assistant", uuid: "a1", timestamp: iso(4), message: { id: "m1", role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Сделал строку: заголовок разговора, callsign, модель и токены. Тесты пульта зелёные." }] } },
+    { type: "user", uuid: "u2", timestamp: iso(60), message: { role: "user", content: "Добавь поиск по переписке над списком" } },
+    { type: "assistant", uuid: "a2", timestamp: iso(66), message: { id: "m2", role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Поиск — points.list с q: одна строка на сессию, клик открывает её на найденном месте." }] } },
+    { type: "user", uuid: "u3", timestamp: iso(120), message: { role: "user", content: "Покажи точки прямо в разговоре" } },
+    { type: "assistant", uuid: "a3", timestamp: iso(127), message: { id: "m3", role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Точки стоят разделителями, после выбранной разговор приглушён." }] } },
+  ];
+  const archCalls = [
+    { uuid: "a1", at: iso(4), model: "claude-opus-5-5", tok_in: 182000, tok_out: 4200, system: "You are Claude Code." },
+    { uuid: "a2", at: iso(66), model: "claude-opus-5-5", tok_in: 410000, tok_out: 9100, system: "You are Claude Code." },
+    { uuid: "a3", at: iso(127), model: "claude-opus-5-5", tok_in: 620000, tok_out: 11800, system: "You are Claude Code." },
+  ];
+  const pts = [
+    { id: 41, at: T0 + 128 * 60_000, machine: "win", why: "rule", base: 38, dir: "~/Projects/switchboard", msgs: 6, git: { state: "dirty", files: 3, branch: "main" }, line: true, until: null },
+    { id: 38, at: T0 + 67 * 60_000, machine: "win", why: "rule", base: 37, dir: "~/Projects/switchboard", msgs: 4, git: { state: "clean", branch: "main" }, line: true, until: null },
+    { id: 33, at: T0 + 5 * 60_000, machine: "win", why: "save", base: null, dir: "~/Projects/switchboard", msgs: 2, line: false, until: null },
+  ];
+  const rows = [
+    { sid: "s1", callsign: "refactor@win", title: "Переделка списка сессий", model: "claude-opus-5-5", tok_in: 1212000, tok_out: 25100, dir: "~/Projects/switchboard", owner: "win", head: { id: 41, at: pts[0].at }, points: 3, branches: 1 },
+    { sid: "s2", callsign: "old-bot@wsl", title: "Чистка старых логов", model: "claude-sonnet-5-5", tok_in: 52000, tok_out: 1200, dir: "~/old", owner: "wsl", head: { id: 3, at: Date.now() - 86400000 }, points: 3, branches: 0 },
+  ];
+  h["points.list"] = (f) => {
+    if (f.sid === "s1") return { ok: true, result: { owner: "win", head: 41, points: pts } };
+    if (f.sid) return { ok: true, result: { owner: "wsl", head: 3, points: [{ id: 3, at: rows[1].head.at, machine: "wsl", why: "rule", base: 2, dir: "~/old", msgs: 2, line: true, until: null }] } };
+    if (f.q) return { ok: true, result: { search: true, sessions: [{ ...rows[0], hits: [{ uuid: "u2", point: 41, at: iso(60), text: "Добавь поиск по переписке над списком" }] }], store: { bytes: 432013312, blocks: 2410 }, sweep: null } };
+    return { ok: true, result: { search: true, sessions: rows, store: { bytes: 432013312, blocks: 2410 }, sweep: { at: Date.now() - 3600000, blocks: 12, bytes: 10485760 } } };
+  };
+  h["points.history"] = (f) => {
+    const n = f.point === 38 ? 4 : f.point === 33 ? 2 : archTalk.length;
+    return { ok: true, result: { point: f.point ?? 41, messages: f.sid === "s1" ? archTalk.slice(0, n) : archTalk.slice(0, 2), calls: f.sid === "s1" ? archCalls.slice(0, n / 2) : archCalls.slice(0, 1), more: false } };
+  };
   h["github.app"] = () => ({ ok: true, result: { app: { slug: "switchboard-fleet" }, repos: ["you/switchboard", "team/profiles", "you/site"], install: "https://github.com/apps/x/installations/new" } });
   h["releases.list"] = () => ({
     ok: true,

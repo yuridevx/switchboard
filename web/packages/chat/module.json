@@ -1,7 +1,7 @@
 {
   "name": "web-chat",
   "type": "web",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "into": [
     "pult",
     "phone"
@@ -10,7 +10,8 @@
     "chat": 1,
     "unread": 1,
     "models": 1,
-    "models.load": 1
+    "models.load": 1,
+    "chat.view": 1
   },
   "uses": {
     "session.reload@host-manage": 1,
@@ -30,7 +31,8 @@
     "session.files@host-chat": 1,
     "session.call@host-manage": 1,
     "asked.tool@web-ask": 1,
-    "mode@host-manage": 1
+    "mode@host-manage": 1,
+    "points.history@points": 1
   },
   "config": {}
 }

@@ -389,7 +389,7 @@ describe("статика и архив", () => {
     await flush();
     const rows = [...document.querySelectorAll(".sb-palit")].filter((r) => ["раздел", "Флот"].includes(r.querySelector(".k")?.textContent ?? "")).map((r) => r.querySelector(".l")!.textContent);
     expect(document.querySelector(".sb-palit.first .l")!.textContent).toBe("Вам");
-    expect(rows).toEqual(["Вам", "Работа", "Инциденты", "Аккаунты", "Профили", "Журнал", "Точки", "Настройки", "Настройки: выпуски", "Настройки: пропуска", "Настройки: github и устройство"]);
+    expect(rows).toEqual(["Вам", "Работа", "Инциденты", "Аккаунты", "Профили", "Журнал", "Сессии", "Настройки", "Настройки: выпуски", "Настройки: пропуска", "Настройки: github и устройство"]);
   }, 120_000);
 });
 
