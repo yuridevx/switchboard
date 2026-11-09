@@ -111,3 +111,9 @@ export const hello = frame("hello", {
   owner: "fleet",
   payload: z.object({ proto: z.number(), key: z.string(), role: z.enum(["page", "host", "keeper", "watch"]), as: z.string().optional() }),
 });
+
+/** Зритель ушёл: объект машины → Host, когда у адреса не осталось соединений с этой машиной. from — адрес зрителя. */
+export const watcherGone = frame("watcher.gone", { owner: "platform", payload: z.object({}) });
+
+/** Соединение с объектом машины принято: ответ на hello ролям host, keeper и watch. Странице ответом служит roster. */
+export const helloOk = frame("hello.ok", { owner: "platform", payload: z.object({ addr: z.string() }) });

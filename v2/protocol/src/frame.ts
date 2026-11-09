@@ -164,6 +164,9 @@ export type Who = {
   machines: string[];
 };
 
+/** Достаёт ли пришедший до машины: правило считает объект флота, здесь — только сверка со списком. */
+export const canReach = (who: Pick<Who, "machines">, machine: string): boolean => who.machines.includes(machine);
+
 /** Предел ожидания: успела — её ответ, нет — отказ timeout. */
 export function within<T>(p: Promise<T> | T, ms = CALL_MS, why = "нет ответа"): Promise<T> {
   return new Promise<T>((res, rej) => {

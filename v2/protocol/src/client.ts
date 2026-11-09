@@ -1,6 +1,6 @@
 // Общий клиент флота: один типизированный вызов для страницы, Host, служб и скриптов; соединение с переподключением.
 import type { InputOf, OutputOf, RequestDef } from "./define.ts";
-import { CALL_MS, type Frame, isReply, newId, parseFrame, PROTO, Refusal, type Reply, type Span, within } from "./frame.ts";
+import { CALL_MS, type Frame, isReply, newId, parseFrame, parsePass, PROTO, Refusal, type Reply, type Span, within } from "./frame.ts";
 
 /** Провод: как кадр-запрос доходит до входа и как открыть соединение. Настоящий — httpTransport; у страницы в прототипе — мок. */
 export interface Transport {
@@ -53,7 +53,7 @@ export function socketLink(o: {
   stopOn?: string[];
 }): Link {
   const WS = o.WebSocket ?? ((globalThis as any).WebSocket as new (url: string) => SocketLike);
-  const stopOn = o.stopOn ?? ["bad_key", "revoked", "forbidden", "proto"];
+  const stopOn = o.stopOn ?? ["bad_key", "revoked", "forbidden", "proto", "replaced"];
   let ws: SocketLike | null = null, closed = false, tries = 0, timer: ReturnType<typeof setTimeout> | null = null;
   const queue: string[] = [];
   const connect = () => {
@@ -117,7 +117,8 @@ export function httpTransport(o: { base: string; key: string; fetch?: typeof fet
       return r;
     },
     open(role, opts) {
-      const url = role === "page" ? wsBase + "/f" : wsBase + "/m/" + opts.machine;
+      const fleet = parsePass(o.key)?.fleet ?? "";
+      const url = role === "page" ? wsBase + "/f/" + fleet : wsBase + "/m/" + fleet + "/" + opts.machine;
       return socketLink({ url, hello: { type: "hello", proto: PROTO, key: o.key, role }, onFrame: opts.onFrame, onState: opts.onState, WebSocket: o.WebSocket });
     },
   };

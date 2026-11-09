@@ -143,7 +143,7 @@ export const keysValue = request("keys.value", {
 /* ===== GitHub (github) ===== */
 
 export const githubApp = request("github.app", { owner: "github", target: "service", input: Empty, output: z.object({ installed: z.boolean(), name: z.string().optional(), url: z.string().optional(), repos: z.array(z.string()).optional() }) });
-export const githubSetup = request("github.setup", { owner: "github", target: "service", admin: true, input: z.object({ code: z.string().optional() }), output: z.object({ url: z.string().optional(), installed: z.boolean() }) });
+export const githubSetup = request("github.setup", { owner: "github", target: "service", admin: true, input: z.object({ code: z.string().optional(), redirect: z.string().optional(), org: z.string().optional(), replace: z.boolean().optional() }), output: z.object({ url: z.string().optional(), installed: z.boolean(), form: z.object({ action: z.string(), manifest: z.unknown() }).optional() }) });
 export const githubToken = request("github.token", { owner: "github", target: "service", machineOnly: true, input: z.object({ repo: z.string() }), output: z.object({ token: z.string(), expires: z.number() }) });
 
 /* ===== Аналитика (analytics) — ClickHouse в стороне ===== */

@@ -1,0 +1,14 @@
+{
+  // Платформа Switchboard v2: объект флота и объекты машин. Выкладывается редко: обновление рвёт соединения.
+  "name": "sb2-platform",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [
+      { "name": "FLEET", "class_name": "FleetObject" },
+      { "name": "MACHINE", "class_name": "MachineObject" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FleetObject", "MachineObject"] }]
+}

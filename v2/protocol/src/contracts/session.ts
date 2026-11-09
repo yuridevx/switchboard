@@ -72,6 +72,8 @@ export const SessionRow = z.object({
   unread: z.array(Person).optional(),
   /** чем занят ход — короткая строка для списка */
   doing: z.string().optional(),
+  /** итог последнего хода — начало последнего ответа, для строки «Закончили» */
+  result: z.string().optional(),
   /** причина failed словами */
   error: z.string().optional(),
   /** аккаунт, на котором идёт сейчас (после выбора auto) */
@@ -181,5 +183,8 @@ export const machineHello = frame("machine.hello", {
   owner: "host",
   payload: z.object({ build: z.number(), sdk: z.string().optional(), os: z.string().optional(), sessions: z.array(SessionRow) }),
 });
+
+/** Зритель ушёл: объект машины → Host, когда соединение зрителя закрылось. Host снимает его со всех сессий. */
+export const watchClosed = frame("watch.closed", { owner: "host-chat", payload: z.object({ addr: z.string() }) });
 
 export { Empty };

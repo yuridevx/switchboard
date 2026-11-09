@@ -1,0 +1,12 @@
+{
+  // Настройка стенда: без привязки платформы (её подменяет подделка в тестах) и без файлов страницы.
+  "name": "sb2-services-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": { "bindings": [{ "name": "RECORDS", "class_name": "Records" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Records"] }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "sb2-files" }],
+  "queues": { "producers": [{ "binding": "ANALYTICS", "queue": "sb2-analytics" }] },
+  "vars": { "FILES_BUCKET": "sb2-files", "VAPID_SUB": "mailto:fleet@example.com", "R2_ACCOUNT_ID": "acc", "R2_ACCESS_KEY_ID": "id", "R2_SECRET_ACCESS_KEY": "secret" }
+}
