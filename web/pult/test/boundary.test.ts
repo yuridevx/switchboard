@@ -298,7 +298,7 @@ describe("статика и архив", () => {
       mkdirSync(dist);
       writeFileSync(join(dist, "stale.js"), "");
     }
-    const r = spawnSync(process.execPath, [join(app, "build.mjs")], { encoding: "utf8" });
+    const r = spawnSync(process.execPath, [join(app, "build.mjs")], { encoding: "utf8", timeout: 60_000 });
     expect(r.status).toBe(0);
     expect(readdirSync(dist).sort()).toEqual(["app.js", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "index.html", "manifest.webmanifest", "sw.js"]);
     for (const f of ["app.js", "sw.js", "index.html"]) {

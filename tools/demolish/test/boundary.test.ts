@@ -17,7 +17,7 @@ afterEach(() => {
 function repo() {
   const dir = mkdtempSync(join(tmpdir(), "demolish-"));
   dirs.push(dir);
-  const git = (...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: dir, encoding: "utf8" }).trim();
+  const git = (...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: dir, encoding: "utf8", timeout: CMD_MS }).trim();
   const put = (path: string, text: string) => {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), text);

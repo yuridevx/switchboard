@@ -8,7 +8,7 @@
 //   Поле roster incident { type, key }; правило модуля — в системный промпт сессии инцидента.
 //   incident.pending {} → { appeals: [{ id, type, key, callsign, refused }] } — обращения на диске; callsign null — сессия не открылась; refused { word, why, t } — последний отказ доставки, отказа не было — null.
 // Настройка машины — host.json: "modules": { "host-incidents": { "port": 7717, "to": "phone~you@example.com",
-//   "types": { "disk-full": { "profile": ["you/profiles/disk-full"], "dir": "~" } } } }.
+//   "types": { "disk-full": { "profile": ["you/profiles/disk-full"], "dir": "~" } } } }. port не задан — сервера нет; 0 — порт выбирает ОС, адрес — в строке журнала incident_listen.
 import { make } from "./src/incidents.ts";
 
 export { make };

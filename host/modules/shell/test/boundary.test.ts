@@ -17,7 +17,7 @@ import { make as makeChat } from "../../chat/contract.ts";
 import manifest from "../module.json" with { type: "json" };
 import shellPkg, { make } from "../contract.ts";
 
-const { standHost, until } = stand;
+const { isDead, standHost, until } = stand;
 type Stand = stand.Stand;
 type Blocks = { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; isError?: boolean };
 type Snapshot = { state: string; code?: number | null; ms: number; stdout: string; stderr: string; files?: Attachment[] };
@@ -72,15 +72,6 @@ async function pair() {
 
 /** Свой PID для ОС: у Git Bash номер Windows лежит в /proc. */
 const SAY_PID = "{ cat /proc/$BASHPID/winpid 2>/dev/null || echo $BASHPID; }";
-/** Мёртв: процесса нет. На Linux kill(pid, 0) успешен и у зомби, которого не подобрал родитель, и у получившего SIGKILL в первые миллисекунды: ждём Z или конца. */
-function isDead(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return !win && readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /, "")[0] === "Z";
-  } catch {
-    return true;
-  }
-}
 
 const said = (st: Stand, cs: string) => st.proc(cs).inputs.map((i) => JSON.stringify(i.message?.content ?? "")).join("\n");
 

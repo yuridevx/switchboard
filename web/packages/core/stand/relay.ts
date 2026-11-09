@@ -172,9 +172,17 @@ export class FakeSock {
   }
 }
 
-/** Дать отработать таймерам, обещаниям и отрисовке React: клик → отрисовка → эффект → запрос → ответ → отрисовка. */
+/** Дать отработать таймерам, обещаниям и отрисовке React: клик → отрисовка → эффект → запрос → ответ → отрисовка.
+ *  n переходов setTimeout(0) подряд. Пока переход ждёт, цикл крутится на setImmediate и не засыпает: иначе на Windows
+ *  сон до таймера длится шаг системного таймера (10–16 мс вместо 1), и 12 переходов стоили 120–190 мс. */
 export async function flush(n = 12) {
-  for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
+  for (let i = 0; i < n; i++)
+    await new Promise<void>((r) => {
+      let fired = false;
+      setTimeout(() => ((fired = true), r()), 0);
+      const spin = () => void (fired || setImmediate(spin));
+      spin();
+    });
 }
 
 /** Флот home из дизайна: laptop и pc, четыре сессии, Worker push. */

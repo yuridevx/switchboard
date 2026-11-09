@@ -100,7 +100,7 @@ function folder(git: boolean): string {
   }
   if (git) {
     writeFileSync(join(d, ".gitignore"), "build/\n");
-    execFileSync("git", ["init", "-q"], { cwd: d });
+    execFileSync("git", ["init", "-q"], { cwd: d, timeout: 30_000 });
   }
   return d;
 }

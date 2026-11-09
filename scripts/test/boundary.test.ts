@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { stand } from "@switchboard/host";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -22,9 +23,9 @@ const pkg = (name: string, test?: string) => JSON.stringify({ name, private: tru
 
 describe("прогон пакетов: test-packages", { timeout: CMD_MS }, () => {
   /** Монорепо во временной папке: скрипт считает корень от своего файла. */
-  function repo(packages: Record<string, string | undefined>) {
+  function repo(packages: Record<string, string | undefined>, scripts?: Record<string, string>) {
     const dir = temp("packages");
-    write(join(dir, "package.json"), JSON.stringify({ name: "r", private: true, workspaces: ["tools/*", "workers/*", "web/packages/*", "web/phone"] }));
+    write(join(dir, "package.json"), JSON.stringify({ name: "r", private: true, workspaces: ["tools/*", "workers/*", "web/packages/*", "web/phone"], ...(scripts ? { scripts } : {}) }));
     for (const d of ["tools", "workers", "web/packages"]) mkdirSync(join(dir, d), { recursive: true });
     copyFileSync(join(SCRIPTS, "test-packages.mjs"), (mkdirSync(join(dir, "scripts")), join(dir, "scripts", "test-packages.mjs")));
     for (const [p, test] of Object.entries(packages)) write(join(dir, p, "package.json"), pkg(p.replaceAll("/", "-"), test));
@@ -62,7 +63,7 @@ describe("прогон пакетов: test-packages", { timeout: CMD_MS }, () =
     expect(r.out).not.toContain("workers/");
   });
 
-  it("пакет не уложился в предел — FAIL с причиной словами, снято всё дерево: потомок мёртв, прогон его не ждёт (слово пользователя 2 нояб., опыт 5 нояб.: при пределе 1 с ждал все 25 с)", () => {
+  it("пакет не уложился в предел — FAIL с причиной словами, снято всё дерево: потомок мёртв, прогон его не ждёт (слово пользователя 2 нояб., опыт 5 нояб.: при пределе 1 с ждал все 25 с)", async () => {
     const dir = repo({ "workers/hung": `node -e "require('fs').writeFileSync('pid',String(process.pid));setTimeout(()=>{},60000)"` });
     const f = join(temp("packages-pre"), "pre.mjs");
     write(f, `const orig = globalThis.setTimeout;
@@ -74,7 +75,43 @@ globalThis.setTimeout = (fn, ms, ...a) => orig(fn, ms === 360000 ? 8000 : ms, ..
     expect(r.out).toMatch(/^FAIL workers\/hung · \d+ с · не уложился в 6 мин$/m);
     expect(Date.now() - started).toBeLessThan(40_000);
     const pid = Number(readFileSync(join(dir, "workers", "hung", "pid"), "utf8"));
-    expect(() => process.kill(pid, 0)).toThrow();
+    await stand.until(() => stand.isDead(pid));
+  });
+
+  it("Node-группа корня — скрипт test:node, одна строка рядом с пакетами; часть пути внутри неё уходит фильтром vitest, пакеты вне части не идут (чьё: код)", () => {
+    const dir = repo({ "workers/a": OK }, { "test:node": `node -e "require('fs').writeFileSync('args',JSON.stringify(process.argv.slice(1)))"` });
+    const all = run(dir);
+    expect(all.code).toBe(0);
+    expect(all.out).toMatch(/^ok {3}node \(protocol, tools, host, scripts\) · \d+ с$/m);
+    expect(all.out).toMatch(/^пакетов 2 · упало 0 · \d+ с$/m);
+    const host = run(dir, ["host/core"]);
+    expect(host.out).toMatch(/^пакетов 1 · упало 0 · \d+ с$/m);
+    expect(host.out).not.toContain("workers/a");
+    expect(JSON.parse(readFileSync(join(dir, "args"), "utf8"))).toEqual(["host/core"]);
+  });
+
+  it("пакеты идут разом: каждый ждёт файла другого — оба доходят; последовательный прогон ждал бы вечно (задача 10 нояб.: распараллелить пакеты)", () => {
+    const meet = (me: string, other: string) =>
+      `node -e "const fs=require('fs');fs.writeFileSync('../../${me}','');const end=Date.now()+20000;(function w(){if(fs.existsSync('../../${other}'))return;if(Date.now()>end)process.exit(1);setTimeout(w,50)})()"`;
+    const r = run(repo({ "workers/a": meet("a", "b"), "workers/b": meet("b", "a") }));
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/^пакетов 2 · упало 0 · \d+ с$/m);
+  });
+
+  it("прогон не уложился в общий предел — оставшиеся сняты деревом, итог словами и код 1 (задача 10 нояб.: у прогона целиком свой лимит)", async () => {
+    const dir = repo({ "workers/hung": `node -e "require('fs').writeFileSync('pid',String(process.pid));setTimeout(()=>{},60000)"` });
+    const f = join(temp("packages-pre"), "pre.mjs");
+    write(f, `const orig = globalThis.setTimeout;
+globalThis.setTimeout = (fn, ms, ...a) => orig(fn, ms === 900000 ? 3000 : ms, ...a);
+`);
+    const started = Date.now();
+    const r = run(dir, [], pathToFileURL(f).href);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/^FAIL workers\/hung · \d+ с$/m);
+    expect(r.out).toMatch(/^прогон не уложился в 15 мин · не дошли: $/m);
+    expect(Date.now() - started).toBeLessThan(40_000);
+    const pid = Number(readFileSync(join(dir, "workers", "hung", "pid"), "utf8"));
+    await stand.until(() => stand.isDead(pid));
   });
 });
 

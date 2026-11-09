@@ -15,8 +15,8 @@
   "scripts": {
     "gate": "node tools/manifest-gate/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/web-typecheck.mjs",
-    "test": "npm run gate && vitest run",
-    "test:workers": "node scripts/test-packages.mjs",
+    "test": "npm run gate && node scripts/test-packages.mjs",
+    "test:node": "vitest run",
     "shots": "node scripts/shots/run.mjs",
     "drag": "node scripts/shots/drag.mjs",
     "front": "node scripts/design/serve.mjs --fleet"

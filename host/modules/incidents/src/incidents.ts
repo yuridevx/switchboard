@@ -1,6 +1,7 @@
 // host-incidents: обращение приложения компьютера → раздел машины → ввод сессии своего типа и ключа; снято, когда ход его взял.
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { MAX_FRAME } from "@switchboard/protocol";
 import { content, isRefusal, refuse, type Attachment, type Host, type Module, type Session } from "@switchboard/host";
 
@@ -150,11 +151,12 @@ export function make(): Module {
       host = h;
       cfg = host.config<Config>() ?? {};
       const port = cfg.port;
-      if (!port) return;
+      if (port === undefined) return;
       const s = createServer((req, res) => void accept(req, res));
       await new Promise<void>((ok, no) => s.once("error", no).listen(port, "127.0.0.1", () => ok()));
       server = s;
-      host.log({ ev: "incident_listen", why: `инциденты: POST http://127.0.0.1:${port}/incident` });
+      // порт 0 — выбирает ОС: строка называет настоящий
+      host.log({ ev: "incident_listen", why: `инциденты: POST http://127.0.0.1:${(s.address() as AddressInfo).port}/incident` });
     },
     /** Штатная остановка: новых обращений нет, начатая доставка доводится (её шаги ограничены пределами ядра). */
     async stop() {

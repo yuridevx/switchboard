@@ -37,7 +37,7 @@ const gate = (files: Files) => check(loadRepo(repo(files)));
 /** Прогон настоящего `cli.ts` на временном монорепо; своих node_modules у него нет, инструменты — из настоящего корня. */
 function gateOn(root: string) {
   cpSync(GATE, join(root, "tools", "manifest-gate"), { recursive: true });
-  return spawnSync(process.execPath, [join(root, "tools", "manifest-gate", "cli.ts")], { encoding: "utf8", env: { ...process.env, NODE_PATH: join(GATE, "..", "..", "node_modules") } });
+  return spawnSync(process.execPath, [join(root, "tools", "manifest-gate", "cli.ts")], { encoding: "utf8", timeout: 60_000, env: { ...process.env, NODE_PATH: join(GATE, "..", "..", "node_modules") } });
 }
 
 describe("набор модулей", () => {
@@ -203,7 +203,7 @@ describe("монорепо", () => {
   });
 
   it("2073 · npm run gate на настоящем монорепо: выход 0 и строка с числами", () => {
-    const r = spawnSync(process.execPath, [join(GATE, "cli.ts")], { encoding: "utf8" });
+    const r = spawnSync(process.execPath, [join(GATE, "cli.ts")], { encoding: "utf8", timeout: 60_000 });
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout.trim()).toMatch(/^gate: ok · \d+ модулей · \d+ имён контракта$/);
   });

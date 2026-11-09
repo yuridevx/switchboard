@@ -46,7 +46,7 @@ const ask = async (f: Record<string, unknown>) => (await b!.st.relay.request({ v
 /** points.put по поводу; «missing» — тот же put до блоков, его не считаем. */
 const puts = (why?: string) => b!.reg.puts.filter((p) => (!why || p.why === why) && p.result !== "missing");
 const last = (cs: string) => b!.st.states(cs).at(-1)!;
-const git = (cwd: string, ...a: string[]) => execFileSync("git", a, { cwd, env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }).toString().trim();
+const git = (cwd: string, ...a: string[]) => execFileSync("git", a, { cwd, timeout: 30_000, env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }).toString().trim();
 
 /** Открыть помеченную сессию с файлом разговора. */
 async function marked(cs = "site@laptop", buf = conv(20)): Promise<Session> {
