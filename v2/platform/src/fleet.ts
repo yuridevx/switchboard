@@ -138,9 +138,9 @@ export class FleetObject extends DurableObject<Env> {
       case "project.set":
         return this.projectSet(i);
       case "project.remove": {
-        const members = this.q<{ person: string }>("SELECT person FROM members WHERE project = ?", i.id).map((r) => r.person);
-        this.q("DELETE FROM members WHERE project = ?", i.id);
-        this.q("DELETE FROM projects WHERE id = ?", i.id);
+        const members = this.q<{ person: string }>("SELECT person FROM members WHERE project = ?", i.project).map((r) => r.person);
+        this.q("DELETE FROM members WHERE project = ?", i.project);
+        this.q("DELETE FROM projects WHERE id = ?", i.project);
         return { drop: this.access(members) };
       }
     }
@@ -277,15 +277,15 @@ export class FleetObject extends DurableObject<Env> {
     return { drop: { kids, persons: drop.persons } };
   }
 
-  private projectSet(i: { id: string; name: string; members?: string[] }): { drop?: Drop } {
-    this.q("INSERT INTO projects(id, name) VALUES(?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name", i.id, i.name);
+  private projectSet(i: { project: string; name: string; members?: string[] }): { drop?: Drop } {
+    this.q("INSERT INTO projects(id, name) VALUES(?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name", i.project, i.name);
     if (!i.members) return {};
     for (const p of i.members) if (!this.q("SELECT 1 FROM people WHERE person = ?", p).length) throw new Refusal("not_found", "человека " + p + " нет во флоте");
-    const old = this.q<{ person: string }>("SELECT person FROM members WHERE project = ?", i.id).map((r) => r.person);
+    const old = this.q<{ person: string }>("SELECT person FROM members WHERE project = ?", i.project).map((r) => r.person);
     const same = old.length === i.members.length && old.every((p) => i.members!.includes(p));
     if (same) return {};
-    this.q("DELETE FROM members WHERE project = ?", i.id);
-    for (const p of i.members) this.q("INSERT INTO members(project, person) VALUES(?, ?)", i.id, p);
+    this.q("DELETE FROM members WHERE project = ?", i.project);
+    for (const p of i.members) this.q("INSERT INTO members(project, person) VALUES(?, ?)", i.project, p);
     return { drop: this.access([...old, ...i.members]) };
   }
 
@@ -353,6 +353,13 @@ export class FleetObject extends DurableObject<Env> {
       this.q("UPDATE machines SET keeper = ? WHERE name = ?", change.on ? 1 : 0, machine);
     }
     this.emit(machine, { machines: [machineRow(this.q<MachineRec>("SELECT * FROM machines WHERE name = ?", machine)[0]!)] });
+  }
+
+  /** Живые из названных номеров пропусков: отозванных в ответе нет. */
+  alive(kids: string[]): string[] {
+    if (!kids.length) return [];
+    const marks = kids.map(() => "?").join(",");
+    return this.q<{ kid: string }>(`SELECT kid FROM passes WHERE wait = 0 AND kid IN (${marks})`, ...kids).map((r) => r.kid);
   }
 
   online(person: string): boolean {

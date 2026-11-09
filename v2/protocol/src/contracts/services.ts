@@ -97,7 +97,7 @@ export type DeviceRow = z.infer<typeof DeviceRow>;
 /** Позвать человека: служба сама смотрит, на связи ли он; на связи — не шлёт. */
 export const reachSend = request("reach.send", {
   owner: "reach", target: "service",
-  input: z.object({ to: Person, title: z.string(), text: z.string(), callsign: Callsign.optional(), kind: z.enum(["ask", "done", "failed", "message"]).optional(), force: z.boolean().optional() }),
+  input: z.object({ to: Person, title: z.string(), text: z.string(), callsign: Callsign.optional(), kind: z.enum(["ask", "done", "failed", "message"]).optional(), force: z.boolean().optional(), /** номер вопроса и подписи вариантов: ответ кнопками */ ask: z.string().optional(), options: z.array(z.string()).optional() }),
   output: z.object({ sent: z.number(), online: z.boolean() }),
 });
 export const reachKey = request("reach.key", { owner: "reach", target: "service", input: Empty, output: z.object({ key: z.string() }) });
@@ -106,7 +106,8 @@ export const reachSubscribe = request("reach.subscribe", {
   input: z.object({ kind: z.literal("webpush"), endpoint: z.string(), p256dh: z.string(), auth: z.string(), label: z.string().optional() }), output: z.object({ id: z.string() }),
 });
 export const reachDevices = request("reach.devices", { owner: "reach", target: "service", input: Empty, output: z.object({ devices: z.array(DeviceRow) }) });
-export const reachRemove = request("reach.remove", { owner: "reach", target: "service", input: z.object({ id: z.string() }), output: Done });
+/** device — номер устройства из reach.devices. Поле id здесь не работает: это имя занято конвертом кадра. */
+export const reachRemove = request("reach.remove", { owner: "reach", target: "service", input: z.object({ id: z.string().optional(), device: z.string() }), output: Done });
 /** Код привязки чата Telegram: человек шлёт его боту, чат становится его устройством. */
 export const reachTelegram = request("reach.telegram", { owner: "reach", target: "service", input: Empty, output: z.object({ code: z.string(), bot: z.string() }) });
 
@@ -150,11 +151,11 @@ export const githubToken = request("github.token", { owner: "github", target: "s
 
 export const analyticsQuery = request("analytics.query", {
   owner: "analytics", target: "service",
-  tool: "Расход флота: вызовы модели и токены. by — разрез (day, model, machine, session, person, project), from и to — даты.",
-  input: z.object({ by: z.enum(["day", "model", "machine", "session", "person", "project"]), from: z.string(), to: z.string(), machine: z.string().optional() }),
+  tool: "Расход флота: вызовы модели и токены. by — разрез (day, model, machine, session, person, project), since и until — даты.",
+  input: z.object({ by: z.enum(["day", "model", "machine", "session", "person", "project"]), since: z.string(), until: z.string(), machine: z.string().optional() }),
   output: z.object({ rows: z.array(z.object({ key: z.string(), calls: z.number(), input: z.number(), output: z.number(), cacheRead: z.number(), cacheWrite: z.number(), cost: z.number().optional() })) }),
 });
-export const analyticsFill = request("analytics.fill", { owner: "analytics", target: "service", admin: true, input: z.object({ from: z.number() }), output: z.object({ queued: z.number() }) });
+export const analyticsFill = request("analytics.fill", { owner: "analytics", target: "service", admin: true, input: z.object({ since: z.number() }), output: z.object({ queued: z.number() }) });
 
 /* ===== Наблюдение (obs) ===== */
 
@@ -164,13 +165,15 @@ export const ObsRow = z.object({
 });
 export type ObsRow = z.infer<typeof ObsRow>;
 export const obsRecent = request("obs.recent", {
-  owner: "obs", target: "service", tool: "Последние запросы флота с исходом и временем по частям. type — имя запроса, failed — только отказы, trace — один запрос.",
-  input: z.object({ type: z.string().optional(), failed: z.boolean().optional(), trace: z.string().optional(), before: z.number().optional(), limit: z.number().optional() }),
+  owner: "obs", target: "service", tool: "Последние запросы флота с исходом и временем по частям. name — имя запроса (или его начало), failed — только отказы, of — один запрос по его trace.",
+  // of — строки одного запроса по его trace. Поле trace здесь не работает: это имя занято конвертом кадра.
+  // name — имя запроса. Поле type здесь не работает: это имя занято конвертом кадра.
+  input: z.object({ type: z.string().optional(), name: z.string().optional(), failed: z.boolean().optional(), trace: z.string().optional(), of: z.string().optional(), before: z.number().optional(), limit: z.number().optional() }),
   output: z.object({ rows: z.array(ObsRow), more: z.boolean() }),
 });
 export const obsStats = request("obs.stats", {
   owner: "obs", target: "service", tool: "Сводка запросов флота за период: число, отказы, медиана и 95-й процентиль времени по именам.",
-  input: z.object({ from: z.number(), to: z.number() }),
+  input: z.object({ since: z.number(), until: z.number() }),
   output: z.object({ types: z.array(z.object({ type: z.string(), n: z.number(), failed: z.number(), p50: z.number(), p95: z.number() })), buckets: z.array(z.object({ at: z.number(), n: z.number(), failed: z.number() })) }),
 });
 /** Ошибка страницы или Host, пойманная на месте. */

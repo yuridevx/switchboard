@@ -53,8 +53,12 @@ export type Word = keyof typeof WORDS;
 
 /** Отказ словом: бросается в обработчике, вход превращает его в reply. */
 export class Refusal extends Error {
-  constructor(public word: string, public why?: string) {
+  word: string;
+  why?: string;
+  constructor(word: string, why?: string) {
     super(why ? `${word}: ${why}` : word);
+    this.word = word;
+    this.why = why;
   }
 }
 

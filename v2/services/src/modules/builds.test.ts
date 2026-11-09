@@ -1,0 +1,55 @@
+import { describe, expect, it } from "vitest";
+import type { LedgerEvent } from "@sb/protocol";
+import { stand } from "../../test/stand.ts";
+
+const FILES = [
+  { name: "host.tgz", sha256: "a".repeat(64), size: 10 },
+  { name: "keeper-linux-amd64", sha256: "b".repeat(64), size: 20 },
+  { name: "keeper-windows-amd64.exe", sha256: "c".repeat(64), size: 30 },
+];
+
+describe("выпуски", () => {
+  it("загрузка сборки: ссылки PUT на каждый файл в папке своего флота; каталог показывает сборку", async () => {
+    const s = stand();
+    const up = (await s.ask("builds.upload", { build: 412, commit: "abc", files: FILES })).result as { links: Record<string, string> };
+    expect(Object.keys(up.links)).toEqual(FILES.map((f) => f.name));
+    expect(up.links["host.tgz"]).toContain(`/sb2-files/builds/${s.fleet}/412/host.tgz?`);
+    expect(up.links["host.tgz"]).toContain("X-Amz-Signature=");
+    expect((await s.ask("builds.list")).result).toMatchObject({ stable: null, pins: {}, builds: [{ build: 412, commit: "abc", files: FILES.map((f) => f.name) }] });
+    expect(await s.ask("builds.upload", { build: 413, files: FILES }, "kanya1")).toMatchObject({ ok: false, error: "forbidden" });
+  });
+
+  it("выкладка: сборки нет — not_found; есть — запись, кадр «план изменился» всем Keeper и событие журнала", async () => {
+    const s = stand();
+    expect(await s.ask("builds.deploy", { build: 412 })).toMatchObject({ ok: false, error: "not_found" });
+    expect(s.seen.broadcasts).toHaveLength(0);
+    await s.ask("builds.upload", { build: 412, files: FILES });
+    const r = await s.ask("builds.deploy", { build: 412 });
+    expect(r.ok).toBe(true);
+    expect(s.seen.broadcasts).toMatchObject([{ role: "keeper", frame: { type: "plan.changed", trace: r.trace } }]);
+    expect((await s.ask("builds.list")).result).toMatchObject({ stable: 412 });
+    const events = ((await s.ask("ledger.read", { what: "builds." })).result as { events: LedgerEvent[] }).events;
+    expect(events).toMatchObject([{ what: "builds.deploy", who: "pult~yuri@example.com", text: "сборка 412", trace: r.trace }]);
+  });
+
+  it("план машины: её закрепление важнее сборки флота; снятие закрепления возвращает сборку флота; ссылки GET по ОС", async () => {
+    const s = stand();
+    expect((await s.ask("builds.plan", { os: "linux" }, "klaptop")).result).toBeNull();
+    await s.ask("builds.upload", { build: 412, files: FILES });
+    await s.ask("builds.upload", { build: 409, files: FILES });
+    await s.ask("builds.deploy", { build: 412 });
+    await s.ask("builds.deploy", { build: 409, machine: "laptop" });
+    const plan = (await s.ask("builds.plan", { os: "windows" }, "klaptop")).result as { build: number; host: { url: string; sha256: string }; keeper: { url: string; sha256: string } };
+    expect(plan.build).toBe(409);
+    expect(plan.host.sha256).toBe("a".repeat(64));
+    expect(plan.keeper.sha256).toBe("c".repeat(64));
+    expect(plan.keeper.url).toContain(`/builds/${s.fleet}/409/keeper-windows-amd64.exe?`);
+    expect(((await s.ask("builds.plan", { os: "linux" }, "kolegm")).result as { build: number }).build).toBe(412);
+    await s.ask("builds.deploy", { build: null, machine: "laptop" });
+    expect(((await s.ask("builds.plan", { os: "linux" }, "klaptop")).result as { build: number }).build).toBe(412);
+    // план спрашивает только машина
+    expect(await s.ask("builds.plan", { os: "linux" }, "kyura1")).toMatchObject({ ok: false, error: "forbidden" });
+    // файла под эту ОС в сборке нет — отказ словом
+    expect(await s.ask("builds.plan", { os: "darwin", arch: "arm64" }, "klaptop")).toMatchObject({ ok: false, error: "not_found" });
+  });
+});

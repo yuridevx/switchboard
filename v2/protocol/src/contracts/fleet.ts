@@ -63,11 +63,12 @@ export const peopleRemove = request("people.remove", {
 });
 export const projectSet = request("project.set", {
   owner: "fleet", target: "fleet", admin: true,
-  input: z.object({ id: Name, name: z.string(), members: z.array(Person).optional() }), output: Done,
+  /** project — номер проекта. Поле id здесь не работает: это имя занято конвертом кадра. */
+  input: z.object({ id: z.string().optional(), project: Name, name: z.string(), members: z.array(Person).optional() }), output: Done,
 });
 export const projectRemove = request("project.remove", {
   owner: "fleet", target: "fleet", admin: true,
-  input: z.object({ id: Name }), output: Done,
+  input: z.object({ id: z.string().optional(), project: Name }), output: Done,
 });
 
 /* ===== Картина флота ===== */

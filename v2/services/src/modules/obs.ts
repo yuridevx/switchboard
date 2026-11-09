@@ -44,22 +44,22 @@ const quantile = (sorted: number[], q: number) => (sorted.length ? sorted[Math.m
 export const obs: Module = {
   name: NAME,
   handlers: {
-    async "obs.recent"(i: { type?: string; failed?: boolean; trace?: string; before?: number; limit?: number }, ctx) {
+    async "obs.recent"(i: { type?: string; failed?: boolean; of?: string; before?: number; limit?: number }, ctx) {
       const limit = Math.min(i.limit ?? 100, 500);
       const where = ["at < ?"];
       const params: (string | number)[] = [i.before ?? Number.MAX_SAFE_INTEGER];
       if (i.type) (where.push("type = ?"), params.push(i.type));
       if (i.failed) where.push("ok = 0");
-      if (i.trace) (where.push("trace = ?"), params.push(i.trace));
+      if (i.of) (where.push("trace = ?"), params.push(i.of));
       const got = await db(ctx.env, ctx.fleet).all<Stored>(`SELECT * FROM req WHERE ${where.join(" AND ")} ORDER BY at DESC LIMIT ?`, ...params, limit + 1);
       return { rows: got.slice(0, limit).filter(visible(ctx.who)).map(row), more: got.length > limit };
     },
 
-    async "obs.stats"(i: { from: number; to: number }, ctx) {
-      const all = await db(ctx.env, ctx.fleet).all<Pick<Stored, "type" | "dst" | "ok" | "ms" | "at">>("SELECT type, dst, ok, ms, at FROM req WHERE at >= ? AND at < ? ORDER BY at LIMIT 50000", i.from, i.to);
+    async "obs.stats"(i: { since: number; until: number }, ctx) {
+      const all = await db(ctx.env, ctx.fleet).all<Pick<Stored, "type" | "dst" | "ok" | "ms" | "at">>("SELECT type, dst, ok, ms, at FROM req WHERE at >= ? AND at < ? ORDER BY at LIMIT 50000", i.since, i.until);
       const got = all.filter(visible(ctx.who));
       const by = new Map<string, { n: number; failed: number; ms: number[] }>();
-      const step = Math.max(1, Math.ceil((i.to - i.from) / 60));
+      const step = Math.max(1, Math.ceil((i.until - i.since) / 60));
       const buckets = new Map<number, { n: number; failed: number }>();
       for (const r of got) {
         const t = by.get(r.type) ?? { n: 0, failed: 0, ms: [] };
@@ -67,7 +67,7 @@ export const obs: Module = {
         if (!r.ok) t.failed++;
         t.ms.push(r.ms);
         by.set(r.type, t);
-        const at = i.from + Math.floor((r.at - i.from) / step) * step;
+        const at = i.since + Math.floor((r.at - i.since) / step) * step;
         const b = buckets.get(at) ?? { n: 0, failed: 0 };
         b.n++;
         if (!r.ok) b.failed++;

@@ -52,12 +52,21 @@ export function platformApi(env: Env): PlatformApi {
       return n;
     },
     online: (fleet, person) => fleetStub(env, fleet).online(person),
+    alive: (fleet, kids) => fleetStub(env, fleet).alive(kids),
+    fetch: (request) => route(request, env),
     machines: (fleet): Promise<MachineRow[]> => fleetStub(env, fleet).machines(),
   };
 }
 
 /** Вход привязки служб. */
 export class Platform extends WorkerEntrypoint<Env> implements PlatformApi {
+  /** Проход соединений /f и /m от служб: тот же разбор адресов, что у входа Worker'а. */
+  override fetch(request: Request) {
+    return route(request, this.env);
+  }
+  alive(fleet: string, kids: string[]) {
+    return platformApi(this.env).alive(fleet, kids);
+  }
   who(key: string, as?: string) {
     return platformApi(this.env).who(key, as);
   }
@@ -78,8 +87,7 @@ export class Platform extends WorkerEntrypoint<Env> implements PlatformApi {
   }
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+async function route(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
     if (url.pathname === ROUTES.health) return json({ ok: true, part: "platform" });
@@ -95,5 +103,6 @@ export default {
       return json({ ok: true, ...r });
     }
     return json({ ok: false, error: "not_found" }, 404);
-  },
-} satisfies ExportedHandler<Env>;
+}
+
+export default { fetch: route } satisfies ExportedHandler<Env>;

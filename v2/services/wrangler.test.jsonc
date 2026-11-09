@@ -2,7 +2,7 @@
   // Настройка стенда: без привязки платформы (её подменяет подделка в тестах) и без файлов страницы.
   "name": "sb2-services-test",
   "main": "src/index.ts",
-  "compatibility_date": "2026-11-01",
+  "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": { "bindings": [{ "name": "RECORDS", "class_name": "Records" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Records"] }],

@@ -229,11 +229,11 @@ export const reach: Module = {
       return { devices: rows.map((x) => ({ id: x.id, kind: x.kind, person: x.person, at: x.at, ...(x.label ? { label: x.label } : {}), ...(x.kid ? { kid: x.kid } : {}) })) };
     },
 
-    async "reach.remove"(i: { id: string }, ctx) {
+    async "reach.remove"(i: { device: string }, ctx) {
       const d = db(ctx.env, ctx.fleet);
-      const dev = await d.first<Device>("SELECT * FROM devices WHERE id = ?", i.id);
+      const dev = await d.first<Device>("SELECT * FROM devices WHERE id = ?", i.device);
       if (!dev || (dev.person !== ctx.who.person && !ctx.who.admin)) throw new Refusal("not_found", "такого устройства у вас нет");
-      await d.run("DELETE FROM devices WHERE id = ?", i.id);
+      await d.run("DELETE FROM devices WHERE id = ?", i.device);
       if (dev.chat != null) await chats(ctx.env).run("DELETE FROM chats WHERE chat = ?", dev.chat);
       return {};
     },

@@ -36,7 +36,8 @@ export const accountCode = request("account.code", {
 });
 export const accountRemove = request("account.remove", {
   owner: "host-accounts", target: "machine",
-  input: z.object({ to: MachineAddr, id: z.string() }), output: Done,
+  /** account — номер аккаунта из account.list. Поле id здесь не работает: это имя занято конвертом кадра. */
+  input: z.object({ to: MachineAddr, id: z.string().optional(), account: z.string() }), output: Done,
 });
 /** Очередь выбора auto: порядок аккаунтов. */
 export const slotSet = request("slot.set", {
@@ -142,7 +143,7 @@ export const machineDirs = request("machine.dirs", {
 export const JournalLine = z.object({ t: z.number(), part: z.string(), level: z.enum(["info", "warn", "error"]), msg: z.string() }).loose();
 export const machineJournal = request("machine.journal", {
   owner: "host-machine", target: "machine", tool: "Журнал машины: строки Host, Keeper и держателей. part — чей, before — время, до которого читать.",
-  input: z.object({ to: MachineAddr, part: z.string().optional(), level: z.enum(["info", "warn", "error"]).optional(), before: z.number().optional(), limit: z.number().optional(), trace: z.string().optional() }),
+  input: z.object({ to: MachineAddr, part: z.string().optional(), level: z.enum(["info", "warn", "error"]).optional(), before: z.number().optional(), limit: z.number().optional(), /** только строки этого сквозного номера запроса; имя trace занято конвертом */ of: z.string().optional() }),
   output: z.object({ lines: z.array(JournalLine), more: z.boolean() }),
 });
 

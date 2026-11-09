@@ -33,6 +33,7 @@ func TestConnectAsksPlanAndRunsHost(t *testing.T) {
 	if hello["type"] != "hello" || hello["role"] != "keeper" || hello["proto"] != float64(2) || hello["key"] != testKey || hello["path"] != "/m/home/win" {
 		t.Fatalf("hello: %v", hello)
 	}
+	waitFor(t, "Host записал своё окружение", func() bool { return hostEnv(s.home) != nil })
 	env := hostEnv(s.home)
 	data := filepath.Join(s.home, "host", "data")
 	if env["SB_HOME"] != s.home || env["SB_FLEET"] != "home" || env["SB_MACHINE"] != "win" || env["SB_BUILD"] != "1" || env["SB_DATA"] != data ||
@@ -54,12 +55,13 @@ func TestSavedPlanRunsWithoutNetwork(t *testing.T) {
 	k := s.start()
 	waitFor(t, "Host сборки 1 работает", running(k, 1))
 	k.Stop()
+	old, _ := heldOf(s.home, "host")
 	killHolders(s.home)
-	waitFor(t, "держатель Host ушёл", func() bool { _, ok := heldOf(s.home, "host"); return !ok })
+	waitFor(t, "Host снят", func() bool { return !alive(old.Pid) && !alive(old.Holder) })
 	asks := s.f.asksN()
 	s.conf("http://127.0.0.1:1") // флота нет
 	k2 := s.start()
-	waitFor(t, "Host сборки 1 поднят с диска", running(k2, 1))
+	waitFor(t, "Host сборки 1 поднят с диска", func() bool { h, ok := heldOf(s.home, "host"); return running(k2, 1)() && ok && h.Pid != old.Pid })
 	if s.f.asksN() != asks {
 		t.Fatal("Keeper без сети дошёл до флота")
 	}
@@ -84,7 +86,13 @@ func TestPlanChangedLeadsToPlanRequest(t *testing.T) {
 	}
 	waitFor(t, "прежний Host вышел", func() bool { return !alive(old.Pid) })
 	waitFor(t, "host.updated в журнале флота", func() bool { return s.f.ledgerHas("host.updated", "1 → 2") })
-	waitFor(t, "папка прежней сборки убрана", func() bool { return !fileExists(filepath.Join(s.home, "host", "1")) })
+	// прежняя сборка остаётся на диске до следующей смены
+	s.f.setPlan(s.f.hostPlan(3, "ok", nil))
+	s.f.push(map[string]any{"type": "plan.changed"})
+	waitFor(t, "Host сборки 3 работает", running(k, 3))
+	waitFor(t, "папка сборки 1 убрана, сборки 2 — на месте", func() bool {
+		return !fileExists(filepath.Join(s.home, "host", "1")) && fileExists(filepath.Join(s.home, "host", "2"))
+	})
 }
 
 // Сборка флоту не назначена (план null): Keeper ничего не ставит и не падает.
@@ -191,8 +199,14 @@ func TestStopLeavesHostAndNextKeeperAdopts(t *testing.T) {
 	if !alive(h.Pid) || !alive(h.Holder) {
 		t.Fatal("остановка Keeper сняла Host")
 	}
-	if last := records(s.home); last[len(last)-1]["msg"] != "keeper_exit" {
-		t.Fatalf("последняя строка журнала: %v", last[len(last)-1])
+	var last map[string]any
+	for _, r := range records(s.home) {
+		if r["module"] == "keeper" {
+			last = r
+		}
+	}
+	if last["msg"] != "keeper_exit" {
+		t.Fatalf("последняя строка Keeper в журнале: %v", last)
 	}
 	k2 := s.start()
 	waitFor(t, "новый Keeper видит Host", running(k2, 1))
@@ -487,7 +501,7 @@ func TestInstallRefusals(t *testing.T) {
 
 /* ===== Держатель ===== */
 
-// Держатель: вывод копится без хозяина, ввод доходит, после закрытия ввода — кадр выхода с кодом; файл держателя убран.
+// Держатель: вывод копится без хозяина, ввод доходит, после закрытия ввода — кадр выхода с кодом; хозяин забрал выход — держатель вышел.
 func TestHolderProtocol(t *testing.T) {
 	home := t.TempDir()
 	t.Cleanup(func() { killHolders(home) })
@@ -510,7 +524,7 @@ func TestHolderProtocol(t *testing.T) {
 		t.Fatalf("выход: %+v, вывод %q", exit, out)
 	}
 	o.c.Close()
-	waitFor(t, "файл держателя убран", func() bool { _, ok := heldOf(home, "site@win"); return !ok })
+	waitFor(t, "держатель вышел", func() bool { return !alive(h.Holder) })
 }
 
 // Новый хозяин вытесняет прежнего; «убей» — выход с сигналом.

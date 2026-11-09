@@ -96,7 +96,7 @@ const KEY: Record<string, string> = { day: "toString(toDate(at))", model: "model
 export const analytics: Module = {
   name: NAME,
   handlers: {
-    async "analytics.query"(i: { by: string; from: string; to: string; machine?: string }, ctx: Ctx) {
+    async "analytics.query"(i: { by: string; since: string; until: string; machine?: string }, ctx: Ctx) {
       if (!ctx.env.CH_URL) throw new Refusal("analytics_unavailable", "аналитика не подключена");
       if (i.machine && !canReach(ctx.who, i.machine)) throw new Refusal("forbidden", `до машины ${i.machine} вы не достаёте`);
       const machines = i.machine ? [i.machine] : ctx.who.machines;
@@ -105,7 +105,7 @@ export const analytics: Module = {
         GROUP BY key ORDER BY key FORMAT JSON`;
       let text: string;
       try {
-        text = await ch(ctx.env, ctx.fetch, query, undefined, { fleet: ctx.fleet, machines: `[${machines.map((m) => `'${m}'`).join(",")}]`, from: i.from, to: i.to });
+        text = await ch(ctx.env, ctx.fetch, query, undefined, { fleet: ctx.fleet, machines: `[${machines.map((m) => `'${m}'`).join(",")}]`, from: i.since, to: i.until });
       } catch (e) {
         throw new Refusal("analytics_unavailable", e instanceof Error ? e.message : String(e));
       }
@@ -114,10 +114,10 @@ export const analytics: Module = {
     },
 
     /** Доливка: точки архива с этого момента — снова в очередь. */
-    async "analytics.fill"(i: { from: number }, ctx: Ctx) {
+    async "analytics.fill"(i: { since: number }, ctx: Ctx) {
       let queued = 0;
       for (const m of await ctx.platform.machines(ctx.fleet))
-        for (const p of await pointsSince(ctx.env, ctx.fleet, m.name, i.from)) {
+        for (const p of await pointsSince(ctx.env, ctx.fleet, m.name, i.since)) {
           await ctx.env.ANALYTICS.send({ fleet: ctx.fleet, machine: m.name, sid: p.sid, point: p.point });
           queued++;
         }

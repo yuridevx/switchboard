@@ -112,10 +112,10 @@ describe("кто пришёл и что может", () => {
     await pass(fleet, oleg, "@oleg-mac");
     const reach = async (key: string) => ((await api.who(key)) as { machines: string[] }).machines.sort();
     expect(await reach(anya)).toEqual(["anya-pc"]);
-    expect((await ask(fleet, yuri, { type: "project.set", id: "duo", name: "Дуэт", members: [ANYA, OLEG] })).ok).toBe(true);
+    expect((await ask(fleet, yuri, { type: "project.set", project: "duo", name: "Дуэт", members: [ANYA, OLEG] })).ok).toBe(true);
     expect(await reach(anya)).toEqual(["anya-pc", "oleg-mac"]);
     expect(await reach(oleg)).toEqual(["anya-pc", "oleg-mac"]);
-    expect((await ask(fleet, yuri, { type: "project.remove", id: "duo" })).ok).toBe(true);
+    expect((await ask(fleet, yuri, { type: "project.remove", project: "duo" })).ok).toBe(true);
     expect(await reach(oleg)).toEqual(["oleg-mac"]);
   });
 
@@ -182,8 +182,8 @@ describe("кто пришёл и что может", () => {
   it("не админ на people.set — forbidden; админ меняет людей и проекты", async () => {
     const fleet = newFleet(), yuri = await boot(fleet), anya = await pass(fleet, yuri, "pult" + ANYA);
     expect(await ask(fleet, anya, { type: "people.set", person: ANYA, admin: true })).toMatchObject({ ok: false, error: "forbidden" });
-    expect(await ask(fleet, anya, { type: "project.set", id: "site", name: "Сайт" })).toMatchObject({ ok: false, error: "forbidden" });
-    expect((await ask(fleet, yuri, { type: "project.set", id: "site", name: "Сайт", members: [YURI] })).ok).toBe(true);
+    expect(await ask(fleet, anya, { type: "project.set", project: "site", name: "Сайт" })).toMatchObject({ ok: false, error: "forbidden" });
+    expect((await ask(fleet, yuri, { type: "project.set", project: "site", name: "Сайт", members: [YURI] })).ok).toBe(true);
     expect((await ask(fleet, yuri, { type: "people.set", person: ANYA, name: "Аня", projects: ["site"] })).ok).toBe(true);
     expect(await ask(fleet, yuri, { type: "people.set", person: ANYA, projects: ["нет"] })).toMatchObject({ ok: false, error: "not_found" });
     const list = (await ask(fleet, anya, { type: "people.list" })).result as { people: Array<{ person: string; name?: string; admin: boolean; projects: string[] }>; projects: Array<{ id: string; members: string[] }> };

@@ -64,11 +64,12 @@ export async function call(env: Env, exec: ExecutionContext, handlers: Handlers,
       if ("error" in got) throw new Refusal(got.error, got.why);
       who = got;
     }
-    const { type: _t, id: _i, trace: _r, from: _f, ...fields } = f;
+    // from и to у запроса службы — поля ввода (период отчёта); отправителя кадра вход ставит сам
+    const { type: _t, id: _i, trace: _r, ...fields } = f;
     const parsed = def.input.safeParse(fields);
     if (!parsed.success) throw new Refusal("bad_input", parsed.error.issues.map((i) => `${i.path.join(".") || "ввод"}: ${i.message}`).join("; "));
     const input = parsed.data as Record<string, unknown>;
-    to = typeof input.to === "string" ? input.to : undefined;
+    to = def.target !== "service" && def.target !== "fleet" && typeof input.to === "string" ? input.to : undefined;
     if (who) allowed(def, who, input.to);
     if (def.target === "service") {
       const h = handlers.get(def.name);

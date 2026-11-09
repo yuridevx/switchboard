@@ -17,8 +17,12 @@ export interface Link {
 }
 
 export class CallError extends Refusal {
-  constructor(word: string, why: string | undefined, public trace?: string, public spans?: Span[]) {
+  trace?: string;
+  spans?: Span[];
+  constructor(word: string, why: string | undefined, trace?: string, spans?: Span[]) {
     super(word, why);
+    this.trace = trace;
+    this.spans = spans;
   }
 }
 

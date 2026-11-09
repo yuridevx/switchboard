@@ -2,7 +2,7 @@
   // Службы v2: Worker без состояния. Записи модулей — объекты Records на модуль и флот.
   "name": "sb2-services",
   "main": "src/index.ts",
-  "compatibility_date": "2026-11-01",
+  "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   "assets": { "directory": "../web/dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/call", "/mcp", "/f/*", "/m/*", "/health", "/telegram", "/telegram/*"] },

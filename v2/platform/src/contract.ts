@@ -14,6 +14,10 @@ export interface PlatformApi {
   broadcast(fleet: string, frame: Frame, role: "host" | "keeper"): Promise<number>;
   /** Открыта ли у человека страница. */
   online(fleet: string, person: string): Promise<boolean>;
+  /** Живые из названных номеров пропусков: отозванных в ответе нет. */
+  alive(fleet: string, kids: string[]): Promise<string[]>;
+  /** Проход соединений /f/<флот> и /m/<флот>/<машина> от служб как есть. */
+  fetch(request: Request): Promise<Response>;
   /** Машины флота. */
   machines(fleet: string): Promise<MachineRow[]>;
 }

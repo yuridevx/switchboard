@@ -107,7 +107,7 @@ export async function trio() {
   const anya = await pass(fleet, yuri, "pult" + ANYA);
   const oleg = await pass(fleet, yuri, "pult" + OLEG);
   for (const [id, members] of [["site", [YURI, ANYA]], ["infra", [YURI, OLEG]]] as const) {
-    const r = await ask(fleet, yuri, { type: "project.set", id, name: id, members });
+    const r = await ask(fleet, yuri, { type: "project.set", project: id, name: id, members });
     if (!r.ok) throw new Error("project.set: " + r.error);
   }
   // админ Юра видел бы всё и без проектов: правило проверяется на Ане и Олеге
