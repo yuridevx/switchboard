@@ -17,6 +17,8 @@
   "triggers": { "crons": ["17 3 * * *"] },
   "preview_urls": false,
   "observability": { "enabled": true },
+  // SDK (points.history) строит путь от import.meta.url — в Worker'е его нет: адрес модуля — постоянный
+  "define": { "import.meta.url": "\"file:///switchboard-points/index.js\"" },
   // записи модуля — база D1 модуля во флоте
   "d1_databases": [{ "binding": "DB", "database_name": "switchboard-points", "database_id": "b1547083-f378-46a0-ade5-02a137f27ff4", "migrations_dir": "migrations" }],
   // объект реестра ушёл: записи перенесены в базу D1
@@ -33,6 +35,7 @@
         { "binding": "STORE", "service": "switchboard-blocks-prod", "entrypoint": "Blocks" }
       ],
       "triggers": { "crons": ["17 3 * * *"] },
+      "define": { "import.meta.url": "\"file:///switchboard-points/index.js\"" },
       "d1_databases": [{ "binding": "DB", "database_name": "switchboard-points-prod", "database_id": "344cbc13-9127-48c3-92a0-6078cffc8b30", "migrations_dir": "migrations" }]
     }
   }
