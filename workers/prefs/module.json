@@ -1,16 +1,19 @@
 {
   "name": "prefs",
   "type": "worker",
-  "version": "1.2.3",
+  "version": "1.3.0",
   "provides": {
     "prefs.get": 1,
-    "prefs.set": 1
+    "prefs.set": 1,
+    "prefs.changed": 1
   },
   "uses": {
-    "gate.verify@gate": 1
+    "gate.verify@gate": 1,
+    "relay.broadcast@relay": 1
   },
   "config": {
     "GATE": "binding",
+    "RELAY": "binding",
     "DB": "binding"
   }
 }

@@ -36,6 +36,21 @@ export class Relay extends WorkerEntrypoint<Env> {
     const machine = typeof f.to === "string" ? machineOf(f.to) : null;
     return machine ? within(objectOf(this.env, machine).deliver(f), `объект ${machine} не ответил`, callMs(this.env)) : 0;
   }
+
+  /** Кадр Worker'а каждой машине флота (to: @машина). Машина вне связи получит своё при подключении у владельца: сбой — строка журнала. */
+  async broadcast(f: Frame): Promise<number> {
+    const limit = callMs(this.env);
+    const passes = await within(this.env.GATE.list("host"), "gate не ответил на list", limit);
+    const counts = await Promise.all(
+      passes.map((p) =>
+        this.deliver({ ...f, to: `@${p.name}` }).catch((e) => {
+          console.log(`offline ${f.from} → @${p.name} ${f.type}: ${e}`);
+          return 0;
+        }),
+      ),
+    );
+    return counts.reduce((a, b) => a + b, 0);
+  }
 }
 
 export default {

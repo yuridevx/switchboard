@@ -18,7 +18,7 @@ export default defineConfig({
             compatibilityDate: "2026-08-01",
             script: `import { WorkerEntrypoint } from "cloudflare:workers";
 export class Relay extends WorkerEntrypoint {
-  async deliver() { return 0; }
+  async broadcast() { return 0; }
 }
 export default { fetch: () => new Response(null, { status: 404 }) };`,
           },

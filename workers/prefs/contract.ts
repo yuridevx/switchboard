@@ -2,9 +2,12 @@
 // Значений служба не читает: новая настройка страницы её не меняет.
 // Служебного здесь нет: пропуска — у gate, подписки на пуши — у push. Пользователь — из адреса отправителя (userOf),
 // адрес ставит вход Worker'а после gate.verify; списка пользователей prefs не знает: строка появляется при первой записи.
-// Запросы — кадры с to: ".prefs", прямым POST с пропуском; relay не участвует.
+// Запросы — кадры с to: ".prefs", прямым POST с пропуском. После записи в области global — кадр prefs.changed каждой машине флота через relay.
 
 export const CONTRACT = { "prefs.get": 1, "prefs.set": 1 } as const;
+
+/** Кадр без ответа каждой машине после prefs.set в области global: машина перечитывает ключ name, если он ей нужен. */
+export type PrefsChanged = { type: "prefs.changed"; v: 1; to: `@${string}`; from: ".prefs"; name: string };
 
 /** prefs.get — ключи пользователя, с prefix — только начинающиеся с него. Ключа нет — его нет и в ответе. */
 export type PrefsGet = { type: "prefs.get"; id: string; v?: 1; to: ".prefs"; scope?: PrefsScope; prefix?: string };

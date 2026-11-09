@@ -16,13 +16,23 @@ const MACHINE = "@laptop";
 const SESSION = "site@laptop";
 
 const gate = { verify: async (key: string) => ({ role: "client", name: "стенд", kid: "k1", addr: key }) };
+/** Кадры рассылки машинам; down — relay не отвечает. */
+let sent: Array<Record<string, unknown>> = [];
+let down = false;
+const relay = {
+  broadcast: async (f: Record<string, unknown>) => {
+    if (down) throw new Error("relay лежит");
+    sent.push(f);
+    return 2;
+  },
+};
 const request = (body: unknown) => new Request("https://prefs.test/", { method: "POST", body: JSON.stringify(body) });
 
 type Answer = { type: string; id: string; ok: boolean; error?: string; to?: string; result?: { values: Record<string, unknown> } };
 let n = 0;
 /** Кадр от адреса from: поля протокола стоят, тест задаёт остальное. */
 async function ask(from: string, body: Record<string, unknown>): Promise<Answer> {
-  const r = await worker.fetch(request({ v: 1, to: ".prefs", id: `r-${++n}`, key: from, ...body }) as never, { DB, GATE: gate } as never);
+  const r = await worker.fetch(request({ v: 1, to: ".prefs", id: `r-${++n}`, key: from, ...body }) as never, { DB, GATE: gate, RELAY: relay } as never);
   return (await r.json()) as Answer;
 }
 const get = (from: string, o: Record<string, unknown> = {}) => ask(from, { type: "prefs.get", ...o });
@@ -33,6 +43,8 @@ const rows = async () => (await DB.prepare("SELECT user, key, value FROM prefs O
 beforeEach(async () => {
   await applyD1Migrations(DB, MIGRATIONS);
   await DB.prepare("DELETE FROM prefs").run();
+  sent = [];
+  down = false;
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -148,7 +160,7 @@ describe("отказы словом", () => {
 
   it("кадр без id: ответить некому, тело пустое, строки нет, причина в журнале", async () => {
     const lines = journal();
-    const r = await worker.fetch(request({ v: 1, to: ".prefs", type: "prefs.set", name: "k", value: 1, key: PHONE }) as never, { DB, GATE: gate } as never);
+    const r = await worker.fetch(request({ v: 1, to: ".prefs", type: "prefs.set", name: "k", value: 1, key: PHONE }) as never, { DB, GATE: gate, RELAY: relay } as never);
     expect(r.status).toBe(204);
     expect(await rows()).toEqual([]);
     expect(lines.at(-1)).toMatchObject({ part: "prefs", kind: "refuse", ev: "prefs.set", word: "bad_frame", from: PHONE });
@@ -190,3 +202,24 @@ function journal() {
   });
   return lines;
 }
+
+describe("кадр машинам", () => {
+  it("запись области флота — prefs.changed с именем ключа машинам; запись человека и приложения — кадров нет", async () => {
+    await set(PULT, "proxy.rules", [{ name: "r" }], { scope: "global" });
+    expect(sent).toEqual([{ type: "prefs.changed", v: 1, from: ".prefs", name: "proxy.rules" }]);
+    sent = [];
+    await set(PULT, "k", 1);
+    await set(PULT, "k", 1, { scope: "app:pult" });
+    expect(sent).toEqual([]);
+  });
+
+  it("relay не ответил — запись стоит, ответ ok, причина в журнале, значения в журнале нет", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    down = true;
+    expect(await set(PULT, "proxy.rules", "тайное", { scope: "global" })).toMatchObject({ ok: true });
+    expect(await values(PULT, { scope: "global" })).toEqual({ "proxy.rules": "тайное" });
+    const lines = log.mock.calls.flat().join("\n");
+    expect(lines).toContain("relay.broadcast");
+    expect(lines).not.toContain("тайное");
+  });
+});

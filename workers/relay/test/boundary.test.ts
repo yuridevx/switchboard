@@ -688,6 +688,15 @@ describe("привязка Relay.deliver", () => {
     await win.next((f) => f.to === "site@win");
     await win.next((f) => f.to === "@win");
   });
+
+  it("broadcast — кадр Host каждой машины флота с to: @машина; машина без соединения — 0 получателей, остальные получили", async () => {
+    const all = (exports as unknown as { Relay: { broadcast(f: F): Promise<number> } }).Relay;
+    const win = await enter("win", (await pass("host", "win")).key);
+    await pass("host", "wsl");
+    expect(await all.broadcast({ type: "prefs.changed", v: 1, from: ".prefs", name: "proxy.rules" })).toBe(1);
+    expect(await win.next((f) => f.type === "prefs.changed")).toMatchObject({ to: "@win", from: ".prefs", name: "proxy.rules" });
+    expect(logged("offline", ".prefs", "@wsl", "prefs.changed")).toBeDefined();
+  });
 });
 
 describe("новый код relay и сбой", () => {
