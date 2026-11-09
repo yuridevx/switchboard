@@ -1,13 +1,14 @@
 {
   "name": "pointfiles",
   "type": "tool",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "provides": {
     "pointfiles.lay": 1
   },
   "uses": {
     "points.get@points": 2,
-    "points.list@points": 2
+    "points.list@points": 2,
+    "blocks.links@blocks": 1
   },
   "config": {}
 }

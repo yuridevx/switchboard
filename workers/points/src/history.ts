@@ -1,30 +1,19 @@
 // points.history — разговор точки тем же кодом, что session.history живой сессии: getSessionMessages закреплённого SDK над строками
 // файла разговора точки (sessionStore). Своего разбора разговора нет. calls — вызовы модели из записей api-request файла: исключение
 // «только документированного», как методы query вне типов SDK; записи пропали — calls пуст, строка журнала no_calls.
-import { createHash } from "node:crypto";
-import { zstdDecompressSync } from "node:zlib";
-import { CALL_MS } from "@switchboard/protocol";
+import { BlockError, fetchFiles } from "@switchboard/blocks";
 import type { Call, PointFile } from "../contract.ts";
 
 type Entry = { type?: string; uuid?: string; id?: string; timestamp?: string; requestRef?: string; shapeHash?: string; params?: { model?: string }; shape?: { system?: unknown }; message?: { id?: string; usage?: Usage } };
 type Usage = { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; output_tokens?: number };
 type Message = { uuid: string };
 
-const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
-
-/** Строки файла разговора точки: блоки по ссылкам GET хранилища, zstd, SHA-256 — имя блока. Не тот блок — ошибка словом вызывающего. */
+/** Строки файла разговора точки: блоки по ссылкам GET хранилища — тем же чтением, что у подъёма и pull. */
 export async function linesOf(file: PointFile, links: Record<string, string>, refuse: (why: string) => Error): Promise<Entry[]> {
-  const parts: Uint8Array[] = [];
-  for (const hash of file.b) {
-    const res = await fetch(links[hash], { signal: AbortSignal.timeout(CALL_MS) }).catch((e) => {
-      throw refuse(`блок ${hash}: ${e}`);
-    });
-    if (!res.ok) throw refuse(`блок ${hash}: хранилище ответило ${res.status}`);
-    const part = zstdDecompressSync(new Uint8Array(await res.arrayBuffer()));
-    if (sha256(part) !== hash) throw refuse(`блок ${hash} не тот`);
-    parts.push(part);
-  }
-  const text = new TextDecoder().decode(Buffer.concat(parts));
+  const files = await fetchFiles([file], links).catch((e) => {
+    throw e instanceof BlockError ? refuse(e.message) : e;
+  });
+  const text = new TextDecoder().decode(files.get(file.p));
   return text.split("\n").flatMap((line) => {
     if (!line) return [];
     try {

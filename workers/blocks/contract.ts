@@ -30,5 +30,8 @@ export type BlocksSearchResult = Array<{ hash: string; line: string }>;
 /** Слова отказа: bad_frame — поля не того вида; no_search — хранилище не ищет; store_failed — хранилище не ответило. */
 export type BlocksWord = "bad_frame" | "no_search" | "store_failed";
 
+/** Чтение блока по ссылке — одно у всех, кто ходит в хранилище сам: points.history, подъём Host, pull. */
+export { BlockError, fetchBlock, fetchFiles, sha256 } from "./block.ts";
+
 /** Стенд для тестов соседей: хранилище в памяти под именем службы. */
 export { blocksStand, type BlocksStand } from "./stand/stand.ts";
