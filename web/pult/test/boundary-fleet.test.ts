@@ -504,6 +504,52 @@ describe("Настройки", () => {
   }
 
   describe("pult-settings", () => {
+    it("18 · «Правила модели»: набор флота из prefs, правка в наборе и проверка тем же пакетом, что у прокси; сохранение — proxy.rules в области флота", async () => {
+      const rule = { name: "Имя агента", scopes: ["system"], kind: "literal", unit: "paragraph", action: "replace", pattern: "You are a Claude agent, built on Anthropic's Claude Agent SDK.", replacement: "You are a coding agent of the ops fleet." };
+      const t = await settings({ url: "/#settings?tab=rules", hooks: (r) => void (r.handlers["prefs.get"] = () => ({ ok: true, result: { values: { "proxy.rules": [rule] } } })) });
+      expect(t.sent("prefs.get").at(-1)).toMatchObject({ scope: "global", prefix: "proxy.", to: ".prefs" });
+      expect(t.$('[data-rule="Имя агента"]')).not.toBeNull();
+      const area = t.$<HTMLTextAreaElement>('[data-f="ttext"]')!;
+      area.value = "You are a Claude agent, built on Anthropic's Claude Agent SDK.\n\nRest.";
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+      await flush(5);
+      expect(t.$("[data-diff]")!.textContent).toContain("+ You are a coding agent of the ops fleet.");
+      expect(t.text()).toContain("Имя агента · 1");
+      await t.click(t.btn("＋ правило"));
+      const name = t.$<HTMLInputElement>('[data-f="rname"]')!;
+      name.value = "Тикет";
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+      await flush(5);
+      await t.click(t.btn("регулярка"));
+      const pattern = t.$<HTMLTextAreaElement>('[data-f="pattern"]')!;
+      pattern.value = "(";
+      pattern.dispatchEvent(new Event("input", { bubbles: true }));
+      await flush(5);
+      expect(t.$('[role="alert"]')).not.toBeNull();
+      expect(t.btn("Сохранить")!.disabled).toBe(true);
+      pattern.value = "ABC-[0-9]";
+      pattern.dispatchEvent(new Event("input", { bubbles: true }));
+      await flush(5);
+      await t.click(t.btn("Сохранить"));
+      expect(t.sent("prefs.set").at(-1)).toMatchObject({ scope: "global", name: "proxy.rules", to: ".prefs", value: [rule, { name: "Тикет", kind: "regex", pattern: "ABC-[0-9]", scopes: ["system"] }] });
+    });
+
+    it("18 · проверка на вызове из архива: system вызова по points.history, имя сессии — из каталога, разница после правил", async () => {
+      const rule = { name: "Имя агента", scopes: ["system"], kind: "literal", unit: "paragraph", action: "replace", pattern: "You are a Claude agent", replacement: "Агент флота" };
+      const t = await settings({
+        url: "/#settings?tab=rules&call=s1/u2",
+        hooks: (r) => {
+          r.handlers["prefs.get"] = () => ({ ok: true, result: { values: { "proxy.rules": [rule] } } });
+          r.handlers["points.list"] = () => ({ ok: true, result: { search: false, sessions: [{ sid: "s1", callsign: "site@laptop", title: "Перенос журнала" }] } });
+          r.handlers["points.history"] = () => ({ ok: true, result: { point: 41, more: false, messages: [{ type: "user", uuid: "u1", message: { content: "привет" } }], calls: [{ uuid: "u2", at: "2026-11-09T10:00:00Z", model: "claude-opus-5-5", tok_in: 10, tok_out: 2, system: "You are a Claude agent, built on SDK.\n\nRest." }] } });
+        },
+      });
+      expect(t.sent("points.history").at(-1)).toMatchObject({ sid: "s1", before: "u2" });
+      expect(t.text()).toContain("← Перенос журнала");
+      expect(t.$('[data-source="system"]')!.textContent).toContain("You are a Claude agent, built on SDK.");
+      expect(t.$("[data-diff]")!.textContent).toContain("+ Агент флота");
+    });
+
     it("5501 · выпуски по машинам: stable и сколько машин его держат; матрица машина × часть — stable, отстаёт, 📌, сбой, ушла; план машины сбоку — закрепить версию", async () => {
       const t = await settings({ offline: ["old"] });
       expect(t.$('[data-tab="releases"]')!.getAttribute("aria-selected")).toBe("true");

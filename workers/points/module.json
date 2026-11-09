@@ -6,6 +6,7 @@
     "points.put": 2,
     "points.get": 2,
     "points.list": 1,
+    "points.history": 1,
     "points.delete": 1
   },
   "uses": {

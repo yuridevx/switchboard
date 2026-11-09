@@ -216,6 +216,9 @@ export function answerRequests(relay: FakeRelay, F: Fleet, roster: { sessions: A
     f.sid
       ? { ok: true, result: { owner: "win", head: 41, points: [{ id: 41, at: Date.now() - 60000, machine: "win", why: "rule", base: 40, dir: "~/Projects/switchboard", msgs: 212, git: { state: "clean", branch: "main" }, line: true }] } }
       : { ok: true, result: { sessions: [{ sid: "s1", callsign: "refactor@win", dir: "~/Projects/switchboard", owner: "win", head: { id: 41, at: Date.now() - 60000 }, points: 41, branches: 1 }, { sid: "s2", callsign: "old-bot@wsl", dir: "~/old", owner: "wsl", head: { id: 3, at: Date.now() - 86400000 }, points: 3, branches: 0 }], r2: { bytes: 432013312, blocks: 2410 }, sweep: { at: Date.now() - 3600000, blocks: 12, bytes: 10485760 } } };
+  // вызов модели из архива для проверки правил прокси
+  const system = ["You are Claude Code, Anthropic's official CLI for Claude.", "You are a Claude agent, built on Anthropic's Claude Agent SDK.", "# Tone and style\nYour responses should be short and concise."].join("\n\n");
+  h["points.history"] = () => ({ ok: true, result: { point: 41, more: false, messages: [{ type: "user", uuid: "u1", message: { content: "Перенеси журнал в ClickHouse, ticket OPS-12" } }], calls: [{ uuid: "u2", at: new Date(Date.now() - 3600000).toISOString(), model: "claude-opus-5-5", tok_in: 18000, tok_out: 420, system }] } });
   h["github.app"] = () => ({ ok: true, result: { app: { slug: "switchboard-fleet" }, repos: ["you/switchboard", "team/profiles", "you/site"], install: "https://github.com/apps/x/installations/new" } });
   h["releases.list"] = () => ({
     ok: true,

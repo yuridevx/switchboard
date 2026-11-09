@@ -54,6 +54,11 @@ relay.scoped.global = {
   "fleet.profiles.repos": ["team/profiles"],
   "fleet.projects": order.map((id) => ({ id, name: id, sessions: F.ss.filter((s) => !s.wing && project(s) === id).map((s) => s.cs).sort() })),
   "fleet.labels": big ? {} : { machines: { win: "Домашний ПК", wsl: "Ubuntu дома" }, sessions: { "refactor@win": "Переделка списка" } },
+  "proxy.rules": [
+    { name: "Имя агента", scopes: ["system"], kind: "literal", unit: "paragraph", action: "replace", pattern: "You are a Claude agent, built on Anthropic's Claude Agent SDK.", replacement: "You are a coding agent of the ops fleet." },
+    { name: "Тикеты", scopes: ["user", "tool_result"], kind: "regex", unit: "match", action: "replace", pattern: "ticket ([A-Z]+-\\d+)", replacement: "(ticket $1 redacted)" },
+    { name: "Безопасность", on: false, scopes: ["system"], kind: "regex", unit: "paragraph", action: "delete", pattern: "^IMPORTANT: Assist with authorized security testing" },
+  ],
 };
 relay.values["web-board.filters"] = big
   ? [

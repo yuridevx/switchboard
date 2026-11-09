@@ -16,6 +16,7 @@
     "@switchboard/protocol": "1.0.0",
     "@switchboard/records": "1.0.0",
     "@switchboard/release": "1.0.0",
+    "@switchboard/rules": "1.0.0",
     "zod": "4.4.3"
   }
 }

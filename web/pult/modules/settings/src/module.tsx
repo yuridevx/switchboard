@@ -1,15 +1,16 @@
-// Настройки флота: вкладки «Выпуски», «Пропуска», «GitHub и устройство»; на телефоне — только устройство.
+// Настройки флота: вкладки «Выпуски», «Пропуска», «Правила модели», «GitHub и устройство»; на телефоне — только устройство.
 import { Settings } from "lucide-react";
 import type { AppPart, ScreenProps } from "@switchboard/web-core";
 import { useEffect } from "react";
 import { Page, PageHead, Tabs, useApp, useModule } from "@switchboard/web-ui";
 import { GeneralTab, githubCode } from "./general.tsx";
 import { PassesTab } from "./passes.tsx";
+import { ProxyRulesTab } from "./proxyrules.tsx";
 import { ReleasesTab } from "./releases.tsx";
 import { createState, type SettingsState } from "./state.ts";
 import css from "./settings.css";
 
-const TABS = [["releases", "Выпуски"], ["passes", "Пропуска"], ["general", "GitHub и устройство"]] as const;
+const TABS = [["releases", "Выпуски"], ["passes", "Пропуска"], ["rules", "Правила модели"], ["general", "GitHub и устройство"]] as const;
 type Tab = (typeof TABS)[number][0];
 
 function SettingsScreen({ params }: ScreenProps) {
@@ -34,6 +35,7 @@ function SettingsScreen({ params }: ScreenProps) {
       </PageHead>
       {tab === "releases" && <ReleasesTab machine={params.machine} />}
       {tab === "passes" && <PassesTab />}
+      {tab === "rules" && <ProxyRulesTab call={params.call} />}
       {tab === "general" && <GeneralTab />}
     </Page>
   );
