@@ -12,10 +12,8 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WRANGLER = path.join(ROOT, "node_modules", "wrangler", "bin", "wrangler.js");
 /** Настоящая выкладка 5 нояб.: при 45 с wrangler выложил prefs, но не завершился под нагрузкой. */
 const LIMIT_MS = 300_000;
-/** relay смотрит привязками на остальных — последним; хранилище блоков — раньше points, который смотрит на него привязкой. */
+/** relay смотрит привязками на остальных — последним; хранилище блоков (реализация контракта blocks) — раньше points, который смотрит на него привязкой. */
 const WORKERS = ["gate", "rooms", "push", "blocks-r2", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
-/** Реализации одного модуля-контракта: во флоте стоит одна, под одним именем службы. Какая — у флота. */
-const STORES = ["blocks-r2"];
 const WEB = ["phone", "pult"];
 
 const stop = (word) => {
@@ -33,8 +31,6 @@ const upload = flag("--upload");
 if (env !== undefined && env !== "prod") stop("--env — только prod");
 if (upload !== undefined && !/^\d+\.\d+\.\d+$/.test(upload)) stop("--upload <номер вида 1.1.58>");
 const prod = env === "prod";
-/** Хранилище блоков флота. */
-const STORE = "blocks-r2";
 const envArgs = prod ? ["--env", "prod"] : [];
 const tail = prod ? " prod" : "";
 
@@ -74,11 +70,8 @@ async function hookRooms() {
   console.log("rooms: вебхук зарегистрирован");
 }
 
-/** Флот без чужой реализации контракта: вторая на то же имя службы подменила бы первую. */
-const fleetWorkers = WORKERS.filter((w) => !STORES.includes(w) || w === STORE);
-
 if (upload) {
-  for (const name of fleetWorkers) {
+  for (const name of WORKERS) {
     console.log(`=== workers/${name} ${upload}${tail} ===`);
     wrangler(`workers/${name}`, ["versions", "upload"], ["--tag", upload, "--message", upload]);
   }
@@ -86,9 +79,7 @@ if (upload) {
   process.exit(0);
 }
 
-const named = args.length ? args : fleetWorkers;
-const foreign = named.filter((w) => STORES.includes(w) && w !== STORE);
-if (foreign.length) stop(`${foreign.join(", ")}: хранилище флота${tail || " test"} — ${STORE}, вторая реализация контракта blocks на то же имя службы не выкладывается`);
+const named = args.length ? args : WORKERS;
 const workers = WORKERS.filter((w) => named.includes(w));
 const web = WEB.filter((w) => named.includes(w));
 for (const w of workers) for (const from of Object.values(secrets[w] ?? {})) if (!known[from]) stop(`нет секрета ${from}`);

@@ -158,7 +158,7 @@ globalThis.fetch = async (url, init) => {
   const SECRETS = { VAPID_PRIVATE: "vapid", R2_SECRET_ACCESS_KEY: "r2-test", R2_ACCESS_KEY_ID: "r2-id", PROD_R2_SECRET_ACCESS_KEY: "r2-prod", TELEGRAM_BOT_TOKEN: "bot-test", PROD_TELEGRAM_BOT_TOKEN: "bot-prod" };
   const envFile = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `${k}=${v}`).join("\n");
   const moduleOf = (c: Call) => c.cwd.split(/[\\/]/).pop();
-  const WORKERS = ["gate", "rooms", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
+  const WORKERS = ["gate", "rooms", "push", "blocks-r2", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
 
   it.each([
     ["", [], ""],
@@ -190,7 +190,8 @@ globalThis.fetch = async (url, init) => {
     const of = (m: string) => r.calls.filter((c) => moduleOf(c) === m).map((c) => c.args.slice(0, c.args[0] === "deploy" ? 1 : 3).join(" "));
     expect(of("gate")).toEqual(["d1 migrations apply", "deploy"]);
     expect(of("push")).toEqual(["d1 migrations apply", "deploy", "secret put VAPID_PRIVATE"]);
-    expect(of("points")).toEqual(["d1 migrations apply", "deploy", "secret put R2_KEY_SECRET"]);
+    expect(of("blocks-r2")).toEqual(["deploy", "secret put R2_KEY_SECRET"]);
+    expect(of("points")).toEqual(["d1 migrations apply", "deploy"]);
     expect(of("relay")).toEqual(["deploy"]);
     expect(of("releases")).toEqual(["d1 migrations apply", "deploy", "secret put CLOUDFLARE_API_TOKEN", "secret put R2_LINK_KEY_ID", "secret put R2_LINK_SECRET"]);
     expect(r.calls.find((c) => c.args[0] === "d1")!.args).toEqual(["d1", "migrations", "apply", "DB", "--remote", ...env]);
@@ -198,7 +199,7 @@ globalThis.fetch = async (url, init) => {
     expect(r.calls.filter((c) => c.args[0] === "secret").map((c) => [moduleOf(c), c.args[2], c.input])).toEqual([
       ["rooms", "TELEGRAM_BOT_TOKEN", bot],
       ["push", "VAPID_PRIVATE", "vapid"],
-      ["points", "R2_KEY_SECRET", points],
+      ["blocks-r2", "R2_KEY_SECRET", points],
       ["releases", "CLOUDFLARE_API_TOKEN", "t"],
       ["releases", "R2_LINK_KEY_ID", "r2-id"],
       ["releases", "R2_LINK_SECRET", "r2-test"],
@@ -218,7 +219,7 @@ globalThis.fetch = async (url, init) => {
     ["тест: файл прода не читается (чьё: код)", [], "", "test", "r2-test"],
   ] as const)("%s", (_n, env, tail, who, secret) => {
     // источник: комментарий кода: тестовая пара прав на бакет прода не имеет
-    const r = deploy(["points", "pult", ...env], {
+    const r = deploy(["blocks-r2", "pult", ...env], {
       files: {
         "prod.env": envFile({ CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc", PROD_R2_SECRET_ACCESS_KEY: "r2-prod" }),
         "cf-deploy.env": envFile({ CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ACCOUNT_ID: "test-acc" }),
@@ -228,7 +229,7 @@ globalThis.fetch = async (url, init) => {
     expect(r.code).toBe(0);
     expect(r.calls.find((c) => c.args[0] === "deploy")).toMatchObject({ args: ["deploy", ...env], env: { CLOUDFLARE_API_TOKEN: `${who}-token`, CLOUDFLARE_ACCOUNT_ID: `${who}-acc` } });
     expect(r.calls.find((c) => c.args[0] === "secret")).toMatchObject({ args: ["secret", "put", "R2_KEY_SECRET", ...env], input: secret });
-    expect(r.out).toContain(`=== points${tail} ===`);
+    expect(r.out).toContain(`=== blocks-r2${tail} ===`);
   });
 
   it("значение из окружения важнее файла; строка env может содержать знак равно", () => {
