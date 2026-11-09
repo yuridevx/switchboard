@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { refuse } from "@switchboard/host";
+import { Refused } from "./refused.ts";
 import { CALL_MS } from "@switchboard/protocol";
 
 /** Сводка git в строке точки. snap — коммит пакета: правки поверх commit или неотправленный commit. */
@@ -88,7 +88,7 @@ export async function bring(dir: string, summary: Summary, folder: "empty" | "sa
     await git(dir, ["checkout", "-q", "-b", branch, target]);
     return branch;
   } catch (e) {
-    throw refuse("bad_point", `папка ${dir}: ${e}`);
+    throw new Refused("bad_point", `папка ${dir}: ${e}`);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

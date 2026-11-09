@@ -1,5 +1,4 @@
 // Снять точку: файлы разговора и пакет git → блоки → points.put → недостающие блоки PUT по ссылкам хранилища, что отдал реестр.
-import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { promisify } from "node:util";
@@ -7,20 +6,18 @@ import { zstdCompress } from "node:zlib";
 import { claudeDir, refuse } from "@switchboard/host";
 import { CALL_MS } from "@switchboard/protocol";
 import type { Host, Result, Session } from "@switchboard/host";
-import { BUNDLE, snapshot } from "./git.ts";
+import { BUNDLE, projectDirOf, sha256, snapshot, type PointFile } from "@switchboard/pointfiles";
 
 /** Формат блоков — контракт хранилища: до 1 МиБ, отпечаток SHA-256 содержимого, тело по ссылке — zstd. */
 const BLOCK = 1 << 20;
 const pack = promisify(zstdCompress);
 
-export type PointFile = { p: string; size: number; b: string[] };
 export type Why = "rule" | "save" | "start" | "raise" | "yield";
 export type PointExtra = { base?: number; expect?: string; by?: string };
 type Blocks = Map<string, Buffer>;
 
-export const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 /** Папка проекта рабочей папки: так её называет Claude Code. */
-export const projectDir = (cwd: string) => join(claudeDir(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
+export const projectDir = (cwd: string) => projectDirOf(claudeDir(), cwd);
 export const conversationOf = (s: Session) => join(projectDir(s.info.cwd), `${s.info.session_id}.jsonl`);
 const storeFailed = (host: Host, why: string) => {
   host.log({ kind: "refuse", ev: "store", word: "store_failed", why });

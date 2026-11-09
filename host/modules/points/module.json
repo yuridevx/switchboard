@@ -22,7 +22,8 @@
     "session.remove@host-manage": 1,
     "session.spec@host-manage": 1,
     "wing@host-manage": 1,
-    "roster@relay": 1
+    "roster@relay": 1,
+    "pointfiles.lay@pointfiles": 1
   },
   "calls": [
     "getSessionMessages",

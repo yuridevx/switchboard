@@ -59,7 +59,7 @@ export type Point = Summary & {
   spec?: Record<string, unknown>;
 };
 
-/** points.get — строки точек целиком и хозяин; машине — ещё ссылки GET на блоки этих точек. */
+/** points.get — строки точек целиком и хозяин; машине и устройству человека — ещё ссылки GET на блоки этих точек. */
 export type PointsGet = { type: "points.get"; id: string; v?: 2; to: ".points"; ids: number[] };
 export type PointsGetResult = { owner: string; points: Point[]; links?: Links };
 

@@ -148,7 +148,9 @@ const REQUESTS: Record<keyof typeof CONTRACT, (env: Env, f: Frame) => Promise<un
     if (absent.length) throw new Refusal("no_point", `нет точек: ${absent.join(", ")}`, { ids: absent });
     const points = results.map(toPoint);
     const session = await sessionOf(env.DB, points[0].sid);
-    return { owner: session?.owner ?? null, points, ...(kindOf(from) === "machine" ? { links: (await links(env, "GET", hashesOf(points.flatMap((p) => p.files)))).links } : {}) };
+    // ссылки — тем, кто ходит в хранилище сам: машине (подъём) и устройству человека (switchboard pull)
+    const fetches = kindOf(from) === "machine" || kindOf(from) === "device";
+    return { owner: session?.owner ?? null, points, ...(fetches ? { links: (await links(env, "GET", hashesOf(points.flatMap((p) => p.files)))).links } : {}) };
   },
 
   async "points.list"(env, f) {

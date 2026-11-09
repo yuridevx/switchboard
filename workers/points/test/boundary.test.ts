@@ -207,7 +207,7 @@ describe("подъём и хозяин", () => {
 });
 
 describe("вернуть: points.get и points.list", () => {
-  it("2098 · points.get: машине — строки, хозяин и ссылки GET на блоки этих точек и только их; пульту — без ссылок; нет точки — no_point", async () => {
+  it("2098 · points.get: машине и устройству человека — строки, хозяин и ссылки GET на блоки этих точек и только их; без адреса устройства — без ссылок; нет точки — no_point", async () => {
     await inStore("301a1", "301b2", "302c3");
     await put("@laptop", "s301", file(["301a1", "301b2"]), { dir: "~/Projects/site", spec: { model: "opus" }, title: "Сайт", git: { state: "clean" }, msgs: 3 });
     await put("@laptop", "s302", file(["302c3"]));
@@ -219,6 +219,9 @@ describe("вернуть: points.get и points.list", () => {
     expect((m.result as { links: Record<string, string> }).links).toEqual({ [H("301a1")]: linkOf("GET", "301a1"), [H("301b2")]: linkOf("GET", "301b2") });
     const [p] = await send({ type: "points.get", v: 2, id: "g", to: ".points", from: "panel", ids: [1] });
     expect((p.result as Record<string, unknown>).links).toBeUndefined();
+    // 35 · устройство человека ходит в хранилище само: switchboard pull берёт ссылки GET
+    const [d] = await send({ type: "points.get", v: 2, id: "g", to: ".points", from: "pult~ann@example.com", ids: [1] });
+    expect(Object.keys((d.result as { links: Record<string, string> }).links).sort()).toEqual([H("301a1"), H("301b2")]);
     expect(await send({ type: "points.get", v: 2, id: "g", to: ".points", from: "panel", ids: [1, 9] })).toEqual([{ type: "reply", id: "g", ok: false, error: "no_point", ids: [9], to: "panel" }]);
   });
 

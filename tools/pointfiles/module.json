@@ -1,0 +1,13 @@
+{
+  "name": "pointfiles",
+  "type": "tool",
+  "version": "1.0.0",
+  "provides": {
+    "pointfiles.lay": 1
+  },
+  "uses": {
+    "points.get@points": 2,
+    "points.list@points": 2
+  },
+  "config": {}
+}
