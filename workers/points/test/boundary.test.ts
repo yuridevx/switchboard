@@ -263,9 +263,10 @@ describe("вернуть: points.get и points.list", () => {
     expect(await rows({ limit: 1 })).toHaveLength(1);
   });
 
-  it("поиск: q — хранилищу только отпечатки блоков файла разговора последних точек; совпадение — запись с uuid, отрывком и точкой; у копии с общим блоком — тоже", async () => {
+  it("поиск: q — хранилищу только отпечатки блоков файла разговора последних точек; совпадение — запись с uuid, отрывком и точкой, служебная запись раньше неё не прячет её (найдено живым прогоном); у копии с общим блоком — тоже", async () => {
     const say = (uuid: string, text: string) => JSON.stringify({ type: "user", uuid, timestamp: "2030-10-31T20:00:00.000Z", message: { role: "user", content: text } });
-    await STORE.put(H("aa"), 10, [say("u1", "перенеси Миграцию D1 в ClickHouse")]);
+    const queued = JSON.stringify({ type: "queue-operation", operation: "enqueue", content: "перенеси Миграцию D1 в ClickHouse" });
+    await STORE.put(H("aa"), 10, [queued, say("u1", "перенеси Миграцию D1 в ClickHouse")]);
     await STORE.put(H("bb"), 10, [say("u2", "миграция d1 уже идёт")]);
     await STORE.put(H("c01d"), 10, [say("u0", "миграция d1 в старой точке")]);
     await STORE.put(H("5ab"), 10, [say("u9", "миграция d1 в субагенте")]);
@@ -279,7 +280,7 @@ describe("вернуть: points.get и points.list", () => {
       ["sqc", [{ uuid: "u1", point: 3, at: "2030-10-31T20:00:00.000Z", text: "перенеси Миграцию D1 в ClickHouse" }]],
     ]);
     const asked = (await STORE.got()).filter((f) => f.type === "blocks.search" && f.q);
-    expect(asked.map((f) => [f.q, (f.hashes as string[]).sort()])).toEqual([["миграцию d1", [H("aa"), H("bb")].sort()]]);
+    expect(asked.map((f) => [f.q, f.also, (f.hashes as string[]).sort()])).toEqual([["миграцию d1", '"uuid":"', [H("aa"), H("bb")].sort()]]);
   });
 
   it("хранилище без поиска: каталог — search: false; q — отказ no_search", async () => {

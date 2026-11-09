@@ -23,8 +23,12 @@ export type BlocksLinksResult = { have?: Record<string, number>; links: Record<s
 export type BlocksDrop = { type: "blocks.drop"; id: string; v?: 1; hashes: string[] };
 export type BlocksDropResult = { blocks: number; bytes: number };
 
-/** blocks.search — строки с q без учёта регистра в названных блоках, по одной на блок. Хранилище без поиска — отказ no_search. */
-export type BlocksSearch = { type: "blocks.search"; id: string; v?: 1; q: string; hashes: string[]; limit: number };
+/**
+ * blocks.search — строки с q без учёта регистра в названных блоках, по одной на блок — первая по порядку. also — строка должна
+ * содержать и эту подстроку, с учётом регистра: так вызывающий отбирает свои записи, а формат строк хранилище не узнаёт.
+ * Хранилище без поиска — отказ no_search.
+ */
+export type BlocksSearch = { type: "blocks.search"; id: string; v?: 1; q: string; also?: string; hashes: string[]; limit: number };
 export type BlocksSearchResult = Array<{ hash: string; line: string }>;
 
 /** Слова отказа: bad_frame — поля не того вида; no_search — хранилище не ищет; store_failed — хранилище не ответило. */

@@ -78,6 +78,14 @@ export function blocksEtalon(harness: () => Harness) {
     expect(r.result).toEqual([{ hash: a.hash, line: '{"text":"перенеси Миграцию D1"}' }]);
     const named = await one(h, { type: "blocks.search", q: "миграц", hashes: [b.hash], limit: 50 });
     expect(named.result.map((x: { hash: string }) => x.hash)).toEqual([b.hash]);
+    // служебная строка раньше нужной: also отбирает строку с подстрокой, регистр в also важен
+    const c = block('{"type":"queue","content":"зебра"}\n{"uuid":"u1","text":"Зебра тут"}\n');
+    const putC = await links(h, "PUT", [c.hash]);
+    await h.upload(putC.result.links[c.hash], c.packed);
+    const also = await one(h, { type: "blocks.search", q: "зебра", also: '"uuid":"', hashes: [c.hash], limit: 50 });
+    expect(also.result).toEqual([{ hash: c.hash, line: '{"uuid":"u1","text":"Зебра тут"}' }]);
+    const upper = await one(h, { type: "blocks.search", q: "зебра", also: '"UUID":"', hashes: [c.hash], limit: 50 });
+    expect(upper.result).toEqual([]);
   });
 
   it("36 · отпечаток не hex SHA-256 — bad_frame", async () => {

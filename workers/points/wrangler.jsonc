@@ -3,7 +3,8 @@
   "name": "switchboard-points",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
-  "compatibility_flags": ["nodejs_compat"],
+  // блоки по ссылке: хранилище бывает Worker'ом той же зоны — fetch идёт снаружи, как у Host (иначе 1042 → 404)
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": true,
   // прямой вход: POST кадра с пропуском — обёртка entrance из контракта gate
   "services": [

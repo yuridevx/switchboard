@@ -149,16 +149,16 @@ globalThis.fetch = async (url, init) => {
     for (const [n, text] of Object.entries(o.files ?? {})) write(join(dev, n), text);
     const log = join(dev, "calls.jsonl");
     const env: Record<string, string | undefined> = { ...process.env, SWITCHBOARD_DEV_DIR: dev };
-    for (const k of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "RELAY_URL", "VAPID_PRIVATE", "R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "PROD_R2_SECRET_ACCESS_KEY", "TELEGRAM_BOT_TOKEN", "PROD_TELEGRAM_BOT_TOKEN"]) delete env[k];
+    for (const k of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "RELAY_URL", "VAPID_PRIVATE", "R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "PROD_R2_SECRET_ACCESS_KEY", "TELEGRAM_BOT_TOKEN", "PROD_TELEGRAM_BOT_TOKEN", "CH_PASSWORD_TEST", "CH_PASSWORD_PROD"]) delete env[k];
     if (o.token) Object.assign(env, { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "a" });
     const r = spawnSync(process.execPath, ["--import", preload(log, o.child), join(SCRIPTS, "deploy-workers.mjs"), ...args], { env, encoding: "utf8", timeout: CMD_MS });
     const calls: Call[] = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
     return { code: r.status, err: r.stderr, out: r.stdout, calls };
   }
-  const SECRETS = { VAPID_PRIVATE: "vapid", R2_SECRET_ACCESS_KEY: "r2-test", R2_ACCESS_KEY_ID: "r2-id", PROD_R2_SECRET_ACCESS_KEY: "r2-prod", TELEGRAM_BOT_TOKEN: "bot-test", PROD_TELEGRAM_BOT_TOKEN: "bot-prod" };
+  const SECRETS = { VAPID_PRIVATE: "vapid", R2_SECRET_ACCESS_KEY: "r2-test", R2_ACCESS_KEY_ID: "r2-id", PROD_R2_SECRET_ACCESS_KEY: "r2-prod", TELEGRAM_BOT_TOKEN: "bot-test", PROD_TELEGRAM_BOT_TOKEN: "bot-prod", CH_PASSWORD_TEST: "ch-test", CH_PASSWORD_PROD: "ch-prod" };
   const envFile = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `${k}=${v}`).join("\n");
   const moduleOf = (c: Call) => c.cwd.split(/[\\/]/).pop();
-  const WORKERS = ["gate", "rooms", "push", "blocks-r2", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "mcp", "relay"];
+  const WORKERS = ["gate", "rooms", "push", "blocks-ch", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "mcp", "relay"];
 
   it.each([
     ["", [], ""],
@@ -176,8 +176,8 @@ globalThis.fetch = async (url, init) => {
   });
 
   it.each([
-    ["теста", [], "r2-test", "bot-test", "https://switchboard-rooms.yuridevx1608.workers.dev/setup"],
-    ["прода: секрет точек свой, ссылки выпусков — из общих имён", ["--env", "prod"], "r2-prod", "bot-prod", "https://rooms.pfarm.app/setup"],
+    ["теста", [], "ch-test", "bot-test", "https://switchboard-rooms.yuridevx1608.workers.dev/setup"],
+    ["прода: пароль ClickHouse свой, ссылки выпусков — из общих имён", ["--env", "prod"], "ch-prod", "bot-prod", "https://rooms.pfarm.app/setup"],
   ] as const)("без списка, флот %s — все Worker-модули, relay последним; база до кода, секреты после и только через stdin", (_n, env, points, bot, setup) => {
     // источник: комментарий кода: relay смотрит привязками на остальных; устав: секреты через stdin, никогда через argv
     const r = deploy([...env], { token: true, files: { "fleet-secrets.env": envFile(SECRETS) } });
@@ -190,7 +190,7 @@ globalThis.fetch = async (url, init) => {
     const of = (m: string) => r.calls.filter((c) => moduleOf(c) === m).map((c) => c.args.slice(0, c.args[0] === "deploy" ? 1 : 3).join(" "));
     expect(of("gate")).toEqual(["d1 migrations apply", "deploy"]);
     expect(of("push")).toEqual(["d1 migrations apply", "deploy", "secret put VAPID_PRIVATE"]);
-    expect(of("blocks-r2")).toEqual(["deploy", "secret put R2_KEY_SECRET"]);
+    expect(of("blocks-ch")).toEqual(["deploy", "secret put CH_PASSWORD"]);
     expect(of("points")).toEqual(["d1 migrations apply", "deploy"]);
     expect(of("relay")).toEqual(["deploy"]);
     expect(of("releases")).toEqual(["d1 migrations apply", "deploy", "secret put CLOUDFLARE_API_TOKEN", "secret put R2_LINK_KEY_ID", "secret put R2_LINK_SECRET"]);
@@ -199,12 +199,12 @@ globalThis.fetch = async (url, init) => {
     expect(r.calls.filter((c) => c.args[0] === "secret").map((c) => [moduleOf(c), c.args[2], c.input])).toEqual([
       ["rooms", "TELEGRAM_BOT_TOKEN", bot],
       ["push", "VAPID_PRIVATE", "vapid"],
-      ["blocks-r2", "R2_KEY_SECRET", points],
+      ["blocks-ch", "CH_PASSWORD", points],
       ["releases", "CLOUDFLARE_API_TOKEN", "t"],
       ["releases", "R2_LINK_KEY_ID", "r2-id"],
       ["releases", "R2_LINK_SECRET", "r2-test"],
     ]);
-    expect(JSON.stringify(r.calls.map((c) => c.args))).not.toMatch(/vapid|r2-test|r2-id|r2-prod|bot-test|bot-prod/);
+    expect(JSON.stringify(r.calls.map((c) => c.args))).not.toMatch(/vapid|r2-test|r2-id|ch-test|ch-prod|bot-test|bot-prod/);
   });
 
   it("названные модули — в порядке выкладки; phone и pult в списке — сборка и выкладка веба; неизвестное имя пропущено", () => {
@@ -215,21 +215,21 @@ globalThis.fetch = async (url, init) => {
   });
 
   it.each([
-    ["прод: файл прода важнее тестовых, тестовая пара в прод не кладётся", ["--env", "prod"], " prod", "prod", "r2-prod"],
-    ["тест: файл прода не читается (чьё: код)", [], "", "test", "r2-test"],
+    ["прод: файл прода важнее тестовых, тестовый пароль ClickHouse в прод не кладётся", ["--env", "prod"], " prod", "prod", "ch-prod"],
+    ["тест: файл прода не читается (чьё: код)", [], "", "test", "ch-test"],
   ] as const)("%s", (_n, env, tail, who, secret) => {
-    // источник: комментарий кода: тестовая пара прав на бакет прода не имеет
-    const r = deploy(["blocks-r2", "pult", ...env], {
+    // источник: комментарий кода: тестовый пользователь ClickHouse прав на базу прода не имеет
+    const r = deploy(["blocks-ch", "pult", ...env], {
       files: {
-        "prod.env": envFile({ CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc", PROD_R2_SECRET_ACCESS_KEY: "r2-prod" }),
+        "prod.env": envFile({ CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc" }),
         "cf-deploy.env": envFile({ CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ACCOUNT_ID: "test-acc" }),
-        "r2-points.env": envFile({ R2_SECRET_ACCESS_KEY: "r2-test" }),
+        "clickhouse.env": envFile({ CH_PASSWORD_TEST: "ch-test", CH_PASSWORD_PROD: "ch-prod" }),
       },
     });
     expect(r.code).toBe(0);
     expect(r.calls.find((c) => c.args[0] === "deploy")).toMatchObject({ args: ["deploy", ...env], env: { CLOUDFLARE_API_TOKEN: `${who}-token`, CLOUDFLARE_ACCOUNT_ID: `${who}-acc` } });
-    expect(r.calls.find((c) => c.args[0] === "secret")).toMatchObject({ args: ["secret", "put", "R2_KEY_SECRET", ...env], input: secret });
-    expect(r.out).toContain(`=== blocks-r2${tail} ===`);
+    expect(r.calls.find((c) => c.args[0] === "secret")).toMatchObject({ args: ["secret", "put", "CH_PASSWORD", ...env], input: secret });
+    expect(r.out).toContain(`=== blocks-ch${tail} ===`);
   });
 
   it("значение из окружения важнее файла; строка env может содержать знак равно", () => {

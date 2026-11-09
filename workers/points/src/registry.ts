@@ -220,6 +220,9 @@ function textOf(record: Record<string, any>, line: string, q: string): string {
   return text.toLowerCase().includes(q) ? text : line;
 }
 
+/** Ключ uuid записи разговора в строке файла: у служебных записей его нет. */
+const UUID_KEY = '"uuid":"';
+
 /** Совпадение — запись разговора с uuid; строка без uuid (служебная запись) совпадением не считается. */
 function hitOf(line: string, q: string, point: number): Hit | null {
   let record: Record<string, any>;
@@ -268,7 +271,8 @@ async function catalog(env: Env, f: Frame) {
   // отпечаток блока → сессии, в чьём файле разговора последней точки он есть: у копий начало разговора общее
   const owners = new Map<string, Line[]>();
   for (const x of sessions.results) for (const file of JSON.parse(x.files) as PointFile[]) if (file.p === `${x.sid}.jsonl`) for (const h of file.b) owners.set(h, [...(owners.get(h) ?? []), x]);
-  const found = await store<Array<{ hash: string; line: string }>>(env, { type: "blocks.search", q, hashes: [...owners.keys()], limit: owners.size });
+  // совпадение — запись разговора с uuid: служебные записи (очередь ввода, последний запрос) несут тот же текст раньше неё
+  const found = await store<Array<{ hash: string; line: string }>>(env, { type: "blocks.search", q, also: UUID_KEY, hashes: [...owners.keys()], limit: owners.size });
   const hits = new Map<string, Hit[]>();
   for (const { hash, line } of found) {
     for (const x of owners.get(hash) ?? []) {

@@ -1,0 +1,23 @@
+// Worker blocks-ch: хранилище блоков точек на ClickHouse — реализация контракта blocks под именем службы switchboard-blocks.
+// ClickHouse — на машине hz-ex44-1 за туннелем Cloudflare, привязка Workers VPC: публичного адреса у него нет.
+// Секрет CH_PASSWORD — пароль пользователя ClickHouse этого флота (~/.switchboard-dev/clickhouse.env); wrangler secret put из stdin.
+{
+  "name": "switchboard-blocks",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // ссылки на блоки ведут в этот Worker
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "vpc_services": [{ "binding": "CH", "service_id": "VPC_TEST" }],
+  "vars": { "CH_USER": "sb_test", "BLOCKS_URL": "https://switchboard-blocks.yuridevx1608.workers.dev" },
+  "env": {
+    "prod": {
+      "routes": [{ "pattern": "blocks.pfarm.app", "custom_domain": true }],
+      "workers_dev": false,
+      "vpc_services": [{ "binding": "CH", "service_id": "VPC_PROD" }],
+      "vars": { "CH_USER": "sb_prod", "BLOCKS_URL": "https://blocks.pfarm.app" }
+    }
+  }
+}

@@ -31,7 +31,7 @@ export class Blocks extends WorkerEntrypoint {
       const q = String(f.q).toLowerCase();
       const out = [];
       for (const h of hashes) {
-        const line = (blocks.get(h)?.lines ?? []).find((l) => l.toLowerCase().includes(q));
+        const line = (blocks.get(h)?.lines ?? []).find((l) => l.toLowerCase().includes(q) && l.includes(f.also ?? ""));
         if (line !== undefined) out.push({ hash: h, line });
       }
       return ok(f.id, out.slice(0, f.limit));

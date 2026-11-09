@@ -12,8 +12,11 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WRANGLER = path.join(ROOT, "node_modules", "wrangler", "bin", "wrangler.js");
 /** Настоящая выкладка 5 нояб.: при 45 с wrangler выложил prefs, но не завершился под нагрузкой. */
 const LIMIT_MS = 300_000;
-/** relay смотрит привязками на остальных — последним; mcp — после releases и gate, на которые смотрит привязками; хранилище блоков (реализация контракта blocks) — раньше points, который смотрит на него привязкой. */
-const WORKERS = ["gate", "rooms", "push", "blocks-r2", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "mcp", "relay"];
+/**
+ * relay смотрит привязками на остальных — последним; mcp — после releases и gate, на которые смотрит привязками; хранилище блоков — раньше points, который смотрит на него привязкой.
+ * Хранилище — реализация контракта blocks: флоты стоят на blocks-ch (ClickHouse); blocks-r2 — флоту без ClickHouse.
+ */
+const WORKERS = ["gate", "rooms", "push", "blocks-ch", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "mcp", "relay"];
 const WEB = ["phone", "pult"];
 
 const stop = (word) => {
@@ -36,17 +39,17 @@ const tail = prod ? " prod" : "";
 
 /** Значения из файлов: первый файл важнее следующих, окружение важнее файлов. */
 const dev = process.env.SWITCHBOARD_DEV_DIR ?? path.join(homedir(), ".switchboard-dev");
-const files = [...(prod ? ["prod.env"] : []), "cf-deploy.env", "fleet-secrets.env", "r2-points.env"].map((f) => path.join(dev, f)).filter(existsSync);
+const files = [...(prod ? ["prod.env"] : []), "cf-deploy.env", "fleet-secrets.env", "r2-points.env", "clickhouse.env"].map((f) => path.join(dev, f)).filter(existsSync);
 const pairs = files.reverse().flatMap((f) => [...readFileSync(f, "utf8").matchAll(/^([A-Z0-9_]+)=(.*?)\r?$/gm)].map((m) => [m[1], m[2]]));
 const known = { ...Object.fromEntries(pairs), ...process.env };
 const { CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID } = known;
 if (!CLOUDFLARE_API_TOKEN || !CLOUDFLARE_ACCOUNT_ID) stop("нет CLOUDFLARE_API_TOKEN или CLOUDFLARE_ACCOUNT_ID");
 
-/** Имя секрета Worker'а → значение. Тестовая пара прав на бакет прода не имеет: точки прода — свой секрет. */
+/** Имя секрета Worker'а → значение. У флота свой пользователь ClickHouse: тестовый прав на базу прода не имеет. */
 const secrets = {
   push: { VAPID_PRIVATE: "VAPID_PRIVATE" },
   rooms: { TELEGRAM_BOT_TOKEN: prod ? "PROD_TELEGRAM_BOT_TOKEN" : "TELEGRAM_BOT_TOKEN" },
-  "blocks-r2": { R2_KEY_SECRET: prod ? "PROD_R2_SECRET_ACCESS_KEY" : "R2_SECRET_ACCESS_KEY" },
+  "blocks-ch": { CH_PASSWORD: prod ? "CH_PASSWORD_PROD" : "CH_PASSWORD_TEST" },
   releases: { CLOUDFLARE_API_TOKEN: "CLOUDFLARE_API_TOKEN", R2_LINK_KEY_ID: "R2_ACCESS_KEY_ID", R2_LINK_SECRET: "R2_SECRET_ACCESS_KEY" },
 };
 

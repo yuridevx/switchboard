@@ -95,7 +95,10 @@ try {
   const row = cat.sessions.find((x: any) => x.callsign === CS);
   check("27 · каталог: заголовок, модель, токены из точки", !!row?.title && !!row?.model && row?.tok_in > 0 && row?.tok_out > 0, JSON.stringify({ title: row?.title, model: row?.model, tok_in: row?.tok_in, tok_out: row?.tok_out }));
   const q = await fetch(WORKERS.points, { method: "POST", body: JSON.stringify({ id: "q", key: KEY, type: "points.list", v: 2, q: WORD }) }).then((r) => r.json() as any);
-  check("36 · хранилище R2: поиск — no_search, каталог search: false", q.error === "no_search" && cat.search === false);
+  if (cat.search) {
+    const found = q.result?.sessions?.find((x: any) => x.sid === row.sid);
+    check("36 · хранилище ищет: слово из разговора находит сессию, каталог search: true", !!found?.hits?.length, JSON.stringify(found?.hits?.[0] ?? q.error ?? null).slice(0, 120));
+  } else check("36 · хранилище R2: поиск — no_search, каталог search: false", q.error === "no_search");
   const t0 = Date.now();
   const arch = await post("points", { type: "points.history", v: 1, to: ".points", sid: row.sid, before: null, limit: 400 });
   const live = await history(CS);
@@ -105,7 +108,7 @@ try {
 
   // копия из точки помнит разговор
   await l.request({ type: "session.remove", v: 1, callsign: COPY } as never).catch(() => {});
-  const raised = await req({ type: "points.raise", machine: M, sid: row.sid, point: mark.point, copy: true, dir: "~/sb-copy", name: "archcopy", files: "point" });
+  const raised = await req({ type: "points.raise", machine: M, sid: row.sid, point: mark.point, copy: true, dir: "~/sb-copy", name: "archcopy", files: "point", slot: SLOT });
   await wait(`${raised.callsign} idle`, () => state(raised.callsign) === "idle", 120_000);
   const recall = await ask(raised.callsign, "Какое слово ты повторил в этом разговоре? Напиши только его.");
   check("подъём копии из точки: разговор на месте", recall.includes(SEEN) || recall.includes(WORD), recall.slice(0, 80));
