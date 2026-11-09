@@ -39,14 +39,14 @@ function Header({ s, onBack, pair, onPair }: { s: SessionRow; onBack?: () => voi
   const down = s.state === "stopped" || s.state === "failed";
   const picked = s.spec.pieces ?? [];
   return (
-    <div className="pane-head">
+    <div className="pane-head conv-head">
       {onBack && <ActionIcon variant="subtle" className="narrow-only" aria-label="Назад" onClick={onBack}><IconArrowLeft size={18} /></ActionIcon>}
       <Lamp state={s.state} offline={offline} />
-      <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+      <div className="h-title">
         <div className="trunc" style={{ fontWeight: 600 }}>{s.title ?? s.spec.name}</div>
         <div className="trunc muted" style={{ fontSize: 12.5 }}><span className="mono">{s.callsign}</span> · {offline ? "нет связи" : s.doing ?? STATE_WORD[s.state]}</div>
       </div>
-      <div className="chiprow">
+      <div className="chiprow h-chips">
         <Chip label="Модель" value={s.spec.model} options={MODELS} onPick={(model) => patch({ model })} />
         <Chip label="Усилие" value={s.spec.effort} options={EFFORTS} onPick={(effort) => patch({ effort: effort as never })} />
         <Chip label="Режим" value={s.spec.mode} options={MODES} onPick={(mode) => patch({ mode: mode as never })} />
@@ -63,7 +63,7 @@ function Header({ s, onBack, pair, onPair }: { s: SessionRow; onBack?: () => voi
           </Popover.Dropdown>
         </Popover>
       </div>
-      <Group gap={4} wrap="nowrap">
+      <Group gap={4} wrap="nowrap" className="h-acts">
         {busy && <Tooltip label="Прервать ход"><ActionIcon variant="default" aria-label="Прервать ход" onClick={() => act(sessionCall, { to: s.callsign, method: "interrupt" })}><IconPlayerStop size={16} /></ActionIcon></Tooltip>}
         {down && <Button size="xs" leftSection={<IconPlayerPlay size={14} />} onClick={() => act(sessionStart, { to: s.callsign })}>Запустить</Button>}
         <Tooltip label="Сохранить точку"><ActionIcon variant="subtle" aria-label="Сохранить точку" onClick={() => act(pointsSave, { to: s.callsign }, "Точка сохранена")}><IconBookmark size={17} /></ActionIcon></Tooltip>
@@ -141,7 +141,7 @@ export function Conversation({ callsign, onBack }: { callsign: string; onBack?: 
         </div>
       )}
       {showInsp && wide && <aside className="insp" aria-label="Инспектор"><Inspector s={s} /></aside>}
-      {!wide && <Drawer opened={ui.inspector && sheet} onClose={() => setSheet(false)} position="bottom" size="75%" title={s.callsign}><Inspector s={s} /></Drawer>}
+      {!wide && <Drawer opened={sheet} onClose={() => setSheet(false)} position="bottom" size="75%" title={s.callsign}><Inspector s={s} /></Drawer>}
       {!wide && <NarrowInspectorOpener onOpen={() => setSheet(true)} />}
     </div>
   );

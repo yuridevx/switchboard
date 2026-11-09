@@ -55,7 +55,7 @@ export function createMock(o: MockOptions = {}) {
   add(row("site@laptop", "busy", "site", { title: "Шапка сайта на узких экранах", doing: "Правит src/components/Header.tsx", pieces: ["base", "web"], last: T - 1 * MIN, context: 0.42 }));
   add(row("site-tests@laptop", "waiting", "site", { title: "Выкладка тестового стенда", pieces: ["base", "web"], last: T - 6 * MIN,
     ask: ask({ kind: "question", title: "Ветка для выкладки", text: "Какую ветку выкладывать на тестовый стенд?", options: [{ label: "main", about: "последний зелёный коммит" }, { label: "release/2.4", about: "ветка выпуска" }, { label: "Обе по очереди" }] }, 6) }));
-  add(row("docs@laptop", "idle", "site", { title: "Раздел про выкладку в документации", unread: [ME], last: T - 14 * MIN, context: 0.18 }));
+  add(row("docs@laptop", "idle", "site", { title: "Раздел про выкладку в документации", unread: [ME], last: T - 14 * MIN, context: 0.18, result: "Дописал раздел «Выкладка»: три шага, откат и пример. Проверил ссылки в разделе — 14 из 14 открываются." }));
   add(row("lead@laptop", "busy", "research", { title: "Замена клиента оплаты", doing: "Ждёт итог от wing@laptop", last: T - 2 * MIN, spec: { name: "lead", cwd: "~/projects/billing", model: M, effort: "xhigh", mode: "all", account: "auto", pieces: ["base", "research"], wing: "wing@laptop", project: "research", backup: true } }));
   add(row("wing@laptop", "busy", "research", { title: "Поиск вызовов старого клиента", doing: "Читает src/jobs/renew.ts", by: "lead@laptop", last: T - 1 * MIN, model: "claude-sonnet-5-5", spec: { name: "wing", cwd: "~/projects/billing", model: "claude-sonnet-5-5", effort: "medium", mode: "all", account: "auto", pieces: ["base"], parent: "lead@laptop", project: "research", backup: true } }));
   add(row("hotfix@laptop", "failed", "site", { title: "Срочная правка формы входа", error: "процесс claude дважды вышел до готовности: код 1, «Invalid API key»", last: T - 50 * MIN, account: "work@example.com" }));
@@ -67,7 +67,7 @@ export function createMock(o: MockOptions = {}) {
   add(row("nightcheck@server", "idle", "infra", { title: "Ночная проверка флота", last: T - 7 * HOUR, by: "~yuri@example.com", pieces: ["base", "ops"] }));
   add(row("migrate@server", "stopped", "infra", { title: "Перенос журналов в архив", last: T - 2 * DAY, pieces: ["base"] }));
   add(row("landing@anya-pc", "busy", "site", { title: "Новый первый экран", doing: "Собирает снимки на 390 и 1440", by: ANYA, last: T - 2 * MIN, account: "anya@example.com", pieces: ["base", "web"] }));
-  add(row("design@anya-pc", "idle", "site", { title: "Палитра и сетка", by: ANYA, unread: [ME, ANYA], last: T - 41 * MIN, account: "anya@example.com", pieces: ["base", "web"] }));
+  add(row("design@anya-pc", "idle", "site", { title: "Палитра и сетка", by: ANYA, unread: [ME, ANYA], result: "Тёмный вариант готов: фон #0F1413, контраст 11,4 : 1. Оба варианта лежат рядом, выберите один.", last: T - 41 * MIN, account: "anya@example.com", pieces: ["base", "web"] }));
   add(row("forms@anya-pc", "waiting", "site", { title: "Форма заявки", by: ANYA, last: T - 9 * MIN, account: "anya@example.com", pieces: ["base", "web"],
     ask: ask({ kind: "form", title: "Доступ к почтовому серверу", text: "Нужны данные почтового сервера для отправки заявок.", schema: { type: "object", required: ["host", "user"], properties: { host: { type: "string", title: "Сервер" }, port: { type: "number", title: "Порт", default: 587 }, user: { type: "string", title: "Пользователь" } } } }, 9) }));
   add(row("crawler@base2", "busy", "research", { title: "Сбор цен конкурентов", doing: "Последнее известное: шёл обход каталога", last: T - 3 * HOUR, pieces: ["base", "research"] }));
@@ -257,7 +257,8 @@ export function createMock(o: MockOptions = {}) {
       const tool = events.flatMap((e) => (e.type === "assistant" ? (e.message.content as any[]) : [])).findLast((b) => b.type === "tool_use");
       if (events.some((e) => e.type === "result")) {
         live.delete(c);
-        setRow(c, { state: "idle", doing: undefined, last: now(), unread: watched.has(c) ? [] : [ME] });
+        const said = events.flatMap((e) => (e.type === "assistant" ? (e.message.content as any[]) : [])).findLast((b) => b.type === "text")?.text as string | undefined;
+        setRow(c, { state: "idle", doing: undefined, last: now(), unread: watched.has(c) ? [] : [ME], ...(said ? { result: said.replace(/[`*#|]/g, "").slice(0, 200) } : {}) });
         l.then?.();
       } else if (tool) setRow(c, { doing: DOING[tool.name]?.(tool.input) ?? tool.name });
     }
@@ -316,12 +317,12 @@ export function createMock(o: MockOptions = {}) {
     },
     "people.remove": (f) => (people.splice(people.findIndex((p) => p.person === f.person), 1), {}),
     "project.set": (f) => {
-      const p = projects.find((x) => x.id === f.id);
+      const p = projects.find((x) => x.id === f.project);
       if (p) Object.assign(p, { name: f.name, ...(f.members ? { members: f.members } : {}) });
-      else projects.push({ id: f.id, name: f.name, members: f.members ?? [ME] });
+      else projects.push({ id: f.project, name: f.name, members: f.members ?? [ME] });
       return {};
     },
-    "project.remove": (f) => (projects.splice(projects.findIndex((p) => p.id === f.id), 1), {}),
+    "project.remove": (f) => (projects.splice(projects.findIndex((p) => p.id === f.project), 1), {}),
 
     "session.open": (f) => {
       const m = mach(f);
@@ -411,7 +412,7 @@ export function createMock(o: MockOptions = {}) {
     },
     "account.remove": (f) => {
       const list = accounts[mach(f)];
-      list.splice(list.findIndex((a) => a.id === f.id), 1);
+      list.splice(list.findIndex((a) => a.id === f.account), 1);
       return {};
     },
     "slot.set": (f) => {
@@ -466,7 +467,7 @@ export function createMock(o: MockOptions = {}) {
       return { path, dirs: path === "~/projects" ? ["site", "billing", "docs", "infra", "prices", "sandbox"] : ["src", "test", "scripts", "docs"], recent: ["~/projects/site", "~/projects/billing", "~/projects/docs", "~/projects/infra"], git: path !== "~/projects" };
     },
     "machine.journal": (f) => {
-      const all = journal(mach(f)).filter((l) => (!f.level || l.level === f.level) && (!f.part || l.part === f.part) && (!f.trace || l.trace === f.trace));
+      const all = journal(mach(f)).filter((l) => (!f.level || l.level === f.level) && (!f.part || l.part === f.part) && (!f.of || l.trace === f.of));
       const p = page(all, f.before, f.limit ?? 40, (l) => l.t);
       return { lines: p.items, more: p.more };
     },
@@ -518,7 +519,7 @@ export function createMock(o: MockOptions = {}) {
     "reach.devices": () => ({ devices }),
     "reach.key": () => ({ key: "BMockVapidPublicKey" }),
     "reach.subscribe": (f) => (devices.push({ id: "d" + newId().slice(0, 4), kind: "webpush", person: ME, label: f.label ?? "Этот браузер", at: now() }), { id: devices.at(-1)!.id }),
-    "reach.remove": (f) => (devices.splice(devices.findIndex((d) => d.id === f.id), 1), {}),
+    "reach.remove": (f) => (devices.splice(devices.findIndex((d) => d.id === f.device), 1), {}),
     "reach.telegram": () => ({ code: "SB-" + newId().slice(0, 6).toUpperCase(), bot: "switchboard_fleet_bot" }),
     "reach.send": () => ({ sent: 0, online: true }),
     "prefs.get": (f) => ({ values: Object.fromEntries(Object.entries(prefs[f.scope as "me" | "fleet"]).filter(([k]) => !f.prefix || k.startsWith(f.prefix))) }),
@@ -544,9 +545,9 @@ export function createMock(o: MockOptions = {}) {
     "github.setup": () => ({ installed: true }),
     "analytics.query": (f) => {
       if (analyticsDown) throw new Refusal("analytics_unavailable", "ClickHouse не ответил за 10 с");
-      const days = Math.max(1, Math.round((Date.parse(f.to) - Date.parse(f.from)) / DAY) + 1);
+      const days = Math.max(1, Math.round((Date.parse(f.until) - Date.parse(f.since)) / DAY) + 1);
       const mk = (key: string, w: number, i: number) => ({ key, calls: Math.round(w * (120 + i * 17)), input: Math.round(w * 2.1e6), output: Math.round(w * 4.2e5), cacheRead: Math.round(w * 2.6e7), cacheWrite: Math.round(w * 3.1e6), cost: Math.round(w * 38.4 * 100) / 100 });
-      if (f.by === "day") return { rows: Array.from({ length: days }, (_, i) => mk(new Date(Date.parse(f.from) + i * DAY).toISOString().slice(0, 10), 0.5 + ((i * 37) % 11) / 9, i)) };
+      if (f.by === "day") return { rows: Array.from({ length: days }, (_, i) => mk(new Date(Date.parse(f.since) + i * DAY).toISOString().slice(0, 10), 0.5 + ((i * 37) % 11) / 9, i)) };
       const KEYS: Record<string, Array<[string, number]>> = {
         model: [["claude-fable-5-2", 4.2], ["claude-sonnet-5-5", 1.6], ["claude-opus-5-5", 0.9], ["glm-abliterated", 0.3]],
         machine: [["server", 3.1], ["laptop", 2.7], ["anya-pc", 1.0], ["base2", 0.2]],
@@ -557,21 +558,21 @@ export function createMock(o: MockOptions = {}) {
       return { rows: KEYS[f.by].map(([k, w], i) => mk(k, (w * days) / 7, i)) };
     },
     "obs.recent": (f) => {
-      const all = obs.filter((r) => (!f.type || r.type.startsWith(f.type)) && (!f.failed || !r.ok) && (!f.trace || r.trace === f.trace));
+      const all = obs.filter((r) => (!f.name || r.type.startsWith(f.name)) && (!f.failed || !r.ok) && (!f.of || r.trace === f.of));
       const p = page(all, f.before, f.limit ?? 60, (r) => r.at);
       return { rows: p.items, more: p.more };
     },
     "obs.stats": (f) => {
-      const inRange = obs.filter((r) => r.at >= f.from && r.at <= f.to);
+      const inRange = obs.filter((r) => r.at >= f.since && r.at <= f.until);
       const by = new Map<string, number[]>(), bad = new Map<string, number>();
       for (const r of inRange) {
         (by.get(r.type) ?? (by.set(r.type, []), by.get(r.type)!)).push(r.ms);
         if (!r.ok) bad.set(r.type, (bad.get(r.type) ?? 0) + 1);
       }
       const q = (a: number[], p: number) => [...a].sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(a.length * p))];
-      const step = Math.max(MIN, (f.to - f.from) / 24);
+      const step = Math.max(MIN, (f.until - f.since) / 24);
       const buckets = Array.from({ length: 24 }, (_, i) => {
-        const a = f.from + i * step, rows = inRange.filter((r) => r.at >= a && r.at < a + step);
+        const a = f.since + i * step, rows = inRange.filter((r) => r.at >= a && r.at < a + step);
         return { at: a, n: rows.length, failed: rows.filter((r) => !r.ok).length };
       });
       return { types: [...by].map(([type, ms]) => ({ type, n: ms.length, failed: bad.get(type) ?? 0, p50: q(ms, 0.5), p95: q(ms, 0.95) })).sort((a, b) => b.n - a.n), buckets };

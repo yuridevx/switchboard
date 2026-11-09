@@ -119,12 +119,12 @@ function Journal({ s }: { s: SessionRow }) {
 export function Inspector({ s }: { s: SessionRow }) {
   return (
     <Tabs defaultValue="doc" style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
-      <Tabs.List px="xs">
-        <Tabs.Tab value="doc">Обзор</Tabs.Tab>
-        <Tabs.Tab value="ctx">Контекст</Tabs.Tab>
-        <Tabs.Tab value="files">Файлы</Tabs.Tab>
-        <Tabs.Tab value="points">Точки</Tabs.Tab>
-        <Tabs.Tab value="log">Журнал</Tabs.Tab>
+      <Tabs.List px={4} style={{ flexWrap: "nowrap" }}>
+        <Tabs.Tab px={10} value="doc">Обзор</Tabs.Tab>
+        <Tabs.Tab px={10} value="ctx">Контекст</Tabs.Tab>
+        <Tabs.Tab px={10} value="files">Файлы</Tabs.Tab>
+        <Tabs.Tab px={10} value="points">Точки</Tabs.Tab>
+        <Tabs.Tab px={10} value="log">Журнал</Tabs.Tab>
       </Tabs.List>
       <div className="scroll">
         <Tabs.Panel value="doc"><Overview key={s.callsign} s={s} /></Tabs.Panel>

@@ -31,20 +31,20 @@ describe("картина флота", () => {
     expect((r.machines as MachineRow[])[0]).toMatchObject({ online: true, build: 413 });
   });
 
-  it("изменение строки доходит странице как roster.delta и сливается со строкой", async () => {
+  it("изменение строки доходит странице как roster.delta и заменяет строку целиком", async () => {
     const fleet = newFleet(), yuri = await boot(fleet), laptop = await pass(fleet, yuri, "@laptop");
     const h = await host(fleet, "laptop", laptop);
     h.send({ type: "machine.hello", build: 1, sessions: [row("site@laptop")] });
     const p = await page(fleet, yuri);
     await p.next((f) => f.type === "roster" || (f.type === "roster.delta" && !!f.sessions));
     const ask1 = { id: "q-9", kind: "question", text: "Какую ветку?", at: 5 };
-    h.send({ type: "session.state", callsign: "site@laptop", row: { state: "waiting", ask: ask1 } });
+    h.send({ type: "session.state", callsign: "site@laptop", row: { ...row("site@laptop"), state: "waiting", ask: ask1 } });
     const d = await p.next((f) => f.type === "roster.delta" && calls(f).includes("site@laptop") && (f.sessions as any)[0].row?.state === "waiting");
-    expect(d.sessions).toEqual([{ callsign: "site@laptop", row: { state: "waiting", ask: ask1 } }]);
-    h.send({ type: "session.state", callsign: "site@laptop", row: { state: "busy", ask: null } });
+    expect(d.sessions).toEqual([{ callsign: "site@laptop", row: { ...row("site@laptop"), state: "waiting", ask: ask1 } }]);
+    h.send({ type: "session.state", callsign: "site@laptop", row: { ...row("site@laptop"), state: "busy", ask: null } });
     await p.next((f) => f.type === "roster.delta" && (f.sessions as any)?.[0]?.row?.state === "busy");
     const r = await (await page(fleet, yuri)).next((f) => f.type === "roster");
-    // документ сессии остался от снимка, состояние и вопрос — от изменений
+    // строка идёт целиком: в картине — последняя присланная
     expect((r.sessions as SessionRow[])[0]).toMatchObject({ callsign: "site@laptop", state: "busy", ask: null, spec: { name: "site", cwd: "~/p" } });
     // сессии больше нет
     h.send({ type: "session.state", callsign: "site@laptop", row: null });

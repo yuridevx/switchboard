@@ -58,7 +58,9 @@ export function check(base = root) {
           continue;
         }
         const a = moduleOf(pkg, file), b = moduleOf(pkg, to);
-        if (b && a !== b && !/\/contract(\.ts)?$/.test(toRel)) bad.push(`${rel}: модуль ${a ?? "ядро"} зовёт модуль ${b} мимо его contract.ts (${toRel})`);
+        // список модулей (src/modules/index.ts) и тесты пакета собирают модули целиком — это их дело
+        const assembles = rel === pkg + "/src/modules/index.ts" || rel.startsWith(pkg + "/test/") || /\.test\.tsx?$/.test(rel);
+        if (b && a !== b && !assembles &&!/\/contract(\.ts)?$/.test(toRel)) bad.push(`${rel}: модуль ${a ?? "ядро"} зовёт модуль ${b} мимо его contract.ts (${toRel})`);
       }
     }
   }

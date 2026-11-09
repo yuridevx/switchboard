@@ -28,7 +28,7 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
     if (!who) return;
     const failed = (e: unknown) => host().log.warn("ask_call", { callsign: s.callsign, to: who, why: (e as Error).message });
     if (isHuman(who)) {
-      void host().call(reachSend, { to: personOf(who)!, title: `${s.callsign} ${ask.kind === "question" ? "спрашивает" : "просит разрешения"}`, text: ask.text, callsign: s.callsign, kind: "ask" }).catch(failed);
+      void host().call(reachSend, { to: personOf(who)!, title: `${s.callsign} ${ask.kind === "question" ? "спрашивает" : "просит разрешения"}`, text: ask.text, callsign: s.callsign, kind: "ask", ask: ask.id, ...(ask.kind === "question" && ask.options?.length ? { options: ask.options.map((o) => o.label) } : {}) }).catch(failed);
     } else if (kindOf(who) === "session" && ask.kind === "question") {
       void host().call(message, { to: who, text: asText(s.callsign, ask.id, qs ?? []) }, { from: s.callsign }).catch(failed);
     }

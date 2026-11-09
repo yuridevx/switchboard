@@ -90,6 +90,8 @@ export class Kernel {
   private hosts = new Map<Module, HostApi>();
   private link: Link | null = null;
   private linkState: LinkState = "closed";
+  /** объект машины принял соединение (hello.ok): до него кадры не идут */
+  private accepted = false;
   private pending = new Map<string, (r: Reply) => void>();
   private api: Api;
   /** имена сессий, которые открываются прямо сейчас */
@@ -168,6 +170,10 @@ export class Kernel {
     return out;
   }
 
+  changed(what: string): void {
+    for (const m of this.mods) this.guard(m, "on.changed", undefined, () => m.on?.changed?.(what));
+  }
+
   specOwner(key: string): Module | undefined {
     return this.specOwners.get(key);
   }
@@ -211,6 +217,7 @@ export class Kernel {
         target[k] = v;
       }
     };
+    const lower: Array<NonNullable<QueryPart["defaults"]>> = [];
     const live = this.mods.filter((m) => m.compose);
     const got = await Promise.all(
       live.map((m) =>
@@ -226,7 +233,8 @@ export class Kernel {
     live.forEach((m, i) => {
       const part = got[i];
       if (!part) return;
-      const { env: e, mcpServers: servers, settings: st, append: text, hooks: h, ...rest } = part;
+      const { env: e, mcpServers: servers, settings: st, append: text, hooks: h, defaults, ...rest } = part;
+      if (defaults) lower.push(defaults);
       const core = Object.keys(rest).find((k) => CORE_OPTIONS.has(k));
       if (core) return void conflicts.push(`${m.name}: опция ${core} — её держит ядро`);
       claim("env", env, e, m.name);
@@ -236,6 +244,10 @@ export class Kernel {
       if (text) append.push(text);
       for (const [event, matchers] of Object.entries(h ?? {})) (hooks[event] ??= []).push(...matchers);
     });
+    for (const d of lower) {
+      for (const [k, v] of Object.entries(d.env ?? {})) if (!(k in env)) env[k] = v;
+      for (const [k, v] of Object.entries(d.settings ?? {})) if (!(k in settings)) settings[k] = v;
+    }
     const all = {
       permissionMode: "bypassPermissions",
       ...options,
@@ -344,34 +356,39 @@ export class Kernel {
     const onState = (st: LinkState) => this.onLink(st);
     this.link = this.o.connect
       ? this.o.connect({ onFrame, onState })
-      : socketLink({ url: `${base.replace(/^http/, "ws")}/m/${fleet}/${this.machine}`, hello: { type: "hello", proto: PROTO, key, role: "host" }, onFrame, onState });
+      : socketLink({ url: `${base.replace(/^http/, "ws")}/m/${fleet}/${this.machine}`, hello: { type: "hello", proto: PROTO, key, role: "host" }, onFrame, onState, stopOn: ["bad_key", "revoked", "forbidden", "proto", "replaced"] });
   }
 
   private onLink(state: LinkState): void {
     this.linkState = state;
     if (this.shutting) return;
+    if (state !== "open") this.accepted = false;
     if (state === "open") {
       this.log.info("link_open");
-      // снимок машины: заменяет её строки в картине
-      this.link!.send({ type: "machine.hello", build: this.o.build, sdk: this.version, os: process.platform, sessions: [...this.sessions.values()].map((s) => s.hello()) });
     } else if (state === "closed") {
       this.log.warn("link_closed");
       for (const [id, done] of [...this.pending]) done(fail(id, "offline", "соединение оборвалось"));
     } else if (state === "stopped") {
-      this.log.error("link_stopped", { why: "пропуск машины не принят — Host не переподключается" });
-      void this.shutdown("пропуск машины не принят");
+      this.log.error("link_stopped", { why: "пропуск машины не принят или этот Host вытеснен другим — Host не переподключается" });
+      void this.shutdown("соединение с флотом закрыто без права переподключения");
     }
   }
 
   /** Кадр в соединение; нет соединения — не уходит: строки сессий уйдут снимком при открытии. */
   send(f: Frame): boolean {
-    if (!this.link || this.linkState !== "open") return false;
+    if (!this.link || !this.accepted) return false;
     this.link.send(f);
     return true;
   }
 
   private onFrame(f: Frame): void {
     if (isReply(f)) return void this.pending.get(f.id)?.(f);
+    if (f.type === "hello.ok") {
+      // соединение принято — снимок машины: заменяет её строки в картине
+      this.accepted = true;
+      this.link!.send({ type: "machine.hello", build: this.o.build, sdk: this.version, os: process.platform, sessions: [...this.sessions.values()].map((s) => s.hello()) });
+      return;
+    }
     if (f.id) {
       const work = this.serve(f).then((r) => void this.link?.send({ ...r, to: f.from }));
       this.inflight.add(work);

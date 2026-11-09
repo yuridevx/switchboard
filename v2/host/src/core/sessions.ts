@@ -123,6 +123,13 @@ export function coreModule(k: Kernel): Module {
     project: () => {},
   };
 
+  /** «Изменилось» от служб — всем модулям: каждый перечитывает своё. */
+  self.frames = {
+    changed(f) {
+      k.changed(String(f.what));
+    },
+  };
+
   self.compose = (s) => k.corePart(s);
 
   self.on = {

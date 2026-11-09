@@ -172,10 +172,10 @@ export const sessionEvents = frame("session.events", {
   payload: z.object({ callsign: Callsign, seq: z.number(), events: z.array(SdkEvent) }),
 });
 
-/** Изменение строки сессии: Host → объект машины → картина флота. row null — сессии больше нет. */
+/** Изменение строки сессии: Host → объект машины → картина флота. Строка идёт целиком и заменяет прежнюю; row null — сессии больше нет. */
 export const sessionState = frame("session.state", {
   owner: "host",
-  payload: z.object({ callsign: Callsign, row: SessionRow.partial().nullable() }),
+  payload: z.object({ callsign: Callsign, row: SessionRow.nullable() }),
 });
 
 /** Снимок машины от Host при подключении: заменяет её строки в картине. */

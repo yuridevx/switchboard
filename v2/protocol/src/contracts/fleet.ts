@@ -103,7 +103,7 @@ export const rosterDelta = frame("roster.delta", {
     rev: z.number(),
     machines: z.array(MachineRow).optional(),
     gone: z.array(z.string()).optional(),
-    sessions: z.array(z.object({ callsign: z.string(), row: SessionRow.partial().nullable() })).optional(),
+    sessions: z.array(z.object({ callsign: z.string(), row: SessionRow.nullable() })).optional(),
   }),
 });
 

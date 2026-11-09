@@ -3,7 +3,7 @@
   --bg: #f3f5f4; --surface: #ffffff; --surface-2: #eaeeec; --line: #dce2df; --muted: #5e6b66;
   --st-busy: #2f6fde; --st-waiting: #c77700; --st-failed: #c5352b; --st-idle: #2e8b62; --st-stopped: #8a9692;
   --st-busy-weak: #e4edfc; --st-waiting-weak: #faeed8; --st-failed-weak: #f9e1df; --st-idle-weak: #dff1e8;
-  --rail: 68px; --list: 384px; --insp: 336px;
+  --rail: 78px; --list: 384px; --insp: 336px;
   --mantine-color-body: var(--bg);
 }
 [data-mantine-color-scheme="dark"] {
@@ -22,10 +22,10 @@ body { overflow: hidden; }
 /* оболочка */
 .app { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); height: 100%; }
 .rail { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0; border-right: 1px solid var(--line); background: var(--surface); }
-.rail a { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 60px; padding: 7px 0 5px; border-radius: 8px; color: var(--muted); font-size: 10.5px; text-decoration: none; position: relative; }
+.rail a { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 70px; padding: 7px 0 5px; border-radius: 8px; color: var(--muted); font-size: 10.5px; text-decoration: none; position: relative; }
 .rail a:hover { background: var(--surface-2); color: var(--mantine-color-text); }
 .rail a.active { background: var(--surface-2); color: var(--mantine-color-text); font-weight: 600; }
-.dot { position: absolute; top: 5px; right: 13px; width: 7px; height: 7px; border-radius: 50%; background: var(--st-waiting); }
+.dot { position: absolute; top: 5px; right: 18px; width: 7px; height: 7px; border-radius: 50%; background: var(--st-waiting); }
 .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .panes { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--list) minmax(0, 1fr); }
 .pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -148,3 +148,13 @@ kbd.k { font-family: var(--mantine-font-family-monospace); font-size: 11.5px; bo
 }
 @media (min-width: 861px) { .narrow-only { display: none !important; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+.hljs-keyword, .hljs-built_in, .hljs-type { color: var(--st-busy); }
+.hljs-string, .hljs-attr { color: var(--st-idle); }
+.hljs-comment { color: var(--muted); }
+.hljs-number, .hljs-literal { color: var(--st-waiting); }
+
+/* шапка разговора: заголовок и действия — первой строкой, документ сессии — второй */
+.conv-head .h-title { flex: 1 1 0; min-width: 150px; order: 1; }
+.conv-head .h-acts { order: 2; }
+.conv-head .h-chips { order: 3; flex-basis: 100%; }
+@media (max-width: 860px) { .conv-head .h-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .conv-head .h-chips > * { flex: none; } }

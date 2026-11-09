@@ -339,7 +339,7 @@ export class FleetObject extends DurableObject<Env> {
       if (change.row === null) this.q("DELETE FROM sessions WHERE callsign = ?", change.callsign);
       else {
         const was = this.q<{ row: string }>("SELECT row FROM sessions WHERE callsign = ?", change.callsign)[0];
-        const row = { ...(was ? JSON.parse(was.row) : { callsign: change.callsign }), ...change.row };
+        const row = { callsign: change.callsign, ...change.row };
         this.q("INSERT OR REPLACE INTO sessions(callsign, machine, row) VALUES(?, ?, ?)", change.callsign, machine, JSON.stringify(row));
       }
       this.emit(machine, { sessions: [{ callsign: change.callsign, row: change.row }] });

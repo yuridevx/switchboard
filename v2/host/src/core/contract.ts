@@ -12,6 +12,8 @@ export type QueryPart = {
   /** добавка к системному промпту */
   append?: string;
   hooks?: Record<string, Array<{ matcher?: string; hooks: Array<(...a: any[]) => Promise<unknown>> }>>;
+  /** данные ниже по силе: уступают тому же ключу env и settings у любого модуля и в конфликт не идут */
+  defaults?: { env?: Record<string, string>; settings?: Record<string, unknown> };
   [option: string]: unknown;
 };
 
@@ -74,6 +76,8 @@ export interface Module {
     state?(s: SessionApi, state: SessionState, was: SessionState): void | Promise<void>;
     /** сессии больше нет */
     removed?(callsign: string): void;
+    /** кадр «изменилось» от служб: что именно — ключи флота, настройка флота по имени */
+    changed?(what: string): void;
   };
   /** что модуль отдаёт другим модулям этого Host */
   api?: unknown;

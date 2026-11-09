@@ -198,9 +198,9 @@ export function make(): Module {
       },
     },
     frames: {
-      /** Зритель ушёл: снять его со всех сессий. */
-      "watch.closed"(f: Frame) {
-        for (const set of viewers.values()) set.delete(String(f.addr));
+      /** У зрителя не осталось соединений с машиной: снять его со всех сессий. */
+      "watcher.gone"(f: Frame) {
+        for (const set of viewers.values()) set.delete(String(f.addr ?? f.from));
       },
     },
     decide: (s, input, opts) => ask.decide(s, input, opts),
