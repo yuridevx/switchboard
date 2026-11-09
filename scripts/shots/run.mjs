@@ -75,6 +75,8 @@ const PULT_SCREENS = [
   ["settings", "#settings", null, "small"],
   ["settings-passes", "#settings", steps(click('[data-tab="passes"]')), "small"],
   ["settings-general", "#settings", steps(click('[data-tab="general"]')), "small"],
+  ["settings-rules", "#settings?tab=rules", steps(click('[data-rule="Имя агента"] button[aria-expanded]')), "small"],
+  ["settings-rules-call", "#settings?tab=rules&call=s1/a2", null, "small"],
 ];
 const PHONE_SCREENS = [
   ...BOTH,

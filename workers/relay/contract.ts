@@ -5,6 +5,7 @@
 //     keeper входит пропуском своей машины и шлёт part: "keeper": адрес .keeper@машина, в roster его нет, roster — один, при входе.
 //   POST / keys.revoke { key, kid } → { addr, closed }: отметка у gate, соединения номера закрыты на всех машинах.
 //   привязка Relay.deliver(кадр с from) → сколько получателей: кадр Worker'а объекту машины адреса.
+//   привязка Relay.broadcast(кадр с from) → сколько получателей: тот же кадр Host каждой машины флота (машины — gate.list), to: @машина.
 // Кадры от relay:
 //   roster — всем соединениям, кроме keeper, после каждого hello, session.state и ухода соединения.
 // Кадр session.state { callsign, state, поля } — Host о своей сессии: запись заменяется целиком, state: null убирает её;

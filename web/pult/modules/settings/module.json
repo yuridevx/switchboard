@@ -1,7 +1,7 @@
 {
   "name": "pult-settings",
   "type": "web",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "into": [
     "pult",
     "phone"
@@ -37,7 +37,10 @@
     "prefs.get@prefs": 1,
     "prefs.set@prefs": 1,
     "machine.accounts@host-logins": 2,
-    "records.format@records": 1
+    "records.format@records": 1,
+    "rules.apply@rules": 1,
+    "points.history@points": 1,
+    "points.list@points": 2
   },
   "config": {}
 }

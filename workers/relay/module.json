@@ -1,13 +1,14 @@
 {
   "name": "relay",
   "type": "worker",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "provides": {
     "hello": 1,
     "roster": 1,
     "session.state": 1,
     "keys.revoke": 1,
-    "relay.deliver": 1
+    "relay.deliver": 1,
+    "relay.broadcast": 1
   },
   "uses": {
     "gate.verify@gate": 1,

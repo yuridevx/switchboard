@@ -223,10 +223,15 @@ export function answerRequests(relay: FakeRelay, F: Fleet, roster: { sessions: A
     { type: "user", uuid: "u3", timestamp: iso(120), message: { role: "user", content: "Покажи точки прямо в разговоре" } },
     { type: "assistant", uuid: "a3", timestamp: iso(127), message: { id: "m3", role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Точки стоят разделителями, после выбранной разговор приглушён." }] } },
   ];
+  // вызов модели из архива — и для проверки правил прокси
+  const system = ["You are Claude Code, Anthropic's official CLI for Claude.", "You are a Claude agent, built on Anthropic's Claude Agent SDK.", "# Tone and style
+Your responses should be short and concise."].join("
+
+");
   const archCalls = [
-    { uuid: "a1", at: iso(4), model: "claude-opus-5-5", tok_in: 182000, tok_out: 4200, system: "You are Claude Code." },
-    { uuid: "a2", at: iso(66), model: "claude-opus-5-5", tok_in: 410000, tok_out: 9100, system: "You are Claude Code." },
-    { uuid: "a3", at: iso(127), model: "claude-opus-5-5", tok_in: 620000, tok_out: 11800, system: "You are Claude Code." },
+    { uuid: "a1", at: iso(4), model: "claude-opus-5-5", tok_in: 182000, tok_out: 4200, system },
+    { uuid: "a2", at: iso(66), model: "claude-opus-5-5", tok_in: 410000, tok_out: 9100, system },
+    { uuid: "a3", at: iso(127), model: "claude-opus-5-5", tok_in: 620000, tok_out: 11800, system },
   ];
   const pts = [
     { id: 41, at: T0 + 128 * 60_000, machine: "win", why: "rule", base: 38, dir: "~/Projects/switchboard", msgs: 6, git: { state: "dirty", files: 3, branch: "main" }, line: true, until: null },
