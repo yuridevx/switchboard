@@ -2,7 +2,7 @@
 // пропуск сессии и сервер switchboard в сессии (24, 26, 45), вход снаружи по OAuth — Claude Code настоящий (23, 44) и шаги claude.ai.
 // env: FLOW_CLIENT_KEY (пропуск человека), FLOW_MACHINE, FLOW_SLOT (слот с моделью), FLOW_DIR (~/sb-flow).
 // Claude Code входит в своей временной папке CLAUDE_CONFIG_DIR: общий ~/.claude.json не трогается.
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -77,6 +77,7 @@ async function ask(cs: string, text: string, ms = 300_000): Promise<string> {
 const toolUses = async (cs: string) => (await history(cs)).flatMap((m) => (Array.isArray(m?.message?.content) ? m.message.content : [])).filter((b: any) => b.type === "tool_use").map((b: any) => b.name as string);
 
 /** Согласие в настоящем пульте: страница с адресом authorize и приглашением устройства; «Разрешить» → адрес возврата клиента с кодом. */
+let pults = 0;
 async function consent(authorize: string, back: (url: string) => boolean): Promise<string> {
   const { chromium } = createRequire(join(ROOT, "package.json"))("playwright-core");
   const browser = await chromium.launch();
@@ -87,8 +88,9 @@ async function consent(authorize: string, back: (url: string) => boolean): Promi
       landed = route.request().url();
       return route.fulfill({ status: 200, body: "ok" });
     });
-    const device = await post("gate", { type: "keys.invite", v: 2, addr: `pult~${PERSON}` });
-    if (!device.ok && device.error !== "name_taken") throw new Error(`keys.invite пульта: ${device.error}`);
+    // своё устройство на каждое согласие: пульт человека — тот же, что у него в браузере, только адрес новый
+    const device = await post("gate", { type: "keys.invite", v: 2, addr: `pult${++pults}~${PERSON}` });
+    if (!device.ok) throw new Error(`keys.invite пульта: ${device.error}`);
     await page.goto(`${authorize}#invite=${device.result.invite}`);
     await page.getByRole("button", { name: "Разрешить" }).click({ timeout: 60_000 });
     await wait("возврат в клиент", () => landed || undefined, 60_000);
@@ -98,24 +100,29 @@ async function consent(authorize: string, back: (url: string) => boolean): Promi
   }
 }
 
-/** Claude Code настоящий: add и login --no-browser в своей папке; адрес входа — в согласие, адрес возврата — обратно в stdin. */
+/**
+ * Claude Code настоящий: add и login --no-browser в своей папке. login без терминала выходит с кодом 1 — он идёт в псевдотерминале,
+ * как у человека: адрес входа — в согласие, адрес возврата вставляется в его приглашение.
+ */
 async function claudeCode(): Promise<boolean> {
   const home = mkdtempSync(join(tmpdir(), "sb-cc-"));
-  const env = { ...process.env, CLAUDE_CONFIG_DIR: home };
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: home } as Record<string, string>;
   try {
     const add = spawnSync("claude", ["mcp", "add", "--transport", "http", "-s", "user", "switchboard", MCP], { env, encoding: "utf8", timeout: 60_000, shell: process.platform === "win32" });
     if (add.status !== 0) throw new Error(`claude mcp add: ${add.stderr || add.stdout}`);
-    const login = spawn("claude", ["mcp", "login", "switchboard", "--no-browser"], { env, shell: process.platform === "win32" });
+    const pty = createRequire(join(ROOT, "package.json"))("@lydell/node-pty");
+    const login = pty.spawn(process.platform === "win32" ? "claude.exe" : "claude", ["mcp", "login", "switchboard", "--no-browser"], { env, cols: 4000, rows: 50 });
     let out = "";
-    login.stdout.on("data", (c) => (out += c));
-    login.stderr.on("data", (c) => (out += c));
-    const url = await wait("адрес входа Claude Code", () => /https:\/\/\S+open=consent\S*/.exec(out)?.[0], 60_000);
+    let exited: number | null | undefined;
+    login.onData((d: string) => (out += d));
+    login.onExit(({ exitCode }: { exitCode: number }) => (exited = exitCode));
+    // адрес — до управляющих последовательностей терминала (ссылка OSC 8 повторяет его)
+    const url = await wait("адрес входа Claude Code", () => /https:\/\/[^\s\x1b\x07\\]*open=consent[^\s\x1b\x07\\]*/.exec(out)?.[0], 60_000);
     const landed = await consent(url, (u) => /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/callback/.test(u));
-    login.stdin.write(`${landed}\n`);
-    const code = await new Promise<number | null>((r) => {
-      const t = setTimeout(() => (login.kill(), r(null)), 60_000);
-      login.on("exit", (c) => (clearTimeout(t), r(c)));
-    });
+    login.write(`${landed}\r`);
+    const code = await wait("выход claude mcp login", () => (exited === undefined ? undefined : { exited }), 60_000)
+      .then((x) => x.exited)
+      .catch(() => (login.kill(), null));
     const got = spawnSync("claude", ["mcp", "get", "switchboard"], { env, encoding: "utf8", timeout: 60_000, shell: process.platform === "win32" });
     check("23 · Claude Code вошёл по OAuth: login и сервер на связи", code === 0 && /connected/i.test(got.stdout), `выход ${code} · ${got.stdout.split("\n").find((x) => /status/i.test(x)) ?? out.slice(-200)}`);
     return code === 0;

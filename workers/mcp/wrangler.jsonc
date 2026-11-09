@@ -5,6 +5,8 @@
   "name": "switchboard-mcp",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
+  // вызов владельцу — по его публичному адресу той же зоны: без флага Cloudflare отвечает 1042
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "workers_dev": true,
   "preview_urls": false,
   "observability": { "enabled": true },

@@ -57,7 +57,9 @@ async function state(): Promise<number> {
 
 async function release(type: string, json: string): Promise<number> {
   const r = await ask({ type: `releases.${type}`, to: ".releases", ...JSON.parse(json) });
-  console.log(JSON.stringify(r.ok ? r.result : r.error));
+  // отказ — слово и причины владельца: без них check_failed не разобрать
+  const { ok: _ok, ...rest } = r as Record<string, unknown>;
+  console.log(JSON.stringify(r.ok ? r.result : rest));
   return r.ok ? 0 : 1;
 }
 
