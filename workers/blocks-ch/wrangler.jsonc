@@ -1,6 +1,7 @@
 // Worker blocks-ch: хранилище блоков точек на ClickHouse — реализация контракта blocks под именем службы switchboard-blocks.
-// ClickHouse — на машине hz-ex44-1 за туннелем Cloudflare, привязка Workers VPC: публичного адреса у него нет.
-// Секрет CH_PASSWORD — пароль пользователя ClickHouse этого флота (~/.switchboard-dev/clickhouse.env); wrangler secret put из stdin.
+// ClickHouse — на машине hz-ex44-1 за туннелем Cloudflare switchboard-ch: адрес ch.pfarm.app впускает только Cloudflare Access с сервисным токеном.
+// Секреты (~/.switchboard-dev/clickhouse.env, wrangler secret put из stdin): CH_PASSWORD — пароль пользователя ClickHouse этого флота,
+// CH_ACCESS_ID и CH_ACCESS_SECRET — сервисный токен Access.
 {
   "name": "switchboard-blocks",
   "main": "src/index.ts",
@@ -10,14 +11,12 @@
   "workers_dev": true,
   "preview_urls": false,
   "observability": { "enabled": true },
-  "vpc_services": [{ "binding": "CH", "service_id": "01a1c198-31b1-76a3-9197-1d0743b9dde9" }],
-  "vars": { "CH_USER": "sb_test", "BLOCKS_URL": "https://switchboard-blocks.yuridevx1608.workers.dev" },
+  "vars": { "CH_URL": "https://ch.pfarm.app", "CH_USER": "sb_test", "BLOCKS_URL": "https://switchboard-blocks.yuridevx1608.workers.dev" },
   "env": {
     "prod": {
       "routes": [{ "pattern": "blocks.pfarm.app", "custom_domain": true }],
       "workers_dev": false,
-      "vpc_services": [{ "binding": "CH", "service_id": "01a1c198-31b1-76a3-9197-1d0743b9dde9" }],
-      "vars": { "CH_USER": "sb_prod", "BLOCKS_URL": "https://blocks.pfarm.app" }
+      "vars": { "CH_URL": "https://ch.pfarm.app", "CH_USER": "sb_prod", "BLOCKS_URL": "https://blocks.pfarm.app" }
     }
   }
 }

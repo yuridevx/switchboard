@@ -149,13 +149,13 @@ globalThis.fetch = async (url, init) => {
     for (const [n, text] of Object.entries(o.files ?? {})) write(join(dev, n), text);
     const log = join(dev, "calls.jsonl");
     const env: Record<string, string | undefined> = { ...process.env, SWITCHBOARD_DEV_DIR: dev };
-    for (const k of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "RELAY_URL", "VAPID_PRIVATE", "R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "PROD_R2_SECRET_ACCESS_KEY", "TELEGRAM_BOT_TOKEN", "PROD_TELEGRAM_BOT_TOKEN", "CH_PASSWORD_TEST", "CH_PASSWORD_PROD"]) delete env[k];
+    for (const k of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "RELAY_URL", "VAPID_PRIVATE", "R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "PROD_R2_SECRET_ACCESS_KEY", "TELEGRAM_BOT_TOKEN", "PROD_TELEGRAM_BOT_TOKEN", "CH_PASSWORD_TEST", "CH_PASSWORD_PROD", "CH_ACCESS_ID", "CH_ACCESS_SECRET"]) delete env[k];
     if (o.token) Object.assign(env, { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "a" });
     const r = spawnSync(process.execPath, ["--import", preload(log, o.child), join(SCRIPTS, "deploy-workers.mjs"), ...args], { env, encoding: "utf8", timeout: CMD_MS });
     const calls: Call[] = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
     return { code: r.status, err: r.stderr, out: r.stdout, calls };
   }
-  const SECRETS = { VAPID_PRIVATE: "vapid", R2_SECRET_ACCESS_KEY: "r2-test", R2_ACCESS_KEY_ID: "r2-id", PROD_R2_SECRET_ACCESS_KEY: "r2-prod", TELEGRAM_BOT_TOKEN: "bot-test", PROD_TELEGRAM_BOT_TOKEN: "bot-prod", CH_PASSWORD_TEST: "ch-test", CH_PASSWORD_PROD: "ch-prod" };
+  const SECRETS = { VAPID_PRIVATE: "vapid", R2_SECRET_ACCESS_KEY: "r2-test", R2_ACCESS_KEY_ID: "r2-id", PROD_R2_SECRET_ACCESS_KEY: "r2-prod", TELEGRAM_BOT_TOKEN: "bot-test", PROD_TELEGRAM_BOT_TOKEN: "bot-prod", CH_PASSWORD_TEST: "ch-test", CH_PASSWORD_PROD: "ch-prod", CH_ACCESS_ID: "acc-id", CH_ACCESS_SECRET: "acc-secret" };
   const envFile = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `${k}=${v}`).join("\n");
   const moduleOf = (c: Call) => c.cwd.split(/[\\/]/).pop();
   const WORKERS = ["gate", "rooms", "push", "blocks-ch", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "mcp", "relay"];
@@ -190,7 +190,7 @@ globalThis.fetch = async (url, init) => {
     const of = (m: string) => r.calls.filter((c) => moduleOf(c) === m).map((c) => c.args.slice(0, c.args[0] === "deploy" ? 1 : 3).join(" "));
     expect(of("gate")).toEqual(["d1 migrations apply", "deploy"]);
     expect(of("push")).toEqual(["d1 migrations apply", "deploy", "secret put VAPID_PRIVATE"]);
-    expect(of("blocks-ch")).toEqual(["deploy", "secret put CH_PASSWORD"]);
+    expect(of("blocks-ch")).toEqual(["deploy", "secret put CH_PASSWORD", "secret put CH_ACCESS_ID", "secret put CH_ACCESS_SECRET"]);
     expect(of("points")).toEqual(["d1 migrations apply", "deploy"]);
     expect(of("relay")).toEqual(["deploy"]);
     expect(of("releases")).toEqual(["d1 migrations apply", "deploy", "secret put CLOUDFLARE_API_TOKEN", "secret put R2_LINK_KEY_ID", "secret put R2_LINK_SECRET"]);
@@ -200,11 +200,13 @@ globalThis.fetch = async (url, init) => {
       ["rooms", "TELEGRAM_BOT_TOKEN", bot],
       ["push", "VAPID_PRIVATE", "vapid"],
       ["blocks-ch", "CH_PASSWORD", points],
+      ["blocks-ch", "CH_ACCESS_ID", "acc-id"],
+      ["blocks-ch", "CH_ACCESS_SECRET", "acc-secret"],
       ["releases", "CLOUDFLARE_API_TOKEN", "t"],
       ["releases", "R2_LINK_KEY_ID", "r2-id"],
       ["releases", "R2_LINK_SECRET", "r2-test"],
     ]);
-    expect(JSON.stringify(r.calls.map((c) => c.args))).not.toMatch(/vapid|r2-test|r2-id|ch-test|ch-prod|bot-test|bot-prod/);
+    expect(JSON.stringify(r.calls.map((c) => c.args))).not.toMatch(/vapid|r2-test|r2-id|ch-test|ch-prod|acc-id|acc-secret|bot-test|bot-prod/);
   });
 
   it("названные модули — в порядке выкладки; phone и pult в списке — сборка и выкладка веба; неизвестное имя пропущено", () => {
@@ -223,7 +225,7 @@ globalThis.fetch = async (url, init) => {
       files: {
         "prod.env": envFile({ CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc" }),
         "cf-deploy.env": envFile({ CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ACCOUNT_ID: "test-acc" }),
-        "clickhouse.env": envFile({ CH_PASSWORD_TEST: "ch-test", CH_PASSWORD_PROD: "ch-prod" }),
+        "clickhouse.env": envFile({ CH_PASSWORD_TEST: "ch-test", CH_PASSWORD_PROD: "ch-prod", CH_ACCESS_ID: "acc-id", CH_ACCESS_SECRET: "acc-secret" }),
       },
     });
     expect(r.code).toBe(0);

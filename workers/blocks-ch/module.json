@@ -6,8 +6,10 @@
   "uses": {},
   "config": {
     "CH_PASSWORD": "secret",
+    "CH_ACCESS_ID": "secret",
+    "CH_ACCESS_SECRET": "secret",
+    "CH_URL": "var",
     "CH_USER": "var",
-    "BLOCKS_URL": "var",
-    "CH": "binding"
+    "BLOCKS_URL": "var"
   }
 }

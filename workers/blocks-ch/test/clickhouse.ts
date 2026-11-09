@@ -1,4 +1,4 @@
-// Поддельный ClickHouse для лесов blocks-ch: HTTP-вход с теми запросами, что шлёт Worker, таблица blocks в памяти.
+// Поддельный ClickHouse за Access для лесов blocks-ch: HTTP-вход с теми запросами, что шлёт Worker, таблица blocks в памяти.
 // Живёт в Node (привязка-функция miniflare): распаковка zstd — как у настоящего по Content-Encoding.
 import { zstdDecompressSync } from "node:zlib";
 
@@ -10,6 +10,8 @@ const listOf = (sql: string) => [...(/IN \(([^)]*)\)/.exec(sql)?.[1].matchAll(/'
 const json = (rows: object[]) => new Response(rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
 
 export async function clickhouse(req: Request): Promise<Response> {
+  if (new URL(req.url).origin !== "https://ch.test") return new Response("чужой адрес", { status: 502 });
+  if (req.headers.get("cf-access-client-id") !== "aid0" || req.headers.get("cf-access-client-secret") !== "asec0") return new Response("Cloudflare Access", { status: 401 });
   if (req.headers.get("x-clickhouse-user") !== USER || req.headers.get("x-clickhouse-key") !== KEY) return new Response("Authentication failed", { status: 516 });
   const url = new URL(req.url);
   const body = Buffer.from(await req.arrayBuffer());

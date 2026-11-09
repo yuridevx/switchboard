@@ -1,6 +1,5 @@
 // Леса blocks-ch: вход — кадр по привязке (entrypoint Blocks) и запрос по ссылке, исход — ответ и таблица поддельного ClickHouse.
 // Номер — эталон-источник; без номера — чьё: код.
-import { env } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { blocksEtalon } from "@switchboard/blocks/stand/etalon.ts";
@@ -11,7 +10,7 @@ const one = async (f: Record<string, unknown>) => (await blocks.frame({ id: "x",
 const H = "a".repeat(64);
 
 beforeEach(async () => {
-  await env.CH.fetch("http://clickhouse/", { method: "POST", headers: { "X-ClickHouse-User": "sb_test", "X-ClickHouse-Key": "pass0" }, body: "TRUNCATE TABLE blocks" });
+  await fetch(new Request("https://ch.test/", { method: "POST", headers: { "CF-Access-Client-Id": "aid0", "CF-Access-Client-Secret": "asec0", "X-ClickHouse-User": "sb_test", "X-ClickHouse-Key": "pass0" }, body: "TRUNCATE TABLE blocks" }));
 });
 
 describe("контракт blocks на ClickHouse", () => {

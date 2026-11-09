@@ -1,6 +1,7 @@
 // Worker blocks-ch: контракт blocks на ClickHouse. Одна таблица blocks (hash, data), сжатие — кодек ZSTD самого ClickHouse.
 // Ссылки ведут в этот Worker: PUT передаёт тело zstd в INSERT как есть (распаковывает ClickHouse по Content-Encoding),
 // GET отдаёт блок сжатым zstd — формат контракта. Формата разговора не знает: поиск — строки с q в названных блоках.
+// ClickHouse — на машине за туннелем Cloudflare; адрес впускает только Access с сервисным токеном этого Worker'а.
 import { zstdCompressSync } from "node:zlib";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { CONTRACT, HASH } from "@switchboard/blocks";
@@ -35,12 +36,12 @@ type Ask = { body?: BodyInit | null; params?: Record<string, string>; headers?: 
 
 /** Запрос к ClickHouse. Текст запроса — в теле, кроме INSERT: там тело — данные. Отпечатки в тексте — только проверенные HASH. */
 async function ch(env: Env, query: string, o: Ask = {}): Promise<Response> {
-  const url = new URL("http://clickhouse/");
+  const url = new URL(env.CH_URL);
   if (o.body !== undefined) url.searchParams.set("query", query);
   for (const [k, v] of Object.entries(o.params ?? {})) url.searchParams.set(k, v);
-  const res = await env.CH.fetch(url, {
+  const res = await fetch(url, {
     method: "POST",
-    headers: { "X-ClickHouse-User": env.CH_USER, "X-ClickHouse-Key": env.CH_PASSWORD, ...o.headers },
+    headers: { "CF-Access-Client-Id": env.CH_ACCESS_ID, "CF-Access-Client-Secret": env.CH_ACCESS_SECRET, "X-ClickHouse-User": env.CH_USER, "X-ClickHouse-Key": env.CH_PASSWORD, ...o.headers },
     body: o.body === undefined ? query : o.body,
     signal: AbortSignal.timeout(CH_MS),
   }).catch((e: unknown) => {
