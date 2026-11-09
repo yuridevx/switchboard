@@ -48,6 +48,8 @@ describe("switchboard pull", () => {
     expect(readFileSync(join(target, `${SID}.jsonl`)).equals(conversation)).toBe(true);
     expect(readFileSync(join(target, SID, "subagents", "agent-1.jsonl")).equals(side)).toBe(true);
     expect(out.at(-1)).toBe(`cd ${JSON.stringify(dir)} && claude --resume ${SID}`);
+    // точка без git: папка, куда ведёт cd, создана (найдено живым прогоном)
+    expect(existsSync(dir)).toBe(true);
     expect(asked.map((f) => [f.type, f.v, f.key])).toEqual([
       ["points.list", 2, "client.pult.k1.s"],
       ["points.get", 2, "client.pult.k1.s"],

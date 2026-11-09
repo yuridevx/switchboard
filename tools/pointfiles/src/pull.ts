@@ -1,6 +1,7 @@
 // switchboard pull — сессия из архива на свой компьютер, где нет Host: та же раскладка «точка → файлы», что у подъёма на машине флота.
 // Пропуск устройства человека и адрес Worker'а points — из окружения: SWITCHBOARD_PASS, SWITCHBOARD_POINTS.
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { READ_MS } from "@switchboard/protocol";
@@ -61,6 +62,8 @@ export async function pull(argv: string[], env: Env, out: (line: string) => void
   if (check.folder === "other") throw new Refused("bad_dir", `${dir}: другой репозиторий`);
   const files = await Promise.race([download(row.files, got.links), new Promise<never>((_, fail) => setTimeout(() => fail(new Refused("timeout", "блоки не скачались за 10 мин")), PULL_MS).unref())]);
   const branch = row.git && (check.folder === "empty" || check.folder === "same") ? await bring(dir, row.git, check.folder, files.get(BUNDLE)) : null;
+  // папка без git (или клон не понадобился) — та, куда напечатанная команда сделает cd
+  mkdirSync(dir, { recursive: true });
   const claude = env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
   const target = projectDirOf(claude, dir);
   setAside(claude, sid, target);
