@@ -226,7 +226,8 @@ export const sessionFiles = request("session.files", {
 export const sessionWatch = request("session.watch", {
   owner: "host-chat", target: "session",
   input: z.object({ to: Callsign, after: z.number().optional() }),
-  output: z.object({ seq: z.number(), events: z.array(SdkEvent).optional(), gap: z.boolean().optional(), queued: z.array(QueuedMessage).optional() }),
+  /** running — события начала работ, которые идут сейчас (субагенты и фоновые команды): в файле разговора их нет, новому зрителю их отдаёт Host */
+  output: z.object({ seq: z.number(), events: z.array(SdkEvent).optional(), gap: z.boolean().optional(), queued: z.array(QueuedMessage).optional(), running: z.array(SdkEvent).optional() }),
 });
 export const sessionUnwatch = request("session.unwatch", { owner: "host-chat", target: "session", input: toSession, output: Done });
 

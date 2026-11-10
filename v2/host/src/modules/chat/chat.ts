@@ -114,6 +114,8 @@ export function make(): Module {
   /** чем занят ход и когда строка об этом уходила в картину */
   const doing = new Map<string, { text: string; at: number }>();
   const compacting = new Set<string>();
+  /** работы, которые идут сейчас: событие начала по номеру задачи — в файле разговора их нет, новый зритель получает их при подписке */
+  const running = new Map<string, Map<string, unknown>>();
   /** последняя запись разговора, пришедшая от процесса: за ней встаёт итог хода */
   const lastUuid = new Map<string, string>();
   /** текст итога идущего хода */
@@ -197,6 +199,16 @@ export function make(): Module {
         s.sync();
       }
     }
+    if (msg?.type === "system" && typeof msg.subtype === "string") {
+      const runs = running.get(cs) ?? running.set(cs, new Map()).get(cs)!;
+      const over = (st: unknown) => !!st && st !== "running" && st !== "pending";
+      if (msg.subtype === "task_started" && msg.task_id) runs.set(msg.task_id, msg);
+      if (msg.subtype === "task_notification" || (msg.subtype === "task_updated" && over(msg.patch?.status))) runs.delete(msg.task_id);
+      if (msg.subtype === "background_tasks_changed") {
+        const set = new Set(((msg.tasks ?? []) as Array<{ task_id: string }>).map((x) => x.task_id));
+        for (const [id, m] of runs) if ((m as { is_backgrounded?: boolean }).is_backgrounded && !set.has(id)) runs.delete(id);
+      }
+    }
     if (msg?.type !== "assistant" || msg.parent_tool_use_id) return;
     const tool = blocksOf(msg).find((b) => b.type === "tool_use");
     if (!tool) return;
@@ -274,7 +286,7 @@ export function make(): Module {
         const said = ((await s.sdk("getSessionMessages", { includeSystemMessages: true })) as Array<{ uuid?: string; type?: string; message?: { content?: unknown } }>).map(withPeer);
         // итоги ходов встают за записью, после которой ход кончился: в файле разговора их нет
         const ends = part(s).ends ?? [];
-        const whole = ends.length ? said.flatMap((m) => [m, ...ends.filter((e) => e.after === m.uuid).map((e) => e.event as typeof m)]) : said;
+        const whole = ends.length ? [...ends.filter((e) => e.after === "").map((e) => e.event as (typeof said)[number]), ...said.flatMap((m) => [m, ...ends.filter((e) => e.after === m.uuid).map((e) => e.event as typeof m)])] : said;
         const all = people ? peopleOnly(whole) : whole;
         const end = before === undefined ? all.length : all.findIndex((m) => m.uuid === before);
         if (end < 0) throw new Refusal("not_found", `session.history: записи ${before} в разговоре нет`);
@@ -293,7 +305,9 @@ export function make(): Module {
         const seq = seqs.get(to) ?? 0;
         const waiting = queued.get(to) ?? [];
         const base = { seq, ...(waiting.length ? { queued: waiting } : {}) };
-        if (after === undefined || after >= seq) return base;
+        const runs = [...(running.get(to)?.values() ?? [])];
+        if (after === undefined) return { ...base, ...(runs.length ? { running: runs } : {}) };
+        if (after >= seq) return base;
         const kept = recent.get(to) ?? [];
         const first = seq - kept.length;
         return after < first ? { ...base, gap: true } : { ...base, events: kept.slice(after - first) };
@@ -343,10 +357,13 @@ export function make(): Module {
         if (msg?.type === "conversation_reset") {
           if (!msg.uuid) msg = { ...msg, uuid: randomUUID() };
           if (!msg.text) msg = { ...msg, text: "Разговор очищен" };
+          const mark = { type: msg.type, uuid: msg.uuid, text: msg.text, at: Date.now() };
           if (typeof msg.after === "string") {
-            merge(s, { ends: [...(part(s).ends ?? []), { after: msg.after, event: { type: msg.type, uuid: msg.uuid, text: msg.text, at: Date.now() } }].slice(-ENDS_MAX) });
+            merge(s, { ends: [...(part(s).ends ?? []), { after: msg.after, event: mark }].slice(-ENDS_MAX) });
             lastUuid.set(cs, msg.after);
           } else {
+            // разговор новый: прежние итоги ходов не про него; след очистки встаёт первым
+            merge(s, { ends: [{ after: "", event: mark }] });
             lastUuid.delete(cs);
           }
           recent.set(cs, []);
@@ -365,8 +382,9 @@ export function make(): Module {
           doing.delete(s.callsign);
           compacting.delete(s.callsign);
         }
-        // процесса нет — очереди ввода у него тоже нет
+        // процесса нет — очереди ввода и идущих работ у него тоже нет
         if (state === "stopped" || state === "failed") queued.delete(s.callsign);
+        if (state === "stopped" || state === "failed" || (state === "starting" && s.info.launch !== "attach")) running.delete(s.callsign);
         if (state === "idle" && (was === "busy" || was === "waiting")) turnEnd(s);
         if (state === "failed") reach(s, "failed", "сессия остановилась со сбоем");
       },
@@ -378,6 +396,7 @@ export function make(): Module {
         lastUuid.delete(cs);
         doing.delete(cs);
         compacting.delete(cs);
+        running.delete(cs);
         results.delete(cs);
         ask.forget(cs);
       },

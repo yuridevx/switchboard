@@ -131,6 +131,8 @@ export function useTalk(callsign: string): Talk {
       if (!alive) return;
       seq.current = r.seq;
       // что уже ждёт в очереди сессии — видно сразу
+      // работы, которые идут сейчас: в файле разговора их нет — их отдаёт Host со своим временем начала
+      if (r.running?.length) setEvents((e) => mergeEvents(e, r.running!));
       if (r.queued?.length) setEvents((e) => mergeEvents(e, r.queued!.flatMap((q) => [{ type: "user", uuid: q.uuid, from: q.from, message: { role: "user", content: q.text } }, { type: "message.status", uuid: q.uuid, status: "queued" }] as SdkEvent[])));
     }, () => {});
     void history();

@@ -94,7 +94,7 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
   if (session) {
     await step("удалить сессию — страница подтверждения, отмена", async () => {
       await open("/work/" + session);
-      await page.locator(".conv-head").getByRole("button", { name: "Ещё" }).first().click();
+      await page.locator(".composer-opts").getByRole("button", { name: "Ещё" }).first().click();
       await page.getByRole("menuitem", { name: "Убрать сессию" }).click();
       await at(/do=confirm/); await shot("confirm");
       await page.getByRole("button", { name: "Отмена" }).click();

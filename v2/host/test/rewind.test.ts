@@ -129,6 +129,9 @@ describe("откат разговора", () => {
     const mark = await until(() => events(st!).find((e) => e.type === "conversation_reset"), 5000, "сброс в ленте");
     expect(mark.text).toBe("Разговор очищен");
     expect(s.rec.sessionId).toBe("11111111-2222-4333-8444-555555555555");
+    // след очистки — и в истории нового разговора: перечитанная лента его покажет
+    withTalk(st, [user("n1", "новое")]);
+    expect(((await st.request("session.history", { to: CS }, PULT)).result as { events: any[] }).events.map((e) => e.text ?? e.uuid)).toEqual(["Разговор очищен", "n1"]);
   });
 
   it("сообщения с таким номером нет — not_found; номер ответа инструмента — bad_input; сессия работает дальше", async () => {
@@ -226,6 +229,24 @@ describe("лента и вопросы", () => {
     const done = await until(() => events(st!).find((e) => e.type === "ask.answered"), 5000, "ответ в ленте");
     expect(done).toMatchObject({ by: PULT, answer: { action: "allow" }, q: { id: "toolu_p1", kind: "permission", rule: "Bash(rm -rf dist *)" } });
     expect(typeof done.at).toBe("number");
+  });
+});
+
+describe("идут сейчас", () => {
+  it("новый зритель получает начало идущих работ со временем машины; законченная работа в ответ не идёт", async () => {
+    st = await stand({ modules: [chat()] });
+    const { proc } = await st.open("site");
+    const t0 = Date.now();
+    proc.send({ type: "system", subtype: "task_started", task_id: "t1", tool_use_id: "tu1", description: "Права службы оплаты", task_type: "local_agent" });
+    proc.send({ type: "system", subtype: "task_started", task_id: "t2", description: "tail -f auth.log", task_type: "local_bash", is_backgrounded: true });
+    proc.send({ type: "system", subtype: "task_notification", task_id: "t1", status: "completed" });
+    await tick(30);
+    const r = (await st.request("session.watch", { to: CS }, PULT)).result as { running?: any[] };
+    expect(r.running).toMatchObject([{ subtype: "task_started", task_id: "t2" }]);
+    expect(r.running![0].at).toBeGreaterThanOrEqual(t0);
+    proc.send({ type: "system", subtype: "background_tasks_changed", tasks: [] });
+    await tick(30);
+    expect(((await st.request("session.watch", { to: CS }, "phone~yuri@example.com")).result as { running?: any[] }).running).toBeUndefined();
   });
 });
 
