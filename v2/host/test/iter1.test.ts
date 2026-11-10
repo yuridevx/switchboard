@@ -505,6 +505,36 @@ describe("machine, proxy, profiles, remote", () => {
     expect(view.prompt.style).toMatchObject({ name: "kit:long" });
   });
 
+  it("сведение принесло чужие правки кусочков — сессии этого репозитория перечитывают скилы; пустое сведение и чужой репозиторий сессию не трогают", async () => {
+    const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
+    for (const repo of ["team__kit", "team__other"]) {
+      mkdirSync(join(home, "profiles", repo, "base", ".git"), { recursive: true });
+      mkdirSync(join(home, "profiles", repo, ".git"), { recursive: true });
+      writeFileSync(join(home, "profiles", repo, "base", "CLAUDE.md"), "основа");
+    }
+    // поддельный git: голова клона kit меняется на втором сведении — как после чужого коммита
+    let head = "a", pulls = 0;
+    const git = async (args: string[], o: { cwd: string }) => {
+      if (args.includes("pull") && o.cwd.endsWith("team__kit") && ++pulls === 2) head = "b";
+      return { code: 0, out: args.includes("rev-parse") ? (o.cwd.endsWith("team__kit") ? head : "x") : "" };
+    };
+    st = await stand({ home, modules: [profiles({ git })] });
+    st.services.handlers["prefs.get"] = () => ({ values: { "profiles.repos": ["team/kit", "team/other"] } });
+    st.services.handlers["github.token"] = () => ({ token: "t", expires: 1 });
+    await st.request("session.open", { to: "@laptop", spec: { name: "site", cwd: st.dir, pieces: ["team/kit/base"] } });
+    await st.request("session.open", { to: "@laptop", spec: { name: "far", cwd: st.dir, pieces: ["team/other/base"] } });
+    // у поддельного SDK перечитывания нет: считаем вызовы сами
+    const seen: Record<string, number> = { "site@laptop": 0, "far@laptop": 0 };
+    for (const cs of Object.keys(seen)) (st.sdk.last(cs) as any).reloadPlugins = async () => (seen[cs]!++, {});
+    const reloads = (cs: string) => seen[cs]!;
+    await st.request("profile.sync", { to: "@laptop" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect([reloads("site@laptop"), reloads("far@laptop")]).toEqual([0, 0]);
+    await st.request("profile.sync", { to: "@laptop" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect([reloads("site@laptop"), reloads("far@laptop")]).toEqual([1, 0]);
+  });
+
   it("Remote Control не включился — причина в строке сессии", async () => {
     st = await stand({ modules: [remote()] });
     await st.open("site");

@@ -2,7 +2,7 @@
 // Состояние репозитория живёт в памяти Host: следующее сведение узнает его заново. Список репозиториев — настройка флота; машина её не хранит.
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { githubToken, prefsGet, READ_MS, Refusal, within, type Piece as PieceOut, type RepoClone } from "@sb/protocol";
+import { githubToken, prefsGet, READ_MS, Refusal, sessionCall, within, type Piece as PieceOut, type RepoClone } from "@sb/protocol";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
 import { splitId } from "./folder.ts";
 import { assemble, BadPieces, namesIn, nearMemory, readPiece, valuesOf, type Assembly } from "./pieces.ts";
@@ -54,7 +54,13 @@ export function make(o: { git?: Git } = {}): Module {
       if (r.gone && !existsSync(clone)) return void repos.delete(repo);
       const was = r.state.state;
       const state = await syncRepo(git, repo, clone, host.machine, () => token(repo), (why) => host.log.info("sync", { why }));
-      r.state = { ...state, dir: clone, ...(state.state === "ok" ? { at: Date.now() } : r.state.at ? { at: r.state.at } : {}) };
+      const { pulled, ...rest } = state;
+      r.state = { ...rest, dir: clone, ...(state.state === "ok" ? { at: Date.now() } : r.state.at ? { at: r.state.at } : {}) };
+      // сведение принесло чужие правки кусочков — работающие сессии этого репозитория перечитывают скилы, агентов и серверы плагинов
+      if (pulled) for (const s of host.sessions()) {
+        if (s.state === "stopped" || s.state === "failed" || !(s.spec.pieces ?? []).some((id) => splitId(id)?.repo === repo)) continue;
+        void host.call(sessionCall, { to: s.callsign, method: "reload" }).catch((e: unknown) => host.log.warn("reload", { callsign: s.callsign, why: `кусочки ${repo} обновились, сессия не перечитала: ${(e as Error).message}` }));
+      }
       if (state.state !== "ok") {
         host.log.warn("sync", { word: state.state, why: `${repo}: ${state.op} — ${state.error ?? state.files?.join(", ")}` });
       } else if (r.gone) {

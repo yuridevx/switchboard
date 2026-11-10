@@ -6,8 +6,8 @@ import { CALL_MS, within } from "@sb/protocol";
 
 type Run = { code: number; out: string };
 export type Git = (args: string[], o: { cwd: string; env: Record<string, string> }) => Promise<Run>;
-/** wait — машина ещё не сводила этот репозиторий; dir — клон; at — последнее сведение, мс. */
-export type RepoState = { state: "ok" | "wait" | "conflict" | "error"; op?: string; files?: string[]; error?: string; dir?: string; at?: number };
+/** wait — машина ещё не сводила этот репозиторий; dir — клон; at — последнее сведение, мс; pulled — это сведение принесло чужие правки. */
+export type RepoState = { state: "ok" | "wait" | "conflict" | "error"; op?: string; files?: string[]; error?: string; dir?: string; at?: number; pulled?: boolean };
 
 /** Настоящий git с пределом на команду: процесс убит, а его потомок может держать вывод — ответа не ждём. */
 export const gitWithin = (ms: number): Git => (args, o) => {
@@ -70,13 +70,16 @@ export async function syncRepo(git: Git, repo: string, clone: string, machine: s
     await run("git add", clone, ["add", "-A"]);
     if ((await run("", clone, ["diff", "--cached", "--quiet"])).code !== 0) await run("git commit", clone, ["commit", "-m", `сведение: ${machine} ${new Date().toTimeString().slice(0, 5)}`]);
     const env = await pass();
+    const head = async () => (await run("", clone, ["rev-parse", "HEAD"])).out.trim();
+    const before = await head();
     const pull = await run("", clone, ["pull", "--no-rebase", "--no-edit"], env);
     if (pull.code !== 0) {
       if (!/CONFLICT/.test(pull.out)) throw new Stuck("git pull --no-rebase", pull.out.trim());
       return await conflict();
     }
+    const pulled = (await head()) !== before;
     await run("git push", clone, ["push"], env);
-    return { state: "ok" };
+    return { state: "ok", ...(pulled ? { pulled } : {}) };
   } catch (e) {
     return { state: "error", op: e instanceof Stuck ? e.op : "sync", error: (e as Error).message };
   }
