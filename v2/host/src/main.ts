@@ -38,7 +38,7 @@ function options() {
   const bin = claudePath();
   const functions = Object.fromEntries(Object.entries(sdk).filter(([, f]) => typeof f === "function")) as never;
   return {
-    home: data, machine, fleet, base: base.replace(/\/+$/, ""), key, build: Number(env.SB_BUILD ?? 0), sdkVersion: sdkVersion(), modules: modules(), config,
+    home: data, journal: join(home, "journal"), machine, fleet, base: base.replace(/\/+$/, ""), key, build: Number(env.SB_BUILD ?? 0), sdkVersion: sdkVersion(), modules: modules(), config,
     sdk: { query: sdk.query as never, functions, cli: claudeCli(bin), bin },
     // держатель берёт папку флота только из SB_HOME: файлы procs/ лежат в ней
     holders: realHolders(home, env.SB_HOLDER),

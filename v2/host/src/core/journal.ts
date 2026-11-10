@@ -1,11 +1,10 @@
-// Журнал машины: строки формы LogLine в journal/host-<дата>.jsonl папки данных.
+// Журнал машины: строки формы LogLine в host-<дата>.jsonl папки журнала — той же, куда пишут Keeper и держатели.
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { logger, type Logger, type LogLine, type Sink } from "@sb/protocol";
 
 /** Запись строк в файл дня. Время строки ставит logger; в тестах — часы стенда через now. */
-export function fileSink(home: string, part = "host", now?: () => number): Sink {
-  const dir = join(home, "journal");
+export function fileSink(dir: string, part = "host", now?: () => number): Sink {
   mkdirSync(dir, { recursive: true });
   return (line: LogLine) => {
     const l = now ? { ...line, t: now() } : line;
@@ -13,4 +12,4 @@ export function fileSink(home: string, part = "host", now?: () => number): Sink 
   };
 }
 
-export const hostLogger = (home: string, machine: string, fleet: string, now?: () => number): Logger => logger("host", fileSink(home, "host", now), { machine, fleet });
+export const hostLogger = (dir: string, machine: string, fleet: string, now?: () => number): Logger => logger("host", fileSink(dir, "host", now), { machine, fleet });

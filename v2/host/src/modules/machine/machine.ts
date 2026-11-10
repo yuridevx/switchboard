@@ -138,7 +138,7 @@ export function make({ home = homedir(), metricsMs = METRICS_MS }: { home?: stri
           throw new Refusal(WORDS[code]!, `machine.dirs «${path}»: ${code}`);
         }
       },
-      "machine.journal": (q: JournalQuery, ctx: Ctx) => journal(join(host.dataDir, "journal"), q, ctx.signal),
+      "machine.journal": (q: JournalQuery, ctx: Ctx) => journal(host.journalDir, q, ctx.signal),
       "machine.metrics": () => numbers(last),
     },
     on: {

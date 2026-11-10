@@ -6,7 +6,7 @@ export const SAY: Record<string, string> = {
   unknown_request: "Здесь это не обслуживается", module_failed: "Ошибка в модуле", not_found: "Не найдено", not_session: "Адресат — не сессия", shutting_down: "Часть останавливается", proto: "Приложение устарело",
   replaced: "Соединение заменено другим", hello_timeout: "Соединение не представилось", access: "Доступ изменился", error: "Ошибка", server_error: "Ошибка сервера",
   // пропуска, люди, вход внешних клиентов
-  bad_key: "Пропуск не принят", revoked: "Пропуск отозван", bad_invite: "Приглашение не принято", exists: "Такой человек уже во флоте", name_taken: "Имя занято",
+  bad_key: "Пропуск не принят", revoked: "Пропуск отозван", bad_invite: "Приглашение не принято", exists: "Такой человек уже во флоте", name_taken: "Имя занято", conversation_taken: "Разговор уже ведёт другая сессия",
   bad_client: "Клиент не опознан", invalid_grant: "Код входа не принят", invalid_request: "Запрос входа не разобран", unsupported_grant_type: "Такой вход не поддерживается", bad_token: "Токен не принят",
   not_client: "Ответить может только человек", permission_denied: "Отказано в разрешении",
   // сессии

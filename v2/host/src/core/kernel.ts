@@ -39,6 +39,8 @@ export type Sdk = {
 
 export type KernelOptions = {
   home: string;
+  /** папка журнала машины: общая с Keeper; без неё — journal в папке данных */
+  journal?: string;
   machine: string;
   fleet: string;
   /** адрес флота: https://… */
@@ -109,7 +111,7 @@ export class Kernel {
     this.version = o.sdkVersion;
     this.holders = new Holders(o.holders);
     this.disk = new Disk(join(o.home, "store"));
-    this.log = o.log ?? hostLogger(o.home, o.machine, o.fleet, () => this.clock.now());
+    this.log = o.log ?? hostLogger(o.journal ?? join(o.home, "journal"), o.machine, o.fleet, () => this.clock.now());
     this.mods = [coreModule(this), ...o.modules];
     this.api = createApi(o.transport ?? httpTransport({ base: o.base, key: o.key }));
   }
@@ -501,6 +503,9 @@ export class Kernel {
     }
     const cwd = this.folder(spec.cwd);
     const copy = o.fork && o.resume;
+    // один разговор — одна сессия: занятый продолжается только копией
+    const holder = o.resume && !copy ? [...this.sessions.values()].find((x) => x.rec.sessionId === o.resume) : undefined;
+    if (holder) throw new Refusal("conversation_taken", `разговор ${o.resume} ведёт ${holder.callsign}`);
     // заголовок до первого слова SDK: из документа, иначе начало первого сообщения
     const title = spec.title ?? (o.prompt ? o.prompt.trim().split(/\r?\n/)[0]!.slice(0, TITLE_MAX) : undefined);
     const rec = { callsign, spec, cwd, sessionId: o.resume && !copy ? o.resume : randomUUID(), sdk: this.version, stopped: false, by: o.by, since: this.clock.now(), ...(copy ? { fork: copy } : {}), ...(title ? { title } : {}) };
@@ -576,6 +581,7 @@ export class Kernel {
         fleet,
         base,
         dataDir: home,
+        journalDir: this.o.journal ?? join(home, "journal"),
         build,
         sdkVersion: this.version,
         key,

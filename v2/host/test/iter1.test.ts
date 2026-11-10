@@ -77,6 +77,11 @@ describe("ядро: открытие и документ", () => {
     expect(st.kernel.sessions.get("old@laptop")!.rec.sessionId).toBe("conv-1");
     expect((st.sdk.last("old@laptop")!.options as any).resume).toBe("conv-1");
     expect(await st.request("session.open", { to, spec: { name: "x", cwd: st.dir }, fork: true })).toMatchObject({ ok: false, error: "bad_spec" });
+    // разговор, который уже ведёт сессия, второй сессией не открывается — только копией
+    expect(await st.request("session.open", { to, spec: { name: "twin", cwd: st.dir }, resume: "conv-1" })).toMatchObject({ ok: false, error: "conversation_taken" });
+    expect(st.kernel.sessions.has("twin@laptop")).toBe(false);
+    expect((await st.request("session.open", { to, spec: { name: "copy", cwd: st.dir }, resume: "conv-1", fork: true })).ok).toBe(true);
+    expect(st.kernel.sessions.get("copy@laptop")!.rec.sessionId).not.toBe("conv-1");
   });
 
   it("заголовок при открытии — из первого сообщения: в опциях запуска и в строке", async () => {

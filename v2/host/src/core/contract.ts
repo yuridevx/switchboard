@@ -100,6 +100,8 @@ export interface HostApi {
   /** адрес флота */
   readonly base: string;
   readonly dataDir: string;
+  /** папка журнала машины: строки Host, Keeper и держателей */
+  readonly journalDir: string;
   readonly build: number;
   readonly sdkVersion: string;
   /** пропуск машины: заголовок сервера MCP и запросы службам */
