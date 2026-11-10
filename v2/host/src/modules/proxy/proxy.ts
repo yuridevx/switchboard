@@ -6,10 +6,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { Socket } from "node:net";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { prefsGet, READ_MS, Refusal, within } from "@sb/protocol";
+import { PROXY_RULES, prefsGet, READ_MS, Refusal, within } from "@sb/protocol";
 import type { HostApi, Module } from "../../core/contract.ts";
 import type { AccountsApi } from "../accounts/contract.ts";
-import { compile, editRequest, type Rule } from "./rules.ts";
+import { compile, editRequest, type Rule, type Scope } from "./rules.ts";
 import { countTokens, messages, sendJson, anthropicError } from "./muse/handle.ts";
 import { museVersion } from "./muse/headers.ts";
 import { send } from "./upstream.ts";
@@ -19,7 +19,7 @@ type Json = Record<string, any>;
 type Route = { to: string; key?: string; env?: Record<string, string> };
 const refuse = (word: string, why?: string) => new Refusal(word, why);
 
-const RULES = "proxy.rules";
+const RULES = PROXY_RULES;
 const SESSION_HEADER = "x-claude-code-session-id";
 const NAME = /^[A-Za-z0-9_-]+$/;
 /** Незаконченным вызовам при остановке: потом обрыв — claude повторит их на новом Host. */
@@ -76,6 +76,8 @@ export function make(): Module {
   let port = 0;
   /** правила флота; null — ещё не прочитаны */
   let rules: ReturnType<typeof compile> | null = null;
+  /** список правил флота, как он записан: для проверки на тексте */
+  let listed: Rule[] = [];
   let loading: Promise<ReturnType<typeof compile>> | null = null;
   let version: Promise<string> | null = null;
   /** идущие проверки ключа: id сессии проверки → маршрут */
@@ -94,6 +96,7 @@ export function make(): Module {
         const list = (r.values[RULES] ?? []) as Rule[];
         if (!Array.isArray(list)) throw refuse("rules_unavailable", `${RULES} — не список правил`);
         const next = compile(list);
+        listed = list;
         for (const [name, why] of Object.entries(next.flaws)) host.log.warn("rule", { word: "bad_rule", why: `${name}: ${why} — правило не применяется` });
         rules = next;
         return next;
@@ -210,6 +213,13 @@ export function make(): Module {
     compose: () => ({ env: { ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}` } }),
     requests: {
       "key.check": ({ name }: { name: string }) => keyCheck(name),
+      /** Проверка правил на тексте: тот же движок, что у запросов к модели. Без rules — правила флота как есть. */
+      async "rules.test"({ text, scope = "user", model = "", rules: given }: { text: string; scope?: Scope; model?: string; rules?: Rule[] }) {
+        if (!given && !rules) await loadRules();
+        const set = compile(given ?? listed);
+        const hits: Record<string, number> = {};
+        return { after: set.apply(scope, model, text, hits), hits, flaws: set.flaws };
+      },
     },
     on: {
       changed(what) {

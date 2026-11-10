@@ -19,6 +19,14 @@ export const Account = z.object({
   ok: z.boolean(),
   why: z.string().optional(),
   sessions: z.number().optional(),
+  /** стоит в очереди auto прямо сейчас */
+  current: z.boolean().optional(),
+  /** лимит исчерпан: когда аккаунт снова годен, мс */
+  wait: z.number().optional(),
+  /** у ключа флота: провайдер, адрес, модель по умолчанию */
+  provider: z.string().optional(),
+  base: z.string().optional(),
+  model: z.string().optional(),
 });
 export type Account = z.infer<typeof Account>;
 
@@ -39,14 +47,50 @@ export const accountRemove = request("account.remove", {
   /** account — номер аккаунта из account.list. Поле id здесь не работает: это имя занято конвертом кадра. */
   input: z.object({ to: MachineAddr, id: z.string().optional(), account: z.string() }), output: Done,
 });
-/** Очередь выбора auto: порядок аккаунтов. */
+/** Очередь выбора auto: порядок аккаунтов. Убрать аккаунт из очереди — порядок без него, вернуть — с ним. */
 export const slotSet = request("slot.set", {
   owner: "host-accounts", target: "machine",
   input: z.object({ to: MachineAddr, order: z.array(z.string()) }), output: Done,
 });
+/** «Сменить сейчас»: поставить в очередь auto этот аккаунт; без account — следующий годный по порядку. */
+export const slotSwap = request("slot.swap", {
+  owner: "host-accounts", target: "machine",
+  tool: "Сменить аккаунт очереди auto на машине сейчас: account — почта аккаунта; без него — следующий годный по порядку.",
+  input: z.object({ to: MachineAddr, account: z.string().optional() }), output: z.object({ account: z.string() }),
+});
 export const keyCheck = request("key.check", {
   owner: "host-proxy", target: "machine",
   input: z.object({ to: MachineAddr, name: z.string() }), output: z.object({ ok: z.boolean(), word: z.string() }),
+});
+
+/* ===== Правила прокси модели (host-proxy) ===== */
+
+/** Где лежит текст запроса к модели: system — промпт, user, assistant, tool_result — ответ инструмента. */
+export const RuleScope = z.enum(["system", "user", "assistant", "tool_result"]);
+/** Правило замены текста запроса к модели — единственная форма: так оно хранится в ключе proxy.rules настроек флота и так его читает прокси.
+ *  on — выключено, только если false; models — шаблоны имени модели (* — любые знаки), пусто — все; kind regex — регулярка RE2;
+ *  unit — что править: совпадение, строку, абзац или весь блок; replacement — для replace ($1 и ${имя} — группы регулярки). */
+export const ProxyRule = z.object({
+  name: z.string().min(1),
+  on: z.boolean().optional(),
+  scopes: z.array(RuleScope).min(1),
+  models: z.array(z.string()).optional(),
+  kind: z.enum(["literal", "regex"]),
+  icase: z.boolean().optional(),
+  unit: z.enum(["match", "line", "paragraph", "block"]),
+  action: z.enum(["replace", "delete"]),
+  pattern: z.string().min(1),
+  replacement: z.string().optional(),
+});
+export type ProxyRule = z.infer<typeof ProxyRule>;
+/** Ключ настроек флота со списком правил. */
+export const PROXY_RULES = "proxy.rules";
+/** Проверка правил на тексте тем же движком, что у прокси: страница движок не повторяет. Без rules — правила флота как есть.
+ *  flaws — ошибки правил по имени (негодная регулярка); hits — сколько раз сработало каждое. */
+export const rulesTest = request("rules.test", {
+  owner: "host-proxy", target: "machine",
+  input: z.object({ to: MachineAddr, text: z.string(), scope: RuleScope.optional(), model: z.string().optional(), rules: z.array(ProxyRule.partial().extend({ name: z.string() })).optional() }),
+  output: z.object({ after: z.string(), hits: z.record(z.string(), z.number()), flaws: z.record(z.string(), z.string()) }),
 });
 
 /* ===== Профили (host-profiles) ===== */
@@ -64,14 +108,36 @@ export const Piece = z.object({
 });
 export type Piece = z.infer<typeof Piece>;
 
-export const profileList = request("profile.list", {
-  owner: "host-profiles", target: "machine", tool: "Кусочки профиля на машине: репозитории с плагинами, настройками и памятью.",
-  input: toMachine, output: z.object({ pieces: z.array(Piece) }),
+/** Клон репозитория кусочков на машине: wait — ещё не сводился; conflict — слияние ждёт сессию; error — шаг op не прошёл. */
+export const RepoClone = z.object({
+  repo: z.string(), state: z.enum(["ok", "wait", "conflict", "error"]), op: z.string().optional(), files: z.array(z.string()).optional(),
+  error: z.string().optional(), dir: z.string().optional(), at: z.number().optional(),
 });
+export type RepoClone = z.infer<typeof RepoClone>;
+
+export const profileList = request("profile.list", {
+  owner: "host-profiles", target: "machine", tool: "Кусочки профиля на машине: репозитории с плагинами, настройками и памятью; repos — состояние клонов.",
+  input: toMachine, output: z.object({ pieces: z.array(Piece), repos: z.array(RepoClone).optional() }),
+});
+/** «Свести сейчас»: все репозитории машины или только те, чьи кусочки у сессии session. */
+export const profileSync = request("profile.sync", {
+  owner: "host-profiles", target: "machine", tool: "Свести клоны кусочков на машине с GitHub сейчас: session — только репозитории кусочков этой сессии.",
+  input: z.object({ to: MachineAddr, session: Callsign.optional() }), output: z.object({ repos: z.array(RepoClone) }),
+});
+const Won = z.object({ value: z.unknown(), from: z.string(), lost: z.array(z.object({ value: z.unknown(), from: z.string() })) });
+/** Просмотр набора. items — плоский список; остальное — подробности: prompt — агент и стиль, tree — дерево наборов,
+ *  settings — значение-победитель и проигравшие, files — файлы кусочка, other — файлы, которые Claude не подключит («потеряно»), near — добавка к промпту о памяти. */
 export const profileView = request("profile.view", {
   owner: "host-profiles", target: "machine", tool: "Что получится у сессии с этим набором кусочков: скилы, агенты, серверы, настройки.",
   input: z.object({ to: MachineAddr, pieces: z.array(z.string()) }),
-  output: z.object({ items: z.array(z.object({ kind: z.string(), name: z.string(), piece: z.string(), path: z.string().optional(), about: z.string().optional() })) }),
+  output: z.object({
+    items: z.array(z.object({ kind: z.string(), name: z.string(), piece: z.string(), path: z.string().optional(), about: z.string().optional() })),
+    prompt: z.object({ agent: z.object({ name: z.string(), from: z.string(), path: z.string().optional() }).optional(), style: z.object({ name: z.string(), from: z.string(), found: z.boolean(), path: z.string().optional() }).optional(), append: z.string().optional() }).optional(),
+    tree: z.array(z.unknown()).optional(),
+    settings: z.record(z.string(), Won).optional(),
+    files: z.record(z.string(), z.array(z.object({ path: z.string(), size: z.number() }).loose())).optional(),
+    other: z.array(z.object({ from: z.string(), path: z.string() })).optional(),
+  }),
 });
 export const profileFile = request("profile.file", {
   owner: "host-profiles", target: "machine",
@@ -81,26 +147,42 @@ export const profileFile = request("profile.file", {
 /* ===== Точки на машине (host-points) ===== */
 
 export const pointsSave = request("points.save", {
-  owner: "host-points", target: "session", tool: "Сохранить точку сессии в архив сейчас.",
-  input: z.object({ to: Callsign, label: z.string().optional() }), output: z.object({ point: z.string() }),
+  owner: "host-points", target: "session",
+  tool: "Сохранить точку сессии в архив сейчас. stop — после точки остановить сессию; interrupt — прервать идущий ход перед точкой.",
+  /** move — точка для переноса на другую машину: ход прерывается, сессия останавливается; ведущий пары с ведомым — отказ has_wing */
+  input: z.object({ to: Callsign, label: z.string().optional(), stop: z.boolean().optional(), interrupt: z.boolean().optional(), move: z.boolean().optional() }),
+  /** same — с прошлой точки ничего не изменилось: новая не записана, point — прежняя */
+  output: z.object({ point: z.string(), same: z.boolean().optional() }),
 });
+/** Что будет с папкой при подъёме: nogit — точка без git, файлы папки не трогаются; empty — папки нет, будет клон; same — тот же репозиторий без правок, встанет ветка точки;
+ *  dirty — в папке несохранённые правки (files), её файлы остаются; shared — в ней работают другие сессии (sessions), файлы остаются; other — другой репозиторий, отказ. */
+export const RaiseCheck = z.object({ folder: z.enum(["nogit", "empty", "same", "dirty", "shared", "other"]), dir: z.string(), files: z.number(), branch: z.string().nullable(), sessions: z.array(z.string()) });
 export const pointsRaise = request("points.raise", {
   owner: "host-points", target: "machine",
-  tool: "Поднять сессию из архива на машине: sid — сессия архива, point — точка (по умолчанию последняя), name — имя новой сессии, cwd — папка.",
-  input: z.object({ to: MachineAddr, sid: z.string(), point: z.string().optional(), name: z.string().optional(), cwd: z.string().optional(), move: z.boolean().optional() }),
-  output: z.object({ callsign: Callsign }),
+  tool: "Поднять сессию из архива на машине: sid — сессия архива, point — точка (по умолчанию последняя), name — имя новой сессии, cwd — папка; move — перенос (прежняя машина отпускает сессию), иначе копия; files: point — вернуть файлы папки к точке, keep — оставить как есть; dryRun — только проверить папку.",
+  input: z.object({
+    to: MachineAddr, sid: z.string(), point: z.string().optional(), name: z.string().optional(), cwd: z.string().optional(), move: z.boolean().optional(),
+    files: z.enum(["keep", "point"]).optional(), dryRun: z.boolean().optional(), account: z.string().optional(),
+  }),
+  output: z.object({ callsign: Callsign.optional(), check: RaiseCheck.optional() }),
 });
 
 /* ===== Скрипты (host-shell) ===== */
 
+/** Снимок запуска. state: killed — снят запросом или остановкой Host, timeout — вышел предел timeout, stopped — снят пределом жизни запуска.
+ *  out — stdout и stderr вместе, по порядку; stdout и stderr — они же раздельно; files — файлы, которые скрипт положил в папку $SB_OUT. */
 export const Run = z.object({
-  run: z.string(), state: z.enum(["running", "done", "failed", "killed"]), code: z.number().optional(),
-  out: z.string().optional(), started: z.number(), ended: z.number().optional(),
+  run: z.string(), state: z.enum(["running", "done", "failed", "killed", "timeout", "stopped"]), code: z.number().optional(),
+  out: z.string().optional(), stdout: z.string().optional(), stderr: z.string().optional(), started: z.number(), ended: z.number().optional(), ms: z.number().optional(),
+  files: z.array(z.object({ name: z.string(), size: z.number(), base64: z.string().optional() })).optional(),
 });
 export const shellRun = request("shell.run", {
   owner: "host-shell", target: "machine",
-  tool: "Выполнить скрипт на машине: script — текст, cwd — папка, wait — ждать конца до стольких секунд (иначе вернётся номер запуска).",
-  input: z.object({ to: MachineAddr, script: z.string(), cwd: z.string().optional(), wait: z.number().optional(), shell: z.enum(["bash", "powershell", "node"]).optional() }),
+  tool: "Выполнить скрипт на машине: script — текст, cwd — папка, stdin — ввод скрипта, timeout — предел работы в секундах, wait — ждать конца до стольких секунд (иначе вернётся номер запуска, запуск идёт в фоне). Файлы, которые скрипт положит в папку из переменной SB_OUT, вернутся в ответе.",
+  input: z.object({
+    to: MachineAddr, script: z.string(), cwd: z.string().optional(), wait: z.number().optional(), shell: z.enum(["bash", "powershell", "pwsh", "node"]).optional(),
+    stdin: z.string().optional(), timeout: z.number().optional(),
+  }),
   output: Run,
 });
 export const shellWait = request("shell.wait", {
@@ -113,25 +195,43 @@ export const shellKill = request("shell.kill", {
 });
 export const shellInfo = request("shell.info", {
   owner: "host-shell", target: "machine", tool: "Что это за машина: ОС, оболочки, папка пользователя.",
-  input: toMachine, output: z.object({ os: z.string(), shells: z.array(z.string()), home: z.string(), node: z.string().optional() }),
+  input: toMachine,
+  output: z.object({ os: z.string(), shells: z.array(z.string()), home: z.string(), node: z.string().optional(), found: z.array(z.object({ shell: z.string(), path: z.string(), version: z.string().nullable() })).optional() }),
 });
 
 /* ===== Инциденты (host-incidents) ===== */
 
+/** Вложение обращения: тот же вид, что вложение сообщения. */
+export const IncidentFile = z.object({ name: z.string(), mime: z.string(), base64: z.string() });
 export const Incident = z.object({
   id: z.string(), kind: z.string(), key: z.string(), text: z.string(), at: z.number(),
   callsign: Callsign.optional(), state: z.enum(["pending", "taken", "done"]),
+  /** обращение ждёт: почему не доставлено */
+  why: z.string().optional(),
+  /** имена вложений */
+  files: z.array(z.string()).optional(),
 });
 export type Incident = z.infer<typeof Incident>;
 export const incidentList = request("incident.list", {
-  owner: "host-incidents", target: "machine", tool: "Обращения служб компьютера и сессии, которые их разбирают.",
-  input: toMachine, output: z.object({ incidents: z.array(Incident) }),
+  owner: "host-incidents", target: "machine", tool: "Обращения служб компьютера и сессии, которые их разбирают; у недоставленного — причина.",
+  input: toMachine, output: z.object({ incidents: z.array(Incident), port: z.number().optional() }),
 });
 /** Обращение от службы компьютера: открывает сессию по виду обращения или пишет в уже открытую. */
 export const incidentRaise = request("incident.raise", {
   owner: "host-incidents", target: "machine",
-  input: z.object({ to: MachineAddr, kind: z.string(), key: z.string(), text: z.string() }), output: z.object({ id: z.string(), callsign: Callsign.optional() }),
+  input: z.object({ to: MachineAddr, kind: z.string(), key: z.string(), text: z.string(), files: z.array(IncidentFile).optional() }), output: z.object({ id: z.string(), callsign: Callsign.optional() }),
 });
+/** Правило вида обращений — ключ incidents.kinds настроек флота: имя вида → где открыть сессию, с чем, что ей сказать и кого позвать. */
+export const IncidentKind = z.object({
+  cwd: z.string(), pieces: z.array(z.string()).optional(), account: z.string().optional(), model: z.string().optional(), project: z.string().optional(),
+  /** добавка к промпту сессии этого вида */
+  prompt: z.string().optional(),
+  /** кого позвать о новом обращении: ~почта */
+  notify: z.array(z.string()).optional(),
+  /** только эти машины; пусто — все */
+  machines: z.array(z.string()).optional(),
+});
+export type IncidentKind = z.infer<typeof IncidentKind>;
 
 /* ===== Машина (host-machine) ===== */
 
@@ -143,7 +243,13 @@ export const machineDirs = request("machine.dirs", {
 export const JournalLine = z.object({ t: z.number(), part: z.string(), level: z.enum(["info", "warn", "error"]), msg: z.string() }).loose();
 export const machineJournal = request("machine.journal", {
   owner: "host-machine", target: "machine", tool: "Журнал машины: строки Host, Keeper и держателей. part — чей, before — время, до которого читать.",
-  input: z.object({ to: MachineAddr, part: z.string().optional(), level: z.enum(["info", "warn", "error"]).optional(), before: z.number().optional(), limit: z.number().optional(), /** только строки этого сквозного номера запроса; имя trace занято конвертом */ of: z.string().optional() }),
+  input: z.object({
+    to: MachineAddr, part: z.string().optional(), level: z.enum(["info", "warn", "error"]).optional(), before: z.number().optional(), limit: z.number().optional(),
+    /** только строки этого сквозного номера запроса; имя trace занято конвертом */ of: z.string().optional(),
+    /** только строки этой сессии */ session: Callsign.optional(),
+    /** не раньше этого времени, мс */ since: z.number().optional(),
+    /** вид строки: stop — остановки и сбои, refuse — отказы запросам, note — остальное */ kind: z.enum(["stop", "refuse", "note"]).optional(),
+  }),
   output: z.object({ lines: z.array(JournalLine), more: z.boolean() }),
 });
 

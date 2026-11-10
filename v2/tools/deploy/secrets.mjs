@@ -26,7 +26,7 @@ const secrets = {
   R2_SECRET_ACCESS_KEY: cf.R2_SECRET_ACCESS_KEY,
   VAPID_PRIVATE: fleet.SB2_VAPID_PRIVATE,
 };
-for (const k of ["TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT", "CH_URL", "CH_USER", "CH_PASSWORD"]) if (fleet["SB2_" + k]) secrets[k] = fleet["SB2_" + k];
+for (const k of ["CH_URL", "CH_USER", "CH_PASSWORD"]) if (fleet["SB2_" + k]) secrets[k] = fleet["SB2_" + k];
 
 const r = spawnSync(process.execPath, [path.join(here, "wrangler.mjs"), "services", "secret", "bulk"], { input: JSON.stringify(secrets), stdio: ["pipe", "inherit", "inherit"] });
 console.log("секреты служб:", Object.keys(secrets).join(", "));

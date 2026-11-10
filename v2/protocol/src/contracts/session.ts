@@ -6,10 +6,10 @@ export const SessionState = z.enum(["starting", "idle", "busy", "waiting", "stop
 export type SessionState = z.infer<typeof SessionState>;
 
 export const Effort = z.enum(["low", "medium", "high", "xhigh", "max"]);
-/** Режим разрешений: all — разрешено всё (по умолчанию), ask — спрашивать, plan — только план, edits — правки без вопросов. */
-export const Mode = z.enum(["all", "ask", "plan", "edits"]);
+/** Режим разрешений: all — разрешено всё (по умолчанию), ask — спрашивать, plan — только план, edits — правки без вопросов, auto — решает классификатор Claude. */
+export const Mode = z.enum(["all", "ask", "plan", "edits", "auto"]);
 
-/** Документ сессии: у каждого ключа один хозяин. Ядро: name, cwd, model, effort, mode, parent, wing, project.
+/** Документ сессии: у каждого ключа один хозяин. Ядро: name, cwd, model, effort, mode, fast, style, thinking, title, parent, wing, project.
  *  accounts: account · profiles: pieces · points: backup · remote: remote. */
 export const Spec = z.object({
   name: Name,
@@ -17,6 +17,14 @@ export const Spec = z.object({
   model: z.string().optional(),
   effort: Effort.optional(),
   mode: Mode.optional(),
+  /** быстрый режим Claude */
+  fast: z.boolean().optional(),
+  /** стиль ответа: имя стиля Claude */
+  style: z.string().optional(),
+  /** всегда размышлять */
+  thinking: z.boolean().optional(),
+  /** заголовок разговора в claude.ai; без него заголовок даёт первое сообщение, затем сам Claude */
+  title: z.string().optional(),
   /** сессия, которая дала задачу: ей уходит итог хода */
   parent: Callsign.optional(),
   /** ведомый пары */
@@ -82,6 +90,18 @@ export const SessionRow = z.object({
   context: z.number().optional(),
   /** ссылка Remote Control, если включён */
   remoteUrl: z.string().optional(),
+  /** Remote Control не включился: причина */
+  remoteError: z.string().optional(),
+  /** последняя точка в архив не удалась: причина */
+  archiveError: z.string().optional(),
+  /** идёт сжатие контекста */
+  compacting: z.boolean().optional(),
+  /** очередь аккаунтов ждёт сброса лимита: когда он наступит, мс */
+  wait: z.number().optional(),
+  /** ведущий пары — в строке ведомого */
+  lead: Callsign.optional(),
+  /** сессия разбирает обращения службы компьютера этого вида и ключа */
+  incident: z.object({ kind: z.string(), key: z.string() }).optional(),
 });
 export type SessionRow = z.infer<typeof SessionRow>;
 
@@ -89,16 +109,28 @@ const toSession = z.object({ to: Callsign });
 
 export const sessionOpen = request("session.open", {
   owner: "host", target: "machine",
-  tool: "Открыть новую сессию Claude Code на машине: to — машина вида @laptop, spec — документ сессии (name, cwd обязательны). prompt — первое сообщение сессии.",
-  input: z.object({ to: MachineAddr, spec: Spec, prompt: z.string().optional() }),
-  output: z.object({ callsign: Callsign }),
+  tool: "Открыть новую сессию Claude Code на машине: to — машина вида @laptop, spec — документ сессии (name, cwd обязательны). prompt — первое сообщение сессии; mkdir — создать папку, если её нет; number — к имени первый свободный номер; pair — открыть вместе с ведомым <имя>-wing; resume — продолжить разговор с диска машины по его id, fork — его копией.",
+  input: z.object({
+    to: MachineAddr, spec: Spec, prompt: z.string().optional(),
+    /** создать папку, если её нет */
+    mkdir: z.boolean().optional(),
+    /** к имени — первый свободный номер на машине: site-1, site-2 */
+    number: z.boolean().optional(),
+    /** продолжить разговор с этим id с диска машины; fork — копией, прежний разговор не трогается */
+    resume: z.string().optional(),
+    fork: z.boolean().optional(),
+    /** открыть пару: ведомый <имя>-wing в той же папке */
+    pair: z.boolean().optional(),
+  }),
+  output: z.object({ callsign: Callsign, wing: Callsign.optional() }),
 });
 
 export const sessionUpdate = request("session.update", {
   owner: "host", target: "session",
-  tool: "Изменить документ сессии: patch — ключи для замены (model, effort, mode, account, pieces, project, wing, backup, remote, cwd).",
-  input: z.object({ to: Callsign, patch: SpecPatch }),
-  output: Done,
+  tool: "Изменить документ сессии: patch — ключи для замены (model, effort, mode, fast, style, thinking, title, account, pieces, project, wing, backup, remote, cwd); wing: null — снять ведомого; pair: true — открыть ведомого <имя>-wing.",
+  input: z.object({ to: Callsign, patch: SpecPatch.extend({ wing: Callsign.nullable().optional() }), pair: z.boolean().optional() }),
+  /** now — что подействовало сразу; later — что вступит в силу после хода, с новым процессом */
+  output: z.object({ now: z.array(z.string()), later: z.array(z.string()), wing: Callsign.optional() }).loose(),
 });
 
 export const sessionStop = request("session.stop", {
@@ -110,14 +142,18 @@ export const sessionStart = request("session.start", {
   input: toSession, output: Done,
 });
 export const sessionRemove = request("session.remove", {
-  owner: "host", target: "session", tool: "Убрать сессию с машины; точки в архиве остаются.",
-  input: toSession, output: Done,
+  owner: "host", target: "session", tool: "Убрать сессию с машины; точки в архиве остаются. after_turn: true — посреди хода убрать после его конца (так сессия убирает сама себя).",
+  input: z.object({ to: Callsign, after_turn: z.boolean().optional() }), output: z.object({ after_turn: z.boolean().optional() }).loose(),
 });
 
-/** Проход к методам SDK живой сессии: один список методов — здесь. */
+/** Проход к методам SDK живой сессии: один список методов — здесь.
+ *  rewindFiles — args { message: uuid сообщения человека, dryRun? }: с dryRun только считает, сколько файлов изменится.
+ *  compact — сжать контекст сейчас; permissionRules — правила разрешений сессии; renameSession — args: заголовок;
+ *  cancelMessage — args { uuid }: отменить своё сообщение, пока ход его не взял (то же, что message.cancel). */
 export const SDK_METHODS = [
   "interrupt", "contextUsage", "commands", "models", "agents", "mcpStatus", "mcpToggle", "mcpReconnect", "mcpAuthenticate",
   "rewindFiles", "tasks", "taskStop", "taskOutput", "reload", "sideQuestion", "cancelMessage", "status", "hooks",
+  "usage", "renameSession", "getSessionInfo", "permissionRules", "compact",
 ] as const;
 export const sessionCall = request("session.call", {
   owner: "host", target: "session",
@@ -132,18 +168,36 @@ export const FileIn = z.object({ name: z.string(), mime: z.string(), base64: z.s
 export const message = request("message", {
   owner: "host-chat", target: "session",
   tool: "Написать сессии флота: to — позывной вида site@laptop, text — сообщение. От сессии оно придёт адресату с пометкой отправителя.",
-  input: z.object({ to: Callsign, text: z.string(), files: z.array(FileIn).optional() }),
-  output: z.object({ queued: z.boolean().optional() }).loose(),
+  /** priority: now — прервать ход и взять сейчас; next — после нынешнего шага (по умолчанию); later — после хода */
+  input: z.object({ to: Callsign, text: z.string(), files: z.array(FileIn).optional(), priority: z.enum(["now", "next", "later"]).optional() }),
+  /** queued — сессия занята, сообщение ждёт в очереди; uuid — его номер: по нему приходит статус в ленте и отмена */
+  output: z.object({ queued: z.boolean().optional(), uuid: z.string().optional() }).loose(),
 });
 
-/** Событие ленты: сообщение SDK как есть. */
+/** Отменить своё сообщение, пока ход его не взял. */
+export const messageCancel = request("message.cancel", {
+  owner: "host-chat", target: "session",
+  input: z.object({ to: Callsign, uuid: z.string() }),
+  output: z.object({ cancelled: z.boolean() }),
+});
+
+/** Сообщение в очереди ввода сессии: ещё не взято ходом. */
+export const QueuedMessage = z.object({ uuid: z.string(), from: z.string(), text: z.string(), at: z.number() });
+export type QueuedMessage = z.infer<typeof QueuedMessage>;
+/** Событие ленты о своём сообщении: queued — в очереди, taken — ход его взял, cancelled — отменено. Приходит рядом с событиями SDK. */
+export const MessageStatus = z.object({ type: z.literal("message.status"), uuid: z.string(), status: z.enum(["queued", "taken", "cancelled"]) });
+
+/** Событие ленты: сообщение SDK как есть. Сверх него Host кладёт в ленту и историю:
+ *  сообщение человека, сессии или службы сразу, как оно принято (type user, uuid — номер сообщения, from — отправитель; у сообщения сессии — peer { from, text });
+ *  итог хода (type result: duration_ms, num_turns, total_cost_usd, usage) — в истории он стоит за последней записью своего хода;
+ *  статус своего сообщения (MessageStatus). */
 export const SdkEvent = z.object({ type: z.string(), uuid: z.string().optional() }).loose();
 export type SdkEvent = z.infer<typeof SdkEvent>;
 
 export const sessionHistory = request("session.history", {
   owner: "host-chat", target: "session",
-  tool: "Прочитать разговор сессии страницами с конца: before — uuid, до которого читать.",
-  input: z.object({ to: Callsign, before: z.string().optional(), limit: z.number().int().min(1).max(200).optional() }),
+  tool: "Прочитать разговор сессии страницами с конца: before — uuid, до которого читать; people: true — только переписка с людьми (их сообщения, сообщения им, вопросы и ответы).",
+  input: z.object({ to: Callsign, before: z.string().optional(), limit: z.number().int().min(1).max(200).optional(), people: z.boolean().optional() }),
   output: z.object({ events: z.array(SdkEvent), more: z.boolean(), seq: z.number() }),
 });
 
@@ -153,7 +207,13 @@ export const sessionFiles = request("session.files", {
   output: z.object({ files: z.array(z.string()) }),
 });
 
-export const sessionWatch = request("session.watch", { owner: "host-chat", target: "session", input: toSession, output: z.object({ seq: z.number() }) });
+/** Смотреть ленту. after — номер последнего события, которое у зрителя есть: в ответе events — пропущенное с этого номера;
+ *  gap: true — пропущенного в памяти Host уже нет, разговор надо перечитать историей. queued — сообщения, что ждут в очереди ввода. */
+export const sessionWatch = request("session.watch", {
+  owner: "host-chat", target: "session",
+  input: z.object({ to: Callsign, after: z.number().optional() }),
+  output: z.object({ seq: z.number(), events: z.array(SdkEvent).optional(), gap: z.boolean().optional(), queued: z.array(QueuedMessage).optional() }),
+});
 export const sessionUnwatch = request("session.unwatch", { owner: "host-chat", target: "session", input: toSession, output: Done });
 
 /** «Прочитано»: человек дочитал сессию — пометка снимается у него на всех устройствах. */

@@ -1,12 +1,12 @@
 // Точки сессий: файлы разговора и пакет git → блоки → архив (points.put двумя шагами, блоки по ссылкам) и подъём сессии из точки.
 // Блок — часть файла до 1 МиБ под именем SHA-256 своего содержимого; разговор режется по переводу строки. Тело блока идёт как есть.
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import { CALL_MS, machineOf, pointsGet, pointsPut, Refusal, sessionName, sessionRemove, type Spec } from "@sb/protocol";
+import { basename, join, relative, resolve } from "node:path";
+import { machineOf, pointsGet, pointsPut, pointsSave, Refusal, sessionName, sessionRemove, sessionStart, type Spec } from "@sb/protocol";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
 import { clientPath, claudeDir, tildePath } from "../../core/paths.ts";
+import { download, sha256, storeFetch, writeFiles } from "./files.ts";
 import { bring, BUNDLE, folderOf, snapshot, type Summary } from "./git.ts";
 
 const BLOCK = 1 << 20;
@@ -19,10 +19,12 @@ const TEXT_MAX = 8_000;
 
 type PointFile = { path: string; blocks: string[]; size: number };
 type Blocks = Map<string, Buffer>;
-/** Раздел сессии: последнее сообщение, чей текст уже ушёл в поиск. */
-type Mark = { indexed?: string };
+/** Сколько ждём конца хода после прерывания перед точкой. */
+const INTERRUPT_MS = 30_000;
+/** Раздел сессии: последнее сообщение, чей текст уже ушёл в поиск; последняя точка и отпечаток её файлов; причина сбоя последней точки. */
+type Mark = { indexed?: string; point?: string; digest?: string; error?: string };
+type SaveOpts = { label?: string; stop?: boolean; interrupt?: boolean; move?: boolean };
 
-const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 /** Папка проекта рабочей папки: так её называет Claude Code. */
 export const projectDir = (cwd: string) => join(claudeDir(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
 
@@ -47,15 +49,6 @@ export function toBlocks(path: string, buf: Buffer, blocks: Blocks): PointFile {
     blocks.set(hash, part);
   }
   return { path, size, blocks: list };
-}
-
-/** Запрос к хранилищу по ссылке: сеть или отказ — слово store_failed. */
-async function storeFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(CALL_MS) }).catch((e) => {
-    throw new Refusal("store_failed", `хранилище: ${e}`);
-  });
-  if (!res.ok) throw new Refusal("store_failed", `хранилище ответило ${res.status}`);
-  return res;
 }
 
 type Usage = { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; output_tokens?: number };
@@ -116,12 +109,17 @@ export function make(): Module {
     }
   }
 
-  /** Снять точку сессии: назвать блоки, загрузить недостающие по ссылкам, записать точку. */
-  async function snap(s: SessionApi, label?: string): Promise<string> {
+  /** Снять точку сессии: назвать блоки, загрузить недостающие по ссылкам, записать точку. С прошлой точки ничего не изменилось — новая не пишется. */
+  async function snap(s: SessionApi, label?: string): Promise<{ point: string; same?: boolean }> {
     if (!existsSync(conversationOf(s))) throw new Refusal("no_file", `${s.callsign}: файла разговора ещё нет`);
     const blocks: Blocks = new Map();
     const files = conversation(s, blocks);
     const git = await snapshot(s.info.cwd);
+    // отпечаток: блоки разговора и состояние папки; сам пакет git каждый раз новый и в сравнение не идёт
+    const { snap: _snap, ...folder } = git?.summary ?? ({} as Partial<Summary>);
+    const digest = sha256(Buffer.from(JSON.stringify([files, folder])));
+    const was = markOf(s).get();
+    if (was?.point && was.digest === digest && !label) return { point: was.point, same: true };
     if (git?.bundle) files.push(toBlocks(BUNDLE, git.bundle, blocks));
     const { text, last, ...summary } = await summaryOf(s);
     const point = `p${Date.now().toString(36)}`;
@@ -135,25 +133,48 @@ export function make(): Module {
       const second = await host.call(pointsPut, { ...frame, commit: true });
       if (!second.done) throw new Refusal("store_failed", `${s.callsign}: архив не записал точку — не хватает блоков: ${Object.keys(second.upload).length}`);
     }
-    if (last) markOf(s).update((m) => ({ ...m, indexed: last }));
-    return point;
+    markOf(s).update((m) => ({ ...m, ...(last ? { indexed: last } : {}), point, digest }));
+    return { point };
+  }
+
+  /** Причина сбоя последней точки — в строку сессии; удалась — причины нет. */
+  function mark(s: SessionApi, error: string | undefined): void {
+    if (markOf(s).get()?.error === error) return;
+    markOf(s).update((m) => ({ ...m, error }));
+    if (host.session(s.callsign)) s.sync();
   }
 
   /** Точка по очереди сессии. */
-  function save(s: SessionApi, label?: string): Promise<string> {
+  function save(s: SessionApi, label?: string): Promise<{ point: string; same?: boolean }> {
     const turn = (queue.get(s.callsign) ?? Promise.resolve()).catch(() => {}).then(async () => {
       try {
-        const point = await snap(s, label);
+        const r = await snap(s, label);
         lastAt.set(s.callsign, Date.now());
-        host.log.info("point", { callsign: s.callsign, point });
-        return point;
+        host.log.info("point", { callsign: s.callsign, point: r.point, ...(r.same ? { why: "то же, что прошлая" } : {}) });
+        mark(s, undefined);
+        return r;
       } catch (e) {
-        host.log.warn("point", { callsign: s.callsign, word: e instanceof Refusal ? e.word : "module_failed", why: (e as Error).message });
+        const why = (e as Error).message;
+        host.log.warn("point", { callsign: s.callsign, word: e instanceof Refusal ? e.word : "module_failed", why });
+        // файла разговора ещё нет — не сбой: первый ход не прошёл
+        if (!(e instanceof Refusal && e.word === "no_file")) mark(s, why);
         throw e;
       }
     });
     queue.set(s.callsign, turn);
     return turn;
+  }
+
+  /** Точка по запросу: прервать ход перед ней, остановить сессию после; перенос — ведущий с ведомым не отпускается. */
+  async function saveNow(s: SessionApi, o: SaveOpts): Promise<{ point: string; same?: boolean }> {
+    if (o.move && s.spec.wing) throw new Refusal("has_wing", `${s.callsign} ведёт ${s.spec.wing}: пара не переносится — сначала снимите ведомого`);
+    if ((o.interrupt || o.move) && (s.state === "busy" || s.state === "waiting")) {
+      await s.sdk("interrupt").catch(() => {});
+      const until = Date.now() + INTERRUPT_MS;
+      while ((s.state === "busy" || s.state === "waiting") && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    }
+    if (o.stop || o.move) await s.stop();
+    return save(s, o.label);
   }
 
   /** Точка по правилу машины: сбой — в журнале, запрашивать некому. */
@@ -176,32 +197,6 @@ export function make(): Module {
     turns.delete(callsign);
   };
 
-  /** Блоки точки по ссылкам: каждый сверен по SHA-256; файлы на диске трогаются, только когда все на руках. */
-  async function download(files: Array<{ path: string; blocks: Array<{ hash: string; url: string }> }>): Promise<Map<string, Buffer>> {
-    const out = new Map<string, Buffer>();
-    for (const f of files) {
-      const parts: Buffer[] = [];
-      for (const b of f.blocks) {
-        const buf = Buffer.from(await (await storeFetch(b.url)).arrayBuffer());
-        if (sha256(buf) !== b.hash) throw new Refusal("bad_point", `${f.path}: блок ${b.hash.slice(0, 12)} пришёл не тот`);
-        parts.push(buf);
-      }
-      out.set(f.path, Buffer.concat(parts));
-    }
-    return out;
-  }
-
-  /** Файлы точки в папку проекта: путь из архива не выходит из неё, файл появляется целиком. */
-  function writeFiles(target: string, files: Map<string, Buffer>): void {
-    const paths = [...files.keys()].filter((p) => p !== BUNDLE).map((p) => [p, resolve(target, p)] as const);
-    for (const [p, file] of paths) if (!file.startsWith(resolve(target) + sep)) throw new Refusal("bad_point", `путь файла точки вне папки проекта: ${p}`);
-    for (const [p, file] of paths) {
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(`${file}.tmp`, files.get(p)!);
-      renameSync(`${file}.tmp`, file);
-    }
-  }
-
   /** Прежние копии разговора в других папках проектов уходят в сторону: resume находит файл по sid во всех папках. */
   function setAside(sid: string, target: string): void {
     const projects = join(claudeDir(), "projects");
@@ -211,9 +206,37 @@ export function make(): Module {
     }
   }
 
-  /** Поднять сессию из точки: откат на месте, копия или перенос — один путь: проверка → блоки → папка и файлы → сессия. */
-  async function raise({ sid, point, name, cwd, move }: { sid: string; point?: string; name?: string; cwd?: string; move?: boolean }, ctx: Ctx) {
-    const got = await host.call(pointsGet, { sid, ...(point ? { point } : {}) });
+  /** Поднять сессию из точки: откат на месте, копия или перенос — один путь: проверка → блоки → папка и файлы → сессия.
+   *  dryRun — только проверка папки. files: keep — файлы папки не трогаются, встаёт только разговор.
+   *  Перенос: прежняя машина снимает свежую точку и останавливает сессию; поднялась здесь — убирает её у себя, не поднялась — запускает снова. */
+  async function raise({ sid, point, name, cwd, move, files: mode = "point", dryRun, account }: { sid: string; point?: string; name?: string; cwd?: string; move?: boolean; files?: "keep" | "point"; dryRun?: boolean; account?: string }, ctx: Ctx) {
+    let got = await host.call(pointsGet, { sid, ...(point ? { point } : {}) });
+    const origin = got.session.callsign;
+    const away = move && machineOf(origin) !== host.machine;
+    let released = false;
+    if (away && !dryRun && !point) {
+      // прежняя машина отпускает: свежая точка и остановка. Не на связи — берём последнюю точку архива: машина могла умереть
+      try {
+        const fresh = await host.call(pointsSave, { to: origin, move: true }, { from: ctx.from, trace: ctx.trace });
+        released = true;
+        got = await host.call(pointsGet, { sid, point: fresh.point });
+      } catch (e) {
+        const r = e as Refusal;
+        if (r.word !== "offline" && r.word !== "timeout" && r.word !== "not_found") throw e;
+        ctx.log.warn("raise_release", { callsign: origin, word: r.word, why: `прежняя машина не отпустила — поднимаю последнюю точку архива: ${r.why ?? r.message}` });
+      }
+    }
+    try {
+      return await bringUp(got, { name, cwd, move, mode, dryRun, account }, ctx);
+    } catch (e) {
+      // не поднялась — прежняя машина запускает сессию снова
+      if (released) await host.call(sessionStart, { to: origin }, { from: ctx.from, trace: ctx.trace }).catch((x: unknown) => ctx.log.warn("raise_return", { callsign: origin, why: (x as Error).message }));
+      throw e;
+    }
+  }
+
+  async function bringUp(got: Awaited<ReturnType<typeof host.call<typeof pointsGet>>>, { name, cwd, move, mode, dryRun, account }: { name?: string; cwd?: string; move?: boolean; mode: "keep" | "point"; dryRun?: boolean; account?: string }, ctx: Ctx) {
+    const sid = got.session.sid;
     const where = cwd ?? got.session.cwd;
     const dir = where ? clientPath(where, homedir()) : null;
     if (!dir) throw new Refusal("bad_dir", `папка ${where}: нужен путь от ~ или полный`);
@@ -222,13 +245,16 @@ export function make(): Module {
     const git = got.point.git ? (JSON.parse(got.point.git) as Summary) : undefined;
     const near = host.sessions().filter((s) => resolve(s.info.cwd) === resolve(dir) && s.state !== "stopped" && s !== here).map((s) => s.callsign);
     const check = await folderOf(dir, git, near);
+    if (dryRun) return { check: { ...check, dir: tildePath(dir, homedir()) } };
     if (check.folder === "other") throw new Refusal("bad_dir", `${dir}: другой репозиторий`);
+    // сохранение этой сессии ещё идёт — дождаться: блоки точки могут быть в пути
+    if (here) await queue.get(here.callsign)?.catch(() => {});
     const files = await download(got.files);
-    if (git && (check.folder === "empty" || check.folder === "same")) await bring(dir, git, check.folder, files.get(BUNDLE));
+    if (mode === "point" && git && (check.folder === "empty" || check.folder === "same")) await bring(dir, git, check.folder, files.get(BUNDLE));
     mkdirSync(dir, { recursive: true });
     const target = projectDir(dir);
     setAside(sid, target);
-    writeFiles(target, files);
+    writeFiles(target, files, [BUNDLE]);
     // откат: та же сессия запускается с файлами точки
     if (here) {
       await here.start();
@@ -236,11 +262,11 @@ export function make(): Module {
       return { callsign: here.callsign };
     }
     // перенос — тот же разговор продолжает здесь; копия — новый разговор от файла точки
-    const spec: Spec = { name: name ?? sessionName(got.session.callsign) ?? basename(dir), cwd: tildePath(dir, homedir()), backup: true, ...(got.session.project ? { project: got.session.project } : {}) };
+    const spec: Spec = { name: name ?? sessionName(got.session.callsign) ?? basename(dir), cwd: tildePath(dir, homedir()), backup: true, ...(got.session.project ? { project: got.session.project } : {}), ...(account ? { account } : {}) };
     const s = await host.open(spec, { by: ctx.from, resume: sid, fork: !move });
     ctx.log.info("raise", { callsign: s.callsign, sid, point: got.point.point, why: move ? "перенос" : "копия" });
     if (move && machineOf(got.session.callsign) !== host.machine) {
-      // прежняя машина отпускает сессию; не на связи — отказ в журнале, сессию там уберёт человек
+      // прежняя машина убирает сессию у себя; не на связи — отказ в журнале, сессию там уберёт человек
       await host.call(sessionRemove, { to: got.session.callsign }, { from: ctx.from }).catch((e: unknown) => ctx.log.warn("raise_release", { callsign: got.session.callsign, why: (e as Error).message }));
     }
     return { callsign: s.callsign };
@@ -249,6 +275,10 @@ export function make(): Module {
   return {
     name: "host-points",
     spec: { backup() {} },
+    row(s) {
+      const error = markOf(s).get()?.error;
+      return error ? { archiveError: error } : {};
+    },
     applied(s, keys) {
       if (keys.includes("backup")) auto(s);
     },
@@ -271,9 +301,7 @@ export function make(): Module {
       },
     },
     requests: {
-      async "points.save"({ to, label }: { to: string; label?: string }) {
-        return { point: await save(host.session(to)!, label) };
-      },
+      "points.save": ({ to, ...o }: { to: string } & SaveOpts) => saveNow(host.session(to)!, o),
       "points.raise": raise,
     },
     start(h) {

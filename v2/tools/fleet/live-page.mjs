@@ -43,7 +43,7 @@ await step("приглашение принято, картина пришла",
 });
 await page.screenshot({ path: path.join(out, "1-home.png") });
 if (callsign) {
-  const text = "Ответь одним словом: проверка " + name;
+  const text = "Ответь одним словом: " + name;
   await step("сессия открыта из «Работы»", async () => {
     await page.goto(env.SB2_BASE + "/#/work/" + callsign);
     await page.getByPlaceholder(/Сообщение/).waitFor({ timeout: 20_000 });
@@ -54,7 +54,8 @@ if (callsign) {
     await box.fill(text);
     await box.press("Enter");
     await page.getByText(text).first().waitFor({ timeout: 15_000 });
-    await page.getByText(/ход закончен/).last().waitFor({ timeout: 90_000 });
+    // ответ модели повторяет слово проверки: оно должно появиться в ленте вне своего сообщения
+    await page.waitForFunction((word) => [...document.querySelectorAll("p, li, span, div")].filter((e) => e.children.length === 0 && e.textContent.includes(word) && !e.textContent.includes("Ответь одним словом")).length > 0, name, { timeout: 90_000 });
   });
   await page.screenshot({ path: path.join(out, "3-answered.png") });
 }

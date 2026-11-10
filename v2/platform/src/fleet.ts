@@ -4,7 +4,7 @@ import {
   contract, fail, formatPass, type Frame, kindOf, machineOf, type MachineRow, ok, parseFrame, parsePass, type PassRow, personOf, type PersonRow,
   type Project, PROTO, Refusal, type Reply, type SessionRow, sha256hex, type Who,
 } from "@sb/protocol";
-import { type Card, cardOf, type Drop, type Env, log, randomText, type RowsChange, send, shut } from "./env.ts";
+import { type Card, cardOf, type Drop, type Env, helloLimit, log, randomText, type RowsChange, s256, send, shut } from "./env.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
@@ -32,6 +32,7 @@ export class FleetObject extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS machines(name TEXT PRIMARY KEY, owner TEXT NOT NULL, online INTEGER NOT NULL, since INTEGER NOT NULL, build INTEGER, sdk TEXT, os TEXT, keeper INTEGER);
       CREATE TABLE IF NOT EXISTS sessions(callsign TEXT PRIMARY KEY, machine TEXT NOT NULL, row TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS sessions_machine ON sessions(machine);
+      CREATE TABLE IF NOT EXISTS invites(kid TEXT PRIMARY KEY, by TEXT, challenge TEXT, client TEXT, back TEXT);
     `);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
@@ -117,14 +118,18 @@ export class FleetObject extends DurableObject<Env> {
   private async handle(fleet: string, who: Who | null, type: string, i: any): Promise<{ result?: unknown; drop?: Drop }> {
     switch (type) {
       case "redeem":
-        return { result: await this.redeem(i.invite) };
+        return { result: await this.redeem(i.invite, i.verifier !== undefined || i.client !== undefined || i.back !== undefined ? { verifier: i.verifier ?? "", client: i.client ?? "", back: i.back ?? "" } : undefined) };
       case "invite":
-        return { result: await this.invite(fleet, who!, i.addr, i.owner) };
+        return { result: await this.invite(fleet, who!, i.addr, i.owner, i.fresh) };
+      case "consent":
+        return { result: await this.consent(fleet, who!, i) };
       case "passes": {
-        const rows = who!.admin ? this.q<PassRec>("SELECT * FROM passes ORDER BY at DESC") : this.q<PassRec>("SELECT * FROM passes WHERE person = ? ORDER BY at DESC", who!.person);
-        const passes: PassRow[] = rows.map((r) => ({ kid: r.kid, addr: r.addr, person: r.person, wait: !!r.wait, at: r.at, ...(r.seen ? { seen: r.seen } : {}) }));
-        return { result: { passes } };
+        const rows = (who!.admin ? this.q<PassRec>("SELECT * FROM passes ORDER BY at DESC") : this.q<PassRec>("SELECT * FROM passes WHERE person = ? ORDER BY at DESC", who!.person))
+          .filter((r) => (!i.kind || kindOf(r.addr) === i.kind) && (!i.kids || i.kids.includes(r.kid)));
+        return { result: { passes: this.passRows(rows) } };
       }
+      case "fleet.list":
+        return { result: this.fleetList(who!, i.machine) };
       case "revoke":
         return this.revoke(who!, i.kid);
       case "whoami":
@@ -147,18 +152,66 @@ export class FleetObject extends DurableObject<Env> {
     throw new Refusal("unknown_request", type);
   }
 
-  private async issue(fleet: string, addr: string, person: string): Promise<{ kid: string; invite: string }> {
+  /** Строки пропусков для ответа: кто пригласил и открыто ли сейчас соединение. */
+  private passRows(rows: PassRec[]): PassRow[] {
+    const by = new Map(this.q<{ kid: string; by: string | null }>("SELECT kid, by FROM invites").map((r) => [r.kid, r.by]));
+    const pages = new Set<string>();
+    for (const ws of this.ctx.getWebSockets()) {
+      const c = cardOf(ws);
+      if (c.role === "page") pages.add(c.kid);
+    }
+    const up = new Set(this.q<{ name: string }>("SELECT name FROM machines WHERE online = 1").map((m) => m.name));
+    return rows.map((r) => ({
+      kid: r.kid, addr: r.addr, person: r.person, wait: !!r.wait, at: r.at, ...(r.seen ? { seen: r.seen } : {}), ...(by.get(r.kid) ? { by: by.get(r.kid)! } : {}),
+      online: kindOf(r.addr) === "machine" ? up.has(machineOf(r.addr)!) : pages.has(r.kid),
+    }));
+  }
+
+  /** Картина одним ответом: машины и сессии, до которых достаёт спросивший, и люди на связи. */
+  private fleetList(who: Who, machine?: string): { machines: MachineRow[]; sessions: SessionRow[]; people: Array<{ person: string; name?: string; devices: string[] }> } {
+    const reach = this.reach(who.person);
+    if (machine && !reach.has(machine)) throw new Refusal("forbidden", "до машины " + machine + " вы не достаёте");
+    const seen = (m: string) => (machine ? m === machine : reach.has(m));
+    const machines = this.machines().filter((m) => seen(m.name));
+    const sessions = this.q<{ machine: string; row: string }>("SELECT machine, row FROM sessions").filter((s) => seen(s.machine)).map((s) => JSON.parse(s.row) as SessionRow);
+    // люди на связи: сам спросивший, владельцы видимых машин и те, с кем общий проект; у админа — все
+    const near = new Set<string>([
+      who.person, ...machines.map((m) => m.owner),
+      ...this.q<{ person: string }>("SELECT m2.person AS person FROM members m1 JOIN members m2 ON m1.project = m2.project WHERE m1.person = ?", who.person).map((r) => r.person),
+    ]);
+    const names = new Map(this.q<{ person: string; name: string | null }>("SELECT person, name FROM people").map((p) => [p.person, p.name]));
+    const live = new Map<string, Set<string>>();
+    for (const ws of this.ctx.getWebSockets()) {
+      const c = cardOf(ws);
+      if (c.role !== "page" || (!who.admin && !near.has(c.person))) continue;
+      (live.get(c.person) ?? live.set(c.person, new Set()).get(c.person)!).add(c.addr);
+    }
+    const people = [...live].map(([person, devices]) => ({ person, ...(names.get(person) ? { name: names.get(person)! } : {}), devices: [...devices].sort() })).sort((a, b) => a.person.localeCompare(b.person));
+    return { machines, sessions, people };
+  }
+
+  private async issue(fleet: string, addr: string, person: string, by: string, oauth?: { challenge: string; client: string; back: string }): Promise<{ kid: string; invite: string }> {
     const now = Date.now();
     const taken = this.q<PassRec>("SELECT * FROM passes WHERE addr = ?", addr);
     if (taken.some((r) => !r.wait)) throw new Refusal("name_taken", "у адреса " + addr + " уже есть пропуск");
     // непринятые приглашения на тот же адрес заменяются новым
+    this.q("DELETE FROM invites WHERE kid IN (SELECT kid FROM passes WHERE addr = ? AND wait = 1)", addr);
     this.q("DELETE FROM passes WHERE addr = ? AND wait = 1", addr);
     const kid = randomText(10), secret = randomText(32);
     this.q("INSERT INTO passes(kid, addr, person, hash, wait, at) VALUES(?, ?, ?, ?, 1, ?)", kid, addr, person, await sha256hex(secret), now);
+    this.q("INSERT OR REPLACE INTO invites(kid, by, challenge, client, back) VALUES(?, ?, ?, ?, ?)", kid, by, oauth?.challenge ?? null, oauth?.client ?? null, oauth?.back ?? null);
     return { kid, invite: formatPass({ fleet, kid, secret }) };
   }
 
-  private async invite(fleet: string, who: Who, addr: string, owner?: string): Promise<{ kid: string; invite: string }> {
+  /** Согласие OAuth: приглашение нового устройства человека; принимается только с проверкой PKCE и адресов клиента. Описание клиента сверил вход платформы. */
+  private async consent(fleet: string, who: Who, i: { client: string; back: string; challenge: string; label?: string; doc?: { name?: string; uri?: string } }): Promise<{ code: string; kid: string; addr: string; client: { name?: string; uri?: string } }> {
+    if (kindOf(who.addr) !== "device") throw new Refusal("forbidden", "согласие даёт человек со своего устройства");
+    const addr = (i.label ?? "claude").toLowerCase() + "-" + randomText(4) + who.person;
+    const { kid, invite } = await this.issue(fleet, addr, who.person, who.addr, { challenge: i.challenge, client: i.client, back: i.back });
+    return { code: invite, kid, addr, client: i.doc ?? {} };
+  }
+
+  private async invite(fleet: string, who: Who, addr: string, owner?: string, fresh?: boolean): Promise<{ kid: string; invite: string }> {
     const kind = kindOf(addr);
     let person: string;
     if (kind === "device") {
@@ -167,19 +220,26 @@ export class FleetObject extends DurableObject<Env> {
     } else if (kind === "machine") person = owner ?? who.person;
     else throw new Refusal("bad_input", "приглашают устройство вида pult~a@b.c или машину вида @laptop");
     const known = this.q("SELECT 1 FROM people WHERE person = ?", person).length > 0;
+    if (fresh && known) throw new Refusal("exists", person + " уже во флоте");
     // своё — любой; чужое и нового человека — админ
     if (person !== who.person && !who.admin) throw new Refusal("forbidden", "чужое приглашает админ флота");
     if (!known) this.q("INSERT INTO people(person, admin, at) VALUES(?, 0, ?)", person, Date.now());
-    return this.issue(fleet, addr, person);
+    return this.issue(fleet, addr, person, who.addr);
   }
 
-  private async redeem(invite: string): Promise<{ key: string; addr: string }> {
+  private async redeem(invite: string, oauth?: { verifier: string; client: string; back: string }): Promise<{ key: string; addr: string }> {
     const p = parsePass(invite);
     if (!p) throw new Refusal("bad_invite", "приглашение не того вида");
     const rec = this.q<PassRec>("SELECT * FROM passes WHERE kid = ?", p.kid)[0];
     if (!rec || !rec.wait || rec.hash !== (await sha256hex(p.secret))) throw new Refusal("bad_invite", "приглашения нет или оно уже принято");
     const now = Date.now();
     if (now - rec.at > DAY) throw new Refusal("bad_invite", "приглашение старше суток");
+    // приглашение согласия OAuth принимается только своим клиентом с его проверочным словом (PKCE S256); обычное — только без них
+    const o = this.q<{ challenge: string | null; client: string | null; back: string | null }>("SELECT challenge, client, back FROM invites WHERE kid = ?", rec.kid)[0];
+    if (o?.challenge) {
+      if (!oauth || o.client !== oauth.client || o.back !== oauth.back || o.challenge !== (await s256(oauth.verifier))) throw new Refusal("bad_invite", "код входа не принят: клиент, адрес возврата или проверочное слово не те");
+      this.q("UPDATE invites SET challenge = NULL WHERE kid = ?", rec.kid);
+    } else if (oauth) throw new Refusal("bad_invite", "это приглашение — не код входа");
     const secret = randomText(40);
     this.q("UPDATE passes SET hash = ?, wait = 0, at = ?, seen = ? WHERE kid = ?", await sha256hex(secret), now, now, rec.kid);
     if (kindOf(rec.addr) === "machine") {
@@ -197,6 +257,7 @@ export class FleetObject extends DurableObject<Env> {
     if (!rec) throw new Refusal("not_found", "такого пропуска нет");
     if (rec.person !== who.person && !who.admin) throw new Refusal("forbidden", "чужой пропуск отзывает админ флота");
     this.q("DELETE FROM passes WHERE kid = ?", kid);
+    this.q("DELETE FROM invites WHERE kid = ?", kid);
     if (kindOf(rec.addr) === "machine" && !rec.wait) this.removeMachine(machineOf(rec.addr)!);
     for (const ws of this.ctx.getWebSockets()) {
       const c = cardOf(ws);
@@ -216,8 +277,11 @@ export class FleetObject extends DurableObject<Env> {
 
   private peopleList(): { people: PersonRow[]; projects: Project[] } {
     const members = this.q<{ project: string; person: string }>("SELECT project, person FROM members");
+    const passes = this.passRows(this.q<PassRec>("SELECT * FROM passes ORDER BY at"));
     const people = this.q<{ person: string; name: string | null; admin: number; at: number }>("SELECT * FROM people ORDER BY at").map((p) => ({
       person: p.person, ...(p.name ? { name: p.name } : {}), admin: !!p.admin, projects: members.filter((m) => m.person === p.person).map((m) => m.project), at: p.at,
+      online: this.online(p.person),
+      devices: passes.filter((d) => d.person === p.person).map((d) => ({ kid: d.kid, addr: d.addr, wait: d.wait, online: !!d.online, at: d.at, ...(d.seen ? { seen: d.seen } : {}) })),
     }));
     const projects = this.q<{ id: string; name: string }>("SELECT * FROM projects ORDER BY id").map((p) => ({ id: p.id, name: p.name, members: members.filter((m) => m.project === p.id).map((m) => m.person) }));
     return { people, projects };
@@ -266,6 +330,7 @@ export class FleetObject extends DurableObject<Env> {
     const kids = this.q<{ kid: string }>("SELECT kid FROM passes WHERE person = ?", person).map((r) => r.kid);
     const near = this.membersOf(this.q<{ project: string }>("SELECT project FROM members WHERE person = ?", person).map((r) => r.project));
     for (const m of this.q<{ name: string }>("SELECT name FROM machines WHERE owner = ?", person)) this.removeMachine(m.name);
+    this.q("DELETE FROM invites WHERE kid IN (SELECT kid FROM passes WHERE person = ?)", person);
     this.q("DELETE FROM passes WHERE person = ?", person);
     this.q("DELETE FROM members WHERE person = ?", person);
     this.q("DELETE FROM people WHERE person = ?", person);
@@ -296,7 +361,7 @@ export class FleetObject extends DurableObject<Env> {
     this.q("INSERT INTO people(person, admin, at) VALUES(?, 1, ?)", person, Date.now());
     this.q("INSERT INTO meta(k, v) VALUES('fleet', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", fleet);
     const addr = "pult" + person;
-    const { invite } = await this.issue(fleet, addr, person);
+    const { invite } = await this.issue(fleet, addr, person, person);
     return { invite, addr };
   }
 
@@ -373,6 +438,16 @@ export class FleetObject extends DurableObject<Env> {
     return this.q<MachineRec>("SELECT * FROM machines ORDER BY name").map(machineRow);
   }
 
+  /** Строки сессий флота — службам: «идёт сейчас» в архиве, сессии на ключе, сводка здоровья. */
+  sessions(): SessionRow[] {
+    return this.q<{ row: string }>("SELECT row FROM sessions").map((s) => JSON.parse(s.row) as SessionRow);
+  }
+
+  /** Админы флота — получатели оповещений о сбоях. */
+  admins(): string[] {
+    return this.q<{ person: string }>("SELECT person FROM people WHERE admin = 1 ORDER BY at").map((r) => r.person);
+  }
+
   /* ===== Соединения страниц ===== */
 
   override async fetch(request: Request): Promise<Response> {
@@ -380,6 +455,7 @@ export class FleetObject extends DurableObject<Env> {
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
     pair[1].serializeAttachment({ role: "new" } satisfies Card);
+    helloLimit(pair[1], this.env);
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 

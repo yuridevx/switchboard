@@ -1,6 +1,7 @@
 import { accountList, analyticsQuery, answer, buildsDeploy, buildsList, contract, createApi, type Frame, incidentList, invite, keeperState, keysList, ledgerRead, machineDirs, machineJournal, message, obsRecent, obsStats, passes, peopleList, peopleSet, pointsHistory, pointsList, pointsRaise, prefsGet, prefsSet, profileList, profileView, reachDevices, revoke, sessionCall, sessionHistory, sessionOpen, sessionUpdate, sessionWatch, whoami } from "@sb/protocol";
 import { describe, expect, it } from "vitest";
 import { fold } from "./chat/fold.ts";
+import { nPoints, nTools, nTurns } from "./lib/time.ts";
 import { toolLook } from "./chat/tools.ts";
 import { researchTurn, siteTurn } from "./mock/convo.ts";
 import { createMock } from "./mock/fleet.ts";
@@ -31,6 +32,36 @@ describe("свёртка разговора", () => {
   it("сообщение от другой сессии — строка с отправителем", () => {
     const v = fold([{ type: "user", uuid: "u1", message: { role: "user", content: '<fleet-message from="lead@laptop">\nНайди вызовы\n</fleet-message>' } }]);
     expect(v.rows[0]).toMatchObject({ k: "in", from: "lead@laptop", text: "Найди вызовы" });
+  });
+  it("история итогов хода не хранит: новый ввод после ответа закрывает прошлый ход строкой «ход закончен»", () => {
+    const say = (uuid: string, text: string, extra = {}) => ({ type: "user", uuid, message: { role: "user", content: text }, ...extra });
+    const reply = (uuid: string, text: string) => ({ type: "assistant", uuid, message: { id: "m" + uuid, content: [{ type: "text", text }] } });
+    const v = fold([say("1", "Первый вопрос"), reply("2", "Первый ответ"), say("3", "Второй вопрос"), reply("4", "Второй ответ"), { type: "result", uuid: "5", duration_ms: 2000 }]);
+    expect(v.rows.map((r) => r.k)).toEqual(["me", "reply", "res", "me", "reply", "res"]);
+    expect(v.rows[2]).toMatchObject({ k: "res", bits: ["ход закончен"] });
+    // после прерывания и после настоящего итога вторая строка не добавляется
+    const w = fold([say("1", "Вопрос"), reply("2", "Ответ"), { type: "result", uuid: "3" }, say("4", "Ещё")]);
+    expect(w.rows.filter((r) => r.k === "res").length).toBe(1);
+  });
+  it("своё сообщение видно сразу; в очереди — помечено и прошлый ход не закрывает; запись ленты с тем же текстом заменяет его", () => {
+    const local = (uuid: string, text: string, queued: boolean) => ({ type: "user", uuid, message: { role: "user", content: text }, _local: true, ...(queued ? { _queued: true } : {}) });
+    const reply = (uuid: string, text: string) => ({ type: "assistant", uuid, message: { id: "m" + uuid, content: [{ type: "text", text }] } });
+    const base = [{ type: "user", uuid: "1", message: { role: "user", content: "Начни" } }, reply("2", "Работаю"), local("local-1", "И подвал", true)];
+    const v = fold(base);
+    expect(v.rows.map((r) => r.k)).toEqual(["me", "reply", "me"]);
+    expect(v.rows[2]).toMatchObject({ k: "me", text: "И подвал", local: "queued", uuid: "local-1" });
+    // ход кончился — сообщение ушло сессии
+    expect(fold([...base, { type: "result", uuid: "3" }]).rows[2]).toMatchObject({ local: "sent" });
+    // лента прислала это сообщение — показанное заранее убрано, повтора нет
+    const merged = mergeEvents(base, [{ type: "user", uuid: "9", message: { role: "user", content: "И подвал" } }]);
+    expect(merged.map((e) => e.uuid)).toEqual(["1", "2", "9"]);
+    // отправленное не в очередь — обычный пузырь, прошлый ход закрыт
+    expect(fold([base[0], base[1], local("local-2", "Дальше", false)]).rows.map((r) => r.k)).toEqual(["me", "reply", "res", "me"]);
+  });
+  it("числительные склоняются одной функцией", () => {
+    expect([1, 2, 4, 5, 11, 21, 24, 112].map(nPoints)).toEqual(["1 точка", "2 точки", "4 точки", "5 точек", "11 точек", "21 точка", "24 точки", "112 точек"]);
+    expect(nTurns(2)).toBe("2 хода");
+    expect(nTools(24)).toBe("24 инструмента");
   });
   it("история и живое сливаются по uuid без повторов", () => {
     const a = [{ type: "user", uuid: "1" }, { type: "assistant", uuid: "2" }];
@@ -109,8 +140,23 @@ describe("мок флота", () => {
     const api = createApi(m.transport);
     await expect(api.call(message, { to: "nightcheck@server", text: "Проверь ещё раз" })).resolves.toEqual({});
     expect(m.state.sessions["nightcheck@server"].state).toBe("busy");
-    await expect(api.call(message, { to: "site@laptop", text: "И подвал" })).resolves.toEqual({ queued: true });
+    // занятая сессия: сообщение ждёт конца хода и до этого в разговор не попадает; из очереди его можно снять
+    const before = (await api.call(sessionHistory, { to: "site@laptop" })).events.length;
+    const q = (await api.call(message, { to: "site@laptop", text: "И подвал" })) as { queued?: boolean; uuid?: string };
+    expect(q).toMatchObject({ queued: true });
+    expect((await api.call(sessionHistory, { to: "site@laptop" })).events.length).toBe(before);
+    await expect(api.call(sessionCall, { to: "site@laptop", method: "cancelMessage", args: { uuid: q.uuid } })).resolves.toEqual({});
+    await expect(api.call(sessionCall, { to: "site@laptop", method: "cancelMessage", args: { uuid: q.uuid } })).rejects.toMatchObject({ word: "not_found" });
     await expect(api.call(message, { to: "crawler@base2", text: "Как дела?" })).rejects.toMatchObject({ word: "offline" });
+  });
+  it("ответ мока — копия: следующая запись его не меняет", async () => {
+    const m = quiet();
+    const api = createApi(m.transport);
+    const was = await api.call(peopleList, {});
+    await api.call(peopleSet, { person: "~anya@example.com", projects: ["site", "infra"] });
+    const now = await api.call(peopleList, {});
+    expect(was.people.find((p) => p.person === "~anya@example.com")!.projects).toEqual(["site"]);
+    expect(now.people.find((p) => p.person === "~anya@example.com")!.projects).toEqual(["site", "infra"]);
   });
   it("записи видны сразу: документ сессии, проект человека, настройка заплаткой, приглашение и отзыв, сборка", async () => {
     const m = quiet();

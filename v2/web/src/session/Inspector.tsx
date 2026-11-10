@@ -1,12 +1,14 @@
 // Инспектор сессии: документ, контекст, файлы, точки, журнал.
-import { machineJournal, peopleList, pointsList, pointsRaise, pointsSave, sessionCall, sessionUpdate, type SessionRow, type SpecPatch } from "@sb/protocol";
+import { machineJournal, peopleList, pointsList, pointsSave, sessionCall, sessionUpdate, type SessionRow, type SpecPatch } from "@sb/protocol";
 import { Badge, Button, Group, Progress, Select, Stack, Switch, Tabs, Text, TextInput } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router";
 import { act } from "../api.ts";
-import { Failed, personWord, useCall } from "../common.tsx";
-import { ago, hhmm, kilo } from "../lib/time.ts";
-import { machineOfCall, useFleet } from "../store/fleet.ts";
+import { accountWord, Failed, personWord, useCall, useWide } from "../common.tsx";
+import { ago, day, hhmm, kilo, nTools, nTurns } from "../lib/time.ts";
+import { machineOfCall, nameOfCall, useFleet } from "../store/fleet.ts";
+import { DocFields } from "./Conversation.tsx";
 
 function Overview({ s }: { s: SessionRow }) {
   const people = useCall(peopleList, {});
@@ -14,18 +16,22 @@ function Overview({ s }: { s: SessionRow }) {
   const [cwd, setCwd] = useState(s.spec.cwd);
   const patch = (p: SpecPatch) => act(sessionUpdate, { to: s.callsign, patch: p });
   const mates = Object.keys(sessions).filter((c) => c !== s.callsign && machineOfCall(c) === machineOfCall(s.callsign));
+  const wide = useWide();
+  // машина без связи: документ виден, но править его некому
+  const off = useFleet((f) => f.machines[machineOfCall(s.callsign)]?.online === false);
   return (
     <Stack gap="sm" p="md">
-      <TextInput label="Папка" className="mono" value={cwd} onChange={(e) => setCwd(e.currentTarget.value)} onBlur={() => cwd !== s.spec.cwd && patch({ cwd })} />
-      <Select label="Проект" clearable data={(people.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={s.spec.project ?? null} onChange={(v) => patch({ project: v ?? undefined })} />
-      <Select label="Ведомый пары" clearable data={mates} value={s.spec.wing ?? null} onChange={(v) => patch({ wing: v ?? undefined })} />
-      <Switch label="Сохранять точки в архив" checked={!!s.spec.backup} onChange={(e) => patch({ backup: e.currentTarget.checked })} />
-      <Switch label="Открыть в приложении Claude" checked={!!s.spec.remote} onChange={(e) => patch({ remote: e.currentTarget.checked })} />
+      {!wide && !off && <DocFields s={s} />}
+      <TextInput label="Папка" className="mono" disabled={off} value={cwd} onChange={(e) => setCwd(e.currentTarget.value)} onBlur={() => cwd !== s.spec.cwd && patch({ cwd })} />
+      <Select label="Проект" clearable disabled={off} data={(people.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={s.spec.project ?? null} onChange={(v) => patch({ project: v ?? undefined })} />
+      <Select label="Ведомый пары" clearable disabled={off} data={mates} value={s.spec.wing ?? null} onChange={(v) => patch({ wing: v ?? undefined })} />
+      <Switch label="Сохранять точки в архив" disabled={off} checked={!!s.spec.backup} onChange={(e) => patch({ backup: e.currentTarget.checked })} />
+      <Switch label="Открыть в приложении Claude" disabled={off} checked={!!s.spec.remote} onChange={(e) => patch({ remote: e.currentTarget.checked })} />
       {s.remoteUrl && <Text size="sm" component="a" href={s.remoteUrl} target="_blank">{s.remoteUrl}</Text>}
       <dl className="kv">
         <dt>Открыл</dt><dd className="mono">{personWord(s.by)}</dd>
         <dt>Открыта</dt><dd>{ago(s.since)}</dd>
-        <dt>Аккаунт</dt><dd>{s.account ?? "—"}</dd>
+        <dt>Аккаунт</dt><dd>{s.account ?? accountWord(s.spec.account)}</dd>
         {s.spec.parent && <><dt>Задачу дала</dt><dd className="mono">{s.spec.parent}</dd></>}
       </dl>
     </Stack>
@@ -54,7 +60,7 @@ function Context({ s }: { s: SessionRow }) {
           {(mcp.data?.servers ?? []).map((m: any) => (
             <Group key={m.name} justify="space-between" wrap="nowrap">
               <span className="mono trunc">{m.name}</span>
-              {m.status === "connected" ? <Badge color="teal">{m.tools} инструментов</Badge> : <Group gap={6} wrap="nowrap"><Badge color="red">{m.error ?? m.status}</Badge><Button size="compact-xs" variant="default" onClick={() => act(sessionCall, { to: s.callsign, method: "mcpReconnect", args: { name: m.name } }, "Переподключаю")}>Переподключить</Button></Group>}
+              {m.status === "connected" ? <Badge color="teal">{nTools(m.tools)}</Badge> : <Group gap={6} wrap="nowrap"><Badge color="red">{m.error ?? m.status}</Badge><Button size="compact-xs" variant="default" onClick={() => act(sessionCall, { to: s.callsign, method: "mcpReconnect", args: { name: m.name } }, "Переподключаю")}>Переподключить</Button></Group>}
             </Group>
           ))}
         </Stack>
@@ -90,13 +96,16 @@ function Points({ s }: { s: SessionRow }) {
   if (list.error) return <Failed error={list.error} retry={list.refetch} />;
   return (
     <Stack gap="xs" p="md">
-      <Button size="xs" variant="default" onClick={async () => (await act(pointsSave, { to: s.callsign }, "Точка сохранена")) && qc.invalidateQueries({ queryKey: ["points.list"] })}>Сохранить точку сейчас</Button>
+      <Group gap="xs">
+        <Button size="xs" variant="default" onClick={async () => (await act(pointsSave, { to: s.callsign }, "Точка сохранена")) && qc.invalidateQueries({ queryKey: ["points.list"] })}>Сохранить точку</Button>
+        {mine && <Button size="xs" variant="subtle" component={Link} to={`/archive/${mine.sid}`}>Открыть в архиве</Button>}
+      </Group>
       <div className="timeline">
         {[...(points.data?.points ?? [])].reverse().map((p) => (
-          <div key={p.point} className="pt">
+          <div key={p.point} className="pt" style={{ cursor: "default" }}>
             <i />
-            <span className="trunc">{hhmm(p.at)} · {p.turns} ходов{p.label ? ` · ${p.label}` : ""}</span>
-            <Button size="compact-xs" variant="subtle" onClick={() => mine && act(pointsRaise, { to: "@" + machineOfCall(s.callsign), sid: mine.sid, point: p.point, name: s.spec.name + "-" + p.point }, "Сессия поднята из точки")}>Поднять</Button>
+            <span className="trunc">{p.label ?? nTurns(p.turns ?? 0)}</span>
+            <span className="muted">{day(p.at)}, {hhmm(p.at)}</span>
           </div>
         ))}
       </div>
@@ -105,11 +114,15 @@ function Points({ s }: { s: SessionRow }) {
 }
 
 function Journal({ s }: { s: SessionRow }) {
-  const j = useCall(machineJournal, { to: "@" + machineOfCall(s.callsign), limit: 30 });
+  // строки только этой сессии: запрос называет её, а что машина прислала сверх — отсеивается здесь
+  const name = nameOfCall(s.callsign);
+  const j = useCall(machineJournal, { to: "@" + machineOfCall(s.callsign), limit: 80, session: s.callsign } as never);
   if (j.error) return <Failed error={j.error} retry={j.refetch} />;
+  const lines = (j.data?.lines ?? []).filter((l) => (l as any).session === s.callsign || (l as any).callsign === s.callsign || new RegExp(`(^|[^\w-])${name}([^\w-]|$)`).test(l.msg));
   return (
     <Stack gap={2} p="md">
-      {(j.data?.lines ?? []).map((l, i) => (
+      {j.data && !lines.length && <Text size="sm" className="muted">Строк об этой сессии нет</Text>}
+      {lines.map((l, i) => (
         <Text key={i} size="xs" className="mono" c={l.level === "error" ? "red" : l.level === "warn" ? "orange" : undefined} style={{ overflowWrap: "anywhere" }}>{hhmm(l.t)} {l.part} · {l.msg}</Text>
       ))}
     </Stack>

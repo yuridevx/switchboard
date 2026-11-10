@@ -14,7 +14,11 @@ async function toBase64(f: File): Promise<string> {
   return btoa(s);
 }
 
-export function Composer({ s, autoFocus }: { s: SessionRow; autoFocus?: boolean }) {
+export function Composer({ s, autoFocus, say, unsay, bind }: {
+  s: SessionRow; autoFocus?: boolean;
+  /** своё сообщение — в ленту сразу; отказ отправки убирает его; bind связывает его с номером сообщения в очереди сессии */
+  say?: (text: string, queued: boolean) => string; unsay?: (id: string) => void; bind?: (local: string, uuid: string) => void;
+}) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [picks, setPicks] = useState<Pick[]>([]);
@@ -43,11 +47,18 @@ export function Composer({ s, autoFocus }: { s: SessionRow; autoFocus?: boolean 
     if ((!body && !files.length) || sending) return;
     setSending(true);
     const attached = await Promise.all(files.map(async (f) => ({ name: f.name, mime: f.type || "application/octet-stream", base64: await toBase64(f) })));
+    const shown = body ? say?.(body, busy) : undefined;
+    setText("");
     const r = await act(message, { to: s.callsign, text: body, ...(attached.length ? { files: attached } : {}) });
     setSending(false);
     if (r) {
-      setText("");
       setFiles([]);
+      const uuid = (r as { uuid?: string }).uuid;
+      if (shown && uuid) bind?.(shown, uuid);
+    } else {
+      // не ушло: текст возвращается в поле, показанное заранее — из ленты
+      if (shown) unsay?.(shown);
+      setText(body);
     }
   };
   const choose = (p: Pick) => {
@@ -87,7 +98,8 @@ export function Composer({ s, autoFocus }: { s: SessionRow; autoFocus?: boolean 
             else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) (e.preventDefault(), void send());
           }}
         />
-        {busy && <Tooltip label="Прервать ход"><Button variant="default" color="red" leftSection={<IconPlayerStop size={15} />} onClick={() => act(sessionCall, { to: s.callsign, method: "interrupt" })}>Прервать</Button></Tooltip>}
+        {busy && <Button className="wide-only" variant="default" leftSection={<IconPlayerStop size={15} />} onClick={() => act(sessionCall, { to: s.callsign, method: "interrupt" })}>Прервать</Button>}
+        {busy && <Tooltip label="Прервать ход"><ActionIcon className="narrow-only" size="lg" variant="default" aria-label="Прервать ход" onClick={() => act(sessionCall, { to: s.callsign, method: "interrupt" })}><IconPlayerStop size={17} /></ActionIcon></Tooltip>}
         <ActionIcon size="lg" variant="filled" aria-label={busy ? "В очередь" : "Отправить"} loading={sending} disabled={dead || (!text.trim() && !files.length)} onClick={send}><IconArrowUp size={18} /></ActionIcon>
       </Group>
     </div>

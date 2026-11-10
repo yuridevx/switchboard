@@ -11,8 +11,17 @@ import { envOf, folders, type Folders } from "./links.ts";
 import { signin, type SignedIn } from "./signin.ts";
 
 type Book = { accounts: Record<string, Account>; order: string[] };
-/** Настройки ключа флота без значения. */
-type KeyConfig = { provider: string; base?: string; model?: string };
+/** Настройки ключа флота без значения: models — имена моделей claude → модели провайдера; window — окно контекста, токены;
+ *  env — окружение сессии; settings — настройки Claude. */
+type KeyConfig = { provider: string; base?: string; model?: string; models?: Record<string, string>; window?: number; env?: Record<string, string>; settings?: Record<string, unknown> };
+
+/** Окружение сессии на ключе флота: alias моделей и окно — родными переменными Claude; сам ключ ставит прокси. */
+export const keyEnv = (c: KeyConfig): Record<string, string> => ({
+  ...c.env,
+  ...Object.fromEntries(Object.entries(c.models ?? {}).filter(([, to]) => to).map(([name, to]) => [`ANTHROPIC_DEFAULT_${name.toUpperCase()}_MODEL`, to])),
+  ...(c.window ? { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(c.window) } : {}),
+  ANTHROPIC_API_KEY: KEY_WORD,
+});
 /** Запись сессии: аккаунт, на котором оборвался ход, и настройки ключа, с которыми она стартует. */
 type Seat = { cut?: string; key?: KeyConfig };
 /** Куда идёт вызов модели сессии: вход Claude как есть — Anthropic; ключ флота — адрес и значение. */
@@ -51,6 +60,8 @@ export function make(): Module {
   let wake: ReturnType<typeof setTimeout> | undefined;
   let tail: Promise<unknown> = Promise.resolve();
   const polls = new Set<{ close(): void }>();
+  /** идущие опросы лимитов: один на аккаунт, второй спросивший ждёт тот же */
+  const polling = new Map<string, Promise<void>>();
   let auth: ReturnType<typeof signin>;
 
   const shelf = () => host.store<Book>();
@@ -124,7 +135,16 @@ export function make(): Module {
     plan();
   }
 
-  async function poll(name: string): Promise<void> {
+  /** Опрос лимитов аккаунта: одновременно — один. */
+  function poll(name: string): Promise<void> {
+    const going = polling.get(name);
+    if (going) return going;
+    const p = pollOnce(name).finally(() => polling.delete(name));
+    polling.set(name, p);
+    return p;
+  }
+
+  async function pollOnce(name: string): Promise<void> {
     if (stopping) return;
     const probe = host.probe({ env: envOf(dirs.accDir(name)) });
     polls.add(probe);
@@ -189,6 +209,8 @@ export function make(): Module {
       });
       if (!current()) await put(email, "первый вход");
       plan();
+      host.log.info("account_login", { why: `${email}: вход` });
+      void host.call(ledgerAdd, { what: "account.login", machine: host.machine, text: `вход ${email} на ${host.machine}` }).catch(() => {});
     });
   }
 
@@ -265,7 +287,7 @@ export function make(): Module {
     },
     async keyRoute(name) {
       const config = await takeKey(name);
-      return { to: config.base ?? ANTHROPIC, key: values.get(name)!, provider: config.provider, env: { ANTHROPIC_API_KEY: KEY_WORD, ...(config.model ? { ANTHROPIC_MODEL: config.model } : {}) } };
+      return { to: config.base ?? ANTHROPIC, key: values.get(name)!, provider: config.provider, env: { ...keyEnv(config), ...(config.model ? { ANTHROPIC_MODEL: config.model } : {}) } };
     },
   };
 
@@ -313,14 +335,34 @@ export function make(): Module {
     host.log.info("account_remove", { why: `${name}: аккаунт удалён` });
   }
 
+  /** «Сменить сейчас»: названный аккаунт или следующий годный по порядку. */
+  async function slotSwap(account: string | undefined): Promise<string> {
+    const cur = current();
+    if (account) {
+      assertLogin(account);
+      if (account === cur) return account;
+      if (!book().order.includes(account)) write((b) => void b.order.push(account));
+      await put(account, "по запросу");
+      settled();
+      return account;
+    }
+    const to = await reserve(cur);
+    if (!to) throw new Refusal("no_reserve", "в очереди нет другого вошедшего аккаунта ниже порога");
+    await put(to, "по запросу");
+    settled();
+    return to;
+  }
+
   function rowOf(name: string, a: Account, t: number): AccountOut {
     const { order } = book();
     const at = order.indexOf(name);
+    const back = a.login === "ok" && !usable(a, t) ? usableAt(a, t) : 0;
     const sessions = host.sessions().filter((s) => s.spec.account === name || (kindOf(s.spec.account) === "auto" && current() === name)).length;
     return {
       id: name, kind: "claude", email: name, ...(a.plan ? { plan: a.plan } : {}),
       limits: Object.entries(shown(a, t).limits).map(([w, v]) => ({ name: w, used: v.utilization, ...(v.resetsAt ? { resets: v.resetsAt * 1000 } : {}) })),
       ...(at >= 0 ? { slot: at } : {}), ok: a.login === "ok", ...(a.login === "ok" ? {} : { why: "входа нет" }), sessions,
+      ...(current() === name ? { current: true } : {}), ...(back ? { wait: back * 1000 } : {}),
     };
   }
 
@@ -360,12 +402,18 @@ export function make(): Module {
         seatOf(s).update((x) => ({ ...x, key: config }));
       }
       // вход пустой: плательщик молча не меняется; сам ключ ставит прокси
-      return { env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: keyHome, ANTHROPIC_API_KEY: KEY_WORD, ...(config.model && !s.spec.model ? { ANTHROPIC_MODEL: config.model } : {}) } };
+      // переменные и настройки ключа — как их завели на флоте: alias моделей, окно контекста
+      return {
+        env: { ...keyEnv(config), CLAUDE_SECURESTORAGE_CONFIG_DIR: keyHome, ...(config.model && !s.spec.model ? { ANTHROPIC_MODEL: config.model } : {}) },
+        ...(config.settings && Object.keys(config.settings).length ? { defaults: { settings: config.settings } } : {}),
+      };
     },
     row(s) {
       const kind = kindOf(s.spec.account);
       const account = kind === "auto" ? current() : s.spec.account;
-      return account ? { account } : {};
+      // очередь ждёт сброса лимита — сессия на ней стоит до этого часа
+      const wait = kind === "auto" ? waitAt() : null;
+      return { ...(account ? { account } : {}), ...(wait ? { wait: wait * 1000 } : {}) };
     },
     on: {
       event(s, m) {
@@ -398,7 +446,7 @@ export function make(): Module {
         const accounts = Object.entries(book().accounts).map(([n, a]) => rowOf(n, a, t));
         // ключи флота: список у службы; не ответила — только входы
         const keys = await within(host.call(keysList, {}), READ_MS).then((r) => r.keys, () => []);
-        for (const k of keys) accounts.push({ id: k.name, kind: "key", ok: true, sessions: host.sessions().filter((s) => s.spec.account === k.name).length });
+        for (const k of keys) accounts.push({ id: k.name, kind: "key", ok: true, sessions: host.sessions().filter((s) => s.spec.account === k.name).length, provider: k.provider, ...(k.base ? { base: k.base } : {}), ...(k.model ? { model: k.model } : {}) });
         return { accounts };
       },
       async "account.login"() {
@@ -416,6 +464,9 @@ export function make(): Module {
       async "slot.set"({ order }: { order: string[] }) {
         await serial(() => slotSet(order));
         return {};
+      },
+      async "slot.swap"({ account }: { account?: string }) {
+        return { account: await serial(() => slotSwap(account)) };
       },
     },
     start(h) {

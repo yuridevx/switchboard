@@ -25,7 +25,7 @@ export interface SessionApi {
   readonly spec: Spec;
   readonly state: SessionState;
   /** разговор claude, папка, кто открыл, модель процесса */
-  readonly info: { sessionId: string; cwd: string; by: string; since: number; last?: number; model: string | null };
+  readonly info: { sessionId: string; cwd: string; by: string; since: number; last?: number; model: string | null; /** как поднят нынешний процесс: attach — процесс пережил подмену Host и ввод у него на руках */ launch?: "spawn" | "resume" | "attach" | "fork" };
   /** текст или блоки — в очередь ввода */
   input(content: unknown, opts?: InputOpts): void;
   /** метод query() или функция SDK о разговоре */
@@ -85,7 +85,7 @@ export interface Module {
   stop?(): void | Promise<void>;
 }
 
-export type OpenOpts = { by: string; prompt?: string; resume?: string; fork?: boolean; mkdir?: boolean };
+export type OpenOpts = { by: string; prompt?: string; resume?: string; fork?: boolean; mkdir?: boolean; /** к имени — первый свободный номер */ number?: boolean };
 
 /** Host глазами модуля. */
 export interface HostApi {

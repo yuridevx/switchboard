@@ -38,6 +38,10 @@ export class Session {
   private run: Run | null = null;
   private inbox: any[] = [];
   private wake = () => {};
+  /** как поднят нынешний процесс */
+  launched: Launch | undefined;
+  /** сколько раз просили перезапуск живого процесса: документ вступит в силу после хода */
+  restarts = 0;
   /** сбои подряд без готовности */
   private falls: string[] = [];
   private turnEnds: Array<() => void> = [];
@@ -70,7 +74,7 @@ export class Session {
         },
         get info() {
           const { sessionId, cwd, by, since, last } = self.rec;
-          return { sessionId, cwd, by, since, last, model: self.model };
+          return { sessionId, cwd, by, since, last, model: self.model, launch: self.launched };
         },
         input: (c, o) => self.input(c, o),
         sdk: (name, ...args) => self.call(name, args),
@@ -90,8 +94,10 @@ export class Session {
 
   /** Строка сессии в картине: поля ядра и вклады модулей. */
   row(): SessionRow {
-    const { callsign, spec, by, since, last, error } = this.rec;
-    return { callsign, state: this.state, spec, by, since, ...(last ? { last } : {}), ...(error && this.state === "failed" ? { error } : {}), ...this.k.rowsOf(this) };
+    const { callsign, spec, by, since, last, error, title } = this.rec;
+    // ведущий пары — тот, у кого эта сессия записана ведомым
+    const lead = [...this.k.sessions.values()].find((x) => x.rec.spec.wing === callsign)?.callsign;
+    return { callsign, state: this.state, spec, by, since, ...(last ? { last } : {}), ...(title ? { title } : {}), ...(lead ? { lead } : {}), ...(error && this.state === "failed" ? { error } : {}), ...this.k.rowsOf(this) };
   }
 
   /** Строка для снимка machine.hello. */
@@ -174,7 +180,7 @@ export class Session {
   /** Как начать разговор: resume — только если файл уже есть; до первого хода его нет, тогда тот же id заново или снова копия. */
   private async plan(kind: Launch): Promise<{ start: Launch; options: Record<string, unknown> }> {
     const { sessionId: id, fork } = this.rec;
-    if (kind === "spawn") return { start: kind, options: { sessionId: id } };
+    if (kind === "spawn") return { start: kind, options: { sessionId: id, ...(this.rec.title ? { title: this.rec.title } : {}) } };
     if (kind === "fork") return { start: kind, options: { resume: fork, forkSession: true, sessionId: id } };
     if (kind === "attach" || (await within(this.k.clock, this.k.sdk.functions.getSessionInfo!(id), STEP_MS, () => undefined))) return { start: kind, options: { resume: id } };
     return this.plan(fork ? "fork" : "spawn");
@@ -194,6 +200,7 @@ export class Session {
     }
     if (kind !== "attach") rec.sdk = k.version;
     k.save();
+    this.launched = plan.start;
     k.log.info("launch", { callsign: this.callsign, start: plan.start, sdk: rec.sdk, sessionId: rec.sessionId });
 
     let held!: (h: Hold) => void;
@@ -366,6 +373,7 @@ export class Session {
   async restart(): Promise<void> {
     const run = this.run;
     if (!run) return this.state === "starting" ? undefined : this.start();
+    this.restarts++;
     if (isBusy(this.state) && !(await this.turn(RESTART_MS))) {
       this.k.log.warn("restart_late", { callsign: this.callsign, why: `ход не кончился за ${RESTART_MS / 3_600_000} ч — перезапуск отменён` });
       return;

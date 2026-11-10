@@ -5,7 +5,7 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  "assets": { "directory": "../web/dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/call", "/mcp", "/f/*", "/m/*", "/health", "/telegram", "/telegram/*"] },
+  "assets": { "directory": "../web/dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/call", "/mcp", "/f/*", "/m/*", "/health", "/telegram/*", "/token", "/.well-known/*"] },
   "services": [{ "binding": "PLATFORM", "service": "sb2-platform", "entrypoint": "Platform" }],
   "durable_objects": { "bindings": [{ "name": "RECORDS", "class_name": "Records" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Records"] }],
@@ -15,5 +15,6 @@
     "consumers": [{ "queue": "sb2-analytics", "max_batch_size": 10, "max_retries": 3 }]
   },
   "vars": { "FILES_BUCKET": "sb2-files", "VAPID_SUB": "mailto:fleet@example.com" }
-  // Секреты (wrangler secret put): R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, VAPID_PRIVATE, TELEGRAM_BOT_TOKEN, TELEGRAM_BOT, CH_URL, CH_USER, CH_PASSWORD
+  // Секреты (wrangler secret put): R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, VAPID_PRIVATE, CH_URL, CH_USER, CH_PASSWORD.
+  // Бот Telegram — у каждого флота свой: его токен админ записывает запросом reach.bot, в секретах Worker'а его нет.
 }

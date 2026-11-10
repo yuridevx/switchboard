@@ -70,7 +70,7 @@ export function createMock(o: MockOptions = {}) {
   add(row("design@anya-pc", "idle", "site", { title: "Палитра и сетка", by: ANYA, unread: [ME, ANYA], result: "Тёмный вариант готов: фон #0F1413, контраст 11,4 : 1. Оба варианта лежат рядом, выберите один.", last: T - 41 * MIN, account: "anya@example.com", pieces: ["base", "web"] }));
   add(row("forms@anya-pc", "waiting", "site", { title: "Форма заявки", by: ANYA, last: T - 9 * MIN, account: "anya@example.com", pieces: ["base", "web"],
     ask: ask({ kind: "form", title: "Доступ к почтовому серверу", text: "Нужны данные почтового сервера для отправки заявок.", schema: { type: "object", required: ["host", "user"], properties: { host: { type: "string", title: "Сервер" }, port: { type: "number", title: "Порт", default: 587 }, user: { type: "string", title: "Пользователь" } } } }, 9) }));
-  add(row("crawler@base2", "busy", "research", { title: "Сбор цен конкурентов", doing: "Последнее известное: шёл обход каталога", last: T - 3 * HOUR, pieces: ["base", "research"] }));
+  add(row("crawler@base2", "busy", "research", { title: "Сбор цен конкурентов", doing: "Обходит каталог цен", last: T - 3 * HOUR, pieces: ["base", "research"] }));
   add(row("backup@base2", "idle", "infra", { title: "Проверка резервных копий", last: T - 9 * HOUR, pieces: ["base", "ops"] }));
 
   /* ===== Разговоры ===== */
@@ -95,6 +95,8 @@ export function createMock(o: MockOptions = {}) {
   talk("backup@base2").push(...shortTurn(T - 9 * HOUR, "Проверь, что ночные копии читаются.", "Копии за 7 ночей читаются, размеры от 1,9 до 2,2 ГБ."));
 
   const live = new Map<string, Live>();
+  /** сообщения, которые ждут конца идущего хода */
+  const queue = new Map<string, Array<{ uuid: string; text: string }>>();
   const startLive = (c: string, about: string, then?: () => void) => live.set(c, { steps: liveSteps(now, about), then });
   startLive("site@laptop", "подвал сайта");
   startLive("ingest@server", "ночная выгрузка");
@@ -132,7 +134,9 @@ export function createMock(o: MockOptions = {}) {
     cwd: `~/projects/${name}`, project: ["site", "site", "research", "infra", "infra", "infra", "site", "site", "research", "site", "infra", "infra"][i], points: points as number,
     last: T - (minAgo as number) * MIN, bytes: 400_000 + i * 173_000, tokens: 180_000 + i * 61_000,
   }));
-  const archPoints = (s: ArchSession): ArchPoint[] => Array.from({ length: s.points }, (_, i) => ({ point: `p${i + 1}`, at: s.last - (s.points - 1 - i) * 47 * MIN, turns: 2 + i * 3, bytes: 60_000 + i * 41_000, ...(i === s.points - 1 ? { label: "последняя" } : i === 0 ? { label: "начало" } : {}), git: (0xa41f9c2 + i * 7919).toString(16).slice(0, 7) }));
+  const POINT_LABELS = ["Задача принята, план из трёх шагов", "Найдена причина: стили меню на узких экранах", "Правка внесена, тесты 5 из 6", "Тесты 6 из 6, снимки приложены", "Ревью: два замечания исправлены", "Раздел дописан, ссылки проверены", "Откат правки: ломала вход", "Вторая попытка: тесты зелёные", "Выложено на тестовый стенд", "Готово: итог отправлен"];
+  /** Точка называется тем, чем закончился ход. */
+  const archPoints = (s: ArchSession): ArchPoint[] => Array.from({ length: s.points }, (_, i) => ({ point: `p${i + 1}`, at: s.last - (s.points - 1 - i) * 47 * MIN, turns: 2 + i * 3, bytes: 60_000 + i * 41_000, label: POINT_LABELS[(i + (s.points > POINT_LABELS.length ? 0 : POINT_LABELS.length - s.points)) % POINT_LABELS.length], git: (0xa41f9c2 + i * 7919).toString(16).slice(0, 7) }));
   const builds = { stable: 412 as number | null, pins: { base2: 410 } as Record<string, number>, builds: [412, 411, 410, 409].map((b, i) => ({ build: b, at: T - (i * 26 + 3) * HOUR, commit: ["9d5fdbb", "fe5e628", "19ac492", "2fb7d26"][i], note: ["Вопрос в строке сессии; правка ленты", "Архив: поиск по словам", "Права по проектам", "Один сервер MCP"][i], files: ["host.tgz", "keeper-windows.exe", "keeper-linux"] })) };
   const passes: PassRow[] = [
     { kid: "k1a2b3", addr: "pult" + ME, person: ME, wait: false, at: T - 40 * DAY, seen: T - MIN },
@@ -258,7 +262,13 @@ export function createMock(o: MockOptions = {}) {
       if (events.some((e) => e.type === "result")) {
         live.delete(c);
         const said = events.flatMap((e) => (e.type === "assistant" ? (e.message.content as any[]) : [])).findLast((b) => b.type === "text")?.text as string | undefined;
-        setRow(c, { state: "idle", doing: undefined, last: now(), unread: watched.has(c) ? [] : [ME], ...(said ? { result: said.replace(/[`*#|]/g, "").slice(0, 200) } : {}) });
+        const next = queue.get(c)?.shift();
+        if (next) {
+          // очередь: следующее сообщение уходит сессии, ход продолжается
+          emit(c, [say(next.text, now())]);
+          startLive(c, next.text.slice(0, 40));
+          setRow(c, { doing: "Читает сообщение из очереди", last: now() });
+        } else setRow(c, { state: "idle", doing: undefined, last: now(), unread: watched.has(c) ? [] : [ME], ...(said ? { result: said.replace(/[`*#|]/g, "").slice(0, 200) } : {}) });
         l.then?.();
       } else if (tool) setRow(c, { doing: DOING[tool.name]?.(tool.input) ?? tool.name });
     }
@@ -350,6 +360,13 @@ export function createMock(o: MockOptions = {}) {
     "session.remove": (f) => (setRow(String(f.to), null), {}),
     "session.call": (f) => {
       const { c } = sess(f);
+      if (f.method === "cancelMessage") {
+        const list = queue.get(c) ?? [];
+        const i = list.findIndex((m) => m.uuid === f.args?.uuid);
+        if (i < 0) throw new Refusal("not_found", "сообщения нет в очереди: оно уже ушло сессии");
+        list.splice(i, 1);
+        return {};
+      }
       if (f.method === "interrupt") {
         live.delete(c);
         emit(c, [say("[Request interrupted by user]", now())]);
@@ -366,8 +383,12 @@ export function createMock(o: MockOptions = {}) {
     },
     message: (f) => {
       const { c, s } = sess(f);
+      if (s.state === "busy") {
+        const uuid = uid("m");
+        (queue.get(c) ?? (queue.set(c, []), queue.get(c)!)).push({ uuid, text: String(f.text) });
+        return { queued: true, uuid };
+      }
       emit(c, [say(f.text, now())]);
-      if (s.state === "busy") return { queued: true };
       startLive(c, String(f.text).slice(0, 40));
       setRow(c, { state: "busy", doing: "Читает сообщение", unread: [], error: undefined });
       return {};
@@ -483,11 +504,11 @@ export function createMock(o: MockOptions = {}) {
         else builds.pins[f.machine] = f.build;
       } else builds.stable = f.build;
       ledger.unshift({ id: "e" + newId(), at: now(), what: "builds.deployed", who: MY_ADDR, text: f.machine ? `${f.machine} закреплена на сборке ${f.build ?? "флота"}` : `Сборка ${f.build} назначена флоту` });
-      setTimeout(() => {
-        const ms = Object.values(machines).filter((m) => m.online && (f.machine ? m.name === f.machine : !(m.name in builds.pins)));
-        for (const m of ms) m.build = (f.machine ? f.build : builds.stable) ?? builds.stable ?? m.build;
-        delta({ machines: ms });
-      }, 1500);
+      const target = (f.machine ? f.build : builds.stable) ?? builds.stable;
+      Object.values(machines).filter((m) => m.online && (f.machine ? m.name === f.machine : !(m.name in builds.pins))).forEach((m, i) => setTimeout(() => {
+        machines[m.name] = { ...machines[m.name], build: target ?? m.build };
+        delta({ machines: [machines[m.name]] });
+      }, 1500 * (i + 1)));
       return {};
     },
     "ledger.read": (f) => {
@@ -506,7 +527,7 @@ export function createMock(o: MockOptions = {}) {
         if (!q) return [a];
         const line = talk(a.callsign).flatMap((e) => (e.type === "assistant" ? (e.message.content as any[]).filter((b) => b.type === "text").map((b) => String(b.text)) : typeof e.message?.content === "string" ? [e.message.content] : [])).flatMap((t) => t.split("\n")).find((l) => l.toLowerCase().includes(q));
         const hit = line ?? (a.title?.toLowerCase().includes(q) ? a.title : undefined);
-        return hit ? [{ ...a, hit: hit.slice(0, 160) }] : [];
+        return hit ? [{ ...a, hit: hit.slice(0, 160), hitPoint: `p${Math.max(1, a.points - 1)}` }] : [];
       });
       return { sessions: found.sort((a, b) => b.last - a.last), more: false };
     },
@@ -547,7 +568,6 @@ export function createMock(o: MockOptions = {}) {
       if (analyticsDown) throw new Refusal("analytics_unavailable", "ClickHouse не ответил за 10 с");
       const days = Math.max(1, Math.round((Date.parse(f.until) - Date.parse(f.since)) / DAY) + 1);
       const mk = (key: string, w: number, i: number) => ({ key, calls: Math.round(w * (120 + i * 17)), input: Math.round(w * 2.1e6), output: Math.round(w * 4.2e5), cacheRead: Math.round(w * 2.6e7), cacheWrite: Math.round(w * 3.1e6), cost: Math.round(w * 38.4 * 100) / 100 });
-      if (f.by === "day") return { rows: Array.from({ length: days }, (_, i) => mk(new Date(Date.parse(f.since) + i * DAY).toISOString().slice(0, 10), 0.5 + ((i * 37) % 11) / 9, i)) };
       const KEYS: Record<string, Array<[string, number]>> = {
         model: [["claude-fable-5-2", 4.2], ["claude-sonnet-5-5", 1.6], ["claude-opus-5-5", 0.9], ["glm-abliterated", 0.3]],
         machine: [["server", 3.1], ["laptop", 2.7], ["anya-pc", 1.0], ["base2", 0.2]],
@@ -555,6 +575,17 @@ export function createMock(o: MockOptions = {}) {
         person: [["~yuri@example.com", 5.6], ["~anya@example.com", 1.2], ["~oleg@example.com", 0.2]],
         project: [["infra", 3.0], ["site", 2.8], ["research", 1.2]],
       };
+      if (f.by === "day") {
+        return { rows: Array.from({ length: days }, (_, i) => {
+          const r = mk(new Date(Date.parse(f.since) + i * DAY).toISOString().slice(0, 10), 0.5 + ((i * 37) % 11) / 9, i);
+          const cut = f.split ? KEYS[f.split as string] : undefined;
+          if (!cut) return r;
+          const sum = cut.reduce((a, [, w]) => a + w, 0);
+          // доли слоёв немного гуляют по дням
+          const raw = cut.map(([k, w], j) => [k, w * (0.7 + ((i * 5 + j * 3) % 7) / 10)] as const), rawSum = raw.reduce((a, [, w]) => a + w, 0);
+          return { ...r, parts: Object.fromEntries(raw.map(([k, w]) => [k, Math.round((r.cost * w * sum) / (rawSum * sum) * 100) / 100])) };
+        }) };
+      }
       return { rows: KEYS[f.by].map(([k, w], i) => mk(k, (w * days) / 7, i)) };
     },
     "obs.recent": (f) => {
@@ -591,7 +622,7 @@ export function createMock(o: MockOptions = {}) {
     let r: Reply;
     try {
       if (!h) throw new Refusal("unknown_request", `${f.type} здесь не обслуживается`);
-      r = ok(f.id!, h(f));
+      r = ok(f.id!, structuredClone(h(f)));
     } catch (e) {
       r = e instanceof Refusal ? fail(f.id!, e.word, e.why) : fail(f.id!, "module_failed", e instanceof Error ? e.message : String(e));
     }

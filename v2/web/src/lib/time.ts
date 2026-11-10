@@ -30,3 +30,13 @@ export function plural(n: number, one: string, few: string, many: string) {
 export const LIMIT_NAMES: Record<string, string> = { five_hour: "5 ч", seven_day: "неделя", seven_day_opus: "неделя opus", seven_day_sonnet: "неделя sonnet" };
 export const num = (n: number) => n.toLocaleString("ru-RU");
 export const kilo = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1).replace(".", ",")} млн` : n >= 1000 ? `${Math.round(n / 1000)} тыс` : String(n));
+
+/** Число со словом в нужной форме — одна функция на всю страницу. */
+export const count = (n: number, one: string, few: string, many: string) => `${n} ${plural(n, one, few, many)}`;
+export const nPoints = (n: number) => count(n, "точка", "точки", "точек");
+export const nTurns = (n: number) => count(n, "ход", "хода", "ходов");
+export const nTools = (n: number) => count(n, "инструмент", "инструмента", "инструментов");
+export const nActions = (n: number) => count(n, "действие", "действия", "действий");
+export const nDays = (n: number) => count(n, "день", "дня", "дней");
+export const nMachines = (n: number) => count(n, "машина", "машины", "машин");
+export const nSessions = (n: number) => count(n, "сессия", "сессии", "сессий");

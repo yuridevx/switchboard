@@ -195,8 +195,8 @@ describe("accounts", () => {
     st.services.handlers["keys.list"] = () => ({ keys: [{ name: "team-key", provider: "anthropic", at: 1, tail: "…abcd" }] });
     const r = await st.request("account.list", { to: "@laptop" });
     expect((r.result as any).accounts).toEqual([
-      { id: "a@example.com", kind: "claude", email: "a@example.com", plan: "max", limits: [{ name: "five_hour", used: 0.5, resets: (at + 600) * 1000 }], slot: 0, ok: true, sessions: 0 },
-      { id: "team-key", kind: "key", ok: true, sessions: 0 },
+      { id: "a@example.com", kind: "claude", email: "a@example.com", plan: "max", limits: [{ name: "five_hour", used: 0.5, resets: (at + 600) * 1000 }], slot: 0, ok: true, sessions: 0, current: true },
+      { id: "team-key", kind: "key", ok: true, sessions: 0, provider: "anthropic" },
     ]);
   });
 });

@@ -2,7 +2,7 @@
 // Состояние репозитория живёт в памяти Host: следующее сведение узнает его заново. Список репозиториев — настройка флота; машина её не хранит.
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { githubToken, prefsGet, READ_MS, Refusal, within, type Piece as PieceOut } from "@sb/protocol";
+import { githubToken, prefsGet, READ_MS, Refusal, within, type Piece as PieceOut, type RepoClone } from "@sb/protocol";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
 import { splitId } from "./folder.ts";
 import { assemble, BadPieces, namesIn, nearMemory, readPiece, valuesOf, type Assembly } from "./pieces.ts";
@@ -155,6 +155,13 @@ export function make(o: { git?: Git } = {}): Module {
 
   const piecesOf = (s: SessionApi) => s.spec.pieces ?? [];
 
+  /** Клоны машины строками: что с каждым сейчас. */
+  const clones = (only?: Set<string>): RepoClone[] =>
+    [...repos].filter(([repo, r]) => !r.gone && (!only || only.has(repo))).map(([repo, r]) => ({
+      repo, state: r.state.state, ...(r.state.op ? { op: r.state.op } : {}), ...(r.state.files?.length ? { files: r.state.files } : {}),
+      ...(r.state.error ? { error: r.state.error } : {}), dir: cloneOf(repo), ...(r.state.at ? { at: r.state.at } : {}),
+    }));
+
   return {
     name: "host-profiles",
     spec: {
@@ -196,11 +203,33 @@ export function make(o: { git?: Git } = {}): Module {
             pieces.push(pieceOf(`${repo}/${e.name}`, join(clone, e.name), repo, r.state));
           }
         }
-        return { pieces };
+        return { pieces, repos: clones() };
+      },
+      /** «Свести сейчас»: весь список флота или только репозитории кусочков одной сессии. */
+      async "profile.sync"({ session }: { session?: string }) {
+        if (!session) {
+          await tick();
+          if (skipped) throw new Refusal(skipped, skipped === "no_repos" ? `ключа ${PROFILE_REPOS} нет в настройках флота` : "настройки флота не ответили");
+          return { repos: clones() };
+        }
+        const s = host.session(session);
+        if (!s) throw new Refusal("not_found", `сессии ${session} нет на ${host.machine}`);
+        const only = new Set(piecesOf(s).flatMap((id) => splitId(id)?.repo ?? []));
+        if (!repos.size) await tick();
+        await Promise.all([...only].map(kick));
+        return { repos: clones(only) };
       },
       "profile.view"({ pieces }: { pieces: string[] }) {
-        const v = viewOf(check(pieces));
+        const a = check(pieces);
+        const v = viewOf(a);
+        const append = nearMemory(a.near);
         return {
+          // подробности: что встанет в промпт, дерево наборов, победители и проигравшие настроек, файлы и то, что Claude не подключит
+          prompt: { ...v.prompt, ...(append ? { append } : {}) },
+          tree: v.tree,
+          settings: v.settings,
+          files: v.files,
+          other: v.other,
           items: [
             ...v.skills.map((x) => ({ kind: "skill", name: x.name, piece: x.from, path: x.path, about: x.description })),
             ...v.agents.map((x) => ({ kind: "agent", name: x.name, piece: x.from, path: x.path, about: x.description })),

@@ -26,14 +26,14 @@ async function hkdf(salt: Uint8Array, ikm: Uint8Array, info: Uint8Array, bytes: 
   return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, key, bytes * 8));
 }
 
-/** Тело пуша для подписки браузера (p256dh, auth): свой ключ ECDH и соль на каждое сообщение. */
-export async function encrypt(plain: Uint8Array, p256dh: Uint8Array, auth: Uint8Array): Promise<Uint8Array> {
-  const own = (await crypto.subtle.generateKey(P256, true, ["deriveBits"])) as CryptoKeyPair;
+/** Тело пуша для подписки браузера (p256dh, auth): свой ключ ECDH и соль на каждое сообщение. fixed — ключ и соль эталона стандарта: только для проверки. */
+export async function encrypt(plain: Uint8Array, p256dh: Uint8Array, auth: Uint8Array, fixed?: { own: CryptoKeyPair; salt: Uint8Array }): Promise<Uint8Array> {
+  const own = fixed?.own ?? ((await crypto.subtle.generateKey(P256, true, ["deriveBits"])) as CryptoKeyPair);
   const ownPublic = new Uint8Array((await crypto.subtle.exportKey("raw", own.publicKey)) as ArrayBuffer);
   const browser = await crypto.subtle.importKey("raw", p256dh, P256, false, []);
   const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: browser } as never, own.privateKey, 256));
   const ikm = await hkdf(auth, shared, concat(enc.encode("WebPush: info\0"), p256dh, ownPublic), 32);
-  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const salt = fixed?.salt ?? crypto.getRandomValues(new Uint8Array(16));
   const cek = await hkdf(salt, ikm, enc.encode("Content-Encoding: aes128gcm\0"), 16);
   const nonce = await hkdf(salt, ikm, enc.encode("Content-Encoding: nonce\0"), 12);
   const key = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]);

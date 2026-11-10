@@ -22,6 +22,7 @@ import { theme } from "./theme.ts";
 // Редкие разделы — отдельными кусками сборки: графики и таблицы не грузятся, пока их не открыли.
 const Archive = lazy(() => import("./screens/Archive.tsx").then((m) => ({ default: m.Archive })));
 const Fleet = lazy(() => import("./screens/Fleet.tsx").then((m) => ({ default: m.Fleet })));
+const Machine = lazy(() => import("./screens/Machine.tsx").then((m) => ({ default: m.Machine })));
 const Observe = lazy(() => import("./screens/Observe.tsx").then((m) => ({ default: m.Observe })));
 const Settings = lazy(() => import("./screens/Settings.tsx").then((m) => ({ default: m.Settings })));
 const Spend = lazy(() => import("./screens/Spend.tsx").then((m) => ({ default: m.Spend })));
@@ -39,6 +40,7 @@ const router = createHashRouter([
       { path: "archive/:sid?", element: late(<Archive />) },
       { path: "spend", element: late(<Spend />) },
       { path: "fleet/:tab?", element: late(<Fleet />) },
+      { path: "machine/:name", element: late(<Machine />) },
       { path: "observe/:tab?", element: late(<Observe />) },
       { path: "settings/:tab?", element: late(<Settings />) },
       { path: "*", element: <Navigate to="/inbox" replace /> },

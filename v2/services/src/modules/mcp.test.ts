@@ -7,7 +7,7 @@ async function rpc(s: Stand, method: string, params: unknown, as: string | null 
   const headers: Record<string, string> = { "content-type": "application/json", ...extra };
   if (as) headers.authorization = "Bearer " + s.key(as);
   const res = await s.http("/mcp", { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", ...(id === null ? {} : { id }), method, params }) });
-  return { status: res.status, body: (res.status === 202 ? {} : await res.json()) as Rpc };
+  return { status: res.status, headers: res.headers, body: (res.headers.get("content-type")?.includes("json") ? await res.json() : {}) as Rpc };
 }
 
 describe("сервер MCP", () => {

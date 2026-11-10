@@ -3,11 +3,8 @@ import type { PlatformApi } from "@sb/platform";
 import type { Logger, Who } from "@sb/protocol";
 import type { Records } from "./records.ts";
 
-/** Вход платформы. alive — живые из названных номеров пропусков: пока платформа его не отдала, отозванные не отсеиваются. */
-export type Platform = PlatformApi & {
-  fetch?(req: Request): Promise<Response>;
-  alive?(fleet: string, kids: string[]): Promise<string[]>;
-};
+/** Вход платформы по её договору. */
+export type Platform = PlatformApi;
 
 /** Записка очереди аналитики: «точка сохранена». */
 export type PointNote = { fleet: string; machine: string; sid: string; point: string };
@@ -25,9 +22,6 @@ export interface Env {
   /** закрытый ключ VAPID — JWK строкой */
   VAPID_PRIVATE?: string;
   VAPID_SUB?: string;
-  TELEGRAM_BOT_TOKEN?: string;
-  /** имя бота без @ */
-  TELEGRAM_BOT?: string;
   /** ClickHouse в стороне: нет адреса — аналитика выключена */
   CH_URL?: string;
   CH_USER?: string;

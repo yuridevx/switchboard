@@ -40,8 +40,11 @@ function initLines(m: Msg): Line[] {
   return lines;
 }
 
-type JournalQuery = { part?: string; level?: "info" | "warn" | "error"; before?: number; limit?: number; of?: string };
+type JournalQuery = { part?: string; level?: "info" | "warn" | "error"; before?: number; limit?: number; of?: string; session?: string; since?: number; kind?: "stop" | "refuse" | "note" };
 const RANK = { info: 0, warn: 1, error: 2 };
+const STOPS = /^(session_failed|session_exited|session_os_stop|stop|stop_late|shutdown|shutdown_late|exit|link_stopped|orphan_kill|initialize_late|sdk\.result|sdk\.rate_limit|host_failed)$/;
+/** Вид строки: stop — остановки и сбои, refuse — отказы запросам, note — остальное. */
+export const lineKind = (l: LogLine): "stop" | "refuse" | "note" => (l.msg === "request" ? (l.ok === false ? "refuse" : "note") : STOPS.test(l.msg) || l.level === "error" ? "stop" : "note");
 
 /** Строки журнала машины до before, новые первыми. Чтение не держит поток Host; остановка Host его обрывает. */
 async function journal(dir: string, q: JournalQuery, signal: AbortSignal): Promise<{ lines: LogLine[]; more: boolean }> {
@@ -51,10 +54,16 @@ async function journal(dir: string, q: JournalQuery, signal: AbortSignal): Promi
   const dayOf = (name: string) => FILE.exec(name)?.[1];
   const lastDay = q.before === undefined ? "9999" : new Date(before).toISOString().slice(0, 10);
   const days = [...new Set(names.map(dayOf))].filter((d): d is string => !!d && d <= lastDay).sort().reverse();
-  const wanted = (l: LogLine) => typeof l.t === "number" && l.t < before && (!q.part || l.part === q.part) && (!q.level || RANK[l.level] >= RANK[q.level]) && (!q.of || l.trace === q.of);
+  const since = q.since ?? 0;
+  const firstDay = q.since === undefined ? "0000" : new Date(since).toISOString().slice(0, 10);
+  // строка о сессии называет её полем callsign или адресатом запроса
+  const about = (l: LogLine) => l.callsign === q.session || l.to === q.session;
+  const wanted = (l: LogLine) =>
+    typeof l.t === "number" && l.t < before && l.t >= since && (!q.part || l.part === q.part) && (!q.level || RANK[l.level] >= RANK[q.level]) && (!q.of || l.trace === q.of) &&
+    (!q.session || about(l)) && (!q.kind || lineKind(l) === q.kind);
   const found: LogLine[] = [];
   for (const day of days) {
-    if (found.length > limit) break;
+    if (found.length > limit || day < firstDay) break;
     const lines: LogLine[] = [];
     for (const n of names.filter((x) => dayOf(x) === day && (!q.part || x.startsWith(`${q.part}-`)))) {
       for (const text of (await readFile(join(dir, n), { encoding: "utf8", signal })).split("\n")) {

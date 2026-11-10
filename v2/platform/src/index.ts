@@ -1,6 +1,6 @@
 // Вход платформы: адреса соединений, заведение флота и вход привязки для служб.
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { fail, type Frame, keeperAddr, kindOf, machineAddr, machineOf, type MachineRow, parsePass, type Reply, type Who } from "@sb/protocol";
+import { fail, type Frame, keeperAddr, kindOf, machineAddr, machineOf, type MachineRow, parsePass, READ_MS, type Reply, type SessionRow, type Who, within } from "@sb/protocol";
 import { type PlatformApi, ROUTES } from "./contract.ts";
 import { type Drop, type Env, fleetStub, log, machineStub } from "./env.ts";
 
@@ -16,8 +16,40 @@ async function dropAll(env: Env, fleet: string, d: Drop, extra: string[] = []): 
   await Promise.all([...names].map((m) => machineStub(env, fleet, m).drop(d)));
 }
 
-/** Методы платформы для служб. Отдельной функцией — чтобы вызывать и из тестов. */
-export function platformApi(env: Env): PlatformApi {
+/** Описание клиента OAuth по его адресу (client_id — URL): адрес возврата обязан быть в redirect_uris. Loopback — с любым портом (RFC 8252).
+ *  Ответ — имя и адрес клиента для экрана согласия или причина отказа словами. */
+export async function clientDoc(f: typeof fetch, client: string, back: string): Promise<{ name?: string; uri?: string } | { why: string }> {
+  let want: URL;
+  try {
+    if (new URL(client).protocol !== "https:") return { why: "адрес описания клиента — не https" };
+    want = new URL(back);
+  } catch {
+    return { why: "client и back — адреса" };
+  }
+  let doc: { client_id?: unknown; redirect_uris?: unknown; client_name?: unknown; client_uri?: unknown };
+  try {
+    const res = await within(f(client, { headers: { accept: "application/json" } }), READ_MS, "описание клиента " + client + " молчит");
+    if (!res.ok) return { why: "описание клиента " + client + ": " + res.status };
+    doc = await res.json();
+  } catch (e) {
+    return { why: "описание клиента " + client + ": " + (e instanceof Error ? e.message : String(e)) };
+  }
+  if (!doc || doc.client_id !== client) return { why: "описание клиента " + client + ": client_id не совпадает с адресом" };
+  const loop = (u: URL) => ["127.0.0.1", "[::1]", "localhost"].includes(u.hostname);
+  const same = (u: string) => {
+    try {
+      const x = new URL(u);
+      return loop(x) && loop(want) ? x.protocol === want.protocol && x.hostname === want.hostname && x.pathname === want.pathname : x.href === want.href;
+    } catch {
+      return false;
+    }
+  };
+  if (!Array.isArray(doc.redirect_uris) || !doc.redirect_uris.some((u) => typeof u === "string" && same(u))) return { why: back + " нет в redirect_uris клиента " + client };
+  return { ...(typeof doc.client_name === "string" ? { name: doc.client_name } : {}), ...(typeof doc.client_uri === "string" ? { uri: doc.client_uri } : {}) };
+}
+
+/** Методы платформы для служб. Отдельной функцией — чтобы вызывать и из тестов; net — сеть (в тестах подменяется). */
+export function platformApi(env: Env, net: typeof fetch = fetch): PlatformApi {
   return {
     async who(key, as) {
       const p = parsePass(key);
@@ -30,9 +62,20 @@ export function platformApi(env: Env): PlatformApi {
       const name = fleet || parsePass(frame.invite)?.fleet || "";
       if (!NAME.test(name)) return fail(frame.id ?? "", "bad_input", "флот не назван");
       const before = frame.type === "revoke" || frame.type === "people.remove" ? (await fleetStub(env, name).machines()).map((m) => m.name) : [];
+      // согласие OAuth: описание клиента сверяет вход — объект флота в сеть не ходит
+      let doc: { name?: string; uri?: string } | null = null;
+      if (frame.type === "consent") {
+        const got = await clientDoc(net, String(frame.client ?? ""), String(frame.back ?? ""));
+        if ("why" in got) {
+          log.warn("согласие отказано", { fleet: name, type: frame.type, trace: frame.trace, from: who?.addr, word: "bad_client", why: got.why });
+          return { ...fail(frame.id ?? "", "bad_client", got.why), trace: frame.trace, spans: [{ part: "platform", ms: Date.now() - t0 }] };
+        }
+        doc = got;
+      }
       // ответ несёт произвольный result: типы RPC его не выводят
       const { reply, drop } = (await fleetStub(env, name).call(name, who, frame)) as unknown as { reply: Reply; drop?: Drop };
       if (drop) await dropAll(env, name, drop, before);
+      if (doc && reply.ok) (reply.result as { client: object }).client = doc;
       const ms = Date.now() - t0;
       log.info("запрос объекту флота", { fleet: name, type: frame.type, trace: frame.trace, from: who?.addr, ms, ok: reply.ok, ...(reply.ok ? {} : { word: reply.error, why: reply.why }) });
       return { ...reply, trace: frame.trace, spans: [{ part: "platform", ms }] };
@@ -55,6 +98,8 @@ export function platformApi(env: Env): PlatformApi {
     alive: (fleet, kids) => fleetStub(env, fleet).alive(kids),
     fetch: (request) => route(request, env),
     machines: (fleet): Promise<MachineRow[]> => fleetStub(env, fleet).machines(),
+    sessions: (fleet): Promise<SessionRow[]> => fleetStub(env, fleet).sessions() as Promise<SessionRow[]>,
+    admins: (fleet) => fleetStub(env, fleet).admins(),
   };
 }
 
@@ -84,6 +129,12 @@ export class Platform extends WorkerEntrypoint<Env> implements PlatformApi {
   }
   machines(fleet: string) {
     return platformApi(this.env).machines(fleet);
+  }
+  sessions(fleet: string) {
+    return platformApi(this.env).sessions(fleet);
+  }
+  admins(fleet: string) {
+    return platformApi(this.env).admins(fleet);
   }
 }
 

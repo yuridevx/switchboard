@@ -1,7 +1,7 @@
 // Объект машины: соединения её Host, Keeper и зрителей; доставка кадров и ответов. Один на машину; своих записей не ведёт.
 import { DurableObject } from "cloudflare:workers";
 import { CALL_MS, fail, type Frame, isReply, kindOf, machineAddr, machineOf, parseFrame, parsePass, PROTO, type Reply, type SessionRow } from "@sb/protocol";
-import { type Card, cardOf, type Drop, type Env, fleetStub, log, machineStub, send, shut } from "./env.ts";
+import { type Card, cardOf, type Drop, type Env, fleetStub, helloLimit, log, machineStub, send, shut } from "./env.ts";
 
 type Live = Extract<Card, { kid: string }>;
 type Waiting = { resolve: (r: Reply) => void; role: "host" | "keeper"; timer: ReturnType<typeof setTimeout> };
@@ -113,6 +113,7 @@ export class MachineObject extends DurableObject<Env> {
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
     pair[1].serializeAttachment({ role: "new", fleet, machine } satisfies Card);
+    helloLimit(pair[1], this.env);
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 

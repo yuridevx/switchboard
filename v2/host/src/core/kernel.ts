@@ -25,8 +25,12 @@ const KILL_MS = 30_000;
 const OWN_ENV = /^(CLAUDE|ANTHROPIC)_/i;
 const KEPT_ENV = new Set(["CLAUDE_CODE_GIT_BASH_PATH", "CLAUDE_CONFIG_DIR"]);
 /** Опции query(), которые держит ядро: процесс, разговор, решения. */
-const CORE_OPTIONS = new Set(["prompt", "cwd", "resume", "sessionId", "forkSession", "continue", "allowDangerouslySkipPermissions", "spawnClaudeCodeProcess", "canUseTool", "onElicitation", "systemPrompt", "abortController", "pathToClaudeCodeExecutable"]);
-export const MODES: Record<string, string> = { all: "bypassPermissions", ask: "default", plan: "plan", edits: "acceptEdits" };
+const CORE_OPTIONS = new Set(["prompt", "cwd", "resume", "sessionId", "forkSession", "continue", "allowDangerouslySkipPermissions", "spawnClaudeCodeProcess", "canUseTool", "onElicitation", "systemPrompt", "abortController", "pathToClaudeCodeExecutable", "title"]);
+export const MODES: Record<string, string> = { all: "bypassPermissions", ask: "default", plan: "plan", edits: "acceptEdits", auto: "auto" };
+/** Ключ документа → настройка Claude: вступает в силу сразу у живой сессии и стоит в опциях запуска. */
+export const FLAGS = { effort: "effortLevel", fast: "fastMode", style: "outputStyle", thinking: "alwaysThinkingEnabled" } as const;
+/** Сколько знаков первого сообщения идёт в заголовок. */
+const TITLE_MAX = 80;
 
 export type Sdk = {
   query(p: { prompt: AsyncIterable<any>; options: Record<string, unknown> }): any;
@@ -174,6 +178,11 @@ export class Kernel {
     for (const m of this.mods) this.guard(m, "on.changed", undefined, () => m.on?.changed?.(what));
   }
 
+  /** Есть ли на этой машине хозяин запроса. */
+  owns(request: string): boolean {
+    return this.requestOwners.has(request);
+  }
+
   specOwner(key: string): Module | undefined {
     return this.specOwners.get(key);
   }
@@ -267,13 +276,15 @@ export class Kernel {
 
   /** Вклад самого ядра: сервер инструментов флота, промпт, режим и модель из документа. */
   corePart(s: SessionApi): QueryPart {
-    const { model, effort, mode } = s.spec;
+    const { model, effort, mode, fast, style, thinking } = s.spec;
+    const settings = { ...(fast !== undefined ? { fastMode: fast } : {}), ...(style ? { outputStyle: style } : {}), ...(thinking !== undefined ? { alwaysThinkingEnabled: thinking } : {}) };
     return {
       enableFileCheckpointing: true,
       includePartialMessages: true,
       permissionMode: MODES[mode ?? "all"],
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
+      ...(Object.keys(settings).length ? { settings } : {}),
       mcpServers: { fleet: { type: "http", url: `${this.o.base}/mcp`, headers: { Authorization: `Bearer ${this.o.key}`, "x-sb-as": s.callsign } } },
       append: fleetPrompt(s.callsign),
     };
@@ -474,17 +485,26 @@ export class Kernel {
     return dir;
   }
 
-  async open(spec: Spec, o: OpenOpts): Promise<Session> {
-    const callsign = `${spec.name}@${this.machine}`;
+  async open(given: Spec, o: OpenOpts): Promise<Session> {
     if (this.shutting) throw new Refusal("shutting_down");
-    if (this.sessions.has(callsign) || this.opening.has(callsign)) throw new Refusal("name_taken", `${callsign} уже есть`);
+    const taken = (name: string) => this.sessions.has(`${name}@${this.machine}`) || this.opening.has(`${name}@${this.machine}`);
+    let spec = given;
+    if (o.number) {
+      let n = 1;
+      while (taken(`${given.name}-${n}`)) n++;
+      spec = { ...given, name: `${given.name}-${n}` };
+    }
+    const callsign = `${spec.name}@${this.machine}`;
+    if (taken(spec.name)) throw new Refusal("name_taken", `${callsign} уже есть`);
     if (o.mkdir) {
       const dir = clientPath(spec.cwd, homedir());
       if (dir) mkdirSync(dir, { recursive: true });
     }
     const cwd = this.folder(spec.cwd);
     const copy = o.fork && o.resume;
-    const rec = { callsign, spec, cwd, sessionId: o.resume && !copy ? o.resume : randomUUID(), sdk: this.version, stopped: false, by: o.by, since: this.clock.now(), ...(copy ? { fork: copy } : {}) };
+    // заголовок до первого слова SDK: из документа, иначе начало первого сообщения
+    const title = spec.title ?? (o.prompt ? o.prompt.trim().split(/\r?\n/)[0]!.slice(0, TITLE_MAX) : undefined);
+    const rec = { callsign, spec, cwd, sessionId: o.resume && !copy ? o.resume : randomUUID(), sdk: this.version, stopped: false, by: o.by, since: this.clock.now(), ...(copy ? { fork: copy } : {}), ...(title ? { title } : {}) };
     const s = new Session(this, rec);
     let parts: Parts;
     this.opening.add(callsign);

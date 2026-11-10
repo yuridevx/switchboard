@@ -82,8 +82,9 @@ export function make({ claudeDir: dir }: { claudeDir?: string } = {}): Module {
       }
     },
     row(s) {
-      const url = s.spec.remote ? s.store<Part>().get()?.url : undefined;
-      return url ? { remoteUrl: url } : {};
+      const part = s.spec.remote ? s.store<Part>().get() : undefined;
+      // мост не включился — причина видна в строке сессии, а не только в журнале
+      return { ...(part?.url ? { remoteUrl: part.url } : {}), ...(part?.error ? { remoteError: part.error } : {}) };
     },
     on: {
       // новый процесс сессии готов — мост включается заново

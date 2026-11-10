@@ -8,6 +8,28 @@ export interface Env {
   MACHINE: DurableObjectNamespace<MachineObject>;
   /** секрет заведения флота (`POST /boot`) */
   BOOT?: string;
+  /** предел ожидания первого сообщения соединения, мс; по умолчанию HELLO_MS */
+  HELLO_MS?: string;
+}
+
+/** Соединение, которое не представилось за это время, закрывается. */
+export const HELLO_MS = 10_000;
+
+/** Предел ожидания `hello`: соединение без входа не висит. */
+export function helloLimit(ws: WebSocket, env: Env): void {
+  setTimeout(() => {
+    try {
+      if (cardOf(ws).role === "new") shut(ws, "hello_timeout");
+    } catch {
+      // соединение уже закрыто
+    }
+  }, Number(env.HELLO_MS) || HELLO_MS);
+}
+
+/** Проверочное слово PKCE: base64url от SHA-256. */
+export async function s256(text: string): Promise<string> {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return btoa(String.fromCharCode(...d)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 export const log = logger("platform");

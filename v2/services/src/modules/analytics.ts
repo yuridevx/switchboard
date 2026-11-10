@@ -3,8 +3,9 @@
 import { canReach, errFields, Refusal } from "@sb/protocol";
 import type { Ctx, Deps, Env, Module, PointNote } from "../env.ts";
 import { log } from "../entrance.ts";
-import { conversation, pointsSince } from "./archive.ts";
+import { callsOf, conversation, costOf, pointsSince, prices } from "./archive.ts";
 import { record } from "./ledger.ts";
+import { partFailed } from "./obs.ts";
 
 const NAME = "analytics";
 const TABLE = "sb2_calls";
@@ -31,25 +32,6 @@ async function ch(env: Env, f: typeof fetch, query: string, body?: string, param
   const text = await res.text();
   if (!res.ok) throw new Error(`ClickHouse ответил ${res.status}: ${text.slice(0, 200)}`);
   return text;
-}
-
-type Call = { call: string; at: number; model: string; input: number; output: number; cache_read: number; cache_write: number };
-
-/** Вызовы модели из строк разговора: у строк одного ответа общий номер — берётся один раз. */
-export function callsOf(lines: Record<string, unknown>[]): Call[] {
-  const by = new Map<string, Call>();
-  for (const l of lines) {
-    const m = l.message as { id?: string; model?: string; usage?: Record<string, number> } | undefined;
-    if (l.type !== "assistant" || !m?.usage) continue;
-    const call = m.id ?? (l.requestId as string | undefined) ?? (l.uuid as string | undefined);
-    if (!call) continue;
-    const u = m.usage;
-    by.set(call, {
-      call, at: Date.parse(String(l.timestamp ?? "")) || 0, model: m.model ?? "",
-      input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cache_read: u.cache_read_input_tokens ?? 0, cache_write: u.cache_creation_input_tokens ?? 0,
-    });
-  }
-  return [...by.values()];
 }
 
 /** Одна точка — в ClickHouse. Повторная подача строк не прибавляет: ключ строки — флот, машина, сессия и номер вызова. */
@@ -85,7 +67,11 @@ export async function consume(batch: MessageBatch<PointNote>, env: Env, deps: De
         continue;
       }
       log.error("аналитика не приняла точку", { module: NAME, fleet: m.body.fleet, machine: m.body.machine, ...errFields(e) });
-      await record(env, m.body.fleet, { what: "analytics.failed", who: ".analytics", machine: m.body.machine, text: e instanceof Error ? e.message : String(e), data: { sid: m.body.sid, point: m.body.point } });
+      const text = e instanceof Error ? e.message : String(e);
+      await record(env, m.body.fleet, { what: "analytics.failed", who: ".analytics", machine: m.body.machine, text, data: { sid: m.body.sid, point: m.body.point } });
+      await partFailed(env, m.body.fleet, { platform: deps.platform ?? env.PLATFORM, fetch: deps.fetch ?? fetch, log }, { what: "analytics.failed", who: ".analytics", machine: m.body.machine, text }).catch((x) =>
+        log.error("оповещение о сбое аналитики не ушло", { module: NAME, fleet: m.body.fleet, ...errFields(x) }),
+      );
       m.ack();
     }
   }
@@ -100,9 +86,10 @@ export const analytics: Module = {
       if (!ctx.env.CH_URL) throw new Refusal("analytics_unavailable", "аналитика не подключена");
       if (i.machine && !canReach(ctx.who, i.machine)) throw new Refusal("forbidden", `до машины ${i.machine} вы не достаёте`);
       const machines = i.machine ? [i.machine] : ctx.who.machines;
-      const query = `SELECT ${KEY[i.by]} AS key, count() AS calls, sum(input) AS input, sum(output) AS output, sum(cache_read) AS cacheRead, sum(cache_write) AS cacheWrite
+      // разрез и модель: стоимость считается по модели, затем складывается по разрезу
+      const query = `SELECT ${KEY[i.by]} AS key, model, count() AS calls, sum(input) AS input, sum(output) AS output, sum(cache_read) AS cacheRead, sum(cache_write) AS cacheWrite
         FROM ${TABLE} FINAL WHERE fleet = {fleet:String} AND has({machines:Array(String)}, machine) AND at >= parseDateTimeBestEffort({from:String}) AND at < parseDateTimeBestEffort({to:String})
-        GROUP BY key ORDER BY key FORMAT JSON`;
+        GROUP BY key, model ORDER BY key FORMAT JSON`;
       let text: string;
       try {
         text = await ch(ctx.env, ctx.fetch, query, undefined, { fleet: ctx.fleet, machines: `[${machines.map((m) => `'${m}'`).join(",")}]`, from: i.since, to: i.until });
@@ -110,7 +97,19 @@ export const analytics: Module = {
         throw new Refusal("analytics_unavailable", e instanceof Error ? e.message : String(e));
       }
       const data = (JSON.parse(text) as { data: Record<string, string | number>[] }).data;
-      return { rows: data.map((r) => ({ key: String(r.key), calls: Number(r.calls), input: Number(r.input), output: Number(r.output), cacheRead: Number(r.cacheRead), cacheWrite: Number(r.cacheWrite) })) };
+      const table = await prices(ctx.env, ctx.fleet);
+      const rows = new Map<string, { key: string; calls: number; input: number; output: number; cacheRead: number; cacheWrite: number; cost?: number }>();
+      for (const r of data) {
+        const t = { input: Number(r.input), output: Number(r.output), cacheRead: Number(r.cacheRead), cacheWrite: Number(r.cacheWrite) };
+        const cost = costOf(table, String(r.model ?? ""), t);
+        const row = rows.get(String(r.key)) ?? { key: String(r.key), calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+        row.calls += Number(r.calls);
+        for (const k of ["input", "output", "cacheRead", "cacheWrite"] as const) row[k] += t[k];
+        // стоимость — только по моделям с известной ценой
+        if (cost !== undefined) row.cost = (row.cost ?? 0) + cost;
+        rows.set(row.key, row);
+      }
+      return { rows: [...rows.values()] };
     },
 
     /** Доливка: точки архива с этого момента — снова в очередь. */

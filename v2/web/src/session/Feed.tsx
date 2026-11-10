@@ -7,6 +7,7 @@ import {
 import { lazy, memo, Suspense, useState, type ReactNode } from "react";
 import type { Part, Row, Tool, View } from "../chat/fold.ts";
 import { toolLook, toolState } from "../chat/tools.ts";
+import { nActions } from "../lib/time.ts";
 
 const Markdown = lazy(() => import("./Markdown.tsx"));
 export const Md = ({ text }: { text: string }) => (
@@ -72,7 +73,7 @@ function ToolStack({ ids, view }: { ids: string[]; view: View }) {
   const shown = all || ids.length <= 4 ? ids : ids.slice(-3);
   return (
     <div>
-      {shown.length < ids.length && <button type="button" className="tool muted" onClick={() => setAll(true)}>ещё {ids.length - shown.length} действий</button>}
+      {shown.length < ids.length && <button type="button" className="tool muted" onClick={() => setAll(true)}>ещё {nActions(ids.length - shown.length)}</button>}
       {shown.map((id) => view.tools[id] && <ToolLine key={id} tool={view.tools[id]} view={view} />)}
     </div>
   );
@@ -98,10 +99,15 @@ function Reply({ parts, view }: { parts: Part[]; view: View }) {
   return <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>{out}</div>;
 }
 
-const RowView = memo(function RowView({ r, view }: { r: Row; view: View }) {
+const RowView = memo(function RowView({ r, view, onCancel }: { r: Row; view: View; onCancel?: (id: string) => void }) {
   switch (r.k) {
     case "me":
-      return <div className="me">{r.text}{r.pics.map((p, i) => <img key={i} src={p} alt="" style={{ display: "block", maxWidth: "100%", marginTop: 6, borderRadius: 6 }} />)}</div>;
+      return (
+        <div className={`me${r.local === "queued" ? " queued" : ""}`}>
+          {r.text}{r.pics.map((p, i) => <img key={i} src={p} alt="" style={{ display: "block", maxWidth: "100%", marginTop: 6, borderRadius: 6 }} />)}
+          {r.local === "queued" && <div className="me-note">в очереди, уйдёт после хода{onCancel && r.uuid && <button type="button" className="linkbtn" onClick={() => onCancel(r.uuid!)}>Отменить</button>}</div>}
+        </div>
+      );
     case "in":
       return <div className="peer"><Text size="xs" className="muted mono">{r.from}{r.at ? ` · ${r.at}` : ""}</Text>{r.text}</div>;
     case "reply":
@@ -126,6 +132,6 @@ const RowView = memo(function RowView({ r, view }: { r: Row; view: View }) {
   }
 });
 
-export function Rows({ rows, view }: { rows: Row[]; view: View }) {
-  return <>{rows.map((r) => <RowView key={r.key} r={r} view={view} />)}</>;
+export function Rows({ rows, view, onCancel }: { rows: Row[]; view: View; onCancel?: (id: string) => void }) {
+  return <>{rows.map((r) => <RowView key={r.key} r={r} view={view} onCancel={onCancel} />)}</>;
 }

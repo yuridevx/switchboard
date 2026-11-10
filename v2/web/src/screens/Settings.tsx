@@ -1,11 +1,11 @@
 // «Настройки»: люди и проекты, пропуска, уведомления, правила прокси, GitHub, имена, вид.
-import { githubApp, githubSetup, invite, passes, peopleList, peopleSet, prefsGet, prefsSet, projectSet, reachDevices, reachRemove, reachSubscribe, reachTelegram, revoke } from "@sb/protocol";
-import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, Modal, SegmentedControl, Stack, Switch, Table, Text, TextInput, useMantineColorScheme } from "@mantine/core";
+import { githubApp, githubSetup, invite, passes, peopleList, peopleRemove, peopleSet, prefsGet, prefsSet, projectSet, reachDevices, reachRemove, reachSubscribe, reachTelegram, revoke, type PassRow, type PersonRow } from "@sb/protocol";
+import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, Modal, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
 import { IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { act } from "../api.ts";
-import { Failed, personWord, useCall } from "../common.tsx";
+import { confirmDanger, Failed, personWord, useCall } from "../common.tsx";
 import { ago } from "../lib/time.ts";
 import { useFleet } from "../store/fleet.ts";
 import { TabsPage } from "./Fleet.tsx";
@@ -25,34 +25,40 @@ function People() {
   const qc = useQueryClient();
   const list = useCall(peopleList, {});
   const admin = useFleet((f) => !!f.you?.admin);
+  const me = useFleet((f) => f.you?.person);
+  const machines = useFleet((f) => f.machines);
   const [mail, setMail] = useState("");
   const [project, setProject] = useState("");
   const [link, setLink] = useState("");
   const refresh = () => qc.invalidateQueries({ queryKey: ["people.list"] });
   if (list.error) return <Failed error={list.error} retry={list.refetch} />;
   const projects = list.data?.projects ?? [];
+  const everyone = list.data?.people ?? [];
+  /** До каких машин человек достаёт: свои и машины тех, с кем у него общий проект; админ — до всех. */
+  const reach = (p: PersonRow) => Object.values(machines).filter((m) => p.admin || m.owner === p.person || everyone.some((o) => o.person === m.owner && o.projects.some((x) => p.projects.includes(x)))).map((m) => m.name);
   return (
     <Stack>
       <div className="table-wrap">
-        <Table verticalSpacing={8} horizontalSpacing="md">
-          <Table.Thead><Table.Tr><Table.Th>Человек</Table.Th>{projects.map((p) => <Table.Th key={p.id} ta="center">{p.name}</Table.Th>)}<Table.Th ta="center">Админ</Table.Th></Table.Tr></Table.Thead>
+        <Table verticalSpacing={8} horizontalSpacing="md" className="stack">
+          <Table.Thead><Table.Tr><Table.Th>Человек</Table.Th>{projects.map((p) => <Table.Th key={p.id} ta="center">{p.name}</Table.Th>)}<Table.Th ta="center">Админ</Table.Th><Table.Th>Достаёт до машин</Table.Th><Table.Th /></Table.Tr></Table.Thead>
           <Table.Tbody>
-            {(list.data?.people ?? []).map((p) => (
+            {everyone.map((p) => (
               <Table.Tr key={p.person}>
-                <Table.Td><Text fw={500}>{p.name ?? personWord(p.person)}</Text><Text size="xs" className="muted">{personWord(p.person)}</Text></Table.Td>
+                <Table.Td><Text fw={500}>{p.name ?? personWord(p.person)}</Text>{p.name && <Text size="xs" className="muted">{personWord(p.person)}</Text>}</Table.Td>
                 {projects.map((pr) => (
-                  <Table.Td key={pr.id} ta="center">
+                  <Table.Td key={pr.id} ta="center" data-l={pr.name}>
                     <Checkbox style={{ display: "inline-block" }} aria-label={`${p.name ?? p.person} в проекте ${pr.name}`} disabled={!admin} checked={p.projects.includes(pr.id)}
                       onChange={async (e) => (await act(peopleSet, { person: p.person, projects: e.currentTarget.checked ? [...p.projects, pr.id] : p.projects.filter((x) => x !== pr.id) })) && refresh()} />
                   </Table.Td>
                 ))}
-                <Table.Td ta="center"><Switch style={{ display: "inline-block" }} aria-label={`${p.name ?? p.person} — админ`} disabled={!admin} checked={p.admin} onChange={async (e) => (await act(peopleSet, { person: p.person, admin: e.currentTarget.checked })) && refresh()} /></Table.Td>
+                <Table.Td ta="center" data-l="Админ"><Switch style={{ display: "inline-block" }} aria-label={`${p.name ?? p.person} — админ`} disabled={!admin} checked={p.admin} onChange={async (e) => (await act(peopleSet, { person: p.person, admin: e.currentTarget.checked })) && refresh()} /></Table.Td>
+                <Table.Td data-l="Достаёт до машин"><Group gap={4}>{reach(p).map((m) => <Badge key={m} variant="default" className="mono">{m}</Badge>)}</Group></Table.Td>
+                <Table.Td ta="right">{admin && p.person !== me && <Button size="compact-xs" variant="subtle" color="red" onClick={() => confirmDanger({ title: `Удалить ${p.name ?? personWord(p.person)} из флота?`, body: "Его пропуска будут отозваны, соединения закрыты. Машины, которыми он владеет, останутся во флоте.", confirm: "Удалить", onConfirm: async () => (await act(peopleRemove, { person: p.person }, "Человек удалён из флота")) && refresh() })}>Удалить</Button>}</Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>
         </Table>
       </div>
-      <Text size="sm">Общий проект открывает людям машины друг друга.</Text>
       {admin && (
         <Group align="end" gap="sm">
           <TextInput label="Пригласить человека" placeholder="почта" value={mail} onChange={(e) => setMail(e.currentTarget.value)} w={260} />
@@ -74,27 +80,40 @@ function Passes() {
   const [link, setLink] = useState("");
   const refresh = () => qc.invalidateQueries({ queryKey: ["passes"] });
   if (list.error) return <Failed error={list.error} retry={list.refetch} />;
+  const all = list.data?.passes ?? [];
+  const nameOf = (p: PassRow) => (p.addr.startsWith("@") ? p.addr.slice(1) : p.addr.split("~")[0]);
+  const drop = (p: PassRow) => confirmDanger({
+    title: p.wait ? `Отозвать приглашение ${nameOf(p)}?` : p.addr.startsWith("@") ? `Отозвать пропуск машины ${nameOf(p)}?` : `Отозвать пропуск «${nameOf(p)}» — ${personWord(p.person)}?`,
+    body: p.wait ? "Ссылка перестанет приниматься." : p.addr.startsWith("@") ? "Машина уйдёт из флота: её Host и Keeper отключатся, сессии пропадут из картины. Вернуть — новым приглашением и установкой." : "Устройство сразу потеряет доступ, его соединения закроются. Вернуть — новой ссылкой.",
+    confirm: "Отозвать", onConfirm: async () => (await act(revoke, { kid: p.kid }, `Отозвано: ${nameOf(p)}`)) && refresh(),
+  });
+  const group = (title: string, rows: PassRow[]) => rows.length > 0 && (
+    <div>
+      <Text fw={600} mb={6}>{title}</Text>
+      <div className="table-wrap">
+        <Table verticalSpacing={7} horizontalSpacing="md" className="stack">
+          <Table.Tbody>
+            {rows.map((p) => (
+              <Table.Tr key={p.kid}>
+                <Table.Td className="mono">{nameOf(p)}{p.addr === me?.addr && <Badge ml={8} color="teal">это устройство</Badge>}</Table.Td>
+                <Table.Td data-l="Чьё">{personWord(p.person)}</Table.Td>
+                <Table.Td data-l="Последний раз" className="muted">{p.wait ? "приглашение не принято" : p.seen ? ago(p.seen) : "—"}</Table.Td>
+                <Table.Td ta="right"><Button size="compact-xs" variant="subtle" color="red" disabled={p.addr === me?.addr} onClick={() => drop(p)}>Отозвать</Button></Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      </div>
+    </div>
+  );
   return (
     <Stack>
       <Group align="end" gap="sm">
         <TextInput label="Новое устройство" className="mono" value={name} onChange={(e) => setName(e.currentTarget.value.toLowerCase())} w={200} />
         <Button disabled={!/^[a-z0-9][a-z0-9_-]*$/.test(name)} onClick={async () => { const r = await act(invite, { addr: name + (me?.person ?? "") }); if (r) { await refresh(); setLink(linkOf(r.invite)); } }}>Выдать ссылку</Button>
       </Group>
-      <div className="table-wrap">
-        <Table verticalSpacing={7} horizontalSpacing="md">
-          <Table.Thead><Table.Tr><Table.Th>Устройство или машина</Table.Th><Table.Th>Чьё</Table.Th><Table.Th>Последний раз</Table.Th><Table.Th /></Table.Tr></Table.Thead>
-          <Table.Tbody>
-            {(list.data?.passes ?? []).map((p) => (
-              <Table.Tr key={p.kid}>
-                <Table.Td className="mono">{p.addr.startsWith("@") ? p.addr : p.addr.split("~")[0]}{p.addr === me?.addr && <Badge ml={8} color="teal">это устройство</Badge>}</Table.Td>
-                <Table.Td>{personWord(p.person)}</Table.Td>
-                <Table.Td className="muted">{p.wait ? "приглашение не принято" : p.seen ? ago(p.seen) : "—"}</Table.Td>
-                <Table.Td ta="right"><Button size="compact-xs" variant="subtle" color="red" disabled={p.addr === me?.addr} onClick={async () => (await act(revoke, { kid: p.kid }, "Пропуск отозван, соединения закрыты")) && refresh()}>Отозвать</Button></Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </div>
+      {group("Устройства людей", all.filter((p) => !p.addr.startsWith("@")))}
+      {group("Машины", all.filter((p) => p.addr.startsWith("@")))}
       <Modal opened={!!link} onClose={() => setLink("")} title="Ссылка для устройства"><InviteLink link={link} /></Modal>
     </Stack>
   );
@@ -112,7 +131,7 @@ function Alerts() {
         <Button variant="default" onClick={async () => { const r = await act(reachTelegram, {}); if (r) setTg(r); }}>Подключить Telegram</Button>
       </Group>
       <div className="table-wrap">
-        <Table verticalSpacing={7} horizontalSpacing="md">
+        <Table verticalSpacing={7} horizontalSpacing="md" className="stack">
           <Table.Tbody>
             {(list.data?.devices ?? []).map((d) => (
               <Table.Tr key={d.id}>
@@ -145,7 +164,7 @@ function ProxyRules() {
   return (
     <Stack>
       <div className="table-wrap">
-        <Table verticalSpacing={6} horizontalSpacing="sm">
+        <Table verticalSpacing={6} horizontalSpacing="sm" className="stack">
           <Table.Thead><Table.Tr><Table.Th>Вкл</Table.Th><Table.Th>Правило</Table.Th><Table.Th>Что искать</Table.Th><Table.Th>На что заменить</Table.Th><Table.Th /></Table.Tr></Table.Thead>
           <Table.Tbody>
             {list.map((r, i) => (
@@ -193,7 +212,7 @@ function Names() {
   const save = async (c: string, v: string) => (await act(prefsSet, { scope: "fleet", name: "labels", patch: { [c]: v.trim() || null } })) && qc.invalidateQueries({ queryKey: ["prefs.get"] });
   return (
     <div className="table-wrap">
-      <Table verticalSpacing={6} horizontalSpacing="md">
+      <Table verticalSpacing={6} horizontalSpacing="md" className="stack">
         <Table.Thead><Table.Tr><Table.Th>Сессия</Table.Th><Table.Th>Имя для людей</Table.Th></Table.Tr></Table.Thead>
         <Table.Tbody>{Object.keys(sessions).sort().map((c) => <Table.Tr key={c}><Table.Td className="mono">{c}</Table.Td><Table.Td><TextInput size="xs" aria-label={`Имя для ${c}`} defaultValue={labels[c] ?? ""} key={labels[c] ?? ""} onBlur={(e) => e.currentTarget.value !== (labels[c] ?? "") && save(c, e.currentTarget.value)} /></Table.Td></Table.Tr>)}</Table.Tbody>
       </Table>
@@ -201,16 +220,11 @@ function Names() {
   );
 }
 
-function Look() {
-  const { colorScheme, setColorScheme } = useMantineColorScheme();
-  return <SegmentedControl w="fit-content" value={colorScheme} onChange={(v) => setColorScheme(v as never)} data={[{ value: "auto", label: "Как в системе" }, { value: "light", label: "Светлая" }, { value: "dark", label: "Тёмная" }]} aria-label="Тема" />;
-}
-
 export function Settings() {
   return (
     <TabsPage title="Настройки" base="/settings" tabs={[
       ["people", "Люди и проекты", () => <People />], ["passes", "Пропуска", () => <Passes />], ["alerts", "Уведомления", () => <Alerts />],
-      ["proxy", "Правила прокси", () => <ProxyRules />], ["github", "GitHub", () => <GitHub />], ["names", "Имена", () => <Names />], ["look", "Вид", () => <Look />],
+      ["proxy", "Правила прокси", () => <ProxyRules />], ["github", "GitHub", () => <GitHub />], ["names", "Имена", () => <Names />],
     ]} />
   );
 }

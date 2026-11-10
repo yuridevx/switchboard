@@ -34,7 +34,17 @@ const SHOTS = [
   ["session-pair", "/work/lead@laptop", async (p) => void (await p.getByLabel("Пара рядом").first().click()), "wide"],
   ["session-inspector-context", "/work/site@laptop", click("Контекст"), "wide"],
   ["session-inspector-points", "/work/site@laptop", click("Точки"), "wide"],
-  ["session-model-menu", "/work/site@laptop", async (p) => void (await p.getByLabel("Модель").first().click())],
+  ["session-model-menu", "/work/site@laptop", async (p) => void (await p.getByLabel("Модель").first().click()), "wide"],
+  ["session-sheet", "/work/site@laptop", async (p) => void (await p.getByLabel("Инспектор").first().click()), "narrow"],
+  ["session-offline", "/work/crawler@base2"],
+  ["session-queued", "/work/site@laptop", async (p) => { const box = p.getByLabel("Сообщение сессии"); await box.fill("И подвал тоже проверь на 390"); await box.press("Enter"); }],
+  ["inbox-answered", "/inbox/site-tests@laptop", async (p) => void (await p.locator(".askcard:not(.inline)").getByText("release/2.4", { exact: true }).click())],
+  ["machine-offline", "/machine/base2"],
+  ["machine-online", "/machine/server"],
+  ["fleet-releases-confirm", "/fleet/releases", async (p) => void (await p.getByText("Откатить флот сюда").first().click())],
+  ["fleet-releases-rollout", "/fleet/releases", async (p) => { await p.getByText("Откатить флот сюда").first().click(); await p.getByRole("button", { name: "Откатить флот", exact: true }).click(); await p.waitForTimeout(1800); }],
+  ["settings-passes-confirm", "/settings/passes", async (p) => void (await p.getByRole("button", { name: "Отозвать" }).nth(1).click())],
+  ["archive-live", "/archive", async (p) => { await p.getByLabel("Поиск по архиву").fill("шапка"); await p.waitForTimeout(500); await p.locator(".pane.list .row").first().click(); await p.waitForTimeout(600); }],
   ["new-session", "/work", key("n")],
   ["new-session-more", "/work", async (p) => { await p.keyboard.press("n"); await p.getByText("Модель, кусочки, проект").click(); }],
   ["palette", "/inbox", async (p) => { await p.keyboard.press("Control+k"); await p.keyboard.type("site"); }, "wide"],
@@ -86,6 +96,11 @@ for (const [w, h, size] of [[1440, 900, "wide"], [390, 844, "narrow"]]) {
       await page.waitForTimeout(500);
       const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       if (over > 0) problems.push(`${name} ${w} ${scheme}: горизонтальная прокрутка ${over}px`);
+      // на телефоне вбок не должно ехать ничего: ни страница, ни отдельный блок внутри неё
+      if (size === "narrow" && scheme === "light") {
+        const inner = await page.evaluate(() => [...document.querySelectorAll("body *")].filter((el) => el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0 && /(auto|scroll)/.test(getComputedStyle(el).overflowX) && !el.closest("[aria-hidden=true]")).map((el) => `${el.tagName.toLowerCase()}.${String(el.className).split(" ").slice(0, 2).join(".")} ${el.scrollWidth}>${el.clientWidth}`).slice(0, 4));
+        for (const x of inner) problems.push(`${name} ${w}: едет вбок ${x}`);
+      }
       await page.screenshot({ path: path.join(out, `${name}.${w}.${scheme}.png`) });
       n++;
       await page.close();

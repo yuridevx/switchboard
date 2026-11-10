@@ -7,6 +7,12 @@ const NAME = "prefs";
 const SCHEMA = ["CREATE TABLE IF NOT EXISTS prefs (scope TEXT, name TEXT, value TEXT, PRIMARY KEY (scope, name))"];
 const db = (env: Env, fleet: string) => records(env, fleet, NAME, SCHEMA);
 
+/** Общая запись флота глазами соседнего модуля служб: таблица цен, настройка оповещений. Нет — null. */
+export async function fleetPref<T>(env: Env, fleet: string, name: string): Promise<T | null> {
+  const r = await db(env, fleet).first<{ value: string }>("SELECT value FROM prefs WHERE scope = 'fleet' AND name = ?", name);
+  return r ? (JSON.parse(r.value) as T) : null;
+}
+
 /** Область записи: общая или человека. */
 const scopeOf = (scope: "me" | "fleet", ctx: Ctx) => (scope === "fleet" ? "fleet" : ctx.who.person);
 

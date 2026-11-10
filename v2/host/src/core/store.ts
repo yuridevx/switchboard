@@ -19,6 +19,10 @@ export type CoreRecord = {
   last?: number;
   fork?: string;
   error?: string;
+  /** заголовок до первого слова SDK: из документа или первого сообщения */
+  title?: string;
+  /** убрать после конца хода: кто просил */
+  removeAfter?: string;
 };
 
 type Sections = { machine?: unknown; sessions?: Record<string, unknown> };

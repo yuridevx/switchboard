@@ -5,7 +5,7 @@ import { API_ERRORS, FALLBACK_WHY, kilo, modelName, REFUSAL_AREAS, RESULT_ERRORS
 export type Msg = Record<string, any>;
 export type Part = { k: "text"; text: string; live?: boolean } | { k: "think"; text: string; live?: boolean } | { k: "tool"; id: string };
 export type Row =
-  | { k: "me"; key: string; uuid?: string; text: string; pics: string[] }
+  | { k: "me"; key: string; uuid?: string; text: string; pics: string[]; /** своё сообщение, ещё не подтверждённое лентой: в очереди или отправлено */ local?: "queued" | "sent" }
   | { k: "in"; key: string; via: "session" | "agent" | "owner"; from: string; tag?: string; text: string; at: string }
   | { k: "reply"; key: string; parts: Part[] }
   | { k: "cmd"; key: string; name: string; args: string; out?: string }
@@ -185,6 +185,15 @@ function command(v: View, text: string, found: RegExpExecArray) {
   push(v, { k: "cmd", name, args: ARGS.exec(text)?.[1]?.trim() ?? "", ...(out !== undefined ? { out } : {}) });
 }
 
+/** Новый ввод после ответа без строки итога — прошлый ход кончился: история разговора итогов хода не хранит. */
+function closeTurn(v: View) {
+  for (let i = v.rows.length - 1; i >= 0; i--) {
+    const r = v.rows[i]!;
+    if (r.k === "res" || r.k === "end" || r.k === "me" || r.k === "in" || (r.k === "sys" && r.tone === "wait" && r.icon === "square")) return;
+    if (r.k === "reply") return push(v, { k: "res", bits: ["ход закончен"] });
+  }
+}
+
 function text(v: View, m: Msg, body: string, pics: string[]) {
   if (m.isSynthetic || m.isMeta || SERVICE.test(body) || STDERR.test(body)) return;
   if (INTERRUPT.test(body)) {
@@ -205,10 +214,13 @@ function text(v: View, m: Msg, body: string, pics: string[]) {
     return endTask(v, tag("task-id") ?? "", tag("status") ?? "", tag("summary"));
   }
   if (m.origin?.kind === "peer") {
+    closeTurn(v);
     const mode = m.origin.fromMode;
     return push(v, { k: "in", via: "session", from: m.origin.name ?? m.origin.from ?? "", ...(mode && mode !== "default" ? { tag: mode } : {}), text: body, at: timeOf(m) });
   }
-  push(v, { k: "me", uuid: m.uuid, text: body, pics });
+  // сообщение в очереди ждёт конца идущего хода: прошлый ход им не закрывается
+  if (!m._queued) closeTurn(v);
+  push(v, { k: "me", uuid: m.uuid, text: body, pics, ...(m._local ? { local: m._queued ? ("queued" as const) : ("sent" as const) } : {}) });
 }
 
 function user(v: View, m: Msg) {
@@ -221,7 +233,7 @@ function user(v: View, m: Msg) {
   v.hint = "";
   if (m.isCompactSummary) return summary(v, body);
   const peer = TAGGED.exec(body);
-  if (peer) return tagged(v, m, peer);
+  if (peer) return (closeTurn(v), tagged(v, m, peer));
   text(v, m, body, pics);
 }
 
@@ -233,6 +245,8 @@ function result(v: View, m: Msg) {
   }
   v.compacting = false;
   v.thinking = null;
+  // ход кончился — сообщения из очереди ушли в сессию
+  for (const r of v.rows) if (r.k === "me" && r.local === "queued") r.local = "sent";
   const was = v.interrupted;
   v.interrupted = false;
   const total = typeof m.total_cost_usd === "number" ? (m.total_cost_usd as number) : null;

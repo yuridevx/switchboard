@@ -1,6 +1,6 @@
 // Стенд служб: подделка платформы по её договору и короткий вызов входа. Каждый тест берёт свой флот — записи не пересекаются.
 import { createExecutionContext, env as base, waitOnExecutionContext } from "cloudflare:test";
-import { type Frame, machineOf, type MachineRow, newId, ok, type Reply, type Who } from "@sb/protocol";
+import { type Frame, machineOf, type MachineRow, newId, ok, type Reply, type SessionRow, type Who } from "@sb/protocol";
 import type { Deps, Env, Platform } from "../src/env.ts";
 import { serve } from "../src/index.ts";
 
@@ -34,6 +34,11 @@ export function stand(fleet = newFleet(), opts: { env?: Partial<Env> } = {}) {
   const state = {
     online: new Set<string>(),
     dead: new Set<string>(),
+    /** строки сессий флота в картине */
+    sessions: [] as SessionRow[],
+    admins: ["~yuri@example.com"],
+    /** ответ объекта флота на запрос; по умолчанию — эхо имени */
+    fleetAnswer: null as ((frame: Frame, who: Who | null) => Reply) | null,
     /** ответ машины на доставленный кадр */
     answer: (f: Frame): Reply | null => (f.id ? { ...ok(f.id, { got: f.type }), spans: [{ part: "host", ms: 3 }] } : null),
     broadcastFails: false,
@@ -57,7 +62,7 @@ export function stand(fleet = newFleet(), opts: { env?: Partial<Env> } = {}) {
     },
     async fleetCall(f, who, frame) {
       seen.fleetCalls.push({ fleet: f, who, frame });
-      return ok(frame.id!, { called: frame.type });
+      return state.fleetAnswer ? state.fleetAnswer(frame, who) : ok(frame.id!, { called: frame.type });
     },
     async deliver(_f, frame) {
       seen.delivered.push(frame);
@@ -70,6 +75,8 @@ export function stand(fleet = newFleet(), opts: { env?: Partial<Env> } = {}) {
     },
     online: async (_f, person) => state.online.has(person),
     machines: async () => machines,
+    sessions: async () => state.sessions,
+    admins: async () => state.admins,
     alive: async (_f, kids) => kids.filter((k) => !state.dead.has(k)),
     async fetch(req) {
       seen.fetched.push(req);

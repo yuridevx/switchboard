@@ -1,12 +1,13 @@
 // Договор платформы для служб: вход привязки (WorkerEntrypoint "Platform"). Службы знают платформу, платформа служб не знает.
-import type { Frame, MachineRow, Reply, Who } from "@sb/protocol";
+import type { Frame, MachineRow, Reply, SessionRow, Who } from "@sb/protocol";
 
 export const ENTRYPOINT = "Platform";
 
 export interface PlatformApi {
   /** Кто пришёл. as — позывной сессии при пропуске машины: машина говорит за свои сессии. Отказ — словом. */
   who(key: string, as?: string): Promise<Who | { error: string; why?: string }>;
-  /** Запрос объекту флота (invite, passes, revoke, whoami, people.*, project.*; redeem — who null, флот берётся из приглашения). */
+  /** Запрос объекту флота (invite, passes, revoke, whoami, people.*, project.*, fleet.list, consent; redeem — who null, флот берётся из приглашения).
+   *  consent: вход платформы сам сверяет описание клиента OAuth по его адресу; адреса возврата в нём нет — отказ bad_client. */
   fleetCall(fleet: string, who: Who | null, frame: Frame): Promise<Reply>;
   /** Кадр сессии, машине или keeper: объект машины отдаёт его Host или Keeper. С id — ждёт ответ; без id — null. Машина не на связи — отказ offline. */
   deliver(fleet: string, frame: Frame): Promise<Reply | null>;
@@ -20,6 +21,10 @@ export interface PlatformApi {
   fetch(request: Request): Promise<Response>;
   /** Машины флота. */
   machines(fleet: string): Promise<MachineRow[]>;
+  /** Строки сессий флота: «идёт сейчас» в архиве, сессии на ключе, сводка здоровья. */
+  sessions(fleet: string): Promise<SessionRow[]>;
+  /** Админы флота: получатели оповещений о сбоях. */
+  admins(fleet: string): Promise<string[]>;
 }
 
 /** Адреса соединений: /f/<флот> — страница к объекту флота; /m/<флот>/<машина> — Host, Keeper и зрители к объекту машины.

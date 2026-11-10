@@ -101,7 +101,7 @@ export async function call(env: Env, exec: ExecutionContext, handlers: Handlers,
   else log.warn("отказ", line);
   if (fleet && !f.type.startsWith("obs."))
     exec.waitUntil(
-      note(env, fleet, { trace, at: Date.now(), type: f.type, from, to, ok: reply.ok, word: reply.error, why: reply.why, ms, spans: reply.spans }).catch((e) =>
+      note(env, fleet, { trace, at: Date.now(), type: f.type, from, to, ok: reply.ok, word: reply.error, why: reply.why, ms, spans: reply.spans }, { platform, fetch: deps.fetch ?? fetch, log }).catch((e) =>
         log.error("строка наблюдения не записалась", { trace, fleet, ...errFields(e) }),
       ),
     );

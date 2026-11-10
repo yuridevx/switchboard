@@ -7,7 +7,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
-import { Boundary, modelWord, personWord, STATE_WORD, useUi } from "../common.tsx";
+import { Boundary, personWord, STATE_WORD, useUi } from "../common.tsx";
 import { inboxOf, useFleet } from "../store/fleet.ts";
 import { NewSession } from "./NewSession.tsx";
 
@@ -54,10 +54,12 @@ export function Shell() {
     ["shift+/", () => ui.set({ keysOpen: true })],
   ]);
   const inTalk = /^\/(inbox|work|archive)\/.+/.test(loc.pathname);
+  // экран машины — часть «Флота»: раздел в панели остаётся подсвеченным
+  const section = loc.pathname.startsWith("/machine") ? "/fleet" : "/" + (loc.pathname.split("/")[1] ?? "");
   const actions: SpotlightActionData[] = useMemo(() => [
     { id: "new", label: "Новая сессия", description: "N", onClick: () => ui.set({ newOpen: true }) },
-    ...Object.values(picture.sessions).map((s) => ({ id: "s:" + s.callsign, label: s.title ?? s.spec.name, description: `${s.callsign} · ${STATE_WORD[s.state]} · ${modelWord(s.spec.model)}`, onClick: () => go(`/work/${s.callsign}`) })),
-    ...Object.values(picture.machines).map((m) => ({ id: "m:" + m.name, label: `Машина ${m.name}`, description: m.online ? `на связи · сборка ${m.build ?? "—"}` : "без связи", onClick: () => go("/fleet/machines") })),
+    ...Object.values(picture.sessions).map((s) => ({ id: "s:" + s.callsign, label: s.title ?? s.spec.name, description: `${s.callsign} · ${picture.machines[s.callsign.slice(s.callsign.indexOf("@") + 1)]?.online === false ? "нет связи, последнее известное" : STATE_WORD[s.state]}`, onClick: () => go(`/work/${s.callsign}`) })),
+    ...Object.values(picture.machines).map((m) => ({ id: "m:" + m.name, label: `Машина ${m.name}`, description: m.online ? `на связи · сборка ${m.build ?? "—"}` : "без связи", onClick: () => go(`/machine/${m.name}`) })),
     ...NAV.map(([to, word]) => ({ id: "n:" + to, label: word, description: "Раздел", onClick: () => go(to) })),
     { id: "a:deploy", label: "Выпуски: назначить или откатить сборку", onClick: () => go("/fleet/releases") },
     { id: "a:accounts", label: "Войти в аккаунт Claude на машине", onClick: () => go("/fleet/accounts") },
@@ -72,7 +74,7 @@ export function Shell() {
       <nav className="rail" aria-label="Разделы">
         <Tooltip label="Новая сессия (N)" position="right"><ActionIcon size={40} radius="md" variant="filled" aria-label="Новая сессия" onClick={() => ui.set({ newOpen: true })} mb={6}><IconPlus size={20} /></ActionIcon></Tooltip>
         {NAV.map(([to, word, I]) => (
-          <NavLink key={to} to={to} className={({ isActive }) => (isActive ? "active" : "")}>
+          <NavLink key={to} to={to} className={({ isActive }) => (isActive || section === to ? "active" : "")}>
             <I size={21} stroke={1.6} />{word}
             {to === "/inbox" && waiting && <span className="dot" aria-label="есть новое" />}
           </NavLink>
@@ -86,7 +88,7 @@ export function Shell() {
       </nav>
       <main className="main">
         {picture.link !== "open" && picture.rev > 0 && <div className="banner" role="status">Нет связи с флотом. Показано последнее известное; переподключаюсь.</div>}
-        <Boundary name={NAV.find(([to]) => loc.pathname.startsWith(to))?.[1] ?? "Экран"} key={loc.pathname.split("/")[1]}><Outlet /></Boundary>
+        <Boundary name={NAV.find(([to]) => to === section)?.[1] ?? "Экран"} key={loc.pathname.split("/")[1]}><Outlet /></Boundary>
       </main>
       <nav className="tabbar" aria-label="Разделы">
         <NavLink to="/inbox" className={({ isActive }) => (isActive ? "active" : "")}><IconInbox size={21} stroke={1.6} />Вам{waiting && <span className="dot" />}</NavLink>
@@ -98,6 +100,8 @@ export function Shell() {
       <Drawer opened={moreOpen} onClose={() => setMoreOpen(false)} position="bottom" size="auto" title="Ещё">
         <Stack gap={4} pb="md">
           {NAV.slice(3).map(([to, word, I]) => <NavLink key={to} to={to} onClick={() => setMoreOpen(false)} className="row" style={{ gridTemplateColumns: "24px 1fr", textDecoration: "none", color: "inherit", alignItems: "center" }}><I size={20} stroke={1.6} /><span>{word}</span></NavLink>)}
+          <button type="button" className="row" style={{ gridTemplateColumns: "24px 1fr", alignItems: "center", border: 0, background: "none", font: "inherit", color: "inherit", textAlign: "left" }} onClick={() => (spotlight.open(), setMoreOpen(false))}><IconSearch size={20} stroke={1.6} /><span>Найти</span></button>
+          <button type="button" className="row" style={{ gridTemplateColumns: "24px 1fr", alignItems: "center", border: 0, background: "none", font: "inherit", color: "inherit", textAlign: "left" }} onClick={() => setColorScheme(colorScheme === "dark" ? "light" : "dark")}>{colorScheme === "dark" ? <IconSun size={20} stroke={1.6} /> : <IconMoon size={20} stroke={1.6} />}<span>{colorScheme === "dark" ? "Светлая тема" : "Тёмная тема"}</span></button>
         </Stack>
       </Drawer>
       <NewSession />

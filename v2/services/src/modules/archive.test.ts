@@ -31,7 +31,8 @@ async function pointOf(sid: string, words: string, lines: object[] = LINES) {
 async function save(s: Stand, sid: string, words: string, as = "klaptop", point = "p1") {
   const p = await pointOf(sid, words);
   const first = (await s.ask("points.put", { ...p.put, point }, as)).result as { upload: Record<string, string>; done: boolean };
-  for (const [i, h] of p.hashes.entries()) if (first.upload[h]) await s.env.FILES.put(blockKey(s.fleet, h), p.parts[i]!);
+  const machine = s.whos.get(s.key(as))!.addr.slice(1);
+  for (const [i, h] of p.hashes.entries()) if (first.upload[h]) await s.env.FILES.put(blockKey(s.fleet, machine, h), p.parts[i]!);
   if (!first.done) expect(await s.ask("points.put", { ...p.put, point, commit: true }, as)).toMatchObject({ result: { done: true } });
   return p;
 }
@@ -45,11 +46,11 @@ describe("архив сессий", () => {
     const first = (await s.ask("points.put", p.put, "klaptop")).result as { upload: Record<string, string>; done: boolean };
     expect(first.done).toBe(false);
     expect(Object.keys(first.upload).sort()).toEqual([...p.hashes].sort());
-    expect(first.upload[p.hashes[0]!]).toContain(`/blocks/${s.fleet}/${p.hashes[0]}?`);
-    await s.env.FILES.put(blockKey(s.fleet, p.hashes[0]!), p.parts[0]!);
+    expect(first.upload[p.hashes[0]!]).toContain(`/blocks/${s.fleet}/laptop/${p.hashes[0]}?`);
+    await s.env.FILES.put(blockKey(s.fleet, "laptop", p.hashes[0]!), p.parts[0]!);
     expect(await s.ask("points.put", { ...p.put, commit: true }, "klaptop")).toMatchObject({ ok: false, error: "blocks_missing" });
     expect((await list(s, {})).sessions).toHaveLength(0);
-    await s.env.FILES.put(blockKey(s.fleet, p.hashes[1]!), p.parts[1]!);
+    await s.env.FILES.put(blockKey(s.fleet, "laptop", p.hashes[1]!), p.parts[1]!);
     expect(await s.ask("points.put", { ...p.put, commit: true }, "klaptop")).toMatchObject({ result: { done: true, upload: {} } });
     expect((await list(s, {})).sessions).toMatchObject([{ sid: "sid1", machine: "laptop", callsign: "site@laptop", title: "Выкладка", points: 1, project: "site" }]);
     // вторая точка с теми же блоками записывается сразу: загружать нечего

@@ -39,7 +39,8 @@ export const ledgerAdd = request("ledger.add", {
 });
 export const ledgerRead = request("ledger.read", {
   owner: "ledger", target: "service", tool: "Журнал флота: выкладки, входы, сбои частей. what — начало имени события, machine — только по машине.",
-  input: z.object({ before: z.number().optional(), limit: z.number().optional(), what: z.string().optional(), machine: z.string().optional() }),
+  // after — события новее этого времени, от старых к новым: подтягивание новых без перечитывания
+  input: z.object({ before: z.number().optional(), after: z.number().optional(), limit: z.number().optional(), what: z.string().optional(), machine: z.string().optional() }),
   output: z.object({ events: z.array(LedgerEvent), more: z.boolean() }),
 });
 
@@ -50,9 +51,17 @@ export const ArchSession = z.object({
   cwd: z.string().optional(), project: z.string().optional(), points: z.number(), last: z.number(), bytes: z.number().optional(), tokens: z.number().optional(),
   /** строка с найденным словом */
   hit: z.string().optional(),
+  /** сессия с этим позывным сейчас есть на машине и не остановлена */
+  live: z.boolean().optional(),
+  /** владелец машины: удалить сессию архива может он и админ */
+  owner: z.string().optional(),
 });
 export type ArchSession = z.infer<typeof ArchSession>;
-export const ArchPoint = z.object({ point: z.string(), at: z.number(), label: z.string().optional(), turns: z.number().optional(), bytes: z.number().optional(), git: z.string().optional() });
+export const ArchPoint = z.object({
+  point: z.string(), at: z.number(), label: z.string().optional(), turns: z.number().optional(), bytes: z.number().optional(), git: z.string().optional(),
+  /** до какого времени точка хранится; нет — без срока (последняя точка сессии) */
+  until: z.number().optional(),
+});
 export type ArchPoint = z.infer<typeof ArchPoint>;
 
 /** Сохранить точку: Host называет файлы точки блоками (хэш содержимого); ответ — ссылки на загрузку блоков, которых ещё нет. */
@@ -71,8 +80,8 @@ export const pointsPut = request("points.put", {
 });
 export const pointsList = request("points.list", {
   owner: "archive", target: "service",
-  tool: "Архив сессий: каталог с поиском. q — слова в разговоре; machine — только эта машина; sid — точки одной сессии.",
-  input: z.object({ q: z.string().optional(), machine: z.string().optional(), sid: z.string().optional(), before: z.number().optional(), limit: z.number().optional() }),
+  tool: "Архив сессий: каталог с поиском. q — слова в разговоре; machine — только эта машина; sid — точки одной сессии; since — не старше этого времени; order — last (последние) или tokens (по токенам).",
+  input: z.object({ q: z.string().optional(), machine: z.string().optional(), sid: z.string().optional(), before: z.number().optional(), since: z.number().optional(), order: z.enum(["last", "tokens"]).optional(), limit: z.number().optional() }),
   output: z.object({ sessions: z.array(ArchSession), points: z.array(ArchPoint).optional(), more: z.boolean() }),
 });
 export const pointsGet = request("points.get", {
@@ -83,11 +92,20 @@ export const pointsGet = request("points.get", {
 export const pointsHistory = request("points.history", {
   owner: "archive", target: "service", tool: "Разговор сессии архива на точке (по умолчанию последней) страницами с конца.",
   input: z.object({ sid: z.string(), point: z.string().optional(), before: z.string().optional(), limit: z.number().optional() }),
-  output: z.object({ events: z.array(SdkEvent), more: z.boolean() }),
+  output: z.object({ events: z.array(SdkEvent), more: z.boolean(), /** точка, на которой прочитан разговор */ point: z.string().optional() }),
 });
+export const ModelCall = z.object({ call: z.string(), at: z.number(), model: z.string(), input: z.number(), output: z.number(), cacheRead: z.number(), cacheWrite: z.number(), cost: z.number().optional() });
+export type ModelCall = z.infer<typeof ModelCall>;
+/** Вызовы модели в разговоре точки: токены по вызовам и стоимость по таблице цен флота (настройка prices). */
+export const pointsCalls = request("points.calls", {
+  owner: "archive", target: "service", tool: "Вызовы модели в разговоре сессии архива на точке (по умолчанию последней): модель, токены, стоимость.",
+  input: z.object({ sid: z.string(), point: z.string().optional() }),
+  output: z.object({ point: z.string(), calls: z.array(ModelCall) }),
+});
+/** Удаляет владелец машины и админ, иначе not_owner. expect — последняя точка, которую видел удаляющий: в архиве уже другая — отказ changed. */
 export const pointsDelete = request("points.delete", {
   owner: "archive", target: "service", tool: "Удалить сессию архива или одну её точку.",
-  input: z.object({ sid: z.string(), point: z.string().optional() }), output: Done,
+  input: z.object({ sid: z.string(), point: z.string().optional(), expect: z.string().optional() }), output: Done,
 });
 
 /* ===== Связь с людьми (reach) ===== */
@@ -97,7 +115,8 @@ export type DeviceRow = z.infer<typeof DeviceRow>;
 /** Позвать человека: служба сама смотрит, на связи ли он; на связи — не шлёт. */
 export const reachSend = request("reach.send", {
   owner: "reach", target: "service",
-  input: z.object({ to: Person, title: z.string(), text: z.string(), callsign: Callsign.optional(), kind: z.enum(["ask", "done", "failed", "message"]).optional(), force: z.boolean().optional(), /** номер вопроса и подписи вариантов: ответ кнопками */ ask: z.string().optional(), options: z.array(z.string()).optional() }),
+  tool: "Написать человеку флота: to — человек вида ~a@b.c, title — заголовок, text — сообщение. Уйдёт на его телефон и в Telegram, если страница у него не открыта; force — слать в любом случае.",
+  input: z.object({ to: Person, title: z.string(), text: z.string(), callsign: Callsign.optional(), kind: z.enum(["ask", "done", "failed", "message", "incident", "alert"]).optional(), force: z.boolean().optional(), /** номер вопроса и подписи вариантов: ответ кнопками */ ask: z.string().optional(), options: z.array(z.string()).optional() }),
   output: z.object({ sent: z.number(), online: z.boolean() }),
 });
 export const reachKey = request("reach.key", { owner: "reach", target: "service", input: Empty, output: z.object({ key: z.string() }) });
@@ -110,6 +129,12 @@ export const reachDevices = request("reach.devices", { owner: "reach", target: "
 export const reachRemove = request("reach.remove", { owner: "reach", target: "service", input: z.object({ id: z.string().optional(), device: z.string() }), output: Done });
 /** Код привязки чата Telegram: человек шлёт его боту, чат становится его устройством. */
 export const reachTelegram = request("reach.telegram", { owner: "reach", target: "service", input: Empty, output: z.object({ code: z.string(), bot: z.string() }) });
+/** Бот Telegram флота: токен хранится в записях флота, вебхук ставится на адрес этого флота. token null — отключить. Без полей — состояние. */
+export const reachBot = request("reach.bot", {
+  owner: "reach", target: "service", admin: true,
+  input: z.object({ token: z.string().nullable().optional() }),
+  output: z.object({ bot: z.string().optional(), on: z.boolean() }),
+});
 
 /* ===== Настройки (prefs) ===== */
 
@@ -127,18 +152,33 @@ export const prefsSet = request("prefs.set", {
 
 /* ===== Ключи флота (keys) ===== */
 
-export const KeyRow = z.object({ name: z.string(), provider: z.string(), base: z.string().optional(), model: z.string().optional(), at: z.number(), tail: z.string() });
+/** Дополнения ключа: models — имена моделей claude → модели провайдера; window — окно контекста, токены; settings — настройки сессии на этом ключе; env — окружение сессии. */
+const KeyOpts = { models: z.record(z.string(), z.string()).optional(), window: z.number().optional(), settings: z.record(z.string(), z.unknown()).optional(), env: z.record(z.string(), z.string()).optional() };
+export const KeyRow = z.object({
+  name: z.string(), provider: z.string(), base: z.string().optional(), model: z.string().optional(), at: z.number(), tail: z.string(), ...KeyOpts,
+  /** сколько сессий флота сейчас идёт на этом ключе */
+  sessions: z.number().optional(),
+});
 export type KeyRow = z.infer<typeof KeyRow>;
-export const keysList = request("keys.list", { owner: "keys", target: "service", input: Empty, output: z.object({ keys: z.array(KeyRow) }) });
+export const keysList = request("keys.list", {
+  owner: "keys", target: "service", tool: "Ключи флота: ключи API для сессий без входа Claude — провайдер, адрес, модели, число сессий на ключе. Значений в ответе нет.",
+  input: Empty, output: z.object({ keys: z.array(KeyRow) }),
+});
+/** value не задан — правятся только свойства уже записанного ключа. */
 export const keysSet = request("keys.set", {
   owner: "keys", target: "service", admin: true,
-  input: z.object({ name: z.string(), provider: z.string(), value: z.string(), base: z.string().optional(), model: z.string().optional() }), output: Done,
+  tool: "Записать ключ флота: name — имя, provider — провайдер, value — значение ключа, base — адрес API, model — модель по умолчанию, models — соответствие имён моделей.",
+  input: z.object({ name: z.string(), provider: z.string(), value: z.string().optional(), base: z.string().optional(), model: z.string().optional(), ...KeyOpts }), output: Done,
 });
-export const keysRemove = request("keys.remove", { owner: "keys", target: "service", admin: true, input: z.object({ name: z.string() }), output: Done });
+/** probe — проба: ничего не удаляет, отвечает, какие сессии сейчас идут на ключе. */
+export const keysRemove = request("keys.remove", {
+  owner: "keys", target: "service", admin: true,
+  input: z.object({ name: z.string(), probe: z.boolean().optional() }), output: z.object({ sessions: z.array(z.string()).optional() }).loose(),
+});
 /** Значение ключа — только машине. */
 export const keysValue = request("keys.value", {
   owner: "keys", target: "service", machineOnly: true,
-  input: z.object({ name: z.string() }), output: z.object({ value: z.string(), provider: z.string(), base: z.string().optional(), model: z.string().optional() }),
+  input: z.object({ name: z.string() }), output: z.object({ value: z.string(), provider: z.string(), base: z.string().optional(), model: z.string().optional(), ...KeyOpts }),
 });
 
 /* ===== GitHub (github) ===== */
@@ -176,7 +216,20 @@ export const obsStats = request("obs.stats", {
   input: z.object({ since: z.number(), until: z.number() }),
   output: z.object({ types: z.array(z.object({ type: z.string(), n: z.number(), failed: z.number(), p50: z.number(), p95: z.number() })), buckets: z.array(z.object({ at: z.number(), n: z.number(), failed: z.number() })) }),
 });
-/** Ошибка страницы или Host, пойманная на месте. */
+/** Сводка здоровья флота одним ответом: машины, отказы за час, медленные запросы, последние сбои частей и ошибки, пойманные на месте. */
+export const obsHealth = request("obs.health", {
+  owner: "obs", target: "service", tool: "Здоровье флота: машины на связи и без связи, доля отказов за час, самые медленные запросы, последние сбои частей и ошибки страницы и Host.",
+  input: Empty,
+  output: z.object({
+    machines: z.object({ total: z.number(), online: z.number(), offline: z.array(z.object({ name: z.string(), since: z.number() })) }),
+    sessions: z.object({ total: z.number(), failed: z.array(z.string()), waiting: z.number() }),
+    requests: z.object({ n: z.number(), failed: z.number(), rate: z.number() }),
+    slow: z.array(z.object({ type: z.string(), p95: z.number(), n: z.number() })),
+    failures: z.array(LedgerEvent),
+    reports: z.array(z.object({ at: z.number(), part: z.string(), level: z.string(), msg: z.string(), who: z.string() })),
+  }),
+});
+/** Ошибка страницы или Host, пойманная на месте. Видна в obs.recent строкой с именем report. */
 export const obsReport = request("obs.report", {
   owner: "obs", target: "service",
   input: z.object({ part: z.string(), level: z.enum(["warn", "error"]), msg: z.string(), stack: z.string().optional(), data: z.unknown().optional() }), output: Done,

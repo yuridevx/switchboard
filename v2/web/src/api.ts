@@ -41,8 +41,11 @@ export async function acceptInvite(invite: string): Promise<void> {
 const SAY: Record<string, string> = {
   offline: "Машина не на связи", forbidden: "Нет права", timeout: "Нет ответа", bad_input: "Ввод не подходит", unknown_request: "Здесь это не обслуживается",
   not_found: "Не найдено", module_failed: "Ошибка в модуле", name_taken: "Имя занято", already_answered: "На вопрос уже ответили", bad_key: "Пропуск не принят",
-  analytics_unavailable: "Аналитика недоступна", bad_code: "Код не подошёл",
+  analytics_unavailable: "Аналитика недоступна", bad_code: "Код не подошёл", too_large: "Слишком большое сообщение", bad_frame: "Запрос не разобран",
+  no_search: "Поиск недоступен", not_owner: "Это не ваша сессия", has_wing: "У сессии есть ведомый", waiting: "Сессия ждёт ответа", bad_invite: "Приглашение не принято",
 };
+/** Слово отказа по-русски; незнакомое — как есть. */
+export const sayWord = (word?: string): string => (word ? SAY[word] ?? word : "");
 export const sayError = (e: unknown): string => (e instanceof CallError ? `${SAY[e.word] ?? e.word}${e.why ? `: ${e.why}` : ""}` : e instanceof Error ? e.message : String(e));
 
 /** Действие человека: запрос, отказ — тостом с причиной. */

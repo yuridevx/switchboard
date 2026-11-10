@@ -4,33 +4,41 @@ import { BarChart } from "@mantine/charts";
 import { Badge, Button, Group, Select, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
 import { Fragment, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { Failed, useCall } from "../common.tsx";
-import { ago, day, duration, hhmm } from "../lib/time.ts";
+import { sayWord } from "../api.ts";
+import { Failed, partWord, useCall, useWide } from "../common.tsx";
+import { day, duration, hhmm } from "../lib/time.ts";
 import { useFleet } from "../store/fleet.ts";
 import { TabsPage } from "./Fleet.tsx";
 
 const ms = (n: number) => (n >= 1000 ? duration(n) : `${n} мс`);
+/** Исход словами: причина по-русски, код — мелко рядом. */
+const outcome = (r: ObsRow) => (r.ok ? "принят" : sayWord(r.word).toLowerCase());
 
-/** Путь запроса: отрезки по частям столбиками; отказ — у последней части. */
+/** Путь запроса: причина первой строкой, отрезки по частям — подписанной полосой; отказ — у последней части. */
 function Path({ r }: { r: ObsRow }) {
   const go = useNavigate();
   const spans = r.spans ?? [];
   const total = Math.max(1, spans.reduce((a, s) => a + s.ms, 0));
+  const machine = r.to && /@/.test(r.to) ? r.to.slice(r.to.indexOf("@") + 1) : "";
   return (
     <Stack gap={8} p="sm" style={{ background: "var(--surface-2)", borderRadius: 8 }}>
+      {!r.ok && <Text size="sm" fw={600}>{r.why ? r.why[0]!.toUpperCase() + r.why.slice(1) : sayWord(r.word)} <span className="mono muted" style={{ fontWeight: 400 }}>{r.word}</span></Text>}
       <div className="span-bar" role="img" aria-label="Время по частям">{spans.map((s, i) => <i key={i} style={{ width: `${(s.ms / total) * 100}%` }} />)}</div>
       <Group gap="lg">
-        {spans.map((s, i) => (
-          <div key={i}>
-            <Text size="sm" fw={600} c={!r.ok && i === spans.length - 1 ? "red" : undefined}>{s.part}{!r.ok && i === spans.length - 1 ? " — отказ" : ""}</Text>
-            <Text size="sm">{ms(s.ms)}</Text>
-          </div>
-        ))}
+        {spans.map((s, i) => {
+          const refused = !r.ok && i === spans.length - 1;
+          return (
+            <Group key={i} gap={6} wrap="nowrap" align="center">
+              <span className={`sw sw-${i % 4}`} />
+              <Text size="sm" fw={600} c={refused ? "red" : undefined}>{partWord(s.part)}{refused ? " — отказ" : ""}</Text>
+              <Text size="sm" className="muted">{ms(s.ms)}</Text>
+            </Group>
+          );
+        })}
       </Group>
-      {!r.ok && <Text size="sm"><b>{r.word}</b>{r.why ? `: ${r.why}` : ""}</Text>}
       <Group gap="xs">
-        <Text size="xs" className="mono muted">trace {r.trace}</Text>
-        {r.to && /@/.test(r.to) && <Button size="compact-xs" variant="subtle" onClick={() => go(`/observe/machine?m=${r.to!.slice(r.to!.indexOf("@") + 1)}&trace=${r.trace}`)}>Строки журнала машины</Button>}
+        <Text size="xs" className="muted">номер запроса <span className="mono">{r.trace}</span></Text>
+        {machine && <Button size="compact-xs" variant="subtle" onClick={() => go(`/observe/machine?m=${machine}&trace=${r.trace}`)}>Строки журнала машины</Button>}
       </Group>
     </Stack>
   );
@@ -49,19 +57,19 @@ function Requests() {
         <Switch size="sm" label="Только отказы" checked={failed} onChange={(e) => setFailed(e.currentTarget.checked)} />
       </Group>
       <div className="table-wrap">
-        <Table verticalSpacing={5} horizontalSpacing="md" highlightOnHover>
+        <Table verticalSpacing={5} horizontalSpacing="md" highlightOnHover className="stack">
           <Table.Thead><Table.Tr><Table.Th>Когда</Table.Th><Table.Th>Запрос</Table.Th><Table.Th>От кого → кому</Table.Th><Table.Th ta="right">Время</Table.Th><Table.Th>Исход</Table.Th></Table.Tr></Table.Thead>
           <Table.Tbody>
             {(rows.data?.rows ?? []).map((r) => (
               <Fragment key={r.trace + r.at}>
                 <Table.Tr style={{ cursor: "pointer" }} tabIndex={0} aria-expanded={open === r.trace} onClick={() => setOpen(open === r.trace ? null : r.trace)} onKeyDown={(e) => e.key === "Enter" && setOpen(open === r.trace ? null : r.trace)}>
-                  <Table.Td className="muted" style={{ whiteSpace: "nowrap" }}>{hhmm(r.at)}</Table.Td>
-                  <Table.Td className="mono">{r.type}</Table.Td>
-                  <Table.Td className="mono" style={{ overflowWrap: "anywhere" }}>{r.from}{r.to ? ` → ${r.to}` : ""}</Table.Td>
-                  <Table.Td ta="right" style={{ whiteSpace: "nowrap" }}>{ms(r.ms)}</Table.Td>
-                  <Table.Td>{r.ok ? <Badge color="teal">ok</Badge> : <Badge color="red">{r.word}</Badge>}</Table.Td>
+                  <Table.Td className="muted" style={{ whiteSpace: "nowrap" }} data-l="Когда">{hhmm(r.at)}</Table.Td>
+                  <Table.Td className="mono" fw={500}>{r.type}</Table.Td>
+                  <Table.Td className="mono" style={{ overflowWrap: "anywhere" }} data-l="От кого → кому">{r.from}{r.to ? ` → ${r.to}` : ""}</Table.Td>
+                  <Table.Td ta="right" style={{ whiteSpace: "nowrap" }} data-l="Время">{ms(r.ms)}</Table.Td>
+                  <Table.Td data-l="Исход"><Badge color={r.ok ? "teal" : "red"}>{outcome(r)}</Badge></Table.Td>
                 </Table.Tr>
-                {open === r.trace && <Table.Tr><Table.Td colSpan={5}><Path r={r} /></Table.Td></Table.Tr>}
+                {open === r.trace && <Table.Tr className="full"><Table.Td colSpan={5}><Path r={r} /></Table.Td></Table.Tr>}
               </Fragment>
             ))}
           </Table.Tbody>
@@ -80,14 +88,14 @@ function Ledger() {
     <Stack gap="sm">
       <Select size="xs" w={220} clearable placeholder="Машина" aria-label="Машина" data={Object.keys(machines)} value={machine} onChange={setMachine} />
       <div className="table-wrap">
-        <Table verticalSpacing={6} horizontalSpacing="md">
+        <Table verticalSpacing={6} horizontalSpacing="md" className="stack">
           <Table.Tbody>
             {(ev.data?.events ?? []).map((e) => (
               <Table.Tr key={e.id}>
                 <Table.Td className="muted" style={{ whiteSpace: "nowrap" }}>{day(e.at)}, {hhmm(e.at)}</Table.Td>
-                <Table.Td>{e.text}</Table.Td>
-                <Table.Td className="mono muted">{e.what}</Table.Td>
-                <Table.Td className="mono muted" style={{ overflowWrap: "anywhere" }}>{e.who}</Table.Td>
+                <Table.Td fw={500}>{e.text}</Table.Td>
+                <Table.Td className="mono muted" data-l="Событие">{e.what}</Table.Td>
+                <Table.Td className="mono muted" style={{ overflowWrap: "anywhere" }} data-l="Кто">{e.who}</Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>
@@ -109,14 +117,14 @@ function MachineLog() {
   return (
     <Stack gap="sm">
       <Group gap="sm">
-        <Select size="xs" w={180} aria-label="Машина" className="mono" data={Object.keys(machines)} value={machine} onChange={(v) => set("m", v)} />
+        <Select size="xs" w={180} aria-label="Машина" className="mono" data={online} value={machine} onChange={(v) => set("m", v)} />
         <Select size="xs" w={160} clearable placeholder="Уровень" aria-label="Уровень" data={[{ value: "warn", label: "предупреждения" }, { value: "error", label: "ошибки" }]} value={level} onChange={setLevel} />
-        <TextInput size="xs" w={200} placeholder="trace запроса" aria-label="trace запроса" className="mono" value={trace} onChange={(e) => set("trace", e.currentTarget.value || null)} />
+        <TextInput size="xs" w={200} placeholder="Номер запроса" aria-label="Номер запроса" className="mono" value={trace} onChange={(e) => set("trace", e.currentTarget.value || null)} />
       </Group>
       {j.error ? <Failed error={j.error} retry={j.refetch} /> : (
         <div className="table-wrap" style={{ padding: "8px 12px" }}>
           {(j.data?.lines ?? []).map((l, i) => (
-            <Text key={i} size="xs" className="mono" c={l.level === "error" ? "red" : l.level === "warn" ? "orange" : undefined} style={{ overflowWrap: "anywhere", padding: "2px 0" }}>{hhmm(l.t)} {l.part.padEnd(6)} {l.msg}</Text>
+            <Text key={i} size="xs" className="mono" c={l.level === "error" ? "red" : l.level === "warn" ? "orange" : undefined} style={{ overflowWrap: "anywhere", padding: "2px 0" }}>{hhmm(l.t)} {partWord(l.part)} · {l.msg}</Text>
           ))}
           {j.data && !j.data.lines.length && <Text size="sm" className="muted">Строк нет</Text>}
         </div>
@@ -126,6 +134,8 @@ function MachineLog() {
 }
 
 function Health() {
+  const go = useNavigate();
+  const wide = useWide();
   const machines = useFleet((f) => f.machines);
   const sessions = useFleet((f) => f.sessions);
   const range = useMemo(() => ({ until: Date.now(), since: Date.now() - 2 * 3_600_000 }), []);
@@ -136,15 +146,17 @@ function Health() {
   const failed = Object.values(sessions).filter((s) => s.state === "failed").length;
   const worst = [...(stats.data?.types ?? [])].sort((a, b) => b.p95 - a.p95)[0];
   return (
-    <div className="cards" style={{ marginBottom: 16 }}>
-      <div className="card"><Text size="xl" fw={700} c={off.length ? "red" : undefined}>{all.length - off.length} из {all.length}</Text><Text size="sm" className="muted">машин на связи{off.length ? ` · нет: ${off.map((m) => m.name).join(", ")}` : ""}</Text></div>
-      <div className="card"><Text size="xl" fw={700}>{(n / 120).toFixed(1).replace(".", ",")}</Text><Text size="sm" className="muted">запросов в минуту за 2 часа</Text></div>
-      <div className="card"><Text size="xl" fw={700} c={bad / Math.max(1, n) > 0.05 ? "red" : undefined}>{((bad / Math.max(1, n)) * 100).toFixed(1).replace(".", ",")}%</Text><Text size="sm" className="muted">отказов · сессий со сбоем: {failed}</Text></div>
-      <div className="card"><Text size="xl" fw={700}>{worst ? ms(worst.p95) : "—"}</Text><Text size="sm" className="muted">самый медленный запрос, 95%{worst ? ` · ${worst.type}` : ""}</Text></div>
-      <div className="card" style={{ gridColumn: "1 / -1" }}>
-        <BarChart h={120} data={(stats.data?.buckets ?? []).map((b) => ({ t: hhmm(b.at), Запросы: b.n - b.failed, Отказы: b.failed }))} dataKey="t" type="stacked" series={[{ name: "Запросы", color: "ink.5" }, { name: "Отказы", color: "red.6" }]} tickLine="none" gridAxis="none" withYAxis={false} />
+    <Stack gap="sm" mb="md">
+      <div className="stats">
+        <button type="button" className="stat" onClick={() => go(off[0] ? `/machine/${off[0].name}` : "/fleet/machines")}><b style={off.length ? { color: "var(--st-failed)" } : undefined}>{all.length - off.length} из {all.length}</b><span>машин на связи{off.length ? ` · нет ${off.map((m) => m.name).join(", ")}` : ""}</span></button>
+        <div className="stat"><b>{(n / 120).toFixed(1).replace(".", ",")}</b><span>запросов в минуту</span></div>
+        <div className="stat"><b style={bad / Math.max(1, n) > 0.05 ? { color: "var(--st-failed)" } : undefined}>{((bad / Math.max(1, n)) * 100).toFixed(1).replace(".", ",")}%</b><span>отказов{failed ? ` · сессий со сбоем ${failed}` : ""}</span></div>
+        <div className="stat"><b>{worst ? ms(worst.p95) : "—"}</b><span>{worst ? <>самый медленный · <span className="mono">{worst.type}</span></> : "самый медленный"}</span></div>
       </div>
-    </div>
+      <div className="card" style={{ padding: "10px 10px 4px" }}>
+        <BarChart h={wide ? 110 : 70} data={(stats.data?.buckets ?? []).map((b) => ({ t: hhmm(b.at), ok: b.n - b.failed, bad: b.failed }))} dataKey="t" type="stacked" series={[{ name: "ok", label: "Запросы", color: "#869f96" }, { name: "bad", label: "Отказы", color: "#c5352b" }]} tickLine="none" gridAxis="none" withYAxis={false} withXAxis={wide} />
+      </div>
+    </Stack>
   );
 }
 
@@ -157,5 +169,3 @@ export function Observe() {
     ]} />
   );
 }
-
-export { ago };
