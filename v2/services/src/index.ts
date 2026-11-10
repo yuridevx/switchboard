@@ -38,6 +38,14 @@ export async function serve(req: Request, env: Env, exec: ExecutionContext, deps
   const entry = oauth(req, env, deps);
   if (entry) return entry;
   if (pathname.startsWith("/telegram/")) return telegram(req, env, exec, deps);
+  if (pathname === "/manifest.webmanifest" && env.ASSETS) {
+    // Манифест приложения; с приглашением — адрес запуска несёт его, чтобы приложение с экрана «Домой» вошло само
+    const invite = new URL(req.url).searchParams.get("invite");
+    const res = await env.ASSETS.fetch(new Request(new URL("/manifest.webmanifest", req.url)));
+    if (!invite || !res.ok) return res;
+    const manifest = (await res.json()) as Record<string, unknown>;
+    return new Response(JSON.stringify({ ...manifest, start_url: "/?invite=" + encodeURIComponent(invite) }), { headers: { "content-type": "application/manifest+json", "cache-control": "no-store" } });
+  }
   if (pathname === "/health") return Response.json({ ok: true, part: "services", modules: MODULES.map((m) => m.name) });
   if (env.ASSETS) return env.ASSETS.fetch(req);
   return new Response("switchboard services\n", { status: 404 });

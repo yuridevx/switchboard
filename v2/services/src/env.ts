@@ -26,6 +26,9 @@ export interface Env {
   CH_URL?: string;
   CH_USER?: string;
   CH_PASSWORD?: string;
+  /** служебный токен Cloudflare Access, если ClickHouse стоит за ним */
+  CH_ACCESS_ID?: string;
+  CH_ACCESS_SECRET?: string;
 }
 
 /** Что видит обработчик: кто пришёл, флот, журнал, платформа, сеть и «после ответа». */

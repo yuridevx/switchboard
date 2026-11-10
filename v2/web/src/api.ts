@@ -32,8 +32,14 @@ export function connect(): void {
   } else api = createApi(httpTransport({ base: fleetBase.replace(/\/$/, ""), key: keyStore.get() }));
 }
 
-/** Приглашение из адреса: #invite=… */
-export const inviteInHash = (): string => /[#&]invite=([^&]+)/.exec(location.hash)?.[1] ?? "";
+/** Приглашение из адреса: #invite=… или ?invite=… (так его несёт приложение с экрана «Домой»: iPhone открывает его с адреса из манифеста). */
+export const inviteInHash = (): string => {
+  const found = /[#&]invite=([^&]+)/.exec(location.hash)?.[1] ?? /[?&]invite=([^&]+)/.exec(location.search)?.[1] ?? "";
+  // приложение с экрана «Домой» каждый раз открывается с тем же адресом: уже принятое приглашение второй раз не предъявляется
+  return found && found === usedInvite() ? "" : found;
+};
+const USED = "sb2.invite.used";
+const usedInvite = (): string => { try { return localStorage.getItem(USED) ?? ""; } catch { return ""; } };
 /** Приглашение из вставленного текста: само приглашение или ссылка с #invite=…; не оно — пусто. */
 export function inviteFrom(text: string): string {
   const t = text.trim();
@@ -45,7 +51,10 @@ export function inviteFrom(text: string): string {
 export async function acceptInvite(invite: string): Promise<void> {
   const r = await api.call(redeem, { invite: decodeURIComponent(invite) });
   keyStore.set(r.key);
-  history.replaceState(null, "", location.pathname + location.search);
+  try { localStorage.setItem(USED, invite); } catch { /* без хранилища приглашение предъявится ещё раз и получит отказ */ }
+  const rest = new URLSearchParams(location.search);
+  rest.delete("invite");
+  history.replaceState(null, "", location.pathname + (rest.size ? "?" + rest : ""));
   connect();
 }
 

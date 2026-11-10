@@ -68,7 +68,8 @@ const report = (msg: string, stack?: string) => {
 };
 // у ошибки без текста сообщение события — голое «Uncaught»: тогда берём имя и текст самой ошибки
 const errorText = (message: string, error?: { name?: string; message?: string }) => (error?.message ? `${error.name ?? "Error"}: ${error.message}` : message.replace(/^Uncaught\s*/, "") || "ошибка без текста");
-window.addEventListener("error", (e) => report(errorText(e.message, e.error), e.error?.stack));
+// у ошибки без подробностей («Script error.») называем, откуда она: файл и строка отличают свой код от вставки браузера
+window.addEventListener("error", (e) => report(errorText(e.message, e.error) + (e.error ? "" : ` · ${e.filename || "источник не назван"}:${e.lineno ?? 0}`), e.error?.stack));
 window.addEventListener("unhandledrejection", (e) => report(String(e.reason?.message ?? e.reason), e.reason?.stack));
 
 /** Экран согласия внешнего клиента живёт по пути /consent, а не в маршрутах после #. */

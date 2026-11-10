@@ -27,6 +27,12 @@ const secrets = {
   VAPID_PRIVATE: fleet.SB2_VAPID_PRIVATE,
 };
 for (const k of ["CH_URL", "CH_USER", "CH_PASSWORD"]) if (fleet["SB2_" + k]) secrets[k] = fleet["SB2_" + k];
+// ClickHouse старой системы (слово пользователя 10 нояб. 2026: «бери старый»): тестовый пользователь, своя таблица sb2_calls
+const oldCh = path.join(dir, "clickhouse.env");
+if (!secrets.CH_URL && fs.existsSync(oldCh)) {
+  const ch = read("clickhouse.env");
+  Object.assign(secrets, { CH_URL: fleet.SB2_CH_URL ?? "https://ch.pfarm.app", CH_USER: ch.CH_USER_TEST, CH_PASSWORD: ch.CH_PASSWORD_TEST, CH_ACCESS_ID: ch.CH_ACCESS_ID, CH_ACCESS_SECRET: ch.CH_ACCESS_SECRET });
+}
 
 const r = spawnSync(process.execPath, [path.join(here, "wrangler.mjs"), "services", "secret", "bulk"], { input: JSON.stringify(secrets), stdio: ["pipe", "inherit", "inherit"] });
 console.log("секреты служб:", Object.keys(secrets).join(", "));

@@ -26,7 +26,11 @@ async function ch(env: Env, f: typeof fetch, query: string, body?: string, param
   for (const [k, v] of Object.entries(params)) url.searchParams.set("param_" + k, v);
   const res = await f(url, {
     method: "POST",
-    headers: { authorization: "Basic " + btoa(`${env.CH_USER ?? "default"}:${env.CH_PASSWORD ?? ""}`) },
+    headers: {
+      authorization: "Basic " + btoa(`${env.CH_USER ?? "default"}:${env.CH_PASSWORD ?? ""}`),
+      // ClickHouse за Cloudflare Access: служебный токен входа, если он задан
+      ...(env.CH_ACCESS_ID && env.CH_ACCESS_SECRET ? { "CF-Access-Client-Id": env.CH_ACCESS_ID, "CF-Access-Client-Secret": env.CH_ACCESS_SECRET } : {}),
+    },
     body: body ?? "",
     signal: AbortSignal.timeout(CH_MS),
   });

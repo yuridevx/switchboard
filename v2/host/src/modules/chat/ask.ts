@@ -5,6 +5,9 @@ import type { DecideOpts, HostApi, PermissionResult, SessionApi } from "../../co
 const REFUSAL = "The user doesn't want to proceed with this tool use.";
 const PLAN_ALWAYS = [{ type: "setMode", mode: "acceptEdits", destination: "session" }];
 
+/** Подписи кнопок разрешения там, где человек отвечает не со страницы: уведомление, чат. */
+const ACTION_WORDS: Record<string, string> = { "Разрешить": "allow", "Разрешать всегда": "allow_always", "Отклонить": "deny" };
+
 type Q = { question?: string; multiSelect?: boolean; header?: string; options?: Array<{ label?: string; description?: string }> };
 type Pending = { ask: Ask; settle(answer: unknown, by: string, via?: "push"): void };
 
@@ -28,7 +31,7 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
     if (!who) return;
     const failed = (e: unknown) => host().log.warn("ask_call", { callsign: s.callsign, to: who, why: (e as Error).message });
     if (isHuman(who)) {
-      void host().call(reachSend, { to: personOf(who)!, title: `${s.callsign} ${ask.kind === "question" ? "спрашивает" : "просит разрешения"}`, text: ask.text, callsign: s.callsign, kind: "ask", ask: ask.id, ...(ask.kind === "question" && ask.options?.length ? { options: ask.options.map((o) => o.label) } : {}) }).catch(failed);
+      void host().call(reachSend, { to: personOf(who)!, title: `${s.callsign} ${ask.kind === "question" ? "спрашивает" : "просит разрешения"}`, text: ask.text, callsign: s.callsign, kind: "ask", ask: ask.id, options: ask.kind === "question" ? (ask.options ?? []).map((o) => o.label) : Object.keys(ACTION_WORDS) }).catch(failed);
     } else if (kindOf(who) === "session" && ask.kind === "question") {
       void host().call(message, { to: who, text: asText(s.callsign, ask.id, qs ?? []) }, { from: s.callsign }).catch(failed);
     }
@@ -94,7 +97,8 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
       options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }], tool: opts.tool, input, at: Date.now(),
     };
     return put<PermissionResult>(s, ask, opts.signal, (answer) => {
-      const a = (typeof answer === "string" ? { action: answer } : (answer ?? {})) as { action?: string; message?: string };
+      // кнопка в уведомлении или в чате отвечает подписью — она значит то же действие
+      const a = (typeof answer === "string" ? { action: ACTION_WORDS[answer] ?? answer } : (answer ?? {})) as { action?: string; message?: string };
       if (a.action === "deny") return { behavior: "deny", message: a.message ? `${REFUSAL} Reason: ${a.message}` : REFUSAL };
       const always = a.action === "allow_always" ? (plan ? PLAN_ALWAYS : opts.suggestions) : undefined;
       return { behavior: "allow", updatedInput: input, ...(always?.length ? { updatedPermissions: always } : {}) };

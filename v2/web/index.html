@@ -7,6 +7,14 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      // Приглашение из ссылки должно пережить «На экран Домой»: приложение с иконки открывается с адреса из манифеста,
+      // поэтому манифест запрашивается с приглашением, и службы ставят его в адрес запуска.
+      (function () {
+        var m = /[#&?]invite=([^&]+)/.exec(location.hash + "&" + location.search.slice(1));
+        if (m) document.querySelector("link[rel=manifest]").href = "/manifest.webmanifest?invite=" + m[1];
+      })();
+    </script>
     <meta name="theme-color" content="#16201d" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
