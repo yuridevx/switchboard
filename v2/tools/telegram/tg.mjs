@@ -5,14 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 
-export const dev = path.join(os.homedir(), ".switchboard-dev");
+import { dev, fleetEnv, readEnv } from "../dev.mjs";
+export { dev, fleetEnv };
 const tg = createRequire(path.join(dev, "tg", "package.json"));
 export const { TelegramClient, Api } = tg("telegram");
 const { StringSession } = tg("telegram/sessions");
 
-const readEnv = (file) => (fs.existsSync(file) ? Object.fromEntries(fs.readFileSync(file, "utf8").split("\n").filter((l) => l.includes("=") && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()])) : {});
 const app = readEnv(path.join(dev, "telegram.env"));
-export const fleetEnv = readEnv(path.join(dev, "v2-fleet.env"));
 
 const NOTES = path.join(dev, "v2-telegram.env");
 /** Настройки проверки: токен бота, имя бота, группа. */

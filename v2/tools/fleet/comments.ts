@@ -5,9 +5,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { httpTransport, newId } from "@sb/protocol";
+import { fleetEnv } from "../dev.mjs";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
-const env = Object.fromEntries(fs.readFileSync(path.join(dir, "v2-fleet.env"), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+const env = fleetEnv;
 const [fleet, device, hours = "6"] = process.argv.slice(2);
 if (!fleet || !device) throw new Error("нужно: <флот> <устройство> [часов]");
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();

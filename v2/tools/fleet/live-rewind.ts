@@ -5,9 +5,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CallError, createApi, fleetList, httpTransport, machineConversations, message, sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, shellRun, type SessionRow } from "@sb/protocol";
+import { fleetEnv } from "../dev.mjs";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
-const env = Object.fromEntries(fs.readFileSync(path.join(dir, "v2-fleet.env"), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+const env = fleetEnv;
 const [fleet = "test", device = "cli", machine = "devbox"] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
 const wire = httpTransport({ base: env.SB2_BASE!, key });

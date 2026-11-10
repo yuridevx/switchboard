@@ -6,12 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { digest } from "./digest.mjs";
+import { fleetEnv } from "../dev.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const [fleet, num, device = "cli"] = process.argv.slice(2);
 if (!fleet) throw new Error("нужно: <флот> [номер сборки] [устройство]");
 const dir = path.join(os.homedir(), ".switchboard-dev");
-const env = Object.fromEntries(fs.readFileSync(path.join(dir, "v2-fleet.env"), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+const env = fleetEnv;
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
 const res = await fetch(env.SB2_BASE + "/call", { method: "POST", headers: { authorization: "Bearer " + key, "content-type": "application/json" }, body: JSON.stringify({ type: "builds.list", id: "check" }) });
 const reply = await res.json();

@@ -5,13 +5,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fleetEnv } from "../dev.mjs";
 import {
   accountList, answer, CallError, createApi, fleetList, hostRestart, httpTransport, incidentList, incidentRaise, keeperState, machineMetrics, obsHealth, pointsDelete, pointsList, prefsGet, prefsSet,
   sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellInfo, shellRun, slotSet, slotSwap, type SessionRow,
 } from "@sb/protocol";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
-const env = Object.fromEntries(fs.readFileSync(path.join(dir, "v2-fleet.env"), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+const env = fleetEnv;
 const [fleet = "test", device = "cli", machine = "devbox", second = ""] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
 const api = createApi(httpTransport({ base: env.SB2_BASE!, key }));

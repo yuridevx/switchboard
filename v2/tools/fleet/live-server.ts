@@ -4,9 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createApi, fleetList, httpTransport, obsHealth, pointsHistory, pointsList, pointsRaise, pointsSave, sessionRemove, sessionUpdate } from "@sb/protocol";
+import { fleetEnv } from "../dev.mjs";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
-const env = Object.fromEntries(fs.readFileSync(path.join(dir, "v2-fleet.env"), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+const env = fleetEnv;
 const [fleet = "test", device = "cli", source = "", target = ""] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
 const base = env.SB2_BASE!;

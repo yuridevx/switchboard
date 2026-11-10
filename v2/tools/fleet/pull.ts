@@ -8,9 +8,10 @@ import { createApi, httpTransport, pointsGet } from "@sb/protocol";
 import { download, writeFiles } from "../../host/src/modules/points/files.ts";
 import { bring, BUNDLE, folderOf, type Summary } from "../../host/src/modules/points/git.ts";
 import { projectDir } from "../../host/src/modules/points/points.ts";
+import { fleetEnv } from "../dev.mjs";
 
 const secrets = path.join(os.homedir(), ".switchboard-dev");
-const env = Object.fromEntries(fs.readFileSync(path.join(secrets, "v2-fleet.env"), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+const env = fleetEnv;
 const [fleet, device, sid, where, point] = process.argv.slice(2);
 if (!fleet || !device || !sid || !where) throw new Error("нужно: <флот> <устройство> <сессия архива> <папка> [точка]");
 const key = fs.readFileSync(path.join(secrets, `v2-${fleet}-${device}.pass`), "utf8").trim();

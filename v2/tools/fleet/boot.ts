@@ -4,9 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isReply, parseFrame } from "@sb/protocol";
+import { fleetEnv } from "../dev.mjs";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
-const env = Object.fromEntries(fs.readFileSync(path.join(dir, "v2-fleet.env"), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+const env = fleetEnv;
 const [fleet, person, device = "cli"] = process.argv.slice(2);
 if (!fleet || !person) throw new Error("нужно: <флот> <~почта> [устройство]");
 const platform = env.SB2_PLATFORM!, base = env.SB2_BASE!;

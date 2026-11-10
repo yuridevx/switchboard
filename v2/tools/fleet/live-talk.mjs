@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { fleetEnv } from "../dev.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const { chromium } = createRequire(path.join(root, "package.json"))("playwright-core");
@@ -14,7 +15,7 @@ const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.arg
 const out = outArg ?? path.join(root, "dist", "talk");
 fs.mkdirSync(out, { recursive: true });
 const dir = path.join(os.homedir(), ".switchboard-dev");
-const env = Object.fromEntries(fs.readFileSync(path.join(dir, "v2-fleet.env"), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+const env = fleetEnv;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // сеть этой машины моргает: запрос, не дошедший до флота, повторяется
 const call = (type, fields) => {
