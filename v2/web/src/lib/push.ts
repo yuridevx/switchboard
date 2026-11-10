@@ -1,30 +1,5 @@
 // Уведомления этого устройства: состояние, подписка браузера ключом флота, сервис-воркер.
 import { reachKey, reachSubscribe, type Api } from "@sb/protocol";
-import { kvGet, kvSet } from "./kv.ts";
-
-/** Пуш, пришедший без открытой страницы: его сохранил сервис-воркер. hash — куда он ведёт. */
-export type Missed = { title: string; text?: string; callsign?: string; kind?: string; ask?: string; at: number; hash: string };
-
-/** Что показать при открытии: по одному на сессию и вид (последний), свежие сверху, не больше пяти; остальное — числом. */
-export function missedOf(list: Missed[], limit = 5): { shown: Missed[]; rest: number } {
-  const by = new Map<string, Missed>();
-  for (const m of list) if (m && typeof m.at === "number" && typeof m.hash === "string") by.set(`${m.callsign ?? ""}:${m.kind ?? ""}:${m.callsign ? "" : m.title}`, m);
-  const all = [...by.values()].sort((a, b) => b.at - a.at);
-  return { shown: all.slice(0, limit), rest: Math.max(0, all.length - limit) };
-}
-
-/** Забрать сохранённые пуши: читаются один раз и стираются. */
-export async function takeMissed(): Promise<Missed[]> {
-  const raw = await kvGet("pushes");
-  if (!raw) return [];
-  await kvSet("pushes", null);
-  try {
-    const list = JSON.parse(raw) as Missed[];
-    return Array.isArray(list) ? list : [];
-  } catch {
-    return [];
-  }
-}
 
 /** Состояние уведомлений на устройстве:
  *  install — iPhone вне экрана «Домой»: пуши там не работают, нужна установка; unsupported — браузер не умеет;

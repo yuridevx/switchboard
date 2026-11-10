@@ -1,11 +1,13 @@
 // Машина: одно место, где видно всё, что о ней известно — связь, сборки Host и Keeper, её сессии, события флота о ней и строки её журнала.
 // Без связи — последнее известное и «пожар»: поднять её сессии на другой машине. Сюда ведут строка «Вам», карточка «Флота» и палитра.
 import { keeperState, ledgerRead, machineJournal, machineMetrics } from "@sb/protocol";
-import { ActionIcon, Badge, Button, Group, Modal, Stack, Text } from "@mantine/core";
+import { ActionIcon, Badge, Button, Group, Stack, Text } from "@mantine/core";
+import { Page } from "../shell/Page.tsx";
 import { IconArrowLeft } from "@tabler/icons-react";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { partWord, personWord, SessionLine, useCall, useMachineName, useUi } from "../common.tsx";
+import { partWord, personWord, SessionLine, useCall, useMachineName } from "../common.tsx";
+import { newPath } from "../shell/NewSession.tsx";
 import { HostNumbers, HostSeries } from "../lib/metrics.tsx";
 import { ago, day, hhmm, nSessions } from "../lib/time.ts";
 import { byUrgency, machineOfCall, useFleet } from "../store/fleet.ts";
@@ -16,7 +18,6 @@ import { journalWord } from "./Observe.tsx";
 export function Machine() {
   const { name = "" } = useParams();
   const go = useNavigate();
-  const ui = useUi();
   const nameOf = useMachineName();
   const m = useFleet((f) => f.machines[name]);
   const sessions = useFleet((f) => f.sessions);
@@ -41,7 +42,7 @@ export function Machine() {
           {nameOf(m.name) !== m.name && <Text className="mono muted">{m.name}</Text>}
           <Text c={m.online ? undefined : "red"}>{m.online ? `на связи ${ago(m.since) === "сейчас" ? "только что" : ago(m.since)}` : `без связи с ${day(m.since)}, ${hhmm(m.since)}`}</Text>
           <div style={{ flex: 1 }} />
-          {m.online && <Button size="xs" onClick={() => ui.set({ newOpen: true, newPreset: { machine: m.name } })}>Новая сессия</Button>}
+          {m.online && <Button size="xs" onClick={() => go(newPath({ machine: m.name }))}>Новая сессия</Button>}
           {burning > 0 && <Badge color="red" variant="light">пожар: {nSessions(burning)} ждут на точках архива</Badge>}
           {!m.online && here.length > 0 && others && <Button size="xs" color="red" variant="light" onClick={() => setFire(true)}>Поднять её сессии на другой машине</Button>}
         </Group>
@@ -97,7 +98,7 @@ export function Machine() {
           {!m.online && <div className="card off"><Badge color="red" w="fit-content">нет связи</Badge><Text size="sm">Журнал машины и управление её сессиями вернутся вместе со связью. Разговоры сессий есть в архиве до последней сохранённой точки.</Text><Button size="xs" variant="default" w="fit-content" onClick={() => go("/archive")}>Открыть архив</Button></div>}
         </div>
       </div>
-      <Modal opened={fire} onClose={() => setFire(false)} title={`Поднять сессии ${m.name} на другой машине`} size="lg"><Fire machine={m.name} onClose={() => setFire(false)} /></Modal>
+      <Page opened={fire} onClose={() => setFire(false)} title={`Поднять сессии ${m.name} на другой машине`} name="raise"><Fire machine={m.name} onClose={() => setFire(false)} /></Page>
     </div>
   );
 }

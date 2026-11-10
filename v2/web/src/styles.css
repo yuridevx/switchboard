@@ -229,3 +229,12 @@ button.stat { cursor: pointer; }
 .sortrow { display: flex; align-items: center; gap: 6px; }
 .sortrow.dragging { opacity: .45; }
 .sortbody { flex: 1; min-width: 0; }
+
+/* Страница шага: встаёт на место экрана, пока открыта; экран скрыт, но жив */
+.screen { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.pagehost { display: contents; }
+.main:has(> .pagehost > *) > .screen { display: none; }
+.steppage { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--mantine-color-body); }
+.steppage > .pane-head h1 { flex: 1; }
+.stepbody { max-width: 720px; margin-inline: auto; display: flex; flex-direction: column; gap: 12px; }
+.stepbody.wide { max-width: 1180px; }

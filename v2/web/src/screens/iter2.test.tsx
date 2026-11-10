@@ -3,7 +3,7 @@
 // архив (сводка, ветки), правила прокси (разница, вызов из архива), пуши без открытой страницы.
 import { accountList, createApi, hostRestart, keeperState, pointsCalls, pointsList, type Account, type Piece, type SessionRow } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
-import { ModalsProvider } from "@mantine/modals";
+import { Steps } from "../shell/Page.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -13,9 +13,7 @@ import * as apiModule from "../api.ts";
 import { accountKey, bulkOrder, diverge, limitWord, machineOrder, mergeAccounts } from "../lib/accounts.ts";
 import { setLocal } from "../lib/local.ts";
 import { buildsLink } from "../lib/pending.ts";
-import { missedOf, type Missed } from "../lib/push.ts";
 import { createMock, type Mock } from "../mock/fleet.ts";
-import { MissedList } from "../shell/Missed.tsx";
 import { useFleet } from "../store/fleet.ts";
 import { archiveSummary, branches } from "./Archive.tsx";
 import { fireCount, installCommand } from "./fleet/Machines.tsx";
@@ -182,34 +180,11 @@ describe("люди", () => {
   });
 });
 
-describe("пуши без открытой страницы", () => {
-  const push = { title: "site@laptop спрашивает", text: "Какую ветку?", callsign: "site@laptop", kind: "ask", ask: "q-9", options: ["main"] };
-  it("страница закрыта — пуш сохранён с адресом, куда он ведёт; страница открыта — не сохраняется", async () => {
-    const w = worker({});
-    await w.fire("push", { data: { json: () => push } });
-    await w.fire("push", { data: { json: () => ({ title: "Доля отказов выше порога", kind: "alert" }) } });
-    const kept = JSON.parse(w.kv.pushes!) as Missed[];
-    expect(kept.map((k) => k.hash)).toEqual(["/inbox/site@laptop", "/observe"]);
-    expect(kept[0]).toMatchObject({ title: push.title, callsign: "site@laptop", ask: "q-9", at: expect.any(Number) });
-    const open = worker({}, [{ url: "https://fleet.example/#/inbox" }]);
-    await open.fire("push", { data: { json: () => push } });
-    expect(open.kv.pushes).toBeUndefined();
-    expect(open.shown.length).toBe(1);
-  });
-  it("при открытии: по одному на сессию и вид, свежие сверху, не больше пяти — остальное числом", () => {
-    const m = (callsign: string, at: number, kind = "done"): Missed => ({ title: callsign, callsign, kind, at, hash: "/inbox/" + callsign });
-    const r = missedOf([m("a@l", 1), m("a@l", 5), m("b@l", 3), m("c@l", 2), m("d@l", 4), m("e@l", 6), m("f@l", 7), m("a@l", 8, "ask")]);
-    expect(r.shown.map((x) => `${x.callsign}:${x.kind}:${x.at}`)).toEqual(["a@l:ask:8", "f@l:done:7", "e@l:done:6", "a@l:done:5", "d@l:done:4"]);
-    expect(r.rest).toBe(2);
-    expect(missedOf([{ title: "x" } as Missed])).toEqual({ shown: [], rest: 0 });
-  });
-});
-
 describe("экраны второй итерации в отрисовке", () => {
   let mock: Mock;
   function page(ui: ReactNode, at = "/fleet/releases") {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return render(<MantineProvider><QueryClientProvider client={qc}><ModalsProvider><MemoryRouter initialEntries={[at]}><Routes><Route path="*" element={ui} /></Routes></MemoryRouter></ModalsProvider></QueryClientProvider></MantineProvider>);
+    return render(<MantineProvider><QueryClientProvider client={qc}><MemoryRouter initialEntries={[at]}><Steps /><Routes><Route path="*" element={ui} /></Routes></MemoryRouter></QueryClientProvider></MantineProvider>);
   }
   beforeEach(async () => {
     localStorage.clear();
@@ -233,12 +208,5 @@ describe("экраны второй итерации в отрисовке", () 
     fireEvent.click(screen.getByRole("radio", { name: "Сборки" }));
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Закрепить машину" }).length).toBeGreaterThan(0));
     expect(JSON.parse(localStorage.getItem("sb2.releases.view") ?? localStorage.getItem("releases.view") ?? "null") ?? "builds").toBe("builds");
-  });
-  it("«Пока вас не было»: строка ведёт туда же, куда вело уведомление", () => {
-    const go = vi.fn();
-    page(<MissedList list={[{ title: "site@laptop спрашивает", text: "Какую ветку?", callsign: "site@laptop", kind: "ask", at: T, hash: "/inbox/site@laptop" }]} go={go} />);
-    fireEvent.click(screen.getByText("site@laptop спрашивает"));
-    expect(go).toHaveBeenCalledWith("/inbox/site@laptop");
-    setLocal("x", 1);
   });
 });

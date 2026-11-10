@@ -1,6 +1,7 @@
 // «Флот → Инциденты»: обращения служб компьютера — открытые и все, недоставленные с причиной, правила видов.
 import { incidentList, prefsGet, prefsSet, type Incident, type IncidentKind } from "@sb/protocol";
-import { ActionIcon, Badge, Button, Group, Modal, MultiSelect, SegmentedControl, Stack, Table, TagsInput, Text, Textarea, TextInput } from "@mantine/core";
+import { ActionIcon, Badge, Button, Group, MultiSelect, SegmentedControl, Stack, Table, TagsInput, Text, Textarea, TextInput } from "@mantine/core";
+import { Page } from "../../shell/Page.tsx";
 import { IconPencil, IconTrash } from "@tabler/icons-react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -64,9 +65,9 @@ function Kinds() {
         </div>
       ))}
       {prefs.data && !Object.keys(kinds).length && <Text size="sm" className="muted">Видов нет: обращения некому разбирать</Text>}
-      <Modal opened={!!edit} onClose={() => setEdit(null)} title={edit?.isNew ? "Новый вид обращений" : `Вид ${edit?.name}`}>
+      <Page name="kind" opened={!!edit} onClose={() => setEdit(null)} title={edit?.isNew ? "Новый вид обращений" : `Вид ${edit?.name}`}>
         {edit && <KindForm {...edit} onClose={() => setEdit(null)} onSave={async (name, k) => { if (await patch(name, k, "Правило сохранено, машины его перечитают")) setEdit(null); }} />}
-      </Modal>
+      </Page>
     </div>
   );
 }

@@ -2,13 +2,13 @@
 import { obsReport, prefsGet, prefsSet, type InputOf, type OutputOf, type RequestDef, type SessionRow, type SessionState } from "@sb/protocol";
 import { Button, Group, Stack, Text } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
-import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { Component, type ReactNode } from "react";
 import { create } from "zustand";
 import { api, sayError } from "./api.ts";
 import { ago } from "./lib/time.ts";
+import { openStep } from "./shell/Page.tsx";
 import { machineOfCall, useFleet } from "./store/fleet.ts";
 
 export const STATE_WORD: Record<SessionState, string> = { starting: "запускается", idle: "свободна", busy: "работает", waiting: "ждёт вас", stopping: "останавливается", stopped: "остановлена", failed: "сбой" };
@@ -22,12 +22,9 @@ export const PART: Record<string, string> = { services: "службы", platform
 export const partWord = (p: string) => PART[p] ?? p;
 export const accountWord = (a?: string) => (!a || a === "auto" ? "авто" : a);
 
-/** Подтверждение опасного действия: одно на всю страницу. */
+/** Подтверждение опасного действия: страница с тем, что случится, красной кнопкой и «Отменой». */
 export function confirmDanger(o: { title: string; body?: ReactNode; confirm: string; onConfirm: () => unknown }) {
-  modals.openConfirmModal({
-    title: o.title, children: o.body ? <div style={{ fontSize: 14, display: "flex", flexDirection: "column", gap: 8 }}>{o.body}</div> : undefined,
-    labels: { confirm: o.confirm, cancel: "Отмена" }, confirmProps: { color: "red" }, onConfirm: () => void o.onConfirm(),
-  });
+  openStep(o);
 }
 
 /** Отложенное действие: уведомление с тем, что сделано, и отменой; по истечении срока действие уходит. */
@@ -147,8 +144,8 @@ export class Boundary extends Component<{ name: string; children: ReactNode }, {
 }
 
 /** Состояние оболочки. */
-type Ui = { newOpen: boolean; newPreset: { machine?: string; project?: string } | null; inspector: boolean; keysOpen: boolean; set(p: Partial<Ui>): void };
-export const useUi = create<Ui>((set) => ({ newOpen: false, newPreset: null, inspector: true, keysOpen: false, set: (p) => set(p) }));
+type Ui = { inspector: boolean; set(p: Partial<Ui>): void };
+export const useUi = create<Ui>((set) => ({ inspector: true, set: (p) => set(p) }));
 
 const WIDE = "(min-width: 861px)";
 export const useWide = (): boolean => useMediaQuery(WIDE, typeof window !== "undefined" && window.matchMedia(WIDE).matches, { getInitialValueInEffect: false }) ?? true;

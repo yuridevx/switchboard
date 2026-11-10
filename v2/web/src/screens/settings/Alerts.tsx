@@ -1,6 +1,7 @@
 // «Настройки → Уведомления»: пуши на этом устройстве, бот Telegram флота, привязка своего чата, список устройств.
 import { parsePass, reachBot, reachDevices, reachRemove, reachTelegram, type DeviceRow } from "@sb/protocol";
-import { ActionIcon, Badge, Button, CopyButton, Group, Modal, PasswordInput, Stack, Text } from "@mantine/core";
+import { ActionIcon, Badge, Button, CopyButton, Group, PasswordInput, Stack, Text } from "@mantine/core";
+import { Page } from "../../shell/Page.tsx";
 import { IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -67,14 +68,14 @@ function Telegram() {
       {admin && bot.data?.on && (
         <Button size="compact-xs" variant="subtle" color="red" w="fit-content" onClick={() => confirmDanger({ title: `Отключить бота @${bot.data?.bot}?`, body: "Чаты людей перестанут получать вопросы сессий, ответы из Telegram перестанут доходить.", confirm: "Отключить", onConfirm: async () => (await act(reachBot, { token: null }, "Бот отключён")) && refresh() })}>Отключить бота</Button>
       )}
-      <Modal opened={!!tg} onClose={() => setTg(null)} title="Привязать чат Telegram">
+      <Page name="telegram" opened={!!tg} onClose={() => setTg(null)} title="Привязать чат Telegram">
         {tg && (
           <Stack gap="xs">
             <Text size="sm">Отправьте боту <a href={`https://t.me/${tg.bot}`} target="_blank" rel="noreferrer" className="mono">@{tg.bot}</a> этот код — личным сообщением или в группе с темами. Чат станет вашим устройством: вопросы сессий придут туда, ответы уйдут сессиям.</Text>
             <Group><Text size="xl" fw={700} className="mono">{tg.code}</Text><CopyButton value={tg.code}>{({ copied, copy }) => <Button size="xs" variant="default" onClick={copy}>{copied ? "Скопировано" : "Скопировать"}</Button>}</CopyButton></Group>
           </Stack>
         )}
-      </Modal>
+      </Page>
     </div>
   );
 }

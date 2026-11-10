@@ -1,6 +1,7 @@
 // «Настройки → Люди и проекты»: кто в каких проектах, до каких машин достаёт, устройства человека; пригласить, назвать, удалить.
 import { invite, peopleList, peopleRemove, peopleSet, projectSet, type PersonRow } from "@sb/protocol";
-import { Badge, Button, Checkbox, Group, Menu, Modal, SegmentedControl, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
+import { Badge, Button, Checkbox, Group, Menu, SegmentedControl, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
+import { Page } from "../../shell/Page.tsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { act } from "../../api.ts";
@@ -95,8 +96,8 @@ export function People() {
           <Button variant="default" disabled={!project.trim()} onClick={async () => { const id = "p" + Date.now().toString(36); if (await act(projectSet, { project: id, name: project.trim() }, "Проект создан")) { await refresh(); setProject(""); } }}>Создать проект</Button>
         </Group>
       )}
-      <Modal opened={!!made} onClose={() => setMade("")} title="Приглашение" size="lg"><InviteLink invite={made} /></Modal>
-      <Modal opened={!!more} onClose={() => setMore(null)} title={`Приглашение для ${more ? personWord(more.person) : ""}`}>
+      <Page opened={!!made} onClose={() => setMade("")} title="Приглашение" name="link"><InviteLink invite={made} /><Button mt="md" style={{ alignSelf: "flex-start" }} onClick={() => setMade("")}>Готово</Button></Page>
+      <Page name="invite" opened={!!more} onClose={() => setMore(null)} title={`Приглашение для ${more ? personWord(more.person) : ""}`}>
         {more && (
           <Stack gap="sm">
             <SegmentedControl value={more.kind} onChange={(v) => setMore({ ...more, kind: v as "device" | "machine", name: v === "machine" ? "" : "phone" })} data={[{ value: "device", label: "Устройство" }, { value: "machine", label: "Машина" }]} aria-label="Что приглашаем" />
@@ -104,15 +105,15 @@ export function People() {
             <Button disabled={!/^[a-z0-9][a-z0-9_-]*$/.test(more.name)} onClick={async () => { const r = await act(invite, inviteFor(more.person, more.kind, more.name)); if (r) { await refresh(); setMade(r.invite); setMore(null); } }}>Выдать приглашение</Button>
           </Stack>
         )}
-      </Modal>
-      <Modal opened={!!name} onClose={() => setName(null)} title={`Имя для ${name ? personWord(name.person) : ""}`}>
+      </Page>
+      <Page name="name" opened={!!name} onClose={() => setName(null)} title={`Имя для ${name ? personWord(name.person) : ""}`}>
         {name && (
           <Stack gap="sm">
             <TextInput aria-label="Имя" value={name.name} onChange={(e) => setName({ ...name, name: e.currentTarget.value })} autoFocus />
             <Button onClick={async () => { if (await act(peopleSet, { person: name.person, name: name.name.trim() }, "Имя сохранено")) { await refresh(); setName(null); } }}>Сохранить</Button>
           </Stack>
         )}
-      </Modal>
+      </Page>
     </Stack>
   );
 }

@@ -1,7 +1,8 @@
 // «Архив»: каталог сессий с поиском по словам; сессия архива — разговор с точками в ленте и линия точек по дням;
 // поднять, копия, перенос, откат, вызовы модели, выгрузка на свой компьютер, удаление.
 import { parsePass, peopleList, pointsCalls, pointsDelete, pointsHistory, pointsList, pointsStats, type ArchPoint, type ArchSession, type OutputOf } from "@sb/protocol";
-import { ActionIcon, Badge, Button, CopyButton, Group, Loader, Menu, Modal, SegmentedControl, Select, Table, Text, TextInput } from "@mantine/core";
+import { ActionIcon, Badge, Button, CopyButton, Group, Loader, Menu, SegmentedControl, Select, Table, Text, TextInput } from "@mantine/core";
+import { Page } from "../shell/Page.tsx";
 import { useDebouncedValue } from "@mantine/hooks";
 import { IconArrowLeft, IconDots, IconSearch } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -291,7 +292,7 @@ function Detail({ s, q, onBack }: { s: ArchSession; q: string; onBack: () => voi
           <aside className="insp" aria-label="Точки"><div className="grp">Точки</div>{timeline}</aside>
         </div>
       )}
-      <Modal opened={!!dialog} onClose={() => setDialog(null)} size={dialog?.kind === "calls" ? "lg" : "md"}
+      <Page opened={!!dialog} onClose={() => setDialog(null)} name={dialog?.kind} wide={dialog?.kind === "calls"}
         title={!dialog ? "" : dialog.kind === "calls" ? "Вызовы модели" : dialog.kind === "pull" ? "На свой компьютер" : dialog.kind === "delete" ? "Удалить сессию из архива" : RAISE_TITLE[dialog.kind]}>
         {dialog?.kind === "calls" && <Calls sid={s.sid} point={dialog.point} />}
         {dialog?.kind === "pull" && (() => {
@@ -311,7 +312,7 @@ function Detail({ s, q, onBack }: { s: ArchSession; q: string; onBack: () => voi
         {dialog && (dialog.kind === "raise" || dialog.kind === "copy" || dialog.kind === "move" || dialog.kind === "rollback") && (
           <Raise kind={dialog.kind} s={s} point={dialog.point} onClose={() => setDialog(null)} onDone={(c) => { void qc.invalidateQueries({ queryKey: ["points.list"] }); setDialog(null); go(`/work/${c}`); }} />
         )}
-      </Modal>
+      </Page>
     </>
   );
 }

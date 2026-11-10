@@ -1,6 +1,7 @@
 // Разговор сессии: шапка с документом (правка на месте), лента, вопрос, список дел, фон, ввод. Рядом — инспектор или второй разговор пары.
 import { accountList, prefsSet, profileList, sessionCall, sessionRemove, sessionStart, sessionStop, type SessionRow } from "@sb/protocol";
-import { ActionIcon, Badge, Button, Checkbox, Drawer, Group, Loader, Menu, MultiSelect, Popover, SegmentedControl, Select, Stack, Text, TextInput, Tooltip } from "@mantine/core";
+import { ActionIcon, Badge, Button, Checkbox, Group, Loader, Menu, MultiSelect, SegmentedControl, Select, Stack, Text, TextInput, Tooltip } from "@mantine/core";
+import { Page } from "../shell/Page.tsx";
 import { IconArrowDown, IconArrowLeft, IconCheck, IconChevronDown, IconDots, IconLayoutSidebarRight, IconPlayerPlay } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -76,6 +77,7 @@ const HEAD_KEY = "head.parts";
 export const toggleHeadPart = (parts: string[], id: string): string[] => (parts.includes(id) ? parts.filter((p) => p !== id) : HEAD_PARTS.map(([p]) => p as string).filter((p) => p === id || parts.includes(p)));
 
 function Chips({ s, running }: { s: SessionRow; running?: string }) {
+  const [piecesOpen, setPiecesOpen] = useState(false);
   const d = useDoc(s, running);
   const picked = s.spec.pieces ?? [];
   const [parts] = useLocal<string[]>(HEAD_KEY, HEAD_DEFAULT);
@@ -89,26 +91,25 @@ function Chips({ s, running }: { s: SessionRow; running?: string }) {
       {on("model") && <Chip label="Модель" value={d.model.value} word={d.model.label} options={d.models.map((m) => [m.value, m.label] as const)} later={d.later.includes("model")} onPick={(model) => patchDoc(s, { model })} />}
       {on("effort") && <Chip label="Усилие" value={s.spec.effort} word={s.spec.effort ? undefined : "как у модели"} options={d.efforts} later={d.later.includes("effort")} onPick={(effort) => patchDoc(s, { effort: effort as never })} />}
       {on("account") && <Chip label="Аккаунт" value={s.spec.account ?? "auto"} options={d.accountOptions} later={d.later.includes("account")} onPick={(account) => patchDoc(s, { account })} />}
-      {on("pieces") && <Popover position="bottom-start" withinPortal>
-        <Popover.Target>
-          <Badge component="button" type="button" variant="default" rightSection={<IconChevronDown size={11} />} aria-label="Кусочки" style={{ cursor: "pointer" }}>
-            <span className="muted">кусочки</span> {picked.length ? picked.map(d.title).join(" + ") : "нет"} <AfterTurn on={d.later.includes("pieces")} />
-          </Badge>
-        </Popover.Target>
-        <Popover.Dropdown>
-          <Stack gap={6}>
-            {d.pieces.map((p) => (
-              <Checkbox key={p.id} size="xs" label={p.title ?? p.id} description={p.ok ? p.about : p.why} disabled={!p.ok} checked={picked.includes(p.id)}
-                onChange={(e) => patchDoc(s, { pieces: e.currentTarget.checked ? [...picked, p.id] : picked.filter((x) => x !== p.id) })} />
-            ))}
-          </Stack>
-        </Popover.Dropdown>
-      </Popover>}
+      {on("pieces") && (
+        <Badge component="button" type="button" variant="default" rightSection={<IconChevronDown size={11} />} aria-label="Кусочки" style={{ cursor: "pointer" }} onClick={() => setPiecesOpen(true)}>
+          <span className="muted">кусочки</span> {picked.length ? picked.map(d.title).join(" + ") : "нет"} <AfterTurn on={d.later.includes("pieces")} />
+        </Badge>
+      )}
+      <Page name="pieces" opened={piecesOpen} onClose={() => setPiecesOpen(false)} title={`Кусочки ${s.callsign}`}>
+        <Stack gap="sm">
+          {d.pieces.map((p) => (
+            <Checkbox key={p.id} label={p.title ?? p.id} description={p.ok ? p.about : p.why} disabled={!p.ok} checked={picked.includes(p.id)}
+              onChange={(e) => patchDoc(s, { pieces: e.currentTarget.checked ? [...picked, p.id] : picked.filter((x) => x !== p.id) })} />
+          ))}
+        </Stack>
+        <Button mt="md" style={{ alignSelf: "flex-start" }} onClick={() => setPiecesOpen(false)}>Готово</Button>
+      </Page>
     </div>
   );
 }
 
-/** Имя сессии для людей: нажатие на заголовок открывает правку; пустое имя снимает его. Запись — общая для флота. */
+/** Имя сессии для людей: нажатие на заголовок превращает его в поле на том же месте; Enter записывает, Esc отменяет, пустое имя снимает его. Запись — общая для флота. */
 function NameButton({ s, shown }: { s: SessionRow; shown: string }) {
   const labels = useLabels();
   const qc = useQueryClient();
@@ -119,15 +120,11 @@ function NameButton({ s, shown }: { s: SessionRow; shown: string }) {
     if (v.trim() === (labels.of(s.callsign) ?? "")) return;
     if (await act(prefsSet, { scope: "fleet", name: "labels", patch: { [s.callsign]: v.trim() || null } }, v.trim() ? "Имя записано" : "Имя снято")) await qc.invalidateQueries({ queryKey: ["prefs.get"] });
   };
-  return (
-    <Popover opened={open} onChange={setOpen} position="bottom-start" withinPortal trapFocus>
-      <Popover.Target><button type="button" className="namebtn trunc" title="Назвать сессию" onClick={() => (setV(labels.of(s.callsign) ?? ""), setOpen((o) => !o))}>{shown}</button></Popover.Target>
-      <Popover.Dropdown>
-        <TextInput size="xs" w={240} aria-label={`Имя для ${s.callsign}`} placeholder={s.title ?? s.spec.name} value={v} onChange={(e) => setV(e.currentTarget.value)}
-          onKeyDown={(e) => (e.key === "Enter" ? void put() : e.key === "Escape" ? setOpen(false) : undefined)} />
-      </Popover.Dropdown>
-    </Popover>
+  if (open) return (
+    <TextInput size="xs" autoFocus aria-label={`Имя для ${s.callsign}`} placeholder={s.title ?? s.spec.name} value={v} onChange={(e) => setV(e.currentTarget.value)} onBlur={() => void put()}
+      onKeyDown={(e) => (e.key === "Enter" ? void put() : e.key === "Escape" ? setOpen(false) : undefined)} />
   );
+  return <button type="button" className="namebtn trunc" title="Назвать сессию" onClick={() => (setV(labels.of(s.callsign) ?? ""), setOpen(true))}>{shown}</button>;
 }
 
 function save(name: string, text: string) {
@@ -141,6 +138,7 @@ function save(name: string, text: string) {
 export type Side = "lead" | "wing" | "both";
 
 function Header({ s, talk, onBack, pair, side, onSide, onSheet, focus, onFocus }: { s: SessionRow; talk: Talk; onBack?: () => void; pair?: boolean; /** сессия в паре: какая сторона показана и как её сменить */ side?: Side; onSide?: (s: Side) => void; onSheet?: () => void; focus: boolean; onFocus(): void }) {
+  const [docOpen, setDocOpen] = useState(false);
   const machine = machineOfCall(s.callsign);
   const offline = useFleet((f) => f.machines[machine]?.online === false);
   const ui = useUi();
@@ -166,10 +164,10 @@ function Header({ s, talk, onBack, pair, side, onSide, onSheet, focus, onFocus }
       <Group gap={4} wrap="nowrap" className="h-acts">
         {down && !offline && <Button size="xs" leftSection={<IconPlayerPlay size={14} />} onClick={() => act(sessionStart, { to: s.callsign })}>Запустить</Button>}
         {pair && !offline && (
-          <Popover position="bottom-end" withinPortal width={280}>
-            <Popover.Target><Button size="compact-xs" variant="default" rightSection={<IconChevronDown size={12} />}>Документ</Button></Popover.Target>
-            <Popover.Dropdown><DocFields s={s} /></Popover.Dropdown>
-          </Popover>
+          <>
+            <Button size="compact-xs" variant="default" onClick={() => setDocOpen(true)}>Документ</Button>
+            <Page name="doc" opened={docOpen} onClose={() => setDocOpen(false)} title={`Документ ${s.callsign}`}><DocFields s={s} /><Button mt="md" style={{ alignSelf: "flex-start" }} onClick={() => setDocOpen(false)}>Готово</Button></Page>
+          </>
         )}
         {onSide && side && <SegmentedControl size="xs" aria-label="Кого показать" value={side === "both" && !wide ? "lead" : side} onChange={(v) => onSide(v as Side)} data={[{ value: "lead", label: "ведущий" }, { value: "wing", label: "▸ ведомый" }, ...(wide ? [{ value: "both", label: "обе" }] : [])]} />}
         {onSheet && <Tooltip label="Инспектор (I)"><ActionIcon variant={wide && ui.inspector && !pair ? "light" : "subtle"} aria-label="Инспектор" onClick={() => (wide ? ui.set({ inspector: !ui.inspector }) : onSheet())}><IconLayoutSidebarRight size={17} /></ActionIcon></Tooltip>}
@@ -351,7 +349,7 @@ export function Conversation({ callsign, onBack }: { callsign: string; onBack?: 
       <Column key={left.callsign} s={left} primary={left === s} pair={showPair} onBack={onBack} side={side} onSide={other ? pickSide : undefined} onSheet={() => setSheet(true)} onWhy={why} onView={left === s ? setTalk : undefined} />
       {right && <Column key={right.callsign} s={right} primary={right === s} pair onWhy={why} onView={right === s ? setTalk : undefined} />}
       {showInsp && wide && <aside className="insp" aria-label="Инспектор">{inspector}</aside>}
-      {!wide && <Drawer opened={sheet} onClose={() => setSheet(false)} position="bottom" size="80%" title={s.callsign}>{inspector}</Drawer>}
+      {!wide && <Page name="info" opened={sheet} onClose={() => setSheet(false)} title={s.callsign}>{inspector}</Page>}
     </div>
   );
 }

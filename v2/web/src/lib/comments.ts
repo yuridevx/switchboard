@@ -8,6 +8,7 @@ export type Note = { id: string; at: number; text: string; where: Where };
 
 const KEY = "sb2.comments";
 const STYLE = `.pc-bar{position:fixed;left:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:9999;display:flex;gap:6px;font:600 12.5px system-ui,sans-serif}
+.pc-bar[hidden]{display:none}
 .pc-bar button{border:1px solid #17201B;background:#FBFCFA;color:#17201B;border-radius:999px;padding:6px 12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.15)}
 .pc-bar button[aria-pressed="true"],.pc-bar button.pri{background:#A85A05;border-color:#A85A05;color:#fff}
 .pc-hl{position:fixed;z-index:9996;pointer-events:none;border:2px solid #A85A05;border-radius:6px;background:rgba(168,90,5,.08);display:none}

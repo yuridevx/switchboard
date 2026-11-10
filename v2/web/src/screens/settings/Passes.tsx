@@ -1,6 +1,7 @@
 // «Настройки → Пропуска»: устройства людей и машины; выдать ссылку с QR, отозвать.
 import { invite, passes, revoke, type PassRow } from "@sb/protocol";
-import { Badge, Button, Group, Modal, SegmentedControl, Stack, Table, Text, TextInput } from "@mantine/core";
+import { Badge, Button, Group, SegmentedControl, Stack, Table, Text, TextInput } from "@mantine/core";
+import { Page } from "../../shell/Page.tsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { act } from "../../api.ts";
@@ -61,7 +62,7 @@ export function Passes() {
       </Group>
       {group("Устройства людей", all.filter((p) => !p.addr.startsWith("@")))}
       {group("Машины", all.filter((p) => p.addr.startsWith("@")))}
-      <Modal opened={!!made} onClose={() => setMade(null)} title={made?.program ? "Приглашение для программы" : "Ссылка для устройства"} size="lg">{made && <InviteLink invite={made.invite} program={made.program} />}</Modal>
+      <Page opened={!!made} onClose={() => setMade(null)} title={made?.program ? "Приглашение для программы" : "Ссылка для устройства"} name="link">{made && <InviteLink invite={made.invite} program={made.program} />}<Button mt="md" style={{ alignSelf: "flex-start" }} onClick={() => setMade(null)}>Готово</Button></Page>
     </Stack>
   );
 }

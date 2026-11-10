@@ -1,6 +1,7 @@
 // «Флот → Аккаунты»: аккаунты Claude одной строкой на все машины с лимитами; очередь выбора на каждой машине; ключи флота.
 import { accountCode, accountList, accountLogin, accountRemove, keyCheck, keysList, keysRemove, keysSet, slotSet, slotSwap, type Account, type KeyRow } from "@sb/protocol";
-import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, JsonInput, Menu, Modal, NumberInput, PasswordInput, Progress, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
+import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, JsonInput, Menu, NumberInput, PasswordInput, Progress, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
+import { Page } from "../../shell/Page.tsx";
 import { notifications } from "@mantine/notifications";
 import { IconDots, IconGripVertical } from "@tabler/icons-react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
@@ -137,7 +138,7 @@ function Queue({ machine, list, refresh, marked }: { machine: string; list: Acco
       </div>
       {out.length > 0 && <div>{out.map((a) => row(a, false))}</div>}
       {!queue.length && !out.length && <Text size="sm" className="muted">Входов Claude нет</Text>}
-      <Modal opened={!!login} onClose={() => setLogin(null)} title={`Вход Claude на ${machine}`}>{login && <Login machine={machine} expect={login.expect} onDone={(id) => (setLogin(null), setFresh(id ?? ""), refresh())} />}</Modal>
+      <Page name="login" opened={!!login} onClose={() => setLogin(null)} title={`Вход Claude на ${machine}`}>{login && <Login machine={machine} expect={login.expect} onDone={(id) => (setLogin(null), setFresh(id ?? ""), refresh())} />}</Page>
     </div>
   );
 }
@@ -205,7 +206,7 @@ function FleetKeys({ machines }: { machines: string[] }) {
         </div>
       ))}
       {keys.data && !keys.data.keys.length && <Text size="sm" className="muted">Ключей нет</Text>}
-      <Modal opened={!!f} onClose={() => setF(null)} title={f?.isNew ? "Новый ключ флота" : `Ключ ${f?.name}`}>
+      <Page name="key" opened={!!f} onClose={() => setF(null)} title={f?.isNew ? "Новый ключ флота" : `Ключ ${f?.name}`}>
         {f && (
           <Stack gap="sm">
             <TextInput label="Имя" className="mono" disabled={!f.isNew} value={f.name} onChange={(e) => setF({ ...f, name: e.currentTarget.value })} />
@@ -221,7 +222,7 @@ function FleetKeys({ machines }: { machines: string[] }) {
             <Button disabled={!made?.ok} onClick={async () => { if (made?.ok && (await act(keysSet, made.input, "Ключ сохранён"))) { await refresh(); setF(null); } }}>Сохранить</Button>
           </Stack>
         )}
-      </Modal>
+      </Page>
     </div>
   );
 }

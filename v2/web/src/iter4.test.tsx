@@ -3,7 +3,7 @@
 // переход к найденной записи, сводка архива, время замера лимитов, номера сообщений вызова.
 import { accountList, createApi, HostMetrics, machineMetrics, obsHealth, obsSeries, pointsList, pointsStats, type Account } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
-import { ModalsProvider } from "@mantine/modals";
+import { Steps } from "./shell/Page.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -146,7 +146,7 @@ describe("проверка правил на вызове", () => {
 describe("экран машины", () => {
   function page(ui: ReactNode, at: string) {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return render(<MantineProvider><QueryClientProvider client={qc}><ModalsProvider><MemoryRouter initialEntries={[at]}><Routes><Route path="/machine/:name" element={ui} /></Routes></MemoryRouter></ModalsProvider></QueryClientProvider></MantineProvider>);
+    return render(<MantineProvider><QueryClientProvider client={qc}><MemoryRouter initialEntries={[at]}><Steps /><Routes><Route path="/machine/:name" element={ui} /></Routes></MemoryRouter></QueryClientProvider></MantineProvider>);
   }
   beforeEach(async () => {
     localStorage.clear();

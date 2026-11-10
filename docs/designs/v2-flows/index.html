@@ -1,0 +1,174 @@
+<title>Флоу без окон</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+:root{--bg:#F7F8F5;--fg:#17201B;--mut:#5C6861;--line:#D6DCD4;--card:#FFFFFF;--acc:#A85A05;--accbg:#FBF1E2;--ok:#1F7A4D;--okbg:#E6F4EC;--bad:#B3302A;--badbg:#FBE9E7;--scr:#EEF1EC}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#131815;--fg:#E8ECE7;--mut:#9AA69E;--line:#2E3832;--card:#1B221E;--acc:#E9A04A;--accbg:#33270F;--ok:#62C795;--okbg:#14301F;--bad:#F08A82;--badbg:#3A1A17;--scr:#222A25;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#131815;--fg:#E8ECE7;--mut:#9AA69E;--line:#2E3832;--card:#1B221E;--acc:#E9A04A;--accbg:#33270F;--ok:#62C795;--okbg:#14301F;--bad:#F08A82;--badbg:#3A1A17;--scr:#222A25;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 Inter,system-ui,sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding-block:28px 60px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:30px}
+h1{font:700 30px/1.15 "Space Grotesk",Inter,sans-serif;margin:0;text-wrap:balance}
+h2{font:700 19px/1.2 "Space Grotesk",Inter,sans-serif;margin:0 0 12px}
+.lead{color:var(--mut);max-width:62ch;margin:6px 0 0}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:700px){.pair{grid-template-columns:1fr}}
+.fig{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.fig b{font-size:13px;letter-spacing:.04em;text-transform:uppercase}
+.fig.no b{color:var(--bad)}.fig.yes b{color:var(--ok)}
+.scr{position:relative;background:var(--scr);border:1px solid var(--line);border-radius:10px;height:150px;overflow:hidden;padding:10px;display:flex;flex-direction:column;gap:6px}
+.bar{height:9px;border-radius:5px;background:var(--line)}
+.bar.s{width:45%}.bar.m{width:70%}.bar.t{background:var(--fg);width:38%;height:11px}
+.dim{position:absolute;inset:0;background:rgba(0,0,0,.42)}
+.pop{position:absolute;left:22%;right:22%;top:26px;bottom:22px;background:var(--card);border:2px solid var(--bad);border-radius:10px;padding:9px;display:flex;flex-direction:column;gap:6px}
+.back{font-size:12px;color:var(--acc);font-weight:600}
+.btn{align-self:flex-start;background:var(--acc);color:#fff;border-radius:6px;font-size:11px;font-weight:700;padding:2px 9px;margin-top:auto}
+.chain{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.chain .scr{height:96px;width:120px;flex:none}
+.arr{color:var(--mut);font-size:18px}
+.rules{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media (max-width:760px){.rules{grid-template-columns:1fr}}
+.rule{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0}
+.rule i{font-style:normal;display:inline-block;background:var(--accbg);color:var(--acc);font-weight:700;border-radius:8px;padding:1px 9px;margin-bottom:6px}
+.rule p{margin:0;font-size:14px}
+.area{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0}
+.area h3{margin:0 0 10px;font:700 15px "Space Grotesk",Inter,sans-serif}
+.flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:7px 0;border-top:1px solid var(--line)}
+.flow:first-of-type{border-top:0}
+.n{border:1px solid var(--line);background:var(--scr);color:var(--fg);border-radius:9px;padding:4px 10px;font:inherit;font-size:13.5px;cursor:pointer}
+.n.p{background:var(--accbg);border-color:var(--acc);color:var(--fg)}
+.n.e{background:var(--okbg);border-color:var(--ok)}
+.n:hover,.n[aria-pressed="true"]{outline:2px solid var(--acc);outline-offset:1px}
+.a{border:0;background:transparent;color:var(--mut);font-size:16px;cursor:pointer;padding:0 2px}
+.a:hover,.a[aria-pressed="true"]{color:var(--acc)}
+.say{flex-basis:100%;font-size:13.5px;background:var(--accbg);border-radius:8px;padding:6px 10px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--mut)}
+.legend span::before{content:"";display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px;border:1px solid var(--line);background:var(--scr)}
+.legend .lp::before{background:var(--accbg);border-color:var(--acc)}.legend .le::before{background:var(--okbg);border-color:var(--ok)}
+.areas{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:860px){.areas{grid-template-columns:1fr}}
+.gate{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media (max-width:700px){.gate{grid-template-columns:1fr 1fr}}
+.num{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.num b{font:700 22px "Space Grotesk",Inter,sans-serif;display:block}
+.num span{font-size:12.5px;color:var(--mut)}
+.steps{display:flex;gap:8px;flex-wrap:wrap}
+.st{flex:1 1 190px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:13.5px;min-width:0}
+.st b{display:block;margin-bottom:2px}.st em{font-style:normal;color:var(--ok);font-size:12.5px}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Space+Grotesk:wght@700&display=swap">
+<div class="wrap">
+  <header>
+    <h1>Флоу без окон: каждый шаг — страница</h1>
+    <p class="lead">Сейчас действие открывает окно поверх экрана. Дальше — страница шага: свой адрес, заголовок, «Назад», понятный конец.</p>
+  </header>
+
+  <section class="pair">
+    <div class="fig no"><b>Убираем</b>
+      <div class="scr"><div class="bar t"></div><div class="bar m"></div><div class="bar s"></div><div class="bar m"></div><div class="dim"></div><div class="pop"><div class="bar t"></div><div class="bar m"></div><div class="bar s"></div><div class="btn">Создать</div></div></div>
+    </div>
+    <div class="fig yes"><b>Делаем</b>
+      <div class="chain">
+        <div class="scr"><div class="bar t"></div><div class="bar m"></div><div class="bar s"></div><div class="btn">+ Добавить</div></div><span class="arr">→</span>
+        <div class="scr"><div class="back">← Машины</div><div class="bar t"></div><div class="bar m"></div><div class="btn">Создать</div></div><span class="arr">→</span>
+        <div class="scr"><div class="back">← Машины</div><div class="bar t"></div><div class="bar s"></div><div class="btn">Готово</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Три вида страниц</h2>
+    <div class="rules">
+      <div class="rule"><i>Шаг</i><p>Форма или просмотр: заголовок, «← откуда пришёл», одно главное действие внизу. После успеха — следующая страница или возврат.</p></div>
+      <div class="rule"><i>Подтверждение</i><p>Опасное действие: что случится, красная кнопка и «Отмена». Где цена высока — ввод имени.</p></div>
+      <div class="rule"><i>Раздел</i><p>То, что было шторкой или палитрой: «Новая сессия», «Найти», «Ещё», «Клавиши» — обычные адреса.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Все флоу</h2>
+    <div class="legend"><span>экран</span><span class="lp">страница шага</span><span class="le">конец флоу</span></div>
+    <div class="areas" id="areas" style="margin-top:10px"></div>
+  </section>
+
+  <section>
+    <h2>Гейт</h2>
+    <div class="gate">
+      <div class="num"><b>26 → 0</b><span>окон поверх экрана</span></div>
+      <div class="num"><b>5 → 1</b><span>механизмов: окно, шторка, палитра, подтверждение, окно из кода → страница шага</span></div>
+      <div class="num"><b>0 → 0</b><span>дубликатов и циклов</span></div>
+      <div class="num"><b>0</b><span>новых запросов к флоту</span></div>
+    </div>
+    <p class="lead">Работа: маленькая — меняется только страница, договор с флотом тот же. Вердикт: делай. Меню действий «⋯» и выпадающие списки остаются: это выбор из списка, а не окно.</p>
+  </section>
+
+  <section>
+    <h2>Порядок реализации</h2>
+    <div class="steps">
+      <div class="st"><b>1. Страница шага</b>Один компонент: адрес, «Назад», место в оболочке.<em>Готово: тест «Назад закрывает шаг» — 1</em></div>
+      <div class="st"><b>2. Разделы</b>«Новая сессия», «Найти», «Ещё», «Клавиши».<em>Готово: 4 адреса открываются</em></div>
+      <div class="st"><b>3. Подтверждения</b>Все опасные действия — страницей.<em>Готово: окон подтверждения 0</em></div>
+      <div class="st"><b>4. Шаги экранов</b>Работа, сессия, архив, флот, настройки.<em>Готово: окон в коде 0, тесты страницы зелёные</em></div>
+      <div class="st"><b>5. Вживую</b>Тестовый флот, настоящий браузер, 1440 и 390.<em>Готово: снимки 6 флоу</em></div>
+    </div>
+  </section>
+</div>
+<script>
+const A = [
+  ["Сессии", [
+    [["s","Любой экран","Кнопка «+» в панели, в строке машины или проекта, клавиша N."],["p","Новая сессия","Страница с машиной, папкой, аккаунтом и первым сообщением. Адрес несёт машину или проект, с которых пришли."],["e","Разговор","После «Открыть» — сразу разговор новой сессии."]],
+    [["s","Разговор","Имя сессии в шапке."],["p","Имя на месте","Клик по имени превращает его в поле прямо в шапке. Enter сохраняет, Esc отменяет."],["e","Разговор","Имя видно всем людям флота."]],
+    [["s","Разговор · ⋯","«Удалить сессию» или «Остановить»."],["p","Подтверждение","Страница: что будет с сессией и её точками, красная кнопка."],["e","Список","Сессия ушла из списка."]],
+    [["s","Разговор (телефон)","Кнопка сведений в шапке."],["p","Сведения о сессии","Инспектор целой страницей вместо шторки снизу: документ, точки, расход."],["e","Разговор","«Назад» возвращает в ленту на то же место."]],
+    [["s","Инспектор","Переключатель «Сохранять точки в архив»."],["p","Ввод имени","Точки удаляются сразу и без отмены — страница просит ввести имя сессии."],["e","Инспектор","Переключатель снят."]],
+  ]],
+  ["Работа", [
+    [["s","Список","Меню фильтра → «Свои фильтры»."],["p","Свои фильтры","Страница со списком фильтров и формой нового."],["e","Список","Новый фильтр выбран."]],
+    [["s","Список","Кнопка «Вид списка»."],["p","Вид списка","Что показывать в строке и как группировать."],["e","Список","Вид применён."]],
+    [["s","Проект · ⋯","«Порядок проектов» или «Переименовать»."],["p","Проект","Страница порядка или имени проекта."],["e","Список","Проекты в новом порядке."]],
+  ]],
+  ["Архив", [
+    [["s","Сессия архива · ⋯","«Перенести», «Копия», «Поднять», «Откат к точке»."],["p","Куда поднять","Машина, папка, аккаунт; проверка папки до запуска."],["e","Разговор","Открыта поднятая сессия."]],
+    [["s","Сессия архива · ⋯","«Вызовы модели»."],["p","Вызовы модели","Таблица вызовов точки: модель, токены, стоимость."],["e","Сессия архива","«Назад»."]],
+    [["s","Сессия архива · ⋯","«На свой компьютер»."],["p","Команда","Команда для своей машины и кнопка «Скопировать»."],["e","Сессия архива","«Назад»."]],
+    [["s","Сессия архива · ⋯","«Удалить из архива»."],["p","Ввод имени","Сколько точек исчезнет; удаление — после ввода имени."],["e","Архив","Сессии в каталоге нет."]],
+  ]],
+  ["Флот", [
+    [["s","Машины","«Добавить машину»."],["p","Имя машины","Имя и владелец."],["p","Команда установки","Команда для новой машины; страница ждёт, пока она выйдет на связь."],["e","Машины","Машина в списке, на связи."]],
+    [["s","Аккаунты","«Войти» или «Войти заново»."],["p","Ссылка входа","Ссылка Claude для входа в браузере."],["p","Код","Поле для кода из браузера."],["e","Аккаунты","Аккаунт в списке, подсвечен."]],
+    [["s","Ключи флота","«Новый ключ» или «Изменить»."],["p","Ключ","Провайдер, значение, адрес, модели."],["e","Ключи флота","Ключ в списке."]],
+    [["s","Обращения","«Новый вид» или клик по виду."],["p","Вид обращений","Имя, машина, папка, текст задачи."],["e","Обращения","Вид в списке."]],
+    [["s","Кусочки","Клик по файлу или «Репозитории»."],["p","Файл / репозитории","Файл кусочка целиком или список репозиториев с добавлением."],["e","Кусочки","«Назад»."]],
+    [["s","Машина","«Поднять сессии на другой машине»."],["p","Выбор сессий","Какие сессии и куда поднять из архива."],["e","Машина","Сессии открыты на другой машине."]],
+  ]],
+  ["Настройки", [
+    [["s","Люди","«Пригласить» или «Пригласить устройство»."],["p","Кого","Почта человека, имя устройства или машины."],["p","Ссылка и QR","Приглашение ссылкой и кодом; «Готово» закрывает флоу."],["e","Люди","Человек в списке."]],
+    [["s","Люди · Ещё","«Назвать»."],["p","Имя","Имя человека для флота."],["e","Люди","Имя в списке."]],
+    [["s","Пропуска","«Новое устройство» или «Программа»."],["p","Ссылка","Ссылка устройства или приглашение программы."],["e","Пропуска","Пропуск появится после входа."]],
+    [["s","Уведомления","«Привязать Telegram»."],["p","Код для бота","Код и ссылка на бота; страница ждёт привязки."],["e","Уведомления","Чат в списке устройств."]],
+  ]],
+  ["Оболочка", [
+    [["s","Любой экран","Ctrl K или лупа."],["p","Найти","Страница поиска: сессии, машины, папки, проекты, действия. Enter открывает первое."],["e","Найденное","Открыт выбранный экран."]],
+    [["s","Телефон","Кнопка «Ещё» в нижней панели."],["p","Ещё","Страница остальных разделов, тема, связь."],["e","Раздел","Открыт выбранный раздел."]],
+    [["s","Любой экран","Клавиша «?»."],["p","Клавиши","Страница со списком клавиш."],["e","Экран","«Назад»."]],
+  ]],
+];
+const host = document.getElementById("areas");
+for (const [name, flows] of A) {
+  const box = document.createElement("div"); box.className = "area";
+  box.innerHTML = "<h3>" + name + "</h3>";
+  for (const f of flows) {
+    const row = document.createElement("div"); row.className = "flow";
+    const say = document.createElement("div"); say.className = "say"; say.hidden = true;
+    f.forEach(([k, label, about], i) => {
+      if (i) { const a = document.createElement("button"); a.className = "a"; a.type = "button"; a.textContent = "→"; a.setAttribute("aria-label", "переход"); a.onclick = () => show(a, i === f.length - 1 ? "Успех завершает флоу; «Назад» в любой момент возвращает на шаг раньше." : "Переход — обычная навигация: у страницы свой адрес, «Назад» браузера работает."); row.appendChild(a); }
+      const b = document.createElement("button"); b.type = "button"; b.className = "n " + k; b.textContent = label; b.onclick = () => show(b, about); row.appendChild(b);
+    });
+    function show(el, text) {
+      const was = el.getAttribute("aria-pressed") === "true";
+      row.querySelectorAll("[aria-pressed]").forEach((x) => x.removeAttribute("aria-pressed"));
+      say.hidden = was; if (!was) { el.setAttribute("aria-pressed", "true"); say.textContent = text; }
+    }
+    row.appendChild(say); box.appendChild(row);
+  }
+  host.appendChild(box);
+}
+</script>

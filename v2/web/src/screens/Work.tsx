@@ -1,13 +1,15 @@
 // «Работа»: сессии по проектам. Свои фильтры, список или доска, закрепление, свой порядок; строка переносится в другой проект мышью и пальцем.
 import { peopleList, projectRemove, projectSet, sessionUpdate, type SessionRow } from "@sb/protocol";
-import { ActionIcon, Button, Chip, Group, Menu, Modal, MultiSelect, Popover, SegmentedControl, Stack, Switch, Text, TextInput, Tooltip } from "@mantine/core";
+import { ActionIcon, Button, Chip, Group, Menu, MultiSelect, SegmentedControl, Stack, Switch, Text, TextInput, Tooltip } from "@mantine/core";
+import { Page } from "../shell/Page.tsx";
 import { useHotkeys } from "@mantine/hooks";
 import { IconAdjustmentsHorizontal, IconCheck, IconChevronDown, IconChevronRight, IconDots, IconFilter, IconPencil, IconPin, IconPinFilled, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { act } from "../api.ts";
-import { confirmDanger, Lamp, personWord, ROW_PARTS, SessionLine, useCall, useMachineName, useMyPrefs, useUi, useWide, type RowParts } from "../common.tsx";
+import { confirmDanger, Lamp, personWord, ROW_PARTS, SessionLine, useCall, useMachineName, useMyPrefs, useWide, type RowParts } from "../common.tsx";
+import { newPath } from "../shell/NewSession.tsx";
 import { useRowDrag } from "../lib/drag.ts";
 import { Sortable } from "../lib/Sortable.tsx";
 import { getLocal, useLocal } from "../lib/local.ts";
@@ -70,10 +72,10 @@ function Filters({ filters, save, onClose }: { filters: Filter[]; save: (next: F
 export function Work() {
   const { callsign } = useParams();
   const go = useNavigate();
+  const [look, setLook] = useState(false);
   const wide = useWide();
   const qc = useQueryClient();
   const picture = useFleet();
-  const ui = useUi();
   const people = useCall(peopleList, {});
   const prefs = useMyPrefs();
   // вид, выбранный фильтр и свёрнутые проекты помнит это устройство; фильтры, закрепление и порядок — настройки человека
@@ -160,10 +162,9 @@ export function Work() {
               <Menu.Item onClick={() => setEditFilters(true)}>Свои фильтры…</Menu.Item>
             </Menu.Dropdown>
           </Menu>
-          <Popover position="bottom-end" withinPortal>
-            <Popover.Target><Tooltip label="Вид списка"><ActionIcon variant="default" size="md" aria-label="Вид списка"><IconAdjustmentsHorizontal size={15} /></ActionIcon></Tooltip></Popover.Target>
-            <Popover.Dropdown>
-              <Stack gap="xs">
+          <Tooltip label="Вид списка"><ActionIcon variant="default" size="md" aria-label="Вид списка" onClick={() => setLook(true)}><IconAdjustmentsHorizontal size={15} /></ActionIcon></Tooltip>
+          <Page name="look" opened={look} onClose={() => setLook(false)} title="Вид списка">
+              <Stack gap="sm">
                 {wide && <SegmentedControl size="xs" fullWidth value={view} onChange={(v) => (setView(v as "list" | "board"), callsign && v === "board" && go("/work"))} data={[{ value: "list", label: "Список" }, { value: "board", label: "Доска" }]} aria-label="Вид" />}
                 <SegmentedControl size="xs" fullWidth value={groupBy} onChange={(v) => setGroupBy(v as "project" | "machine")} data={[{ value: "project", label: "По проектам" }, { value: "machine", label: "По машинам" }]} aria-label="Группы" />
                 <Switch size="xs" label="Дочерние под родителем" checked={nested} onChange={(e) => setNested(e.currentTarget.checked)} />
@@ -171,8 +172,8 @@ export function Work() {
                 <Switch size="xs" label="Чем занята" checked={parts.doing} onChange={(e) => setParts({ ...parts, doing: e.currentTarget.checked })} />
                 <Switch size="xs" label="Время" checked={parts.when} onChange={(e) => setParts({ ...parts, when: e.currentTarget.checked })} />
               </Stack>
-            </Popover.Dropdown>
-          </Popover>
+              <Button mt="md" style={{ alignSelf: "flex-start" }} onClick={() => setLook(false)}>Готово</Button>
+          </Page>
         </div>
         {board ? (
           <div className="board scroll">
@@ -208,7 +209,7 @@ export function Work() {
                     {/* свёрнутый проект показывает лампами, что в нём ждёт человека */}
                     {shut && <span className="lamps">{g.rows.filter((s) => s.state === "waiting" || s.state === "failed" || s.state === "busy").slice(0, 8).map((s) => <Lamp key={s.callsign} state={s.state} offline={offline(s)} />)}</span>}
                     <span className="grp-acts">
-                      <Tooltip label={groupBy === "machine" ? "Новая сессия на машине" : "Новая сессия в проекте"}><ActionIcon size="xs" variant="subtle" aria-label={`Новая сессия: ${g.name}`} onClick={() => ui.set({ newOpen: true, newPreset: groupBy === "machine" ? { machine: g.project.slice(1) } : real ? { project: g.project } : null })}><IconPlus size={13} /></ActionIcon></Tooltip>
+                      <Tooltip label={groupBy === "machine" ? "Новая сессия на машине" : "Новая сессия в проекте"}><ActionIcon size="xs" variant="subtle" aria-label={`Новая сессия: ${g.name}`} onClick={() => go(newPath(groupBy === "machine" ? { machine: g.project.slice(1) } : real ? { project: g.project } : null))}><IconPlus size={13} /></ActionIcon></Tooltip>
                       {real && (
                         <Menu withinPortal position="bottom-end">
                           <Menu.Target><ActionIcon size="xs" variant="subtle" aria-label={`Действия с проектом ${g.name}`}><IconDots size={13} /></ActionIcon></Menu.Target>
@@ -258,11 +259,11 @@ export function Work() {
           <Conversation callsign={callsign} onBack={() => go("/work")} />
         </section>
       )}
-      <Modal opened={editFilters} onClose={() => setEditFilters(false)} title="Свои фильтры"><Filters filters={custom} save={(next) => void prefs.save("filters", next)} onClose={() => setEditFilters(false)} /></Modal>
-      <Modal opened={orderProjects} onClose={() => setOrderProjects(false)} title="Порядок проектов">
+      <Page name="filters" opened={editFilters} onClose={() => setEditFilters(false)} title="Свои фильтры"><Filters filters={custom} save={(next) => void prefs.save("filters", next)} onClose={() => setEditFilters(false)} /></Page>
+      <Page name="order" opened={orderProjects} onClose={() => setOrderProjects(false)} title="Порядок проектов">
         <Sortable ids={projectIds} label={(id) => names[id] ?? id} onOrder={(ids) => void prefs.save("projects", ids)} row={(id) => <div className="line" style={{ borderTop: 0 }}><span className="grow trunc">{names[id] ?? id}</span></div>} />
-      </Modal>
-      <Modal opened={!!rename} onClose={() => setRename(null)} title="Переименовать проект">
+      </Page>
+      <Page name="rename" opened={!!rename} onClose={() => setRename(null)} title="Переименовать проект">
         {rename && (
           <Stack gap="sm">
             <TextInput aria-label="Название проекта" value={rename.name} onChange={(e) => setRename({ ...rename, name: e.currentTarget.value })} autoFocus
@@ -270,7 +271,7 @@ export function Work() {
             <Button disabled={!rename.name.trim()} onClick={async () => { if (await act(projectSet, { project: rename.id, name: rename.name.trim() }, "Проект переименован")) { await qc.invalidateQueries({ queryKey: ["people.list"] }); setRename(null); } }}>Сохранить</Button>
           </Stack>
         )}
-      </Modal>
+      </Page>
     </div>
   );
 }

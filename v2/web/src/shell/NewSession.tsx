@@ -1,11 +1,12 @@
 // «Новая сессия»: одно поле и Enter — сессия пошла с разумными значениями; остальное раскрывается.
 // Недавние места — пары «машина + папка»; папку можно создать; кусочки подхватываются от соседней сессии той же папки.
 import { accountList, machineDirs, peopleList, profileList, sessionOpen, type MachineRow, type SessionRow } from "@sb/protocol";
-import { Button, Chip, Collapse, Group, Modal, Select, Stack, Switch, Text, Textarea, TextInput } from "@mantine/core";
+import { Button, Chip, Collapse, Group, Select, Stack, Switch, Text, Textarea, TextInput } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { act, sayError } from "../api.ts";
-import { EFFORTS, MODELS, MODES, useCall, useMyPrefs, useUi } from "../common.tsx";
+import { EFFORTS, MODELS, MODES, useCall, useMyPrefs } from "../common.tsx";
+import { RoutePage } from "./Page.tsx";
 import { useFleet } from "../store/fleet.ts";
 
 export const nameOf = (cwd: string) => (cwd.split(/[\\/]/).filter(Boolean).pop() ?? "session").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "session";
@@ -56,9 +57,11 @@ export function tabInto(parent: string, leaf: string, dirs: string[]): string | 
   return `${parent}${/[\\/]$/.test(parent) ? "" : sep}${fit.length === 1 ? fit[0] + sep : common}`;
 }
 
-function Form({ onClose }: { onClose: () => void }) {
+function Form() {
   const go = useNavigate();
-  const preset = useUi((u) => u.newPreset) as ({ machine?: string; cwd?: string; project?: string } | null);
+  // с какой машины или проекта пришли — в адресе страницы
+  const [at] = useSearchParams();
+  const preset = { machine: at.get("machine") ?? undefined, cwd: at.get("cwd") ?? undefined, project: at.get("project") ?? undefined };
   const machineRows = useFleet((f) => f.machines);
   const sessions = useFleet((f) => f.sessions);
   const me = useFleet((f) => f.you?.person);
@@ -114,8 +117,7 @@ function Form({ onClose }: { onClose: () => void }) {
     setBusy(false);
     if (r) {
       void prefs.save("places", pushPlace(places, { machine, cwd }));
-      onClose();
-      go(`/work/${r.callsign}`);
+      go(`/work/${r.callsign}`, { replace: true });
     }
   };
   return (
@@ -184,9 +186,12 @@ function Form({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Адрес страницы «Новая сессия» с машиной или проектом, откуда пришли. */
+export const newPath = (preset?: { machine?: string; project?: string } | null): string => {
+  const q = new URLSearchParams(Object.entries(preset ?? {}).filter(([, v]) => v) as [string, string][]).toString();
+  return "/new" + (q ? "?" + q : "");
+};
+
 export function NewSession() {
-  const open = useUi((u) => u.newOpen);
-  const set = useUi((u) => u.set);
-  const close = () => set({ newOpen: false, newPreset: null });
-  return <Modal opened={open} onClose={close} title="Новая сессия" size="lg">{open && <Form onClose={close} />}</Modal>;
+  return <RoutePage title="Новая сессия"><Form /></RoutePage>;
 }

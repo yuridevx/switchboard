@@ -65,5 +65,3 @@
 .diff .add { background: var(--st-idle-weak); }
 .diff > div { white-space: pre-wrap; overflow-wrap: anywhere; }
 
-.missed { all: unset; cursor: pointer; display: block; width: 100%; box-sizing: border-box; padding: 4px 6px; border-radius: 6px; min-width: 0; }
-.missed:hover, .missed:focus-visible { background: var(--surface-2); }

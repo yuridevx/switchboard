@@ -1,7 +1,7 @@
 // Инспектор сессии: обзор (документ и сведения), контекст, файлы, точки, журнал.
 import { accountList, machineJournal, peopleList, pointsDelete, pointsList, pointsSave, sessionCall, slotSwap, type SessionRow } from "@sb/protocol";
 import { Badge, Button, Group, Progress, SegmentedControl, Select, Stack, Switch, Tabs, Text, TextInput } from "@mantine/core";
-import { modals } from "@mantine/modals";
+import { openStep } from "../shell/Page.tsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
@@ -237,15 +237,15 @@ export function pointsHead(points: Array<{ at: number; bytes?: number }>, row: {
 /** Снять «Сохранять точки в архив»: точки сессии удаляются сразу и без отмены — только после ввода её имени. */
 export function stopBackup(s: SessionRow, done: () => unknown) {
   const name = s.callsign.slice(0, s.callsign.indexOf("@"));
-  const id = modals.open({
-    title: "Не сохранять точки в архив",
-    children: (
+  openStep({
+    title: "Не сохранять точки в архив", name: "backup",
+    body: (close) => (
       <DeleteTyped name={name} body="Точки этой сессии в архиве будут удалены сразу, без отмены. Поднять её на другой машине станет не из чего."
         onDelete={async () => {
           if (!(await patchDoc(s, { backup: false }))) return;
           const mine = (await api.call(pointsList, { machine: machineOfCall(s.callsign) }).catch(() => null))?.sessions.find((a) => a.callsign === s.callsign);
           if (mine) await act(pointsDelete, { sid: mine.sid }, "Точки удалены из архива");
-          modals.close(id);
+          close();
           await done();
         }} />
     ),

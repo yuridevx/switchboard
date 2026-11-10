@@ -1,6 +1,7 @@
 // «Флот → Профили»: кусочки на машине, репозитории и их клоны, сведение, просмотр набора по вкладкам.
 import { prefsGet, prefsSet, profileFile, profileList, profileSync, profileView, sessionCall, sessionOpen, type OutputOf, type Piece, type RepoClone, type SessionRow } from "@sb/protocol";
-import { ActionIcon, Badge, Button, Checkbox, Chip, Group, Loader, Modal, Select, Stack, Text, TextInput } from "@mantine/core";
+import { ActionIcon, Badge, Button, Checkbox, Chip, Group, Loader, Select, Stack, Text, TextInput } from "@mantine/core";
+import { Page } from "../../shell/Page.tsx";
 import { notifications } from "@mantine/notifications";
 import { IconArrowLeft, IconSearch, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -137,9 +138,9 @@ function Repos({ machine, clones, pieces, onClose }: { machine: string | null; c
 function FileView({ machine, piece, path, onClose }: { machine: string; piece: string; path: string; onClose: () => void }) {
   const f = useCall(profileFile, { to: "@" + machine, piece, path });
   return (
-    <Modal opened onClose={onClose} title={<span className="mono">{piece}/{path}</span>} size="lg">
+    <Page opened onClose={onClose} title={<span className="mono">{piece}/{path}</span>} name="file" wide>
       {f.isLoading ? <Loader size="sm" /> : f.error ? <Failed error={f.error} retry={f.refetch} /> : <pre className="codebox" style={{ maxHeight: "60vh", overflow: "auto" }}>{f.data?.text}</pre>}
-    </Modal>
+    </Page>
   );
 }
 
@@ -328,7 +329,7 @@ export function Profiles() {
         </Stack>}
         {(wide || viewing) && (machine && view.data ? <Viewer machine={machine} picked={chosen} v={view.data} q={q} /> : view.error ? <Failed error={view.error} retry={view.refetch} /> : <div className="card"><Text size="sm" className="muted">{chosen.length ? "Собираю набор…" : list.data?.pieces.length ? "Отметьте кусочки слева" : "Кусочков на машине нет"}</Text></div>)}
       </div>
-      <Modal opened={repos} onClose={() => setRepos(false)} title="Репозитории кусочков"><Repos machine={machine} clones={clones} pieces={list.data?.pieces ?? []} onClose={() => setRepos(false)} /></Modal>
+      <Page name="repos" opened={repos} onClose={() => setRepos(false)} title="Репозитории кусочков"><Repos machine={machine} clones={clones} pieces={list.data?.pieces ?? []} onClose={() => setRepos(false)} /></Page>
     </Stack>
   );
 }

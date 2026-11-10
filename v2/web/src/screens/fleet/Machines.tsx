@@ -1,10 +1,12 @@
 // «Флот → Машины»: карточки машин и приглашение новой машины с командой установки.
 import { invite, keeperState, type MachineRow, type SessionRow } from "@sb/protocol";
-import { Badge, Button, CopyButton, Group, Modal, SegmentedControl, Stack, Text, TextInput } from "@mantine/core";
+import { Badge, Button, CopyButton, Group, SegmentedControl, Stack, Text, TextInput } from "@mantine/core";
+import { Page } from "../../shell/Page.tsx";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { act, fleetBase } from "../../api.ts";
-import { personWord, useCall, useMachineName, useUi } from "../../common.tsx";
+import { personWord, useCall, useMachineName } from "../../common.tsx";
+import { newPath } from "../../shell/NewSession.tsx";
 import { buildsLink } from "../../lib/pending.ts";
 import { ago, nSessions } from "../../lib/time.ts";
 import { machineOfCall, useFleet } from "../../store/fleet.ts";
@@ -59,7 +61,6 @@ function AddMachine({ onClose }: { onClose: () => void }) {
 function MachineCard({ m }: { m: MachineRow }) {
   const go = useNavigate();
   const sessions = useFleet((f) => f.sessions);
-  const ui = useUi();
   const nameOf = useMachineName();
   const keeper = useCall(keeperState, m.online ? { to: ".keeper@" + m.name } : null);
   const here = Object.values(sessions).filter((s) => machineOfCall(s.callsign) === m.name);
@@ -84,7 +85,7 @@ function MachineCard({ m }: { m: MachineRow }) {
       {fire > 0 && <Badge color="red" variant="light" w="fit-content">пожар: {nSessions(fire)} ждут на точках архива</Badge>}
       <Group gap={4}>{here.map((s) => <Badge key={s.callsign} variant="default" className="mono" component="button" type="button" style={{ cursor: "pointer" }} onClick={() => go(`/work/${s.callsign}`)}>{s.spec.name}</Badge>)}</Group>
       <Group gap={6} mt="auto">
-        <Button size="compact-xs" variant="default" disabled={!m.online} onClick={() => ui.set({ newOpen: true, newPreset: { machine: m.name } })}>Новая сессия</Button>
+        <Button size="compact-xs" variant="default" disabled={!m.online} onClick={() => go(newPath({ machine: m.name }))}>Новая сессия</Button>
         <Button size="compact-xs" variant="subtle" onClick={() => go(`/machine/${m.name}`)}>{m.online ? "Подробнее" : "Что известно"}</Button>
       </Group>
     </div>
@@ -98,7 +99,7 @@ export function Machines() {
     <Stack>
       <Button w="fit-content" size="xs" onClick={() => setAdd(true)}>Добавить машину</Button>
       <div className="cards">{Object.values(machines).sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name)).map((m) => <MachineCard key={m.name} m={m} />)}</div>
-      <Modal opened={add} onClose={() => setAdd(false)} title="Добавить машину"><AddMachine onClose={() => setAdd(false)} /></Modal>
+      <Page name="add" opened={add} onClose={() => setAdd(false)} title="Добавить машину"><AddMachine onClose={() => setAdd(false)} /></Page>
     </Stack>
   );
 }

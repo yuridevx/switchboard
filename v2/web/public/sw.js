@@ -15,32 +15,6 @@ function kv(key) {
   });
 }
 
-function kvPut(key, value) {
-  return new Promise((res) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
-    r.onerror = () => res();
-    r.onsuccess = () => {
-      const tx = r.result.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put(value, key);
-      tx.oncomplete = () => (r.result.close(), res());
-      tx.onerror = () => (r.result.close(), res());
-    };
-  });
-}
-
-const KEEP = 50;
-/** Пуш пришёл, а страница не открыта: он сохраняется, и страница покажет его при открытии. */
-async function keep(n) {
-  const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-  if (open.some((c) => new URL(c.url).origin === self.location.origin)) return;
-  let was = [];
-  try {
-    was = JSON.parse((await kv("pushes")) || "[]");
-  } catch {}
-  was.push({ title: n.title, text: n.text, callsign: n.callsign, kind: n.kind, ask: n.ask, at: Date.now(), hash: route(n).slice(2) });
-  await kvPut("pushes", JSON.stringify(was.slice(-KEEP)));
-}
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
@@ -55,13 +29,10 @@ self.addEventListener("push", (e) => {
   }
   const actions = n.ask && Array.isArray(n.options) ? n.options.slice(0, 2).map((title, i) => ({ action: "answer:" + i, title: String(title).slice(0, 40) })) : [];
   e.waitUntil(
-    Promise.all([
-      self.registration.showNotification(n.title, {
-        body: n.text, tag: n.callsign ? n.callsign + ":" + (n.kind ?? "") : n.kind ?? "fleet", renotify: true, data: n, actions,
-        icon: "/icon-192.png", badge: "/icon-192.png", requireInteraction: n.kind === "ask",
-      }),
-      keep(n),
-    ]),
+    self.registration.showNotification(n.title, {
+      body: n.text, tag: n.callsign ? n.callsign + ":" + (n.kind ?? "") : n.kind ?? "fleet", renotify: true, data: n, actions,
+      icon: "/icon-192.png", badge: "/icon-192.png", requireInteraction: n.kind === "ask",
+    }),
   );
 });
 

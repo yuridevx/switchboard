@@ -2,13 +2,11 @@
 import { browserLacks } from "./lib/browser.ts";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
-import "@mantine/spotlight/styles.css";
 import "@mantine/charts/styles.css";
 import "./styles.css";
 import "./screens/screens.css";
 import { obsReport } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
-import { ModalsProvider } from "@mantine/modals";
 import { Notifications } from "@mantine/notifications";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
@@ -22,6 +20,8 @@ import { Work } from "./screens/Work.tsx";
 import { Consent } from "./shell/Consent.tsx";
 import { Gate } from "./shell/Gate.tsx";
 import { openFromQuery } from "./shell/open.ts";
+import { Find, Keys, More } from "./shell/Find.tsx";
+import { NewSession } from "./shell/NewSession.tsx";
 import { Shell } from "./shell/Shell.tsx";
 import { theme } from "./theme.ts";
 
@@ -52,6 +52,10 @@ const router = createHashRouter([
       { path: "machine/:name", element: late(<Machine />) },
       { path: "observe/:tab?", element: late(<Observe />) },
       { path: "settings/:tab?", element: late(<Settings />) },
+      { path: "new", element: <NewSession /> },
+      { path: "find", element: <Find /> },
+      { path: "more", element: <More /> },
+      { path: "keys", element: <Keys /> },
       { path: "*", element: <Navigate to="/inbox" replace /> },
     ],
   },
@@ -101,10 +105,8 @@ ${info.componentStack ?? ""}`),
   ) : (
   <MantineProvider theme={theme} defaultColorScheme="auto">
     <QueryClientProvider client={qc}>
-      <ModalsProvider>
         <Notifications position="bottom-right" />
         <Boundary name="Страница"><Gate>{isConsent ? <Consent /> : <RouterProvider router={router} />}</Gate></Boundary>
-      </ModalsProvider>
     </QueryClientProvider>
   </MantineProvider>
   ),
