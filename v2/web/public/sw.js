@@ -66,7 +66,8 @@ self.addEventListener("push", (e) => {
 });
 
 function route(n) {
-  return n.callsign ? "/#/inbox/" + n.callsign : n.kind === "alert" ? "/#/observe" : n.kind === "incident" ? "/#/fleet/incidents" : "/#/inbox";
+  // у вопроса адрес несёт его номер: приложение откроется сразу с вопросом и кнопками ответа поверх экрана
+  return n.callsign ? "/#/inbox/" + n.callsign + (n.ask ? "?ask=" + encodeURIComponent(n.ask) : "") : n.kind === "alert" ? "/#/observe" : n.kind === "incident" ? "/#/fleet/incidents" : "/#/inbox";
 }
 
 async function show(n) {

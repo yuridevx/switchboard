@@ -170,3 +170,17 @@ describe("состав строки списка", () => {
     expect(screen.getByText("Шапка сайта")).toBeTruthy();
   });
 });
+
+describe("вопрос из уведомления", () => {
+  it("поверх экрана — только вопрос, который назван в адресе и всё ещё стоит в строке сессии", async () => {
+    const { askNowOf } = await import("./shell/AskNow.tsx");
+    const sessions = { "site@laptop": { ask: { id: "q-9" } }, "docs@server": { ask: null } };
+    expect(askNowOf("/inbox/site@laptop", "?ask=q-9", sessions)).toEqual({ callsign: "site@laptop", ask: "q-9" });
+    expect(askNowOf("/inbox/site%40laptop", "?ask=q-9", sessions)).toEqual({ callsign: "site@laptop", ask: "q-9" });
+    // на вопрос уже ответили или пришёл другой — поверх экрана ничего
+    expect(askNowOf("/inbox/site@laptop", "?ask=q-1", sessions)).toBeNull();
+    expect(askNowOf("/inbox/docs@server", "?ask=q-9", sessions)).toBeNull();
+    expect(askNowOf("/inbox/site@laptop", "", sessions)).toBeNull();
+    expect(askNowOf("/observe", "?ask=q-9", sessions)).toBeNull();
+  });
+});

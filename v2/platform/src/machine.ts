@@ -92,11 +92,11 @@ export class MachineObject extends DurableObject<Env> {
     const fleet = fleetStub(this.env, c.fleet);
     if (c.role === "host") {
       for (const [id, w] of this.pending) if (w.role === "host") this.settle(fail(id, "offline", "Host машины " + machine + " ушёл со связи"));
-      this.ctx.waitUntil(fleet.rows(machine, { kind: "offline" }));
+      this.ctx.waitUntil(this.rows(fleet, machine, { kind: "offline" }));
       log.info("Host ушёл со связи", { fleet: c.fleet, machine });
     } else if (c.role === "keeper") {
       for (const [id, w] of this.pending) if (w.role === "keeper") this.settle(fail(id, "offline", "Keeper машины " + machine + " ушёл со связи"));
-      this.ctx.waitUntil(fleet.rows(machine, { kind: "keeper", on: false }));
+      this.ctx.waitUntil(this.rows(fleet, machine, { kind: "keeper", on: false }));
     } else if (c.role === "watch") {
       const still = this.ctx.getWebSockets().some((o) => {
         const oc = cardOf(o);
@@ -105,6 +105,17 @@ export class MachineObject extends DurableObject<Env> {
       const host = this.find("host");
       if (!still && host) send(host, { type: "watcher.gone", from: c.addr });
     }
+  }
+
+  /** Хвост очереди изменений строк. */
+  private tail: Promise<unknown> = Promise.resolve();
+  /** Изменение строк — объекту флота строго в порядке прихода: строка идёт целиком, и обогнавшее старое изменение затёрло бы новое
+   *  (так на живом флоте пропадал вопрос сессии: «ждёт» и сам вопрос приходят с разницей в миллисекунды). */
+  private rows<F extends { rows(machine: string, change: never): unknown }>(fleet: F, machine: string, change: Parameters<F["rows"]>[1]): Promise<unknown> {
+    const send = () => Promise.resolve(fleet.rows(machine, change));
+    const next = this.tail.then(send, send);
+    this.tail = next.catch(() => {});
+    return next;
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -144,7 +155,7 @@ export class MachineObject extends DurableObject<Env> {
       }
     }
     ws.serializeAttachment({ role, kid: who.kid, addr: who.addr, person: who.person, admin: who.admin, fleet: c.fleet, machine: c.machine } satisfies Card);
-    if (role === "keeper") await fleetStub(this.env, c.fleet).rows(c.machine, { kind: "keeper", on: true });
+    if (role === "keeper") await this.rows(fleetStub(this.env, c.fleet), c.machine, { kind: "keeper", on: true });
     send(ws, { type: "hello.ok", addr: who.addr });
     log.info("соединение принято", { fleet: c.fleet, machine: c.machine, from: who.addr, role });
   }
@@ -183,11 +194,11 @@ export class MachineObject extends DurableObject<Env> {
     const fleet = fleetStub(this.env, c.fleet);
     if (f.type === "machine.hello") {
       const sessions = (Array.isArray(f.sessions) ? (f.sessions as SessionRow[]) : []).filter((s) => s && machineOf(String(s.callsign)) === machine);
-      await fleet.rows(machine, { kind: "snapshot", build: typeof f.build === "number" ? f.build : undefined, sdk: typeof f.sdk === "string" ? f.sdk : undefined, os: typeof f.os === "string" ? f.os : undefined, sessions });
+      await this.rows(fleet, machine, { kind: "snapshot", build: typeof f.build === "number" ? f.build : undefined, sdk: typeof f.sdk === "string" ? f.sdk : undefined, os: typeof f.os === "string" ? f.os : undefined, sessions });
       return;
     }
     if (f.type === "session.state") {
-      if (typeof f.callsign === "string" && machineOf(f.callsign) === machine) await fleet.rows(machine, { kind: "delta", callsign: f.callsign, row: (f.row ?? null) as Partial<SessionRow> | null });
+      if (typeof f.callsign === "string" && machineOf(f.callsign) === machine) await this.rows(fleet, machine, { kind: "delta", callsign: f.callsign, row: (f.row ?? null) as Partial<SessionRow> | null });
       return;
     }
     if (Array.isArray(f.to)) {

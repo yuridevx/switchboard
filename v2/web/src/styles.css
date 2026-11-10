@@ -229,3 +229,7 @@ button.stat { cursor: pointer; }
 .sortrow { display: flex; align-items: center; gap: 6px; }
 .sortrow.dragging { opacity: .45; }
 .sortbody { flex: 1; min-width: 0; }
+
+/* Вопрос из уведомления: кнопки ответа — крупные, под палец */
+.asknow .askcard { font-size: 17px; }
+.asknow .askcard button { min-height: 52px; font-size: 17px; }

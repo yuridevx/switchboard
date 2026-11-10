@@ -15,6 +15,7 @@ import { inboxOf, machineOfCall, useFleet } from "../store/fleet.ts";
 import { linkWord, openPage, useLink } from "./link.ts";
 import { NewSession } from "./NewSession.tsx";
 import { Missed } from "./Missed.tsx";
+import { AskNow } from "./AskNow.tsx";
 import { PushBar } from "./PushBar.tsx";
 
 const NAV = [
@@ -153,6 +154,7 @@ export function Shell() {
         </Stack>
       </Drawer>
       <NewSession />
+      <AskNow />
       <Spotlight actions={actions} shortcut={["mod + K"]} nothingFound="Ничего не нашлось" highlightQuery limit={9} searchProps={{ leftSection: <IconSearch size={18} />, placeholder: "Сессия, папка, проект, машина или действие" }} />
       <Modal opened={ui.keysOpen} onClose={() => ui.set({ keysOpen: false })} title="Клавиши">
         <Table verticalSpacing={6}><Table.Tbody>{KEYS.map(([k, what]) => <Table.Tr key={k}><Table.Td style={{ whiteSpace: "nowrap" }}>{k.split("  ").map((x) => <kbd key={x} className="k" style={{ marginRight: 4 }}>{x}</kbd>)}</Table.Td><Table.Td><Text size="sm">{what}</Text></Table.Td></Table.Tr>)}</Table.Tbody></Table>
