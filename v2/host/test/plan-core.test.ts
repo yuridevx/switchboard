@@ -232,6 +232,8 @@ describe("план v2: связь и остановка Host", () => {
     await until(() => st!.link.of("session.stop").length === 1, 5000, "запрос ушёл");
     st.link.drop();
     await expect(waiting).rejects.toMatchObject({ word: "offline" });
+    // и запрос, пришедший уже без соединения, — тоже сразу
+    await expect(st.kernel.call(sessionStop, { to: "docs@server" })).rejects.toMatchObject({ word: "offline" });
   });
 
   // чьё: код; устав: «система ловит» — останавливает, пишет причину

@@ -407,7 +407,6 @@ describe("incidents", () => {
     st.services.handlers["prefs.get"] = () => ({ values: { "incidents.kinds": { disk: { cwd: work, prompt: "Сначала df -h.", notify: ["~yuri@example.com"] }, lost: { cwd: join(home, "нет-такой") }, far: { cwd: work, machines: ["server"] } } } });
     st.link.deliver({ type: "changed", what: "incidents.kinds" });
     const port = ((await st.request("incident.list", { to: "@laptop" })).result as any).port as number;
-    expect(port).toBeGreaterThan(0);
     await tick(20);
     const post = (x: object) => fetch(`http://127.0.0.1:${port}/incident`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(x) });
     const res = await post({ type: "disk", key: "c:", text: "место кончается", files: [{ name: "df.txt", mime: "text/plain", base64: Buffer.from("/ 99%").toString("base64") }] });

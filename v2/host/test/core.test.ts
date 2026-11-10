@@ -194,8 +194,6 @@ describe("ядро Host", () => {
     const { sessionStop } = await import("@sb/protocol");
     await expect(st.kernel.call(sessionStop, { to: "docs@server" })).resolves.toEqual({});
     expect(st.link.of("session.stop")[0]).toMatchObject({ to: "docs@server", from: "@laptop" });
-    st.link.drop();
-    await expect(st.kernel.call(sessionStop, { to: "docs@server" })).rejects.toMatchObject({ word: "offline" });
   });
 
   it("штатная остановка: процессы остаются у держателей, выход 0", async () => {

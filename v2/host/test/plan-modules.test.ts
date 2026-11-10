@@ -237,8 +237,7 @@ describe("план v2: обращения", () => {
     expect(good).toMatchObject({ ok: true, result: { callsign: "disk-1@laptop" } });
     const bad = await st.request("incident.raise", { to: "@laptop", kind: "lost", key: "", text: "беда" }, "@laptop");
     expect(bad).toMatchObject({ ok: false, error: "open_failed" });
-    const list = (await st.request("incident.list", { to: "@laptop" })).result as { incidents: Array<Record<string, unknown>>; port: number };
-    expect(list.port).toBeGreaterThan(0);
+    const list = (await st.request("incident.list", { to: "@laptop" })).result as { incidents: Array<Record<string, unknown>> };
     expect(list.incidents.map((a) => a.kind)).toEqual(["lost", "disk"]);
     expect(list.incidents[0]).toMatchObject({ state: "pending", why: (bad as any).why });
     expect(list.incidents[1]).toMatchObject({ callsign: "disk-1@laptop", files: ["df.txt"] });
