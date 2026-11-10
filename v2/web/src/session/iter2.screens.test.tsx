@@ -171,6 +171,10 @@ describe("пара", () => {
     expect(document.querySelector(".conv-head")!.querySelectorAll("button:not(.namebtn)")).toHaveLength(0);
     const ring = await within(acts).findByRole("button", { name: /^Контекст \d+% · сжать$/ });
     expect(ring.textContent).toMatch(/^\d+%$/);
+    // нажатие на кольцо сжимает контекст — одним запросом сессии
+    const calls = vi.spyOn(apiModule.api, "call");
+    fireEvent.click(ring);
+    await waitFor(() => expect(calls.mock.calls.some(([def, input]) => (def as { name: string }).name === "session.call" && (input as { method: string }).method === "compact")).toBe(true));
     const focus = within(acts).getByRole("button", { name: "Фокус" });
     expect(focus.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(focus);

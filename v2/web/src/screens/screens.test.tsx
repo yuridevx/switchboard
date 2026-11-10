@@ -33,7 +33,6 @@ import { DeleteTyped } from "../lib/DeleteTyped.tsx";
 import { checkWord, raiseInput, stepsOf } from "./archive/Raise.tsx";
 import { keyInput, parsePairs, pairsText } from "./fleet/Accounts.tsx";
 import { splitIncidents } from "./fleet/Incidents.tsx";
-import { installCommand } from "./fleet/Machines.tsx";
 import { pieceMatches, summary, VIEW_TABS } from "./fleet/Profiles.tsx";
 import { rollState } from "./fleet/Releases.tsx";
 import { ledgerMatches, mergeLedger } from "./Observe.tsx";
@@ -335,10 +334,6 @@ describe("выпуски и машины", () => {
     expect(rollState({ online: true, build: 411 }, 412, keeper("updating", 411))).toMatchObject({ lamp: "busy", word: "обновляется: Keeper ставит 412" });
     expect(rollState({ online: true, build: 412 }, 412, keeper("running", 412))).toEqual({ lamp: "idle", word: "на сборке 412", done: true });
     expect(rollState({ online: true, build: 411 }, 412, keeper("failed", 411, "Host дважды не запустился"))).toMatchObject({ lamp: "failed", done: false, word: expect.stringContaining("Host дважды не запустился") });
-  });
-  it("команда установки: приглашение идёт в stdin, для Windows и Linux — своя", () => {
-    expect(installCommand("windows", "https://f.example", "home:k1:sec")).toBe('"home:k1:sec" | .\\keeper-windows-amd64.exe install --base https://f.example --logon');
-    expect(installCommand("linux", "https://f.example", "home:k1:sec")).toBe("chmod +x keeper-linux-amd64 && echo 'home:k1:sec' | ./keeper-linux-amd64 install --base https://f.example");
   });
   it("инциденты: открытые или все; недоставленные — отдельно, с причиной", () => {
     const row = (id: string, state: "pending" | "taken" | "done", why?: string) => ({ id, kind: "disk", key: "/", text: id, at: Number(id), state, machine: "server", ...(why ? { why } : {}) });

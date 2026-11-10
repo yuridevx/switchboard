@@ -63,6 +63,7 @@ describe("машины", () => {
     expect(win).not.toContain("--invite");
     // без ссылки — как раньше: файл кладут руками
     expect(installCommand("linux", "https://fleet.example", "i")).toBe("chmod +x keeper-linux-amd64 && echo 'i' | ./keeper-linux-amd64 install --base https://fleet.example");
+    expect(installCommand("windows", "https://fleet.example", "i")).toBe('"i" | .\\keeper-windows-amd64.exe install --base https://fleet.example --logon');
   });
   it("мок отдаёт ссылку на Keeper сборки флота по системе", async () => {
     const r = await ask(quiet()).call(buildsLink, { os: "windows" });
