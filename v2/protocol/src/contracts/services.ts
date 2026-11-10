@@ -217,6 +217,9 @@ export const githubApp = request("github.app", { owner: "github", target: "servi
 export const githubSetup = request("github.setup", { owner: "github", target: "service", admin: true, input: z.object({ code: z.string().optional(), redirect: z.string().optional(), org: z.string().optional(), replace: z.boolean().optional() }), output: z.object({ url: z.string().optional(), installed: z.boolean(), form: z.object({ action: z.string(), manifest: z.unknown() }).optional() }) });
 export const githubToken = request("github.token", { owner: "github", target: "service", machineOnly: true, input: z.object({ repo: z.string() }), output: z.object({ token: z.string(), expires: z.number() }) });
 
+/** Цены моделей в настройке флота prices: доллары за миллион токенов по видам; модель без цены в стоимость не идёт. */
+export type Prices = Record<string, { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }>;
+
 /* ===== Аналитика (analytics) — ClickHouse в стороне ===== */
 
 export const analyticsQuery = request("analytics.query", {

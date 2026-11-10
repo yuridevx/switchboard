@@ -1,6 +1,6 @@
 // «Настройки → Пропуска»: устройства людей и машины; выдать ссылку с QR, отозвать.
 import { invite, passes, revoke, type PassRow } from "@sb/protocol";
-import { Badge, Button, Group, SegmentedControl, Stack, Table, Text, TextInput } from "@mantine/core";
+import { Badge, Button, Group, SegmentedControl, Stack, Table, TextInput } from "@mantine/core";
 import { Page } from "../../shell/Page.tsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";

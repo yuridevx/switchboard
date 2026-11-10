@@ -11,7 +11,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { act } from "../api.ts";
 import { useLocal } from "../lib/local.ts";
 import { exportMd, focused } from "../chat/focus.ts";
-import { confirmDanger, EFFORTS, Failed, Lamp, MODES, modelWord, personWord, STATE_WORD, useCall, useLabels, useMachineName, useMyPrefs, useUi, useWide } from "../common.tsx";
+import { AfterTurn, confirmDanger, EFFORTS, Failed, Lamp, MODES, personWord, STATE_WORD, useCall, useLabels, useMachineName, useMyPrefs, useUi, useWide } from "../common.tsx";
 import { day, hhmm } from "../lib/time.ts";
 import { seatOptions } from "../lib/accounts.ts";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
@@ -24,7 +24,6 @@ import { Inspector } from "./Inspector.tsx";
 import { type Talk, useMarkRead, useTalk } from "./talk.ts";
 
 const isLive = (s: SessionRow) => s.state !== "stopped" && s.state !== "failed";
-const AfterTurn = ({ on }: { on: boolean }) => (on ? <span className="after-turn">после хода</span> : null);
 
 /** Значение документа сессии в ряду под полем ввода: само значение без слова-ярлыка, ярлык — в подсказке и в меню; замена — один запрос session.update. */
 function Chip({ label, value, word, options, later, onPick }: { label: string; value?: string; word?: string; options: ReadonlyArray<readonly [string, string]>; later?: boolean; onPick: (v: string) => void }) {

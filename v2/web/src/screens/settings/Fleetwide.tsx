@@ -1,5 +1,5 @@
 // «Настройки → Сбои и цены»: кого звать о сбоях флота (obs.alerts) и цены моделей для расхода (prices). Обе — общие настройки флота.
-import { peopleList, prefsGet, prefsSet } from "@sb/protocol";
+import { peopleList, prefsGet, prefsSet, type Prices } from "@sb/protocol";
 import { ActionIcon, Button, Group, MultiSelect, NumberInput, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
 import { IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,7 +9,6 @@ import { Failed, personWord, useCall } from "../../common.tsx";
 import { useFleet } from "../../store/fleet.ts";
 
 export type AlertPrefs = { off?: boolean; rate?: number; min?: number; to?: string[]; /** машина без связи дольше стольких минут — звать; 0 — не звать */ offline?: number; /** false — о сбое сессии не звать */ failed?: boolean };
-export type Prices = Record<string, { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }>;
 type PriceRow = { model: string; input: number | ""; output: number | ""; cacheRead: number | ""; cacheWrite: number | "" };
 
 /** Значения служб по умолчанию: доля отказов 25% при 20 и более запросах за пять минут. */

@@ -1,7 +1,7 @@
 // Ввод в сессию: многострочный, вложения (кнопкой, из буфера, перетаскиванием), «/» команды, «@» файлы, «/btw» — вопрос сбоку.
 // Черновик живёт на каждую сессию. Пока сессия занята — сообщение встаёт в очередь с выбранной срочностью; «Прервать» — здесь же.
 import { sessionCall, sessionFiles, type SessionRow } from "@sb/protocol";
-import { ActionIcon, Badge, Button, FileButton, Group, Menu, Paper, Textarea, Tooltip } from "@mantine/core";
+import { ActionIcon, Button, FileButton, Group, Menu, Paper, Textarea, Tooltip } from "@mantine/core";
 import { IconArrowUp, IconPaperclip, IconPlayerStop, IconX } from "@tabler/icons-react";
 import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { act, api } from "../api.ts";

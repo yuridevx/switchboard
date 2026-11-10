@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { act, isMock, keyStore } from "../../api.ts";
 import { confirmDanger, Failed, personWord, useCall, useLabels } from "../../common.tsx";
-import { wipeDevice } from "../../lib/local.ts";
+import { confirmWipe } from "../../shell/Gate.tsx";
 import { useFleet } from "../../store/fleet.ts";
 import { ThisDevicePush } from "./Alerts.tsx";
 
@@ -129,11 +129,7 @@ export function Device() {
       <div className="card">
         <Text fw={600}>Данные на устройстве</Text>
         <Text size="sm">Пропуск, вид списков, свёрнутые проекты и подписка на уведомления.</Text>
-        <Button size="xs" variant="default" color="red" w="fit-content" onClick={() => confirmDanger({
-          title: "Стереть данные Switchboard на этом устройстве?", confirm: "Стереть",
-          body: "Страница забудет пропуск и попросит новое приглашение. Во флоте пропуск останется, пока его не отзовут в «Пропусках».",
-          onConfirm: async () => { await wipeDevice(); location.replace(location.pathname + location.search); },
-        })}>Стереть данные</Button>
+        <Button size="xs" variant="default" color="red" w="fit-content" onClick={confirmWipe}>Стереть данные</Button>
       </div>
     </Stack>
   );

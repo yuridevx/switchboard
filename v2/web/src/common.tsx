@@ -93,6 +93,8 @@ export function useLabels(): { of(addr: string): string | undefined; name(addr: 
   return useMemo(() => ({ of: (a: string) => labels[a] || undefined, name: (a: string) => labels[a] || a }), [labels]);
 }
 const NO_LABELS: Record<string, string> = {};
+/** Правка документа сессии вступит в силу после идущего хода. */
+export const AfterTurn = ({ on }: { on: boolean }) => (on ? <span className="after-turn">после хода</span> : null);
 /** Имя машины для людей; нет — её имя во флоте. */
 export const useMachineName = () => {
   const labels = useLabels();

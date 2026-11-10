@@ -8,7 +8,7 @@ import { Link } from "react-router";
 import { act, api, sayError } from "../api.ts";
 import { CONTEXT_PARTS, STATUS_LABELS } from "../chat/words.ts";
 import type { View } from "../chat/fold.ts";
-import { accountWord, confirmDanger, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels, useWide } from "../common.tsx";
+import { accountWord, AfterTurn, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels, useWide } from "../common.tsx";
 import { Sortable } from "../lib/Sortable.tsx";
 import { ago, bytesWord, count, day, duration, hhmm, kilo, LIMIT_NAMES, nPoints, nTurns } from "../lib/time.ts";
 import { DeleteTyped } from "../screens/archive/Raise.tsx";
@@ -17,7 +17,6 @@ import { DocFields } from "./Conversation.tsx";
 import { patchDoc, useLater } from "./doc.ts";
 
 type Any = Record<string, any>;
-const AfterTurn = ({ on }: { on: boolean }) => (on ? <span className="after-turn">после хода</span> : null);
 
 /** Поле, которое пишется при уходе из него или по Enter. */
 function Field({ label, value, onSave, disabled, mono, placeholder, note }: { label: string; value: string; onSave(v: string): void; disabled?: boolean; mono?: boolean; placeholder?: string; note?: React.ReactNode }) {

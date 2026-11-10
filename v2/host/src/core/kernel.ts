@@ -15,7 +15,7 @@ import { meter } from "./meter.ts";
 import { clientPath } from "./paths.ts";
 import { fleetPrompt } from "./prompt.ts";
 import { Session, quiet, type Parts } from "./session.ts";
-import { coreModule, CORE_KEYS } from "./sessions.ts";
+import { coreModule } from "./sessions.ts";
 import { Disk } from "./store.ts";
 
 /** Предел вызова модуля на старте и при сборке опций. */
@@ -96,7 +96,6 @@ export class Kernel {
   private probes = new Set<{ close(): void }>();
   private hosts = new Map<Module, HostApi>();
   private link: Link | null = null;
-  private linkState: LinkState = "closed";
   /** объект машины принял соединение (hello.ok): до него кадры не идут */
   private accepted = false;
   private pending = new Map<string, (r: Reply) => void>();
@@ -374,7 +373,6 @@ export class Kernel {
   }
 
   private onLink(state: LinkState): void {
-    this.linkState = state;
     if (this.shutting) return;
     if (state !== "open") this.accepted = false;
     if (state === "open") {

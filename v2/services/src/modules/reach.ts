@@ -3,7 +3,7 @@
 // Бот Telegram у каждого флота свой: его токен лежит в записях флота, вебхук приходит на адрес этого флота — общей для флотов записи нет.
 import { CALL_MS, errFields, type Frame, type Logger, newId, Refusal, sha256hex } from "@sb/protocol";
 import { outbound } from "../env.ts";
-import type { Ctx, Deps, Env, Module, Platform } from "../env.ts";
+import type { Deps, Env, Module, Platform } from "../env.ts";
 import { log } from "../entrance.ts";
 import { type Db, records } from "../records.ts";
 import { encrypt, MAX_PLAIN, publicKey, unb64u, vapid } from "./webpush.ts";

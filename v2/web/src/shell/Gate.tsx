@@ -5,7 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { acceptInvite, api, connect, inviteFrom, inviteInHash, isMock, keyStore, sayError } from "../api.ts";
 import { confirmDanger } from "../common.tsx";
 import { getLocal, setLocal, wipeDevice } from "../lib/local.ts";
-import { isIos } from "../lib/push.ts";
+import { isIos, standalone } from "../lib/push.ts";
 import { sayWord } from "../lib/words.ts";
 import { useFleet } from "../store/fleet.ts";
 import { closePage, openPage, useLink } from "./link.ts";
@@ -52,13 +52,15 @@ function Frame({ title, children }: { title: string; children: ReactNode }) {
 
 function Wipe() {
   return (
-    <Button variant="subtle" color="red" size="xs" onClick={() => confirmDanger({
+    <Button variant="subtle" color="red" size="xs" onClick={confirmWipe}>Стереть данные</Button>
+  );
+}
+/** Стереть данные устройства — одна страница подтверждения для входа и настроек. */
+export const confirmWipe = () => confirmDanger({
       title: "Стереть данные Switchboard на этом устройстве?", confirm: "Стереть",
       body: "Пропуск, настройки вида и подписка на уведомления будут удалены с этого устройства. Во флоте пропуск останется, пока его не отзовут.",
       onConfirm: async () => { await wipeDevice(); location.replace(location.pathname + location.search); },
-    })}>Стереть данные</Button>
-  );
-}
+});
 
 /** Поле «вставить приглашение»: принимает само приглашение или ссылку с ним. */
 function Paste({ onInvite }: { onInvite: (invite: string) => void }) {
@@ -72,7 +74,6 @@ function Paste({ onInvite }: { onInvite: (invite: string) => void }) {
   );
 }
 
-const standalone = () => window.matchMedia?.("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
 
 /** Вход: держит экран, пока страница не готова; готова — показывает детей. */
 export function Gate({ children }: { children: ReactNode }) {

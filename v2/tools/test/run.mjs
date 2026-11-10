@@ -30,6 +30,14 @@ let failed = 0;
 for (const p of packages) {
   const has = JSON.parse(fs.readFileSync(path.join(root, p, "package.json"), "utf8")).scripts?.test;
   if (!has) continue;
+  // типы пакета — вместе с тестами: ошибка типов в тесте не должна дожидаться CI
+  const types = await run("npx", ["tsc", "--noEmit"], path.join(root, p));
+  if (types.code !== 0) {
+    failed++;
+    console.log(`✗ ${p} · типы`);
+    console.log(types.out.split("\n").slice(0, 30).join("\n"));
+    continue;
+  }
   const r = await run("npm", ["test", "--silent"], path.join(root, p));
   const tests = /Tests\s+(.*)/.exec(r.out)?.[1] ?? "";
   console.log(`${r.code === 0 ? "✓" : "✗"} ${p} · ${(r.ms / 1000).toFixed(1)} с · ${tests}`);

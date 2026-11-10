@@ -1,6 +1,6 @@
 // Архив сессий: точки. Блоки файлов — в R2 под именем хэша содержимого, у каждой машины свои; реестр и текст сообщений с поиском по словам —
 // в записях на машину. Поиск опрашивает только машины, до которых человек достаёт.
-import { type ArchPoint, type ArchSession, canReach, errFields, machineOf, type ModelCall, Refusal, type SdkEvent, personOf } from "@sb/protocol";
+import { type ArchPoint, type ArchSession, canReach, errFields, machineOf, type ModelCall, type Prices, Refusal, type SdkEvent, personOf } from "@sb/protocol";
 import type { Ctx, Env, Module } from "../env.ts";
 import { link, readBlocks } from "../r2.ts";
 import { type Op, records } from "../records.ts";
@@ -239,7 +239,6 @@ export function callText(lines: Record<string, unknown>[], call: string, before:
 }
 
 /** Таблица цен флота — общая настройка `prices`: модель (или начало её имени) → доллары за миллион токенов. */
-export type Prices = Record<string, { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }>;
 export const prices = (env: Env, fleet: string) => fleetPref<Prices>(env, fleet, "prices");
 
 /** Стоимость вызовов модели по таблице цен: берётся самое длинное имя, с которого начинается модель. Цены нет — undefined. */

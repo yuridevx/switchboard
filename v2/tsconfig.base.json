@@ -5,6 +5,7 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2023"],
     "strict": true,
+    "noUnusedLocals": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false,
     "verbatimModuleSyntax": true,

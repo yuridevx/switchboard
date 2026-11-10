@@ -2,7 +2,7 @@
 // проверка на тексте идёт запросом rules.test — движок на странице не повторяется.
 import { pointsCall, pointsCalls, prefsGet, prefsSet, PROXY_RULES, ProxyRule, rulesTest, type OutputOf } from "@sb/protocol";
 import { ActionIcon, Badge, Button, Chip, Group, SegmentedControl, Select, Stack, Switch, TagsInput, Text, Textarea, TextInput } from "@mantine/core";
-import { IconArrowDown, IconArrowUp, IconGripVertical, IconTrash } from "@tabler/icons-react";
+import { IconGripVertical, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";

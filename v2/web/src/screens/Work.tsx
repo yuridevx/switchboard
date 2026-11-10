@@ -1,11 +1,11 @@
 // «Работа»: сессии по проектам. Свои фильтры, список или доска, закрепление, свой порядок; строка переносится в другой проект мышью и пальцем.
 import { peopleList, projectRemove, projectSet, sessionUpdate, type SessionRow } from "@sb/protocol";
-import { ActionIcon, Button, Chip, Group, Menu, MultiSelect, Popover, SegmentedControl, Stack, Switch, Text, TextInput, Tooltip } from "@mantine/core";
+import { ActionIcon, Button, Chip, Group, Menu, MultiSelect, Popover, SegmentedControl, Stack, Switch, TextInput, Tooltip } from "@mantine/core";
 import { Page } from "../shell/Page.tsx";
 import { useHotkeys } from "@mantine/hooks";
 import { IconAdjustmentsHorizontal, IconCheck, IconChevronDown, IconChevronRight, IconDots, IconFilter, IconPencil, IconPin, IconPinFilled, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { act } from "../api.ts";
 import { confirmDanger, Lamp, personWord, ROW_PARTS, SessionLine, useCall, useMachineName, useMyPrefs, useWide, type RowParts } from "../common.tsx";

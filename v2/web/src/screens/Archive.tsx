@@ -9,7 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { create } from "zustand";
-import { act, api, isMock, keyStore } from "../api.ts";
+import { act, isMock, keyStore } from "../api.ts";
 import { fold, type Msg } from "../chat/fold.ts";
 import { Failed, modelWord, useCall, useMachineName, useWide } from "../common.tsx";
 import { ago, byDay, bytesWord, day, hhmm, kilo, nCalls, nPoints, nSessions, nTurns } from "../lib/time.ts";

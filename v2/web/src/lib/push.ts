@@ -18,7 +18,8 @@ export function pushStateOf(e: Env): PushState {
   return e.permission === "granted" && e.subscribed ? "on" : "off";
 }
 
-const standalone = () => window.matchMedia?.("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
+/** Страница открыта приложением с экрана «Домой», а не вкладкой. */
+export const standalone = () => window.matchMedia?.("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
 
 async function registration(): Promise<ServiceWorkerRegistration | null> {
   if (!("serviceWorker" in navigator)) return null;

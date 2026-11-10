@@ -140,7 +140,7 @@ describe("accounts", () => {
   const sec = () => Math.floor(Date.now() / 1000);
   const fresh = () => ({ five_hour: { utilization: 0.1, resetsAt: 0, at: sec() } });
   const full = (resetsAt: number) => ({ five_hour: { utilization: 1, resetsAt, at: sec() } });
-  const slotsOf = async () => ((await st.request("account.list", { to: "@laptop" })).result as any).slots as Array<{ name: string; order: string[]; account?: string; wait?: number; sessions: number }>;
+  const slotsOf = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).slots as Array<{ name: string; order: string[]; account?: string; wait?: number; sessions: number }>;
   const loginDir = (q: { options: unknown }) => (q.options as any).env.CLAUDE_SECURESTORAGE_CONFIG_DIR as string;
   const reject = (proc: { send(m: unknown): void }, resetsAt = sec() + 3600) => {
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
@@ -253,7 +253,7 @@ describe("accounts", () => {
     await st.open("site", { slot: "main" });
     await st.open("reviewer", { slot: "review" });
     expect(st.link.rows("reviewer@laptop").at(-1)!.row).toMatchObject({ account: B, wait: (at + 600) * 1000 });
-    expect(st.link.rows("site@laptop").at(-1)!.row.wait).toBeUndefined();
+    expect((st.link.rows("site@laptop").at(-1)!.row as any).wait).toBeUndefined();
     const slots = await slotsOf();
     expect(slots.find((q) => q.name === "review")).toMatchObject({ account: B, wait: (at + 600) * 1000 });
     expect(slots.find((q) => q.name === "main")!.wait).toBeUndefined();
@@ -278,9 +278,9 @@ describe("accounts", () => {
     const { s } = await st.open("site", { slot: "main" });
     const sid = s.rec.sessionId;
     expect((await st.request("session.update", { to: "site@laptop", patch: { slot: "review" } })).ok).toBe(true);
-    await until(() => st.sdk.of("site@laptop").length === 2 && loginDir(st.sdk.last("site@laptop")!) === folders(home).slotDir("review"), 5000, "перезапуск на новой очереди");
+    await until(() => st!.sdk.of("site@laptop").length === 2 && loginDir(st!.sdk.last("site@laptop")!) === folders(home).slotDir("review"), 5000, "перезапуск на новой очереди");
     expect(s.rec.sessionId).toBe(sid);
-    await until(() => st.link.rows("site@laptop").at(-1)!.row.account === B, 5000, "аккаунт новой очереди в строке");
+    await until(() => (st!.link.rows("site@laptop").at(-1)!.row as any).account === B, 5000, "аккаунт новой очереди в строке");
   });
 
   it("удаление аккаунта: очередь, где он стоит, идёт на следующего; он уходит из всех очередей; очередь без аккаунтов и сессий исчезает; запаса нет и есть сессии — no_reserve, ничего не тронуто", async () => {

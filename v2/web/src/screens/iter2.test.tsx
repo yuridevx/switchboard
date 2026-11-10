@@ -11,7 +11,6 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
 import { diverge, dropFromQueues, limitWord, machineOrder, mergeAccounts } from "../lib/accounts.ts";
-import { setLocal } from "../lib/local.ts";
 import { buildsLink } from "../lib/pending.ts";
 import { createMock, type Mock } from "../mock/fleet.ts";
 import { useFleet } from "../store/fleet.ts";
@@ -22,7 +21,6 @@ import { bulkPlan, Releases } from "./fleet/Releases.tsx";
 import { journalWord } from "./Observe.tsx";
 import { inviteFor } from "./settings/People.tsx";
 import { callRef, lineDiff } from "./settings/Proxy.tsx";
-import { worker } from "./sw-harness.ts";
 
 vi.hoisted(() => {
   (globalThis as any).window?.happyDOM?.setURL("http://localhost/?still");
