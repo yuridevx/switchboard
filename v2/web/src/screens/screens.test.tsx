@@ -143,6 +143,9 @@ describe("вход", () => {
     expect(gateOf({ ...base, key: "home:k1a2b3:secretsecretsecret", invite: "home:k9z9z9:newnewnewnewnewnew" })).toEqual({ screen: "replace", invite: "home:k9z9z9:newnewnewnewnewnew", kid: "k1a2b3" });
     expect(gateOf({ ...base, ios: true })).toEqual({ screen: "install" });
     expect(gateOf({ ...base, ios: true, skippedInstall: true })).toEqual({ screen: "invite" });
+    // с приглашением экран установки показывается и тому, кто раньше выбрал вкладку: иначе приглашение сгорит во вкладке
+    expect(gateOf({ ...base, ios: true, skippedInstall: true, invite: "home:k9z9z9:newnewnewnewnewnew" })).toEqual({ screen: "install" });
+    expect(gateOf({ ...base, ios: true, standalone: true, invite: "home:k9z9z9:newnewnewnewnewnew" })).toEqual({ screen: "connecting" });
     expect(gateOf({ ...base, mock: true })).toEqual({ screen: "connecting" });
   });
   it("остановка связи: отозван — с номером пропуска; устарело — перезагрузить; прочее — причиной", () => {

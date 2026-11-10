@@ -36,7 +36,7 @@ export function connect(): void {
 export const inviteInHash = (): string => {
   const found = /[#&]invite=([^&]+)/.exec(location.hash)?.[1] ?? /[?&]invite=([^&]+)/.exec(location.search)?.[1] ?? "";
   // приложение с экрана «Домой» каждый раз открывается с тем же адресом: уже принятое приглашение второй раз не предъявляется
-  return found && found === usedInvite() ? "" : found;
+  return found && decodeURIComponent(found) === usedInvite() ? "" : found;
 };
 const USED = "sb2.invite.used";
 const usedInvite = (): string => { try { return localStorage.getItem(USED) ?? ""; } catch { return ""; } };
@@ -51,10 +51,10 @@ export function inviteFrom(text: string): string {
 export async function acceptInvite(invite: string): Promise<void> {
   const r = await api.call(redeem, { invite: decodeURIComponent(invite) });
   keyStore.set(r.key);
-  try { localStorage.setItem(USED, invite); } catch { /* без хранилища приглашение предъявится ещё раз и получит отказ */ }
+  try { localStorage.setItem(USED, decodeURIComponent(invite)); } catch { /* без хранилища приглашение предъявится ещё раз и получит отказ */ }
   const rest = new URLSearchParams(location.search);
   rest.delete("invite");
-  history.replaceState(null, "", location.pathname + (rest.size ? "?" + rest : ""));
+  history.replaceState(null, "", "/" + (rest.size ? "?" + rest : ""));
   connect();
 }
 

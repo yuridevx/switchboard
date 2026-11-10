@@ -44,7 +44,18 @@ export async function serve(req: Request, env: Env, exec: ExecutionContext, deps
     const res = await env.ASSETS.fetch(new Request(new URL("/manifest.webmanifest", req.url)));
     if (!invite || !res.ok) return res;
     const manifest = (await res.json()) as Record<string, unknown>;
-    return new Response(JSON.stringify({ ...manifest, start_url: "/?invite=" + encodeURIComponent(invite) }), { headers: { "content-type": "application/manifest+json", "cache-control": "no-store" } });
+    return new Response(JSON.stringify({ ...manifest, start_url: "/i?invite=" + encodeURIComponent(invite) }), { headers: { "content-type": "application/manifest+json", "cache-control": "no-store" } });
+  }
+  if (pathname === "/i" && env.ASSETS) {
+    // Адрес установки на iPhone: та же страница, но ссылка на манифест уже в разметке несёт приглашение —
+    // iPhone читает манифест при добавлении на экран «Домой» и не видит правок ссылки скриптом
+    const invite = new URL(req.url).searchParams.get("invite");
+    const page = await env.ASSETS.fetch(new Request(new URL("/", req.url)));
+    if (!invite || !page.ok) return page;
+    const res = new HTMLRewriter().on("link[rel=manifest]", { element: (el) => void el.setAttribute("href", "/manifest.webmanifest?invite=" + encodeURIComponent(invite)) }).transform(page);
+    const headers = new Headers(res.headers);
+    headers.set("cache-control", "no-store");
+    return new Response(res.body, { status: res.status, headers });
   }
   if (pathname === "/health") return Response.json({ ok: true, part: "services", modules: MODULES.map((m) => m.name) });
   if (env.ASSETS) return env.ASSETS.fetch(req);

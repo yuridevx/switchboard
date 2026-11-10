@@ -27,8 +27,12 @@ export function stopOf(word: string | undefined, kid: string): GateView {
 }
 
 /** Что делать при входе: по тому, есть ли пропуск, приглашение в ссылке и что ответил флот. */
+/** Адрес установки: его страницу отдают службы с манифестом, в адресе запуска которого — приглашение. */
+const INSTALL_PATH = "/i";
+
 export function gateOf(o: { mock: boolean; key: string; invite: string; ios: boolean; standalone: boolean; skippedInstall: boolean }): GateView {
-  if (o.ios && !o.standalone && !o.skippedInstall) return { screen: "install" };
+  // iPhone во вкладке: с приглашением экран установки показывается всегда — принятое во вкладке приглашение приложению с экрана «Домой» уже не достанется
+  if (o.ios && !o.standalone && (o.invite || !o.skippedInstall)) return { screen: "install" };
   if (o.mock) return { screen: "connecting" };
   if (o.invite && o.key) return { screen: "replace", invite: o.invite, kid: parsePass(o.key)?.kid ?? "" };
   if (!o.invite && !o.key) return { screen: "invite" };
@@ -105,6 +109,11 @@ export function Gate({ children }: { children: ReactNode }) {
   const start = () => {
     const invite = isMock ? "" : inviteInHash();
     const first = gateOf({ mock: isMock, key: keyStore.get(), invite, ios: isIos(navigator.userAgent), standalone: standalone(), skippedInstall: getLocal("skipInstall", false) });
+    if (first.screen === "install" && invite && location.pathname !== INSTALL_PATH) {
+      // приложение с экрана «Домой» откроется с адреса установки: приглашение едет в самом адресе и в манифесте, который отдают службы
+      location.replace(`${INSTALL_PATH}?invite=${invite}`);
+      return;
+    }
     if (first.screen === "connecting") void enter(invite ? decodeURIComponent(invite) : undefined);
     else setView(first);
   };
@@ -122,7 +131,13 @@ export function Gate({ children }: { children: ReactNode }) {
   if (shown.screen === "install") return (
     <Frame title="Добавьте Switchboard на экран «Домой»">
       <Text ta="center">На iPhone уведомления приходят только приложению с экрана «Домой». Нажмите «Поделиться» в Safari, затем «На экран „Домой“», и откройте Switchboard оттуда.</Text>
-      <Button variant="default" onClick={() => (setLocal("skipInstall", true), start())}>Продолжить в браузере без уведомлений</Button>
+      <Button variant="default" onClick={() => {
+        setLocal("skipInstall", true);
+        // явный выбор человека: приглашение принимается здесь, во вкладке
+        const invite = isMock ? "" : inviteInHash();
+        if (invite) void enter(decodeURIComponent(invite));
+        else start();
+      }}>Продолжить в браузере без уведомлений</Button>
     </Frame>
   );
   if (shown.screen === "invite") return (
