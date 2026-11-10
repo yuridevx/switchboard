@@ -2,14 +2,14 @@
 // Живой ответ идёт с кареткой, размышление сворачивается, своё сообщение показывает свой статус.
 import { CopyButton, Text } from "@mantine/core";
 import {
-  IconAlertTriangle, IconAnchor, IconArchive, IconBell, IconBolt, IconBook, IconBrain, IconCalendarClock, IconChecklist, IconClipboardList, IconFile, IconFilePencil, IconFilePlus, IconFileText, IconFolderSearch,
+  IconAlertTriangle, IconAnchor, IconArchive, IconBell, IconBolt, IconBook, IconBrain, IconCalendarClock, IconCheck, IconChecklist, IconClipboardList, IconFile, IconFilePencil, IconFilePlus, IconFileText, IconFolderSearch,
   IconGitBranch, IconInfoCircle, IconMessageQuestion, IconMessages, IconNotebook, IconPlayerStop, IconRadar, IconRefresh, IconRobot, IconRotate, IconSearch, IconShieldOff, IconSparkles, IconTerminal2, IconTool, IconWorld, IconX,
 } from "@tabler/icons-react";
 import { createContext, lazy, memo, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Item } from "../chat/focus.ts";
 import { todoProgress, type MeState, type Part, type Row, type Task, type Todo, type Tool, type View } from "../chat/fold.ts";
 import { agentSteps, deniedWhy, editStat, isAgent, isDenied, isShell, startedInBackground, toolLook, toolState } from "../chat/tools.ts";
-import { kilo, nActions, plural } from "../lib/time.ts";
+import { duration, kilo, nActions, plural } from "../lib/time.ts";
 import { MODES } from "../common.tsx";
 import { diffLines, editsOf } from "./diff.ts";
 import { HtmlFrame, openPicture, previewKind, SvgView } from "./html.tsx";
@@ -73,6 +73,8 @@ export function Diff({ before, after }: { before: string; after: string }) {
     </pre>
   );
 }
+
+const ASKED: Record<string, string> = { question: "Вопрос", permission: "Разрешение", plan: "План" };
 
 /** Длинный текст свёрнут до первых строк. */
 const LONG = 900;
@@ -155,15 +157,16 @@ export function TodoList({ todos, fold }: { todos: Todo[]; fold?: boolean }) {
   );
 }
 
-/** Секунды идущего инструмента: что сказал SDK, дальше — по часам страницы. */
-function Running({ secs }: { secs?: number }) {
-  const [n, setN] = useState(secs ?? 0);
-  useEffect(() => setN(secs ?? 0), [secs]);
+/** Сколько идёт инструмент: от времени его вызова на машине — после перезагрузки страницы и с другого устройства то же; времени вызова в событии нет — то, что сказал SDK. */
+export const toolSecs = (tool: Pick<Tool, "at" | "secs">, now: number): number => (tool.at !== undefined ? Math.max(0, Math.floor((now - tool.at) / 1000)) : (tool.secs ?? 0));
+function Running({ tool }: { tool: Tool }) {
+  const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const t = setInterval(() => setN((x) => x + 1), 1000);
+    const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  return n >= 3 ? <span className="muted">идёт {n} с</span> : null;
+  const n = toolSecs(tool, now);
+  return n >= 3 ? <span className="muted">идёт {duration(n * 1000)}</span> : null;
 }
 
 const STATE_WORD: Record<string, string> = { denied: "отклонено", error: "ошибка", stopped: "остановлено", bg: "в фоне" };
@@ -198,11 +201,12 @@ function ToolLine({ tool, view }: { tool: Tool; view: View }) {
           {kind && <span className="toolchip">{kind}</span>}
           {steps > 0 && <span className="muted">{steps} {plural(steps, "шаг", "шага", "шагов")}</span>}
           {now && <span className="muted trunc">{now}</span>}
-          {running && <Running secs={tool.secs} />}
+          {/* время и «в фон», «стоп» идущего субагента — в блоке «Идут сейчас»; в ленте они не повторяются */}
+          {running && !isAgent(tool) && <Running tool={tool} />}
           {!running && stateWord(state, tool) && <span className="muted">{stateWord(state, tool)}</span>}
           {bg && state !== "bg" && <span className="muted">в фоне</span>}
         </button>
-        {running && !bg && env.canAct && (isShell(tool) || isAgent(tool)) && (
+        {running && !bg && env.canAct && isShell(tool) && (
           <span className="toolacts">
             <button type="button" className="linkbtn" onClick={() => env.act?.("tasks", [tool.id])}>В фон</button>
             {task && <button type="button" className="linkbtn" onClick={() => env.act?.("taskStop", [task.id])}>Стоп</button>}
@@ -332,6 +336,20 @@ const RowView = memo(function RowView({ r, view }: { r: Item; view: View }) {
       return <Reply parts={r.parts} view={view} />;
     case "cmd":
       return <div className="sysline"><IconTerminal2 size={14} /><span className="mono">{r.name} {r.args}</span>{r.out && <span className="trunc">— {r.out}</span>}</div>;
+    case "asked":
+      // отвеченный вопрос остаётся карточкой: что спросили, что выбрано, кто и когда ответил
+      return (
+        <div className="askcard answered" role="group" aria-label="Отвеченный вопрос">
+          <Text size="xs" fw={600}>{ASKED[r.kind] ?? "Вопрос"}{r.title ? ` · ${r.title}` : ""}</Text>
+          {r.qs.map((q, i) => (
+            <div key={i} className="ask-q">
+              <div className="asked-q"><Md text={q.question} /></div>
+              <div className="asked-opts">{q.options.map((o) => <span key={o} className="asked-opt" aria-current={q.chosen.includes(o) ? "true" : undefined}>{q.chosen.includes(o) && <IconCheck size={13} />}{o}</span>)}</div>
+            </div>
+          ))}
+          <div className="ask-seen">ответил {r.who}{r.at ? ` · ${r.at}` : ""}</div>
+        </div>
+      );
     case "sys":
     case "line":
       return <div className={`sysline${r.tone ? ` tone-${r.tone}` : ""}`}><Icon name={r.icon} size={14} /><span>{r.text}{"dim" in r && r.dim}</span></div>;

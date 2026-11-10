@@ -71,7 +71,9 @@ export function createMock(o: MockOptions = {}) {
       { header: "Проверки", question: longQ("**Что прогонять после каждого шага?** Можно несколько.", 31), multiSelect: true, options: [{ label: "Тесты", description: "214 штук, 40 с" }, { label: "Снимки экранов", description: "62 экрана, 3 мин" }, { label: "Проверка ссылок", description: "1 900 ссылок, 6 мин" }, { label: "Замер скорости", description: "5 страниц, 2 мин" }] },
       { header: "Откат", question: longQ("**Как откатываемся, если после переноса что-то сломалось?**", 30), options: [{ label: "Веткой", description: "старая сборка живёт в ветке до конца недели" }, { label: "Флагом", description: "обе сборки в коде, переключатель в настройках" }] },
     ] } }, 5) }));
-  add(row("audit@server", "busy", "infra", { title: "Проверка прав доступа по службам", doing: "Ждёт трёх субагентов", last: T - 1 * MIN, context: 0.41, pieces: ["base", "ops"] }));
+  // «активно всё»: идёт ход с тремя субагентами и фоновой командой, и тут же ждёт разрешения
+  add(row("audit@server", "waiting", "infra", { title: "Проверка прав доступа по службам", doing: "Ждёт трёх субагентов", last: T - 1 * MIN, context: 0.71, pieces: ["base", "ops"],
+    ask: ask({ kind: "permission", title: "Команда", text: "grep -rn \"role\" /etc/services.d", tool: "Bash", input: { command: "grep -rn \"role\" /etc/services.d", description: "Роли в настройках служб" }, rule: "Bash(grep -rn *)", blocked: "/etc/services.d", notes: "Папка вне проекта", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 1) }));
   add(row("hotfix@laptop", "failed", "site", { title: "Срочная правка формы входа", error: "процесс claude дважды вышел до готовности: код 1, «Invalid API key»", last: T - 50 * MIN, account: "work@example.com" }));
   add(row("deploy@server", "waiting", "infra", { title: "Пересборка и выкладка статики", mode: "ask", last: T - 3 * MIN, pieces: ["base", "ops"],
     ask: ask({ kind: "permission", title: "Команда", text: "rm -rf dist && npm run build", tool: "Bash", input: { command: "rm -rf dist && npm run build", description: "Чистая пересборка" }, rule: "Bash(rm -rf dist *)", blocked: "~/projects/site/dist", notes: "Команда удаляет папку вне списка разрешённых правил проекта", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 3) }));
@@ -281,7 +283,9 @@ export function createMock(o: MockOptions = {}) {
   /** последние события ленты по сессиям: из них дочитывается пропущенное */
   const recent = new Map<string, Ev[]>();
   const FEED_ONLY = new Set(["message.status", "prompt_suggestion"]);
-  const emit = (c: string, events: Ev[], feedOnly = false) => {
+  const emit = (c: string, given: Ev[], feedOnly = false) => {
+    // Host метит каждое событие временем машины: у живых событий SDK своего времени нет
+    const events = given.map((e) => ("timestamp" in e || "at" in e ? e : ({ ...e, at: now() } as Ev)));
     // в разговор идут записи SDK; статусы и подсказки — только в ленту, как у Host
     if (!feedOnly) talk(c).push(...events.filter((e) => !FEED_ONLY.has(e.type)));
     recent.set(c, [...(recent.get(c) ?? []), ...events].slice(-200));
@@ -582,7 +586,7 @@ export function createMock(o: MockOptions = {}) {
       if (!s.ask || s.ask.id !== f.ask) throw new Refusal("already_answered", "на этот вопрос уже ответили");
       const a = f.answer as any;
       // итог вопроса — событием ленты: кто ответил и чем
-      emit(c, [{ type: "ask.answered", uuid: uid("aa"), ask: s.ask.id, kind: s.ask.kind, by: typeof f.from === "string" ? f.from : MY_ADDR, answer: a, ...(f.via === "push" ? { via: "push" } : {}), at: now() }]);
+      emit(c, [{ type: "ask.answered", uuid: uid("aa"), ask: s.ask.id, kind: s.ask.kind, q: s.ask, by: typeof f.from === "string" ? f.from : MY_ADDR, answer: a, ...(f.via === "push" ? { via: "push" } : {}), at: now() }]);
       if (a === "deny" || a?.action === "deny" || a?.action === "decline" || a?.action === "cancel") setRow(c, { state: "idle", ask: null, unread: [] });
       else {
         startLive(c, s.title ?? "задача");

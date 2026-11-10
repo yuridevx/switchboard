@@ -201,11 +201,12 @@ describe("мок отвечает в формах Host", () => {
     expect(r).toMatchObject({ queued: true });
     const events = seen.flatMap((f) => f.events as any[]);
     expect(events[0]).toMatchObject({ type: "user", uuid: r.uuid, from: "pult~yuri@example.com" });
-    expect(events[1]).toEqual({ type: "message.status", uuid: r.uuid, status: "queued" });
+    // живое событие мечено временем машины
+    expect(events[1]).toEqual({ type: "message.status", uuid: r.uuid, status: "queued", at: expect.any(Number) });
     expect(seen.at(-1)!.seq).toBe(w.seq + 2);
     expect((await api.call(sessionWatch, { to: "site@laptop" })).queued).toMatchObject([{ uuid: r.uuid, text: "И подвал" }]);
     await expect(api.call(messageCancel, { to: "site@laptop", uuid: r.uuid! })).resolves.toEqual({ cancelled: true });
-    expect(seen.flatMap((f) => f.events as any[]).at(-1)).toEqual({ type: "message.status", uuid: r.uuid, status: "cancelled" });
+    expect(seen.flatMap((f) => f.events as any[]).at(-1)).toEqual({ type: "message.status", uuid: r.uuid, status: "cancelled", at: expect.any(Number) });
     expect((await api.call(sessionHistory, { to: "site@laptop" })).events.length).toBe(before);
   });
   it("дочитка: after — пропущенное событиями; слишком давно — gap", async () => {

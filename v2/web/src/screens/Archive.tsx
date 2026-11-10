@@ -13,6 +13,7 @@ import { act, api, isMock, keyStore } from "../api.ts";
 import { fold, type Msg } from "../chat/fold.ts";
 import { Failed, modelWord, useCall, useMachineName, useWide } from "../common.tsx";
 import { ago, byDay, bytesWord, day, hhmm, kilo, nCalls, nPoints, nSessions, nTurns } from "../lib/time.ts";
+import { useSplit } from "../lib/Split.tsx";
 import { Rows } from "../session/Feed.tsx";
 import { useFleet } from "../store/fleet.ts";
 import { DeleteTyped, Raise, RAISE_TITLE, type RaiseKind } from "./archive/Raise.tsx";
@@ -339,8 +340,10 @@ export function Archive() {
   // «пожар»: машины без связи, чьи сессии ждут на точках архива
   const burning = Object.values(machines).map((m) => ({ m, n: fireCount(m, Object.values(sessions)) })).filter((x) => x.n > 0);
   const picked = rows.find((s) => s.sid === sid) ?? list.data?.sessions.find((s) => s.sid === sid);
+  const wide = useWide();
+  const split = useSplit({ key: "archive.listw", initial: 340, min: 240, rest: 420, cssVar: "--list", label: "Ширина списка архива" }, !!sid && wide);
   return (
-    <div className={`panes${sid ? " has-detail" : " solo"}`}>
+    <div ref={split.box} className={`panes${sid ? " has-detail" : " solo"}${split.pulling ? " pulling" : ""}`} style={split.style}>
       <section className="pane list" aria-label="Архив">
         <div className="pane-head">
           <h1>Архив</h1>
@@ -384,6 +387,7 @@ export function Archive() {
           })}
         </div>
       </section>
+      {split.edge}
       {sid && (
         <section className="pane detail">
           {picked ? <Detail key={picked.sid + term} s={picked} q={term} onBack={() => go("/archive")} /> : list.isLoading ? <div className="hole"><Loader size="sm" /></div> : <div className="hole">Такой сессии в архиве нет</div>}

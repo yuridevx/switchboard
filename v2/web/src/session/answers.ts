@@ -72,6 +72,28 @@ export function seenWord(ask: Pick<Ask, "to" | "seen">, me?: string): string {
   return names.length ? `Вопрос видят: ${names.join(", ")}` : "";
 }
 
+/** Отвеченный вопрос для карточки ленты: по каждому вопросу — варианты и что выбрано; свой ответ встаёт вариантом в конец. q — вопрос, как он был задан (поле q события ask.answered). */
+export function askedOf(q: Ask, answer: unknown): Array<{ question: string; options: string[]; chosen: string[] }> {
+  const a = answer as { answers?: Record<string, string>; action?: string; message?: string } | string | undefined;
+  if (q.kind === "permission" || q.kind === "plan") {
+    const words = ACTION_WORD[q.kind];
+    const act = typeof a === "object" ? a?.action : a;
+    const said = act === "allow" || act === "allow_always" || act === "deny" ? words[act] : "";
+    const why = typeof a === "object" && a?.message ? `${said}: ${a.message}` : said;
+    return [{ question: q.text, options: (["allow", "allow_always", "deny"] as const).map((x) => (words[x] === said ? why : words[x])), chosen: why ? [why] : [] }];
+  }
+  if (q.kind !== "question") return [];
+  return questionsOf(q).map((x) => {
+    const raw = typeof a === "string" ? a : (a?.answers?.[x.question] ?? "");
+    const labels = x.options.map((o) => o.label);
+    // несколько выбранных пришли через запятую; чего нет среди вариантов — свой ответ
+    const picked = labels.filter((l) => raw === l || raw.split(", ").includes(l));
+    const own = picked.length ? raw.split(", ").filter((p) => p && !labels.includes(p)).join(", ") : raw;
+    const chosen = [...picked, ...(own && !picked.includes(own) ? [own] : [])];
+    return { question: x.question, options: [...labels, ...chosen.filter((c) => !labels.includes(c))], chosen };
+  });
+}
+
 /** Итог вопроса словами: кто ответил и чем. Событие ленты ask.answered. */
 export function askOutcome(e: { kind?: string; by?: string; answer?: unknown; via?: string }, me?: string): { text: string; dim: string } {
   const a = e.answer as { answers?: Record<string, string>; action?: string; message?: string } | string | undefined;

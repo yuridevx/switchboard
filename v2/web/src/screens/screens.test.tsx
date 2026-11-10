@@ -208,7 +208,7 @@ describe("«Работа»", () => {
     expect(matches(p, foreign, mine, ["landing@anya-pc"])).toBe(true);
     expect(matches(p, foreign, all, [])).toBe(true);
     const f = { id: "f1", name: "Инфра ждёт", who: "all" as const, states: ["wait"], projects: ["infra"], machines: ["server"] };
-    expect(rowsOf(p, f, [], []).map((s) => s.callsign).sort()).toEqual(["api@server", "deploy@server"]);
+    expect(rowsOf(p, f, [], []).map((s) => s.callsign).sort()).toEqual(["api@server", "audit@server", "deploy@server"]);
   });
   it("группы по проектам — в порядке человека, «Без проекта» последней; закреплённые выше", async () => {
     const p = await snap();

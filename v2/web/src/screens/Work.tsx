@@ -13,6 +13,7 @@ import { newPath } from "../shell/NewSession.tsx";
 import { useRowDrag } from "../lib/drag.ts";
 import { Sortable } from "../lib/Sortable.tsx";
 import { getLocal, useLocal } from "../lib/local.ts";
+import { clampSplit, useSplit } from "../lib/Split.tsx";
 import { ago } from "../lib/time.ts";
 import { BUILTIN, type Filter, groupsByMachine, groupsOf, NO_PROJECT, projectOf, reorder, rowsOf, STATE_GROUPS, treeOf, whyMine } from "../lib/work.ts";
 import { Conversation, pairKey, type Side } from "../session/Conversation.tsx";
@@ -78,7 +79,7 @@ export function pickOpen(sessions: Record<string, SessionRow>, shown: string[], 
 
 /** Ширина списка «Работы»: ни список, ни разговор не схлопываются. */
 export const LIST_W = 280, LIST_MIN = 220, TALK_MIN = 420;
-export const clampList = (w: number, total: number): number => Math.round(Math.max(LIST_MIN, Math.min(w, Math.max(LIST_MIN, total - TALK_MIN))));
+export const clampList = (w: number, total: number): number => clampSplit(w, total, LIST_MIN, TALK_MIN);
 
 export function Work() {
   const { callsign } = useParams();
@@ -99,9 +100,7 @@ export function Work() {
   const [parts, setParts] = useLocal<RowParts>("work.row", ROW_PARTS);
   // последняя сессия, с которой человек работал, и ширина списка — помнит устройство
   const [last, setLast] = useLocal<string>("work.last", "");
-  const [listW, setListW] = useLocal<number>("work.listw", LIST_W);
-  const panes = useRef<HTMLDivElement>(null);
-  const [pull, setPull] = useState<number | null>(null);
+  const split = useSplit({ key: "work.listw", initial: LIST_W, min: LIST_MIN, rest: TALK_MIN, cssVar: "--list", label: "Ширина списка" }, !!callsign && wide);
   const machineName = useMachineName();
   const [editFilters, setEditFilters] = useState(false);
   const [rename, setRename] = useState<{ id: string; name: string } | null>(null);
@@ -164,7 +163,7 @@ export function Work() {
   const offline = (s: SessionRow) => picture.machines[machineOfCall(s.callsign)]?.online === false;
 
   return (
-    <div ref={panes} className={`panes${callsign ? " has-detail" : " solo"}${pull !== null ? " pulling" : ""}`} style={callsign && wide ? ({ "--list": `${clampList(pull ?? listW, panes.current?.clientWidth ?? 1280)}px` } as CSSProperties) : undefined}>
+    <div ref={split.box} className={`panes${callsign ? " has-detail" : " solo"}${split.pulling ? " pulling" : ""}`} style={split.style}>
       <section className="pane list" aria-label="Работа">
         <div className="pane-head" style={{ flexWrap: "nowrap" }}>
           <h1>Работа</h1>
@@ -270,16 +269,7 @@ export function Work() {
           </div>
         )}
       </section>
-      {/* граница списка: тянется мышью и пальцем, стрелками с клавиатуры; ширину помнит устройство */}
-      {callsign && wide && (
-        <div className="pane-edge" role="separator" aria-orientation="vertical" aria-label="Ширина списка" tabIndex={0} aria-valuenow={clampList(pull ?? listW, panes.current?.clientWidth ?? 1280)} aria-valuemin={LIST_MIN}
-          onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setPull(listW); }}
-          onPointerMove={(e) => pull !== null && setPull(clampList(e.clientX - (panes.current?.getBoundingClientRect().left ?? 0), panes.current?.clientWidth ?? 1280))}
-          onPointerUp={() => { if (pull !== null) setListW(pull); setPull(null); }}
-          onPointerCancel={() => setPull(null)}
-          onDoubleClick={() => setListW(LIST_W)}
-          onKeyDown={(e) => { const d = e.key === "ArrowLeft" ? -16 : e.key === "ArrowRight" ? 16 : 0; if (d) setListW(clampList(listW + d, panes.current?.clientWidth ?? 1280)); }} />
-      )}
+      {split.edge}
       {callsign && (
         <section className="pane detail">
           <Conversation callsign={callsign} onBack={() => go("/work")} />

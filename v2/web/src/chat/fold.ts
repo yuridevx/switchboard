@@ -1,6 +1,6 @@
 // Свёртка разговора: сообщения SDK по порядку → строки ленты, карточки инструментов, задачи и состояние хода. Чистая функция: живое и история идут одним шагом; шаг на вид записи — своя функция.
 import { duration, hhmm, LIMIT_NAMES, plural } from "../lib/time.ts";
-import { askOutcome } from "../session/answers.ts";
+import { askedOf, askOutcome } from "../session/answers.ts";
 import { API_ERRORS, FALLBACK_WHY, kilo, modelName, REFUSAL_AREAS, RESULT_ERRORS, TASK_END } from "./words.ts";
 
 export type Msg = Record<string, any>;
@@ -13,6 +13,7 @@ export type Row =
   | { k: "sys"; key: string; icon: string; text: string; tone?: "wait" | "swap"; retry?: boolean; boundary?: boolean }
   | { k: "line"; key: string; icon?: string; text: string; dim?: string; tone?: string; local?: boolean }
   | { k: "task"; key: string; id: string }
+  | { k: "asked"; key: string; kind: string; title?: string; qs: Array<{ question: string; options: string[]; chosen: string[] }>; who: string; at: string }
   | { k: "ban"; key: string; tone: "bad" | "wait"; icon?: string; title: string; body?: string; edit?: string; refusal?: boolean }
   | { k: "res"; key: string; bits: string[]; /** строка поставлена страницей: итога хода в записи не было */ synthetic?: boolean }
   | { k: "end"; key: string; text: string; why?: string }
@@ -20,8 +21,14 @@ export type Row =
 /** Своё сообщение: sending — уходит; queued — ждёт в очереди сессии; sent — принято; taken — ход его взял; cancelled — снято с очереди; lost — не ушло. */
 export type MeState = "sending" | "queued" | "sent" | "taken" | "cancelled" | "lost";
 type Draft<T = Row> = T extends Row ? Omit<T, "key"> : never;
-export type Tool = { id: string; name?: string; input?: Msg; result?: { text: string; pics: string[]; error: boolean }; note?: string; secs?: number; task?: string; steps: Row[] };
-export type Task = { id: string; tool?: string; desc: string; type?: string; bg: boolean; summary?: string; last?: string; steps?: number; started: number; end?: string; final?: string };
+export type Tool = { id: string; name?: string; input?: Msg; result?: { text: string; pics: string[]; error: boolean }; note?: string; secs?: number; task?: string; steps: Row[]; /** когда модель вызвала инструмент — время события на машине, мс */ at?: number };
+/** started — когда задача началась на машине, мс: из события разговора. Нет времени в событии — начала нет; часы страницы началом не бывают. */
+export type Task = { id: string; tool?: string; desc: string; type?: string; bg: boolean; summary?: string; last?: string; steps?: number; started?: number; end?: string; final?: string };
+/** Время события на машине, мс: timestamp записи разговора или at, которым Host метит живое событие. */
+export const atOf = (m: Msg): number | undefined => {
+  const t = typeof m.timestamp === "string" ? Date.parse(m.timestamp) : typeof m.at === "number" ? m.at : NaN;
+  return Number.isFinite(t) ? t : undefined;
+};
 export type Todo = { content: string; activeForm?: string; status: string };
 export type View = {
   rows: Row[];
@@ -103,6 +110,7 @@ function block(v: View, list: Row[], id: string, m: Msg, b: Msg) {
     const tool = toolOf(v, b.id);
     tool.name = b.name;
     tool.input = b.input ?? {};
+    tool.at ??= atOf(m);
     if (b.name === "TodoWrite" && !m.parent_tool_use_id) v.todos = (b.input?.todos as Todo[]) ?? [];
     replyOf(v, list, id).parts.push({ k: "tool", id: b.id });
   }
@@ -161,7 +169,7 @@ function tagged(v: View, m: Msg, [, tag, attrs, inner]: RegExpExecArray) {
 
 /** Конец задачи: один раз на задачу, откуда бы ни пришёл. */
 function endTask(v: View, id: string, status: string, summaryOf?: string) {
-  const t = (v.tasks[id] ??= { id, desc: summaryOf ?? "", bg: false, started: Date.now() });
+  const t = (v.tasks[id] ??= { id, desc: summaryOf ?? "", bg: false });
   if (t.end) return;
   t.end = status;
   t.final = summaryOf ?? t.final;
@@ -202,7 +210,7 @@ function closeTurn(v: View) {
 function text(v: View, m: Msg, body: string, pics: string[]) {
   if (m.isSynthetic || m.isMeta || SERVICE.test(body) || STDERR.test(body)) return;
   if (INTERRUPT.test(body)) {
-    const at = timeOf(m) || (m._at ? hhmm(m._at) : "");
+    const at = timeOf(m) || (typeof m.at === "number" ? hhmm(m.at) : "");
     v.interrupted = true;
     return push(v, { k: "sys", tone: "wait", icon: "square", text: at ? `прервано · ${at}` : "прервано" });
   }
@@ -312,7 +320,7 @@ function refusalEnd(v: View, m: Msg) {
 
 function taskStarted(v: View, m: Msg) {
   const id = m.task_id as string;
-  v.tasks[id] = { id, tool: m.tool_use_id, desc: m.description ?? "", type: m.task_type, bg: !!m.is_backgrounded, started: m.timestamp ? new Date(m.timestamp).getTime() : (m._at ?? Date.now()) };
+  v.tasks[id] = { id, tool: m.tool_use_id, desc: m.description ?? "", type: m.task_type, bg: !!m.is_backgrounded, started: atOf(m) };
   if (m.tool_use_id) toolOf(v, m.tool_use_id).task = id;
   else push(v, { k: "task", id });
 }
@@ -414,7 +422,7 @@ const SYSTEM: Record<string, (v: View, m: Msg) => void> = {
     for (const x of set) {
       const known = v.tasks[x.task_id];
       if (known) known.bg = true;
-      else v.tasks[x.task_id] = { id: x.task_id, desc: x.description ?? "", type: x.task_type, bg: true, started: Date.now() };
+      else v.tasks[x.task_id] = { id: x.task_id, desc: x.description ?? "", type: x.task_type, bg: true, started: atOf(m) };
     }
     for (const t of Object.values(v.tasks)) if (t.bg && !t.end && !set.some((x) => x.task_id === t.id)) endTask(v, t.id, "gone");
   },
@@ -450,7 +458,9 @@ const STEP: Record<string, (v: View, m: Msg) => void> = {
   // итог вопроса: кто ответил и чем; ход снял вопрос — «вопрос снят»
   "ask.answered": (v, m) => {
     const o = askOutcome(m);
-    push(v, { k: "line", icon: "message-circle-question", text: o.text, ...(o.dim ? { dim: o.dim } : {}) });
+    const qs = m.q && m.answer !== "cancelled" ? askedOf(m.q, m.answer) : [];
+    if (qs.length) push(v, { k: "asked", kind: m.kind ?? m.q.kind, ...(m.q.title ? { title: m.q.title } : {}), qs, who: o.dim.replace(/^ · /, ""), at: typeof m.at === "number" ? hhmm(m.at) : timeOf(m) });
+    else push(v, { k: "line", icon: "message-circle-question", text: o.text, ...(o.dim ? { dim: o.dim } : {}) });
   },
   owner: (v, m) => push(v, { k: "in", via: "owner", from: m.from, ...(m.tag ? { tag: m.tag } : {}), text: m.text, at: timeOf(m) }),
   account: (v, m) => push(v, { k: "sys", tone: "swap", icon: "arrow-left-right", text: `аккаунт: ${m.from} → ${m.to}` }),

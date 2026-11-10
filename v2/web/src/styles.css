@@ -29,10 +29,18 @@ body { overflow: hidden; }
 .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .panes { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--list) minmax(0, 1fr); }
 .pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.pane.list { border-right: 1px solid var(--line); background: var(--surface); }
+.pane.list { border-right: 1px solid var(--line); background: var(--surface); container: list / inline-size; }
+/* узкий список: имя не теряется, лампа остаётся; время уходит первым, ведомый пары встаёт своей строкой */
+@container list (max-width: 300px) {
+  .row .pairmate { display: block; overflow: hidden; text-overflow: ellipsis; }
+  .row .pairmate .arrow { display: none; }
+}
+@container list (max-width: 260px) {
+  .row .when .ago { display: none; }
+}
 /* граница списка «Работы»: тонкая полоса поверх линии, за неё тянут ширину */
 .panes { position: relative; }
-.pane-edge { position: absolute; top: 0; bottom: 0; left: calc(var(--list) - 5px); width: 10px; cursor: col-resize; z-index: 4; touch-action: none; }
+.pane-edge { position: absolute; top: 0; bottom: 0; width: 10px; cursor: col-resize; z-index: 4; touch-action: none; }
 .pane-edge::after { content: ""; position: absolute; inset: 0 4px; background: transparent; }
 .pane-edge:hover::after, .pane-edge:focus-visible::after, .panes.pulling .pane-edge::after { background: var(--st-busy); }
 .pane-edge:focus-visible { outline: none; }
@@ -65,7 +73,8 @@ body { overflow: hidden; }
 .unread .t { font-weight: 700; }
 
 /* разговор */
-.talk { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; flex: 1; }
+.talk { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; flex: 1; position: relative; }
+.talk.pulling { cursor: col-resize; user-select: none; }
 .talk.with-insp { grid-template-columns: minmax(0, 1fr) var(--insp); }
 .talk.pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .conv { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -163,9 +172,9 @@ kbd.k { font-family: var(--mantine-font-family-monospace); font-size: 11.5px; bo
 .hljs-comment { color: var(--muted); }
 .hljs-number, .hljs-literal { color: var(--st-waiting); }
 
-/* шапка разговора: заголовок и действия — первой строкой, документ сессии — второй */
-.conv-head .h-title { flex: 1 1 0; min-width: 150px; order: 1; }
-.conv-head .h-acts { order: 2; }
+/* шапка разговора: только кто это и чем занят */
+.conv-head { flex-wrap: nowrap; }
+.conv-head .h-title { flex: 1 1 0; min-width: 0; }
 
 
 /* залитая кнопка основного цвета: в тёмной теме — тёмный текст на светлой плашке */
