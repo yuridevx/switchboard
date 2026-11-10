@@ -75,13 +75,3 @@ export function modelName(model: unknown): string {
   return `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}${m[3] ? `.${m[3]}` : ""}`;
 }
 
-/** Тысячи: 84200 → «84 К». */
-export const kilo = (n: number) => `${Math.round(n / 1000)} К`;
-
-/** Отказ метода сессии словом для экрана. */
-export function sayWord(word: string, machine: string): string {
-  if (word === "offline") return `${machine} не на связи`;
-  if (word === "stopped") return "сессия остановлена";
-  if (word === "sdk_error") return "Claude отказал, причина в журнале машины";
-  return word;
-}

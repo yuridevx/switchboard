@@ -88,9 +88,9 @@ export function Names() {
   const labels = useLabels();
   const save = async (key: string, v: string) => (await act(prefsSet, { scope: "fleet", name: "labels", patch: { [key]: v.trim() || null } })) && qc.invalidateQueries({ queryKey: ["prefs.get"] });
   const field = (key: string, what: string) => (
-    <TextInput size="xs" aria-label={`Имя для ${what}`} defaultValue={labels[key] ?? ""} key={labels[key] ?? ""}
-      onBlur={(e) => e.currentTarget.value !== (labels[key] ?? "") && save(key, e.currentTarget.value)}
-      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.currentTarget.value = labels[key] ?? ""; e.currentTarget.blur(); } }} />
+    <TextInput size="xs" aria-label={`Имя для ${what}`} defaultValue={labels.of(key) ?? ""} key={labels.of(key) ?? ""}
+      onBlur={(e) => e.currentTarget.value !== (labels.of(key) ?? "") && save(key, e.currentTarget.value)}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.currentTarget.value = labels.of(key) ?? ""; e.currentTarget.blur(); } }} />
   );
   return (
     <Stack>

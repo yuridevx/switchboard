@@ -3,7 +3,7 @@ import { sessionCall, sessionUpdate, type SessionRow, type SpecPatch } from "@sb
 import { useEffect } from "react";
 import { create } from "zustand";
 import { act } from "../api.ts";
-import { MODELS, useCall, useLabels as useLabelMap } from "../common.tsx";
+import { MODELS, useCall } from "../common.tsx";
 
 /** Ключи документа, которые вступят в силу после хода: что ответил Host на session.update. */
 const useLaterStore = create<{ keys: Record<string, string[]>; put(c: string, keys: string[]): void }>((set) => ({
@@ -63,8 +63,3 @@ export function useModels(s: SessionRow, live: boolean): ModelOption[] {
   return modelOptions(q.data);
 }
 
-/** Имена сессий и машин из общих настроек флота: человек назвал — страница показывает имя вместо позывного. */
-export function useLabels(): { of(addr: string): string | undefined; name(addr: string): string } {
-  const labels = useLabelMap();
-  return { of: (a) => labels[a] || undefined, name: (a) => labels[a] || a };
-}

@@ -4,7 +4,7 @@ import { Button, Group, Stack, Text } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { Component, type ReactNode } from "react";
+import { Component, type ReactNode, useMemo } from "react";
 import { create } from "zustand";
 import { api, sayError } from "./api.ts";
 import { ago } from "./lib/time.ts";
@@ -65,14 +65,14 @@ export function SessionLine({ s, selected, onPick, sub, depth = 0, wing, why, pa
   const offline = useFleet((f) => f.machines[machineOfCall(s.callsign)]?.online === false);
   const mark = rowMark(s, me) ?? (wing ? rowMark(wing, me) : null);
   const labels = useLabels();
-  const label = labels[s.callsign];
+  const label = labels.of(s.callsign);
   return (
     <div className={`row${selected ? " sel" : ""}${mark === "new" ? " unread" : ""}`} role="button" tabIndex={0} data-call={s.callsign} title={why || undefined} style={depth ? { paddingLeft: 14 + Math.min(depth, 4) * 18 } : undefined} onClick={onPick} onKeyDown={(e) => e.key === "Enter" && onPick()}>
       <Lamp state={s.state} offline={offline} />
       <div style={{ minWidth: 0 }}>
         <div className="t trunc">
           {label ?? s.title ?? s.spec.name}
-          {wing && <span className="pairmate"><span className="arrow"> ▸ </span><Lamp state={wing.state} offline={offline} /> {labels[wing.callsign] ?? wing.title ?? wing.spec.name}</span>}
+          {wing && <span className="pairmate"><span className="arrow"> ▸ </span><Lamp state={wing.state} offline={offline} /> {labels.of(wing.callsign) ?? wing.title ?? wing.spec.name}</span>}
         </div>
         {(parts.call || parts.doing || offline) && <div className="sub trunc">{parts.call && <span className="mono">{s.callsign}</span>}{parts.call && (wing ? "" : treeWord(s))}{parts.call && ownerWord(s, me)}{offline ? " · нет связи" : !parts.doing ? "" : sub ?? (s.doing ? ` · ${s.doing}` : s.state === "failed" ? ` · ${s.error ?? "сбой"}` : "")}{s.archiveError && !offline ? " · точка не сохранилась" : ""}</div>}
       </div>
@@ -86,16 +86,17 @@ export function useCall<D extends RequestDef<any, any>>(def: D, input: InputOf<D
   return useQuery({ queryKey: [def.name, input], queryFn: () => api.call(def, input as InputOf<D>), enabled: input !== null, refetchInterval: opts.refetch, retry: false });
 }
 
-/** Имена для людей: общая запись флота `labels` — позывной сессии или «@машина» → имя. Где имя есть, оно стоит вместо адреса. */
-export function useLabels(): Record<string, string> {
+/** Имена для людей: общая запись флота `labels` — позывной сессии или «@машина» → имя. of — имя, если человек его дал; name — имя, иначе сам адрес. */
+export function useLabels(): { of(addr: string): string | undefined; name(addr: string): string } {
   const q = useCall(prefsGet, { scope: "fleet", prefix: "labels" });
-  return (q.data?.values.labels as Record<string, string> | undefined) ?? NO_LABELS;
+  const labels = (q.data?.values.labels as Record<string, string> | undefined) ?? NO_LABELS;
+  return useMemo(() => ({ of: (a: string) => labels[a] || undefined, name: (a: string) => labels[a] || a }), [labels]);
 }
 const NO_LABELS: Record<string, string> = {};
 /** Имя машины для людей; нет — её имя во флоте. */
 export const useMachineName = () => {
   const labels = useLabels();
-  return (machine: string) => labels["@" + machine] ?? machine;
+  return (machine: string) => labels.of("@" + machine) ?? machine;
 };
 
 /** Свои настройки человека: закреплённые сессии, порядок, вид. Запись видна сразу. */

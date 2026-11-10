@@ -169,9 +169,9 @@ function Running({ tool }: { tool: Tool }) {
   return n >= 3 ? <span className="muted">идёт {duration(n * 1000)}</span> : null;
 }
 
-const STATE_WORD: Record<string, string> = { denied: "отклонено", error: "ошибка", stopped: "остановлено", bg: "в фоне" };
+const TOOL_STATE_WORD: Record<string, string> = { denied: "отклонено", error: "ошибка", stopped: "остановлено", bg: "в фоне" };
 /** Чего ждёт вызов от человека: план — одобрения, остальное — разрешения. */
-const stateWord = (state: string, tool: Tool) => (state === "wait" ? (tool.name === "ExitPlanMode" ? "ждёт одобрения" : "ждёт разрешения") : STATE_WORD[state]);
+const stateWord = (state: string, tool: Tool) => (state === "wait" ? (tool.name === "ExitPlanMode" ? "ждёт одобрения" : "ждёт разрешения") : TOOL_STATE_WORD[state]);
 
 function ToolLine({ tool, view }: { tool: Tool; view: View }) {
   const env = useContext(Env);

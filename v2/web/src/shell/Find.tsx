@@ -39,14 +39,14 @@ export function Find() {
       ...Object.values(picture.sessions).map((s) => {
         const project = names[projectOf(picture, s)];
         return {
-          id: "s:" + s.callsign, label: labels[s.callsign] ?? s.title ?? s.spec.name,
+          id: "s:" + s.callsign, label: labels.of(s.callsign) ?? s.title ?? s.spec.name,
           about: `${s.callsign} · ${picture.machines[machineOfCall(s.callsign)]?.online === false ? "нет связи, последнее известное" : STATE_WORD[s.state]} · ${s.spec.cwd}${project ? ` · ${project}` : ""}`,
           // находится по папке, проекту и по обращению, которое сессия разбирает (вид и ключ инцидента)
           words: [s.spec.cwd, project ?? "", s.spec.name, ...(s.incident ? [s.incident.kind, s.incident.key, "инцидент"] : [])],
           run: to(`/work/${s.callsign}`),
         };
       }),
-      ...Object.values(picture.machines).map((m) => ({ id: "m:" + m.name, label: `Машина ${labels["@" + m.name] ?? m.name}`, about: m.online ? `на связи · сборка ${m.build ?? "—"}` : "без связи", words: [m.name], run: to(`/machine/${m.name}`) })),
+      ...Object.values(picture.machines).map((m) => ({ id: "m:" + m.name, label: `Машина ${labels.of("@" + m.name) ?? m.name}`, about: m.online ? `на связи · сборка ${m.build ?? "—"}` : "без связи", words: [m.name], run: to(`/machine/${m.name}`) })),
       ...NAV.map(([path, word]) => ({ id: "n:" + path, label: word, about: "Раздел", words: [], run: to(path) })),
       { id: "a:deploy", label: "Выпуски: назначить или откатить сборку", words: [], run: to("/fleet/releases") },
       { id: "a:accounts", label: "Войти в аккаунт Claude на машине", words: [], run: to("/fleet/accounts") },

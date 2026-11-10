@@ -1,7 +1,7 @@
 // Свёртка разговора: сообщения SDK по порядку → строки ленты, карточки инструментов, задачи и состояние хода. Чистая функция: живое и история идут одним шагом; шаг на вид записи — своя функция.
-import { duration, hhmm, LIMIT_NAMES, plural } from "../lib/time.ts";
+import { duration, hhmm, kilo, LIMIT_NAMES, plural } from "../lib/time.ts";
 import { askedOf, askOutcome } from "../session/answers.ts";
-import { API_ERRORS, FALLBACK_WHY, kilo, modelName, REFUSAL_AREAS, RESULT_ERRORS, TASK_END } from "./words.ts";
+import { API_ERRORS, FALLBACK_WHY, modelName, REFUSAL_AREAS, RESULT_ERRORS, TASK_END } from "./words.ts";
 
 export type Msg = Record<string, any>;
 export type Part = { k: "text"; text: string; live?: boolean } | { k: "think"; text: string; live?: boolean } | { k: "tool"; id: string };
