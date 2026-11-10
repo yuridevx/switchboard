@@ -2,7 +2,7 @@
 // Блок кода — с копированием; HTML — с просмотром в песочнице, SVG — картинкой; ссылки открываются в новой вкладке.
 import { CopyButton } from "@mantine/core";
 import { isValidElement, useState, type ReactNode } from "react";
-import { HtmlFrame, previewKind, SvgView, textOf } from "./html.tsx";
+import { fenceHtml, HtmlFrame, previewKind, SvgView, textOf } from "./html.tsx";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
@@ -37,7 +37,7 @@ export default function Markdown({ text }: { text: string }) {
           },
         }}
       >
-        {text}
+        {fenceHtml(text)}
       </ReactMarkdown>
     </div>
   );

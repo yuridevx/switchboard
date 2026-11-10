@@ -188,16 +188,16 @@ describe("accounts", () => {
     await expect(api.route("нет")).rejects.toMatchObject({ word: "unknown_session" });
   });
 
-  it("список аккаунтов: входы с лимитами и местом в очереди, ключи флота из службы", async () => {
+  it("список аккаунтов: входы с лимитами, временем замера и местом в очереди; ключи флота из службы с alias-моделями", async () => {
     const at = Math.floor(Date.now() / 1000);
     const home = homeWithAccounts(["a@example.com"], { "a@example.com": { five_hour: { utilization: 0.5, resetsAt: at + 600, at } } });
     await folders(home).place("auto", "a@example.com");
     st = await stand({ home, modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => ({ keys: [{ name: "team-key", provider: "anthropic", at: 1, tail: "…abcd" }] });
+    st.services.handlers["keys.list"] = () => ({ keys: [{ name: "team-key", provider: "anthropic", at: 1, tail: "…abcd", models: { fast: "orca/flash" } }] });
     const r = await st.request("account.list", { to: "@laptop" });
     expect((r.result as any).accounts).toEqual([
-      { id: "a@example.com", kind: "claude", email: "a@example.com", plan: "max", limits: [{ name: "five_hour", used: 0.5, resets: (at + 600) * 1000 }], slot: 0, ok: true, sessions: 0, current: true },
-      { id: "team-key", kind: "key", ok: true, sessions: 0, provider: "anthropic" },
+      { id: "a@example.com", kind: "claude", email: "a@example.com", plan: "max", limits: [{ name: "five_hour", used: 0.5, resets: (at + 600) * 1000, at: at * 1000 }], at: at * 1000, slot: 0, ok: true, sessions: 0, current: true },
+      { id: "team-key", kind: "key", ok: true, sessions: 0, provider: "anthropic", models: { fast: "orca/flash" } },
     ]);
   });
 });

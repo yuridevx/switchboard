@@ -20,10 +20,19 @@ export { Records } from "./records.ts";
 export const MODULES: Module[] = [builds, ledger, archive, reach, prefs, keys, github, analytics, obs];
 const handlers = handlersOf(MODULES);
 
+const CALL_PREFLIGHT = { "access-control-allow-origin": "*", "access-control-allow-methods": "POST", "access-control-allow-headers": "authorization, content-type, x-sb-as", "access-control-max-age": "86400" };
+
 /** Запрос к Worker'у; deps — подмена платформы и сети в тестах. */
 export async function serve(req: Request, env: Env, exec: ExecutionContext, deps: Deps = {}): Promise<Response> {
   const { pathname } = new URL(req.url);
-  if (pathname === "/call") return callHttp(req, env, exec, handlers, deps);
+  if (pathname === "/call") {
+    // страница с другого источника (разработка фронта на живом флоте): вход — пропуск в заголовке, куки не используются
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CALL_PREFLIGHT });
+    const res = await callHttp(req, env, exec, handlers, deps);
+    const out = new Response(res.body, res);
+    out.headers.set("access-control-allow-origin", "*");
+    return out;
+  }
   if (pathname === "/mcp") return mcp(req, env, exec, handlers, deps);
   if (pathname.startsWith("/f/") || pathname.startsWith("/m/")) return (deps.platform ?? env.PLATFORM).fetch(req);
   const entry = oauth(req, env, deps);

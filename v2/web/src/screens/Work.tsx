@@ -2,16 +2,17 @@
 import { peopleList, projectRemove, projectSet, sessionUpdate, type SessionRow } from "@sb/protocol";
 import { ActionIcon, Button, Chip, Group, Menu, Modal, MultiSelect, Popover, SegmentedControl, Stack, Switch, Text, TextInput, Tooltip } from "@mantine/core";
 import { useHotkeys } from "@mantine/hooks";
-import { IconAdjustmentsHorizontal, IconArrowDown, IconArrowUp, IconCheck, IconChevronDown, IconChevronRight, IconDots, IconFilter, IconPencil, IconPin, IconPinFilled, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconAdjustmentsHorizontal, IconCheck, IconChevronDown, IconChevronRight, IconDots, IconFilter, IconPencil, IconPin, IconPinFilled, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { act } from "../api.ts";
-import { confirmDanger, Lamp, personWord, SessionLine, useCall, useMachineName, useMyPrefs, useUi, useWide } from "../common.tsx";
+import { confirmDanger, Lamp, personWord, ROW_PARTS, SessionLine, useCall, useMachineName, useMyPrefs, useUi, useWide, type RowParts } from "../common.tsx";
 import { useRowDrag } from "../lib/drag.ts";
+import { Sortable } from "../lib/Sortable.tsx";
 import { getLocal, useLocal } from "../lib/local.ts";
 import { ago } from "../lib/time.ts";
-import { BUILTIN, type Filter, groupsByMachine, groupsOf, NO_PROJECT, projectOf, reorder, rowsOf, shift, STATE_GROUPS, treeOf, whyMine } from "../lib/work.ts";
+import { BUILTIN, type Filter, groupsByMachine, groupsOf, NO_PROJECT, projectOf, reorder, rowsOf, STATE_GROUPS, treeOf, whyMine } from "../lib/work.ts";
 import { Conversation, pairKey, type Side } from "../session/Conversation.tsx";
 import { isMine, machineOfCall, useFleet } from "../store/fleet.ts";
 
@@ -51,15 +52,16 @@ function Filters({ filters, save, onClose }: { filters: Filter[]; save: (next: F
   }
   return (
     <Stack gap="xs">
-      {filters.map((f, i) => (
-        <div key={f.id} className="line">
-          <span className="grow trunc">{f.name}</span>
-          <ActionIcon variant="subtle" size="sm" aria-label={`Выше: ${f.name}`} disabled={i === 0} onClick={() => save(shift(filters, f, -1))}><IconArrowUp size={14} /></ActionIcon>
-          <ActionIcon variant="subtle" size="sm" aria-label={`Ниже: ${f.name}`} disabled={i === filters.length - 1} onClick={() => save(shift(filters, f, 1))}><IconArrowDown size={14} /></ActionIcon>
-          <ActionIcon variant="subtle" size="sm" aria-label={`Изменить: ${f.name}`} onClick={() => setEdit(f)}><IconPencil size={14} /></ActionIcon>
-          <ActionIcon variant="subtle" size="sm" color="red" aria-label={`Удалить: ${f.name}`} onClick={() => save(filters.filter((x) => x.id !== f.id))}><IconTrash size={14} /></ActionIcon>
-        </div>
-      ))}
+      <Sortable ids={filters.map((f) => f.id)} label={(id) => filters.find((f) => f.id === id)?.name ?? id} onOrder={(ids) => save(ids.map((id) => filters.find((f) => f.id === id)!))} row={(id) => {
+        const f = filters.find((x) => x.id === id)!;
+        return (
+          <div className="line" style={{ borderTop: 0 }}>
+            <span className="grow trunc">{f.name}</span>
+            <ActionIcon variant="subtle" size="sm" aria-label={`Изменить: ${f.name}`} onClick={() => setEdit(f)}><IconPencil size={14} /></ActionIcon>
+            <ActionIcon variant="subtle" size="sm" color="red" aria-label={`Удалить: ${f.name}`} onClick={() => save(filters.filter((x) => x.id !== f.id))}><IconTrash size={14} /></ActionIcon>
+          </div>
+        );
+      }} />
       <Group><Button size="xs" onClick={() => setEdit(blank())}>Новый фильтр</Button><Button size="xs" variant="default" onClick={onClose}>Готово</Button></Group>
     </Stack>
   );
@@ -81,6 +83,8 @@ export function Work() {
   // «Вид списка»: по чему группировать и ставить ли дочерние под родителем — помнит устройство
   const [groupBy, setGroupBy] = useLocal<"project" | "machine">("work.group", "project");
   const [nested, setNested] = useLocal("work.nested", true);
+  // состав строки списка: что в ней показывать — помнит устройство
+  const [parts, setParts] = useLocal<RowParts>("work.row", ROW_PARTS);
   const machineName = useMachineName();
   const [editFilters, setEditFilters] = useState(false);
   const [rename, setRename] = useState<{ id: string; name: string } | null>(null);
@@ -138,7 +142,8 @@ export function Work() {
   });
   const pin = (c: string) => prefs.save("pins", pins.includes(c) ? pins.filter((p) => p !== c) : [...pins, c]);
   const toggle = (project: string) => setClosed(closed.includes(project) ? closed.filter((x) => x !== project) : [...closed, project]);
-  const moveProject = (id: string, d: -1 | 1) => prefs.save("projects", shift(groups.map((g) => g.project).filter((p) => p !== NO_PROJECT), id, d));
+  const [orderProjects, setOrderProjects] = useState(false);
+  const projectIds = groups.map((g) => g.project).filter((p) => p !== NO_PROJECT);
   const admin = !!picture.you?.admin;
   const offline = (s: SessionRow) => picture.machines[machineOfCall(s.callsign)]?.online === false;
 
@@ -162,6 +167,9 @@ export function Work() {
                 {wide && <SegmentedControl size="xs" fullWidth value={view} onChange={(v) => (setView(v as "list" | "board"), callsign && v === "board" && go("/work"))} data={[{ value: "list", label: "Список" }, { value: "board", label: "Доска" }]} aria-label="Вид" />}
                 <SegmentedControl size="xs" fullWidth value={groupBy} onChange={(v) => setGroupBy(v as "project" | "machine")} data={[{ value: "project", label: "По проектам" }, { value: "machine", label: "По машинам" }]} aria-label="Группы" />
                 <Switch size="xs" label="Дочерние под родителем" checked={nested} onChange={(e) => setNested(e.currentTarget.checked)} />
+                <Switch size="xs" label="Позывной и владелец" checked={parts.call} onChange={(e) => setParts({ ...parts, call: e.currentTarget.checked })} />
+                <Switch size="xs" label="Чем занята" checked={parts.doing} onChange={(e) => setParts({ ...parts, doing: e.currentTarget.checked })} />
+                <Switch size="xs" label="Время" checked={parts.when} onChange={(e) => setParts({ ...parts, when: e.currentTarget.checked })} />
               </Stack>
             </Popover.Dropdown>
           </Popover>
@@ -205,8 +213,7 @@ export function Work() {
                         <Menu withinPortal position="bottom-end">
                           <Menu.Target><ActionIcon size="xs" variant="subtle" aria-label={`Действия с проектом ${g.name}`}><IconDots size={13} /></ActionIcon></Menu.Target>
                           <Menu.Dropdown>
-                            <Menu.Item disabled={gi === 0} onClick={() => moveProject(g.project, -1)}>Выше</Menu.Item>
-                            <Menu.Item disabled={gi >= groups.filter((x) => x.project !== NO_PROJECT).length - 1} onClick={() => moveProject(g.project, 1)}>Ниже</Menu.Item>
+                            <Menu.Item onClick={() => setOrderProjects(true)}>Порядок проектов…</Menu.Item>
                             {admin && <Menu.Item onClick={() => setRename({ id: g.project, name: g.name })}>Переименовать</Menu.Item>}
                             {admin && <Menu.Item color="red" onClick={() => confirmDanger({
                               title: `Удалить проект «${g.name}»?`, confirm: "Удалить",
@@ -223,7 +230,7 @@ export function Work() {
                     const mine = isMine(picture, s);
                     return (
                       <div key={s.callsign} className={`rowwrap${drag.dragging === s.callsign ? " dragging" : ""}`} data-drag-id={s.callsign} data-drag-group={g.project} onPointerDown={groupBy === "project" ? drag.onPointerDown(s.callsign) : undefined}>
-                        <SessionLine s={s} depth={depth} wing={wing} why={whyMine(picture, s, pins)} selected={s.callsign === callsign || (!!wing && wing.callsign === callsign)} onPick={() => open(s.callsign)} sub={<>
+                        <SessionLine s={s} depth={depth} wing={wing} parts={parts} why={whyMine(picture, s, pins)} selected={s.callsign === callsign || (!!wing && wing.callsign === callsign)} onPick={() => open(s.callsign)} sub={<>
                           {askLine(s) ? <> · {askLine(s)}</> : s.state === "failed" ? <> · {s.error ?? "сбой"}</> : null}
                           {!mine && <> <span className="chip">{personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</span></>}
                           {s.incident && <> <span className="chip warn">обращение: {s.incident.kind}</span></>}
@@ -252,6 +259,9 @@ export function Work() {
         </section>
       )}
       <Modal opened={editFilters} onClose={() => setEditFilters(false)} title="Свои фильтры"><Filters filters={custom} save={(next) => void prefs.save("filters", next)} onClose={() => setEditFilters(false)} /></Modal>
+      <Modal opened={orderProjects} onClose={() => setOrderProjects(false)} title="Порядок проектов">
+        <Sortable ids={projectIds} label={(id) => names[id] ?? id} onOrder={(ids) => void prefs.save("projects", ids)} row={(id) => <div className="line" style={{ borderTop: 0 }}><span className="grow trunc">{names[id] ?? id}</span></div>} />
+      </Modal>
       <Modal opened={!!rename} onClose={() => setRename(null)} title="Переименовать проект">
         {rename && (
           <Stack gap="sm">

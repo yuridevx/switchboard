@@ -413,7 +413,7 @@ describe("наблюдение: сводка и поиск", () => {
     await s.ask("ledger.add", { what: "host.failed", machine: "laptop", text: "второе падение" }, "klaptop");
     await s.ask("obs.report", { part: "web", level: "error", msg: "экран «Работа» упал", stack: "at Work" }, "kanya1");
     const h = (await s.ask("obs.health")).result as any;
-    expect(h.machines).toEqual({ total: 4, online: 3, offline: [{ name: "oleg-mac", since: 1 }] });
+    expect(h.machines).toEqual({ total: 4, online: 3, offline: [{ name: "oleg-mac", since: s.machines[3]!.since }] });
     expect(h.sessions).toEqual({ total: 3, failed: ["a@laptop", "c@oleg-mac"], waiting: 1 });
     expect(h.requests).toMatchObject({ n: 3, failed: 1 });
     expect(h.slow.length).toBeGreaterThan(0);

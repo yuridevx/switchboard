@@ -48,10 +48,20 @@ export function iter2Handlers(c: MockCtx, base: H): H {
       const r = base["points.calls"]!(f) as { point: string; calls: Array<Record<string, unknown>> };
       return { ...r, calls: r.calls.map((x, i) => ({ ...x, text: i % 2 ? "Проверь счёт для ООО «Ромашка»: он лежит на internal.example.com/billing" : undefined, system: i % 2 ? undefined : "Ты работаешь в репозитории internal.example.com/site.\nОтвечай по-русски." })) };
     },
+    // текст одного вызова: системный промпт и сообщения до ответа
+    "points.call": (f) => ({
+      point: f.point ?? "p-last", call: f.call, model: "claude-fable-5-2", more: false,
+      system: "Ты работаешь в репозитории сайта. Внутренние адреса вида internal.example.com наружу не называй.",
+      messages: [
+        { n: 1, role: "user", text: "Проверь счёт для ООО «Ромашка»: он лежит на internal.example.com/billing" },
+        { n: 2, role: "assistant", text: "Открываю счёт на internal.example.com/billing." },
+        { n: 3, role: "tool", text: "Счёт 412 от 4 ноября, сумма 18 400 ₽" },
+      ],
+    }),
     // лимиты с временем замера: старше часа подписаны «от ЧЧ:ММ»; вход с датой окончания
     "account.list": (f) => {
       const r = base["account.list"]!(f) as { accounts: Array<{ limits?: Array<Record<string, unknown>>; kind: string; expires?: number }> };
-      return { accounts: r.accounts.map((a, i) => ({ ...a, ...(a.kind === "claude" ? { expires: now() + (20 + i) * 24 * 60 * MIN } : {}), limits: a.limits?.map((l, j) => ({ ...l, at: now() - (j ? 95 : 4) * MIN })) })) };
+      return { accounts: r.accounts.map((a, i) => ({ ...a, ...(a.kind === "claude" ? { expires: now() + (20 + i) * 24 * 60 * MIN } : { models: { fast: "orca/flash", smart: "orca/glm" } }), limits: a.limits?.map((l, j) => ({ ...l, at: now() - (j ? 95 : 4) * MIN })) })) };
     },
   };
 }

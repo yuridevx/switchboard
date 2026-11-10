@@ -3,7 +3,8 @@ import { existsSync, readdirSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Refusal, type LogLine } from "@sb/protocol";
+import { obsMetrics, Refusal, type HostMetrics, type LogLine } from "@sb/protocol";
+import type { Window } from "../../core/meter.ts";
 import type { Ctx, HostApi, Module } from "../../core/contract.ts";
 import { clientPath, tildePath } from "../../core/paths.ts";
 
@@ -81,14 +82,45 @@ async function journal(dir: string, q: JournalQuery, signal: AbortSignal): Promi
   return { lines: found.slice(0, limit), more: found.length > limit };
 }
 
-export function make({ home = homedir() }: { home?: string } = {}): Module {
+/** Как часто Host отдаёт свои числа службе наблюдения. */
+export const METRICS_MS = 60_000;
+
+export function make({ home = homedir(), metricsMs = METRICS_MS }: { home?: string; metricsMs?: number } = {}): Module {
   let host: HostApi;
+  /** окно счётчиков, отданное последним */
+  let last: Window = { counts: {}, times: {} };
+  let timer: ReturnType<typeof setInterval> | undefined;
+  /** Числа Host: сессии и очередь — как есть сейчас; время провайдера, сбои и возобновления — за окно. */
+  const numbers = (w: Window): HostMetrics => {
+    const sessions: Record<string, number> = {};
+    let queue = 0;
+    for (const s of host.sessions()) {
+      sessions[s.state] = (sessions[s.state] ?? 0) + 1;
+      queue += s.info.queue;
+    }
+    const p = w.times.provider;
+    return {
+      at: Date.now(), build: host.build, sessions, queue,
+      provider: { n: p?.n ?? 0, p50: p?.p50 ?? 0, p95: p?.p95 ?? 0, failed: w.counts["provider.failed"] ?? 0, retries: w.counts["provider.retry"] ?? 0 },
+      crashes: w.counts["session.crash"] ?? 0, resumes: w.counts["session.resume"] ?? 0,
+    };
+  };
+  /** Такт: закрыть окно и отдать числа службе; служба не ответила — строка журнала, следующее окно уйдёт своим тактом. */
+  const tick = async () => {
+    last = host.meter.take();
+    await host.call(obsMetrics, numbers(last)).catch((e: unknown) => host.log.warn("metrics", { word: (e as { word?: string }).word ?? "offline", why: (e as Error).message }));
+  };
   /** процессы, чей init уже записан: новый процесс сессии пишет его снова */
   const inited = new Set<string>();
   return {
     name: "host-machine",
     start(h) {
       host = h;
+      timer = setInterval(() => void tick(), metricsMs);
+      timer.unref();
+    },
+    stop() {
+      clearInterval(timer);
     },
     compose: () => ({ env: { CLAUDE_CODE_STARTUP_FAILURE_RESULTS: "1" } }),
     requests: {
@@ -107,6 +139,7 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         }
       },
       "machine.journal": (q: JournalQuery, ctx: Ctx) => journal(join(host.dataDir, "journal"), q, ctx.signal),
+      "machine.metrics": () => numbers(last),
     },
     on: {
       state(s, state) {
@@ -114,6 +147,7 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
       },
       event(s, m: Msg) {
         const cs = s.callsign;
+        if (m.type === "system" && m.subtype === "api_retry") host.meter.count("provider.retry");
         let lines = sdkLines(m);
         if (m.type === "system" && m.subtype === "init" && !inited.has(cs)) {
           inited.add(cs);

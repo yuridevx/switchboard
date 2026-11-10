@@ -1,4 +1,5 @@
 // Вход страницы: провод (мок или настоящий флот), вход по приглашению, картина флота, маршруты.
+import { browserLacks } from "./lib/browser.ts";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "@mantine/spotlight/styles.css";
@@ -73,7 +74,17 @@ window.addEventListener("unhandledrejection", (e) => report(String(e.reason?.mes
 /** Экран согласия внешнего клиента живёт по пути /consent, а не в маршрутах после #. */
 const isConsent = location.pathname.replace(/\/+$/, "") === "/consent";
 
+const lacks = browserLacks();
+
 createRoot(document.getElementById("root")!).render(
+  lacks.length ? (
+    <MantineProvider theme={theme} defaultColorScheme="auto">
+      <div className="hole" role="alert" style={{ height: "100dvh", flexDirection: "column", gap: 8, padding: 24, textAlign: "center" }}>
+        <b>Браузер устарел</b>
+        <span>Странице не хватает: {lacks.join(", ")}. Обновите браузер или откройте страницу в другом.</span>
+      </div>
+    </MantineProvider>
+  ) : (
   <MantineProvider theme={theme} defaultColorScheme="auto">
     <QueryClientProvider client={qc}>
       <ModalsProvider>
@@ -81,5 +92,6 @@ createRoot(document.getElementById("root")!).render(
         <Gate>{isConsent ? <Consent /> : <RouterProvider router={router} />}</Gate>
       </ModalsProvider>
     </QueryClientProvider>
-  </MantineProvider>,
+  </MantineProvider>
+  ),
 );

@@ -46,6 +46,32 @@ export function mergeAccounts(byMachine: Record<string, Account[]>): Merged[] {
   return [...out.values()].sort((a, b) => Number(a.kind === "key") - Number(b.kind === "key") || Number(a.ok) - Number(b.ok) || (a.email ?? a.id).localeCompare(b.email ?? b.id));
 }
 
+/** План опроса лимитов: одна машина на почту, чей замер старше двух минут (или без времени замера); машин — как можно меньше. */
+export const POLL_STALE_MS = 120_000;
+export function pollPlan(byMachine: Record<string, Array<{ kind: string; email?: string; id: string; limits?: Array<{ at?: number }> }>>, now = Date.now()): string[] {
+  const stale = new Map<string, string[]>();
+  for (const [machine, list] of Object.entries(byMachine)) {
+    for (const a of list) {
+      if (a.kind !== "claude") continue;
+      const at = Math.max(0, ...(a.limits ?? []).map((l) => l.at ?? 0));
+      if (now - at <= POLL_STALE_MS) continue;
+      const key = a.email ?? a.id;
+      stale.set(key, [...(stale.get(key) ?? []), machine]);
+    }
+  }
+  // жадно: машина, которая закрывает больше всего оставшихся почт
+  const plan: string[] = [];
+  const left = new Map(stale);
+  while (left.size) {
+    const score = new Map<string, number>();
+    for (const ms of left.values()) for (const m of ms) score.set(m, (score.get(m) ?? 0) + 1);
+    const best = [...score].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]![0];
+    plan.push(best);
+    for (const [key, ms] of [...left]) if (ms.includes(best)) left.delete(key);
+  }
+  return plan;
+}
+
 /** Подпись окна лимита: «46% · до 14:30»; значение старше часа подписано временем замера — «от 09:12». */
 export const STALE_MS = 3_600_000;
 export const limitWord = (l: { used: number; resets?: number; at?: number }, now = Date.now()) =>

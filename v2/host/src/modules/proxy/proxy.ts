@@ -124,7 +124,11 @@ export function make(): Module {
 
   /** Тело ответа провайдера — claude как есть: статус, заголовки, байты. */
   async function forward(req: IncomingMessage, res: ServerResponse, url: string, key: string | undefined, body: Buffer, signal: AbortSignal) {
+    const t0 = Date.now();
     const up = await send(url, { method: req.method ?? "GET", headers: headersOf(req, key), body: body.length ? body : undefined, signal });
+    // время провайдера — до заголовков ответа: у потока это время до первого слова
+    host.meter.time("provider", Date.now() - t0);
+    if (up.status >= 500 || up.status === 429) host.meter.count("provider.failed");
     const headers = Object.fromEntries(Object.entries(up.headers).filter(([k]) => !HOP.has(k)));
     res.writeHead(up.status, headers as Record<string, string | string[]>);
     await new Promise<void>((done) => {
@@ -184,6 +188,7 @@ export function make(): Module {
     } catch (e) {
       const { word, why } = e as { word?: string; why?: string };
       if (word) return say(529, "overloaded_error", word, why);
+      host.meter.count("provider.failed");
       host.log.warn("proxy", { word: "upstream", why: String((e as Error).message ?? e) });
       say(502, "api_error", "upstream", String((e as Error).message ?? e));
     }

@@ -88,7 +88,7 @@ async function answer(n, label) {
   const id = "sw" + Date.now().toString(36);
   const res = await fetch(base + "/call", {
     method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + key },
-    body: JSON.stringify({ type: "answer", id, trace: "t" + id, to: n.callsign, ask: n.ask, answer: label }),
+    body: JSON.stringify({ type: "answer", id, trace: "t" + id, to: n.callsign, ask: n.ask, answer: label, via: "push" }),
   });
   const r = await res.json();
   if (!r.ok) throw new Error(r.error === "already_answered" ? "на вопрос уже ответили" : r.why || r.error || "отказ");

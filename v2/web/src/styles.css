@@ -221,3 +221,10 @@ button.stat { cursor: pointer; }
 .row .when .newdot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--st-busy); vertical-align: 1px; }
 .row .pairmate { font-weight: 400; }
 .row .pairmate .lamp { display: inline-block; vertical-align: 1px; margin: 0 2px; }
+
+/* Порядок перетаскиванием: ручка и строка списка */
+.grip { flex: none; display: inline-flex; align-items: center; cursor: grab; color: var(--mantine-color-dimmed); touch-action: none; border-radius: 4px; padding: 2px; }
+.grip:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); }
+.sortrow { display: flex; align-items: center; gap: 6px; }
+.sortrow.dragging { opacity: .45; }
+.sortbody { flex: 1; min-width: 0; }

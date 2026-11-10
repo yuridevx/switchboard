@@ -20,6 +20,10 @@ const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS specs (sid TEXT PRIMARY KEY, spec TEXT NOT NULL)",
   // от какой точки продолжена точка: ветки линии
   "CREATE TABLE IF NOT EXISTS bases (sid TEXT, point TEXT, base TEXT NOT NULL, PRIMARY KEY (sid, point))",
+  // когда запись разговора попала в архив: по этому времени находится точка, с которой она есть
+  "CREATE TABLE IF NOT EXISTS msgat (uuid TEXT PRIMARY KEY, at INTEGER NOT NULL)",
+  // последняя уборка линии точек: когда и сколько убрано
+  "CREATE TABLE IF NOT EXISTS sweeps (one INTEGER PRIMARY KEY CHECK (one = 1), at INTEGER, points INTEGER, blocks INTEGER)",
 ];
 const db = (env: Env, fleet: string, machine: string) => records(env, fleet, NAME, SCHEMA, machine);
 
@@ -82,6 +86,7 @@ async function drop(env: Env, fleet: string, machine: string, sid: string, names
       ["SELECT DISTINCT hash FROM refs WHERE sid = ?1 AND NOT EXISTS (SELECT 1 FROM refs o WHERE o.hash = refs.hash AND o.sid != ?1)", sid],
       ["DELETE FROM refs WHERE sid = ?", sid],
       ["DELETE FROM msgs WHERE rowid IN (SELECT id FROM msg WHERE sid = ?)", sid],
+      ["DELETE FROM msgat WHERE uuid IN (SELECT uuid FROM msg WHERE sid = ?)", sid],
       ["DELETE FROM msg WHERE sid = ?", sid],
       ["DELETE FROM points WHERE sid = ?", sid],
       ["DELETE FROM sessions WHERE sid = ?", sid],
@@ -246,6 +251,17 @@ export function costOf(table: Prices | null, model: string, t: { input: number; 
   return (t.input * (p.input ?? 0) + t.output * (p.output ?? 0) + t.cacheRead * (p.cacheRead ?? 0) + t.cacheWrite * (p.cacheWrite ?? 0)) / 1_000_000;
 }
 
+/** Сколько знаков текста показать по обе стороны от найденного слова. */
+const AROUND = 60;
+/** Строка вокруг первого найденного слова запроса: до AROUND знаков с каждой стороны, обрыв помечен многоточием. */
+export function around(body: string, q: string): string {
+  const low = body.toLowerCase();
+  const found = q.split(/s+/).filter(Boolean).map((w) => ({ at: low.indexOf(w.toLowerCase()), len: w.length })).filter((f) => f.at >= 0).sort((a, b) => a.at - b.at)[0];
+  if (!found) return body.slice(0, AROUND * 2);
+  const from = Math.max(0, found.at - AROUND), to = Math.min(body.length, found.at + found.len + AROUND);
+  return (from > 0 ? "…" : "") + body.slice(from, to).replace(/s+/g, " ") + (to < body.length ? "…" : "");
+}
+
 /** Слова запроса — в запрос полнотекстового поиска: каждое слово целиком, все сразу. */
 const match = (q: string) => q.split(/\s+/).filter(Boolean).map((w) => `"${w.replace(/"/g, '""')}"`).join(" ");
 
@@ -294,6 +310,7 @@ export const archive: Module = {
       for (const h of hashes) ops.push(["INSERT OR IGNORE INTO refs (hash, sid, point) VALUES (?, ?, ?)", h, i.sid, i.point]);
       for (const m of i.text ?? []) {
         ops.push(["INSERT OR IGNORE INTO msg (uuid, sid, role) VALUES (?, ?, ?)", m.uuid, i.sid, m.role]);
+        ops.push(["INSERT OR IGNORE INTO msgat (uuid, at) VALUES (?, ?)", m.uuid, now]);
         ops.push(["INSERT INTO msgs (rowid, body) SELECT id, ?1 FROM msg WHERE uuid = ?2 AND NOT EXISTS (SELECT 1 FROM msgs WHERE msgs.rowid = msg.id)", m.text.slice(0, TEXT_MAX), m.uuid]);
       }
       ops.push(["SELECT point, at FROM points WHERE sid = ?", i.sid]);
@@ -303,7 +320,10 @@ export const archive: Module = {
       const until = expiries(all);
       const expired = all.filter((p) => until.get(p.point) != null && until.get(p.point)! <= now).map((p) => p.point);
       if (expired.length)
-        ctx.after(drop(ctx.env, ctx.fleet, machine, i.sid, expired).then((blocks) => ctx.log.info("точки с вышедшим сроком убраны", { machine, sid: i.sid, points: expired.length, blocks })));
+        ctx.after(drop(ctx.env, ctx.fleet, machine, i.sid, expired).then(async (blocks) => {
+          await db(ctx.env, ctx.fleet, machine).run("INSERT OR REPLACE INTO sweeps (one, at, points, blocks) VALUES (1, ?, ?, ?)", Date.now(), expired.length, blocks);
+          ctx.log.info("точки с вышедшим сроком убраны", { machine, sid: i.sid, points: expired.length, blocks });
+        }));
       // аналитика в стороне: записка не ушла — точка всё равно сохранена
       try {
         await ctx.env.ANALYTICS.send({ fleet: ctx.fleet, machine, sid: i.sid, point: i.point });
@@ -337,17 +357,48 @@ export const archive: Module = {
           const d = db(ctx.env, ctx.fleet, m);
           if (!words) return (await d.all<SessionRow>(`SELECT * FROM sessions WHERE last < ? AND last >= ? ORDER BY ${order} LIMIT ?`, before, since, limit + 1)).map((s) => seen(s, m));
           // сессии со словом — подзапросом: число найденных сессий не упирается в предел параметров запроса
-          const rows = await d.all<SessionRow & { hit: string }>(
-            `SELECT s.*, (SELECT snippet(msgs, 0, '', '', '…', 16) FROM msgs JOIN msg ON msg.id = msgs.rowid WHERE msgs MATCH ?1 AND msg.sid = s.sid LIMIT 1) AS hit
+          const rows = await d.all<SessionRow & { mid: number }>(
+            `SELECT s.*, (SELECT msg.id FROM msgs JOIN msg ON msg.id = msgs.rowid WHERE msgs MATCH ?1 AND msg.sid = s.sid ORDER BY msg.id LIMIT 1) AS mid
              FROM sessions s WHERE s.last < ?2 AND s.last >= ?3 AND s.sid IN (SELECT msg.sid FROM msgs JOIN msg ON msg.id = msgs.rowid WHERE msgs MATCH ?1)
              ORDER BY ${order.replaceAll("tokens", "s.tokens").replaceAll("last", "s.last")} LIMIT ?4`,
             words, before, since, limit + 1,
           );
-          return rows.map((s) => seen(s, m, s.hit));
+          // найденная запись: её номер, строка вокруг слова и точка, с которой запись есть в архиве
+          const hits = new Map(
+            (await d.all<{ id: number; uuid: string; sid: string; body: string; point: string | null }>(
+              `SELECT msg.id, msg.uuid, msg.sid, msgs.body,
+                 (SELECT p.point FROM points p WHERE p.sid = msg.sid AND p.at >= coalesce((SELECT at FROM msgat WHERE uuid = msg.uuid), 0) ORDER BY p.at LIMIT 1) AS point
+               FROM msg JOIN msgs ON msgs.rowid = msg.id WHERE msg.id IN (SELECT value FROM json_each(?))`,
+              JSON.stringify(rows.map((r) => r.mid)),
+            )).map((h) => [h.id, h]),
+          );
+          return rows.map(({ mid, ...s }) => {
+            const h = hits.get(mid);
+            return { ...seen(s as SessionRow, m, h ? around(h.body, i.q!) : undefined), ...(h ? { hitUuid: h.uuid, ...(h.point ? { hitPoint: h.point } : {}) } : {}) };
+          });
         }),
       );
       const all = per.flat().sort(i.order === "tokens" ? (a, b) => (b.tokens ?? 0) - (a.tokens ?? 0) || b.last - a.last : (a, b) => b.last - a.last);
       return { sessions: all.slice(0, limit), more: all.length > limit };
+    },
+
+    /** Обзор архива: по объекту записей каждой машины, до которой человек достаёт. */
+    async "points.stats"(i: { machine?: string }, ctx) {
+      const machines = await Promise.all(
+        machinesOf(ctx, i.machine).map(async (machine) => {
+          const got = await db(ctx.env, ctx.fleet, machine).batch([
+            ["SELECT count(*) AS sessions, coalesce(sum(bytes), 0) AS bytes FROM sessions"],
+            ["SELECT count(*) AS points FROM points"],
+            ["SELECT count(DISTINCT hash) AS blocks FROM refs"],
+            ["SELECT at, points, blocks FROM sweeps WHERE one = 1"],
+          ]);
+          const sweep = got[3]![0] as { at: number; points: number; blocks: number } | undefined;
+          return { machine, sessions: got[0]![0]!.sessions as number, bytes: got[0]![0]!.bytes as number, points: got[1]![0]!.points as number, blocks: got[2]![0]!.blocks as number, ...(sweep ? { sweep } : {}) };
+        }),
+      );
+      const sum = (k: "sessions" | "points" | "blocks" | "bytes") => machines.reduce((n, m) => n + m[k], 0);
+      const last = machines.flatMap((m) => (m.sweep ? [m.sweep] : [])).sort((a, b) => b.at - a.at)[0];
+      return { sessions: sum("sessions"), points: sum("points"), blocks: sum("blocks"), bytes: sum("bytes"), ...(last ? { sweep: last } : {}), machines: machines.filter((m) => m.sessions || m.points) };
     },
 
     async "points.get"(i: { sid: string; point?: string; expect?: string; move?: boolean; by?: string }, ctx) {

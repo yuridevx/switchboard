@@ -1,11 +1,11 @@
 // «Настройки → Правила прокси»: правила замены текста запросов к модели. Форма правила — та, что читает прокси Host (ProxyRule);
 // проверка на тексте идёт запросом rules.test — движок на странице не повторяется.
-import { pointsCalls, prefsGet, prefsSet, PROXY_RULES, ProxyRule, rulesTest, type OutputOf } from "@sb/protocol";
+import { pointsCall, pointsCalls, prefsGet, prefsSet, PROXY_RULES, ProxyRule, rulesTest, type OutputOf } from "@sb/protocol";
 import { ActionIcon, Badge, Button, Chip, Group, SegmentedControl, Select, Stack, Switch, TagsInput, Text, Textarea, TextInput } from "@mantine/core";
 import { IconArrowDown, IconArrowUp, IconGripVertical, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { act } from "../../api.ts";
 import { confirmDanger, Failed, modelWord, useCall } from "../../common.tsx";
 import { useRowDrag } from "../../lib/drag.ts";
@@ -25,6 +25,18 @@ export function ruleLine(r: Rule): string {
   const what = r.action === "delete" ? `удаляет ${UNITS.find(([id]) => id === r.unit)?.[1]}` : `заменяет ${UNITS.find(([id]) => id === r.unit)?.[1]} на «${r.replacement ?? ""}»`;
   return `${r.kind === "regex" ? "выражение" : "текст"} «${r.pattern}» · ${where} · ${what}${r.models?.length ? ` · модели ${r.models.join(", ")}` : ""}`;
 }
+/** Части вызова модели для проверки: системный промпт и последние сообщения разговора до ответа; у каждой — где её ищут правила. */
+export type CallPart = { id: string; word: string; scope: Rule["scopes"][number]; text: string };
+export function callParts(c: { system: string; messages: Array<{ n: number; role: string; text: string }> } | undefined, last = 6): CallPart[] {
+  if (!c) return [];
+  const scopeOf = (role: string): Rule["scopes"][number] => (role === "assistant" ? "assistant" : role === "tool" || role === "tool_result" ? "tool_result" : "user");
+  const word = (role: string) => (role === "assistant" ? "Модель" : role === "tool" || role === "tool_result" ? "Инструмент" : "Человек");
+  return [
+    ...(c.system ? [{ id: "system", word: "Промпт", scope: "system" as const, text: c.system }] : []),
+    ...c.messages.filter((m) => m.text.trim()).slice(-last).map((m) => ({ id: "m" + m.n, word: `${word(m.role)} · ${m.n}`, scope: scopeOf(m.role), text: m.text })),
+  ];
+}
+
 /** Разница построчно: что правила убрали и что поставили. Одинаковые строки идут как есть. */
 export function lineDiff(before: string, after: string): Array<{ kind: "same" | "del" | "add"; text: string }> {
   const a = before.split("\n"), b = after.split("\n");
@@ -99,13 +111,24 @@ export function ProxyRules() {
   const ref = callRef(sp.get("call"));
   const calls = useCall(pointsCalls, ref ? { sid: ref.sid, ...(sp.get("point") ? { point: sp.get("point")! } : {}) } : null);
   const call = ref ? (calls.data?.calls.find((c) => c.call === ref.call) as (NonNullable<typeof calls.data>["calls"][number] & { text?: string; system?: string }) | undefined) : undefined;
+  // текст вызова — у архива: системный промпт и сообщения до ответа; часть выбирается чипом
+  const body = useCall(pointsCall, ref ? { sid: ref.sid, call: ref.call, ...(sp.get("point") ? { point: sp.get("point")! } : {}) } : null);
+  const parts = callParts(body.data);
+  const [part, setPart] = useState("");
+  const take = (p: CallPart | undefined) => {
+    setPart(p?.id ?? "");
+    if (p) { setProbe(p.text); setScope(p.scope); }
+    setTested(null);
+  };
   useEffect(() => {
     if (!call) return;
-    const text = call.text ?? call.system;
-    if (text) { setProbe(text); setScope(call.text ? "user" : "system"); }
     setModel(call.model);
     setTested(null);
   }, [call?.call]);
+  // вызов открылся — в проверку идёт последнее сообщение человека, иначе промпт
+  useEffect(() => {
+    if (body.data) take([...parts].reverse().find((p) => p.scope === "user") ?? parts[0]);
+  }, [body.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const box = useRef<HTMLDivElement>(null);
   const drag = useRowDrag({ box, enabled: admin, onDrop: ({ id, before }) => {
     const order = reorder((rules ?? []).map((_, i) => String(i)), id, before);
@@ -132,7 +155,7 @@ export function ProxyRules() {
           return (
             <div key={i} style={{ borderTop: i ? "1px solid var(--line)" : 0, touchAction: "pan-y" }} className={drag.dragging === String(i) ? "dragging" : undefined} data-drag-id={String(i)} data-drag-group="rules" onPointerDown={open === i ? undefined : drag.onPointerDown(String(i))}>
               <div className="line" style={{ borderTop: 0 }}>
-                {admin && <IconGripVertical size={14} className="muted" style={{ flex: "none", cursor: "grab" }} aria-hidden />}
+                {admin && <span className="grip" role="button" tabIndex={0} aria-label={`Порядок: ${r.name}`} title="Перетащите; с клавиатуры — Alt и стрелки" onKeyDown={(e) => { if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return; e.preventDefault(); const j = i + (e.key === "ArrowUp" ? -1 : 1); if (j >= 0 && j < list.length) (setRules(shift(list, r, e.key === "ArrowUp" ? -1 : 1)), setOpen(null)); }}><IconGripVertical size={14} /></span>}
                 <Switch aria-label={`Правило «${r.name}» включено`} checked={r.on !== false} disabled={!admin} onChange={(e) => set(i, { on: e.currentTarget.checked })} />
                 <div className="grow">
                   <Group gap={6}><Text size="sm" fw={500}>{r.name}</Text>{flaw && <Badge color="red" variant="light">{flaw}</Badge>}{tested && !flaw && r.on !== false && <Badge variant="default">сработало: {tested.hits[r.name] ?? 0}</Badge>}</Group>
@@ -140,8 +163,6 @@ export function ProxyRules() {
                 </div>
                 {admin && (
                   <Group gap={2} wrap="nowrap">
-                    <ActionIcon variant="subtle" size="sm" aria-label={`Выше: ${r.name}`} disabled={i === 0} onClick={() => (setRules(shift(list, r, -1)), setOpen(null))}><IconArrowUp size={14} /></ActionIcon>
-                    <ActionIcon variant="subtle" size="sm" aria-label={`Ниже: ${r.name}`} disabled={i === list.length - 1} onClick={() => (setRules(shift(list, r, 1)), setOpen(null))}><IconArrowDown size={14} /></ActionIcon>
                     <Button size="compact-xs" variant="subtle" onClick={() => setOpen(open === i ? null : i)}>{open === i ? "Свернуть" : "Изменить"}</Button>
                     <ActionIcon variant="subtle" size="sm" color="red" aria-label={`Удалить правило ${r.name}`} onClick={() => confirmDanger({ title: `Удалить правило «${r.name}»?`, confirm: "Удалить", body: "Правило исчезнет после «Сохранить».", onConfirm: () => (setRules(list.filter((_, j) => j !== i)), setOpen(null)) })}><IconTrash size={14} /></ActionIcon>
                   </Group>
@@ -163,9 +184,14 @@ export function ProxyRules() {
       <div className="card">
         <Text fw={600}>Проверка на тексте</Text>
         {ref && (calls.error ? <Failed error={calls.error} retry={calls.refetch} /> : call
-          ? <Text size="sm">Вызов модели из архива: {day(call.at)}, {hhmm(call.at)} · <span className="mono">{modelWord(call.model)}</span>{call.text ?? call.system ? "" : " — текста этого вызова в архиве нет, вставьте свой"}</Text>
+          ? <Text size="sm">Вызов модели из архива: {day(call.at)}, {hhmm(call.at)} · <span className="mono">{modelWord(call.model)}</span>{body.data && !parts.length ? " — текста этого вызова в архиве нет, вставьте свой" : ""} · <Link to={`/archive/${ref.sid}`}>к сессии</Link></Text>
           : calls.data ? <Text size="sm" c="orange">Такого вызова в архиве нет</Text> : null)}
-        <Textarea aria-label="Текст для проверки" autosize minRows={2} value={probe} onChange={(e) => (setProbe(e.currentTarget.value), setTested(null))} />
+        {parts.length > 0 && (
+          <Chip.Group value={part} onChange={(id) => take(parts.find((p) => p.id === id))}>
+            <Group gap={6} aria-label="Часть вызова">{parts.map((p) => <Chip key={p.id} value={p.id} size="xs">{p.word}</Chip>)}<Chip value="" size="xs">Свой текст</Chip></Group>
+          </Chip.Group>
+        )}
+        <Textarea aria-label="Текст для проверки" autosize minRows={2} maxRows={14} value={probe} onChange={(e) => (setProbe(e.currentTarget.value), setPart(""), setTested(null))} />
         <Group align="end" gap="sm">
           <Select label="Где этот текст" data={SCOPES.map(([value, label]) => ({ value, label }))} value={scope} onChange={(v) => v && (setScope(v as typeof scope), setTested(null))} allowDeselect={false} w={220} />
           <Select label="Проверить на машине" className="mono" data={online} value={machine} onChange={setMachine} allowDeselect={false} w={180} />

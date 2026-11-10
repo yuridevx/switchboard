@@ -32,6 +32,13 @@ export function piecesFor(sessions: Record<string, SessionRow>, machine: string,
   return mate?.spec.pieces ?? ["base"];
 }
 
+/** Кусочки в выборе: чаще стоящие у сессий флота — раньше; при равенстве — как отдала машина. */
+export function byUse<P extends { id: string }>(pieces: P[], sessions: Record<string, SessionRow>): P[] {
+  const n = new Map<string, number>();
+  for (const s of Object.values(sessions)) for (const id of s.spec.pieces ?? []) n.set(id, (n.get(id) ?? 0) + 1);
+  return [...pieces].sort((a, b) => (n.get(b.id) ?? 0) - (n.get(a.id) ?? 0));
+}
+
 /** Родительская папка и последнее имя пути: по ним видно, есть ли папка и что подсказать. */
 export function splitPath(cwd: string): { parent: string; leaf: string } {
   const at = Math.max(cwd.lastIndexOf("/"), cwd.lastIndexOf("\\"));
@@ -76,6 +83,7 @@ function Form({ onClose }: { onClose: () => void }) {
   const [pair, setPair] = useState(false);
   const [resume, setResume] = useState("");
   const [fork, setFork] = useState(false);
+  const [number, setNumber] = useState(false);
   const [project, setProject] = useState<string | null>(preset?.project ?? null);
   const [busy, setBusy] = useState(false);
   const setCwd = (v: string) => (setCwdRaw(v), setPieces(null));
@@ -93,13 +101,15 @@ function Form({ onClose }: { onClose: () => void }) {
   const missing = !!leaf && !!inside.data && inside.data.path === parent && !inside.data.dirs.includes(leaf);
   const picked = pieces ?? piecesFor(sessions, machine, cwd);
   const finalName = name || freeName(nameOf(cwd), machine, sessions);
+  // на машине нет ни входа Claude, ни ключа флота — сессии не на чем идти
+  const noAccount = !!accounts.data && !accounts.data.accounts.some((a) => a.ok);
   const start = async () => {
     if (!machine || !cwd) return;
     setBusy(true);
     const r = await act(sessionOpen, {
       to: "@" + machine,
       spec: { name: finalName, cwd, ...(model ? { model } : {}), ...(effort ? { effort: effort as never } : {}), mode: mode as never, account, pieces: picked, backup, ...(fast ? { fast: true } : {}), ...(thinking ? { thinking: true } : {}), ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
-      ...(prompt.trim() ? { prompt: prompt.trim() } : {}), ...(missing ? { mkdir: true } : {}), ...(pair ? { pair: true } : {}), ...(resume.trim() ? { resume: resume.trim(), ...(fork ? { fork: true } : {}) } : {}),
+      ...(prompt.trim() ? { prompt: prompt.trim() } : {}), ...(missing ? { mkdir: true } : {}), ...(pair ? { pair: true } : {}), ...(number ? { number: true } : {}), ...(resume.trim() ? { resume: resume.trim(), ...(fork ? { fork: true } : {}) } : {}),
     });
     setBusy(false);
     if (r) {
@@ -147,7 +157,7 @@ function Form({ onClose }: { onClose: () => void }) {
           <div>
             <Text size="sm" fw={500} mb={4}>Кусочки</Text>
             <Chip.Group multiple value={picked} onChange={setPieces}>
-              <Group gap={6}>{(list.data?.pieces ?? []).map((p) => <Chip key={p.id} value={p.id} size="xs" disabled={!p.ok} variant="outline">{p.title ?? p.id}</Chip>)}</Group>
+              <Group gap={6}>{byUse(list.data?.pieces ?? [], sessions).map((p) => <Chip key={p.id} value={p.id} size="xs" disabled={!p.ok} variant="outline">{p.title ?? p.id}</Chip>)}</Group>
             </Chip.Group>
           </div>
           <Select label="Проект" clearable data={(people.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={project} onChange={setProject} />
@@ -156,6 +166,7 @@ function Form({ onClose }: { onClose: () => void }) {
             <Switch label="Всегда размышлять" checked={thinking} onChange={(e) => setThinking(e.currentTarget.checked)} />
             <Switch label="Сохранять точки в архив" checked={backup} onChange={(e) => setBackup(e.currentTarget.checked)} />
             <Switch label="С ведомым" checked={pair} onChange={(e) => setPair(e.currentTarget.checked)} />
+            <Switch label="Номер к имени" checked={number} onChange={(e) => setNumber(e.currentTarget.checked)} />
           </Group>
           <TextInput label="Стиль ответа" value={style} onChange={(e) => setStyle(e.currentTarget.value)} />
           <Group gap="sm" align="end" wrap="nowrap">
@@ -164,9 +175,10 @@ function Form({ onClose }: { onClose: () => void }) {
           </Group>
         </Stack>
       </Collapse>
+      {noAccount && <Text size="sm" c="red" role="alert">На машине {machine} нет входа Claude и ключа флота: войдите в аккаунт во «Флоте».</Text>}
       <Group justify="space-between">
-        <Text size="sm" className="mono muted">{finalName}@{machine}</Text>
-        <Button loading={busy} disabled={!machine || !cwd} onClick={start}>{missing ? "Создать папку и открыть" : prompt.trim() ? "Открыть и отправить" : "Открыть сессию"}</Button>
+        <Text size="sm" className="mono muted">{finalName}{number ? "-N" : ""}@{machine}</Text>
+        <Button loading={busy} disabled={!machine || !cwd || noAccount} onClick={start}>{missing ? "Создать папку и открыть" : prompt.trim() ? "Открыть и отправить" : "Открыть сессию"}</Button>
       </Group>
     </Stack>
   );

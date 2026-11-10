@@ -50,8 +50,12 @@ export function effectiveModel(spec: { model?: string }, options: ModelOption[],
 }
 
 /** Модели для аккаунта сессии: у ключа флота модель одна — та, что записана у ключа; чужую провайдер ключа не примет. У входа Claude — список SDK. */
-export function modelsFor(account: { kind: string; model?: string } | undefined, sdk: ModelOption[]): ModelOption[] {
-  return account?.kind === "key" && account.model ? [{ value: account.model, label: account.model }] : sdk;
+export function modelsFor(account: { kind: string; model?: string; models?: Record<string, string> } | undefined, sdk: ModelOption[]): ModelOption[] {
+  if (account?.kind !== "key") return sdk;
+  // alias-модели ключа: имя, которое выбирает человек, → модель провайдера
+  const alias = Object.entries(account.models ?? {});
+  if (alias.length) return alias.map(([value, real]) => ({ value, label: value === real ? value : `${value} → ${real}` }));
+  return account.model ? [{ value: account.model, label: account.model }] : sdk;
 }
 
 export function useModels(s: SessionRow, live: boolean): ModelOption[] {

@@ -16,6 +16,8 @@ const GAP_MS = 2 * 60_000;
 const LONG_MS = 10 * 60_000;
 /** Точка не удалась — Host повторит её сам через это время; раньше — при конце хода. */
 export const RETRY_MS = 10 * 60_000;
+/** Сколько Host сам повторяет неудавшуюся точку, считая от первого сбоя: дальше причина остаётся в строке, повторов нет — решает человек. */
+export const WAIT_MS = 6 * 3600_000;
 const TITLE = 200;
 /** Сколько текста одного сообщения уходит в поиск. */
 const TEXT_MAX = 8_000;
@@ -25,7 +27,7 @@ type Blocks = Map<string, Buffer>;
 /** Сколько ждём конца хода после прерывания перед точкой. */
 const INTERRUPT_MS = 30_000;
 /** Раздел сессии: последнее сообщение, чей текст уже ушёл в поиск; последняя точка и отпечаток её файлов; причина сбоя последней точки. */
-type Mark = { indexed?: string; point?: string; digest?: string; error?: string; /** когда Host сам повторит неудавшуюся точку */ retryAt?: number; /** от какой точки архива поднята: `сессия/точка` */ origin?: string };
+type Mark = { indexed?: string; point?: string; digest?: string; error?: string; /** когда Host сам повторит неудавшуюся точку */ retryAt?: number; /** первый сбой подряд: от него считается предел повторов */ failedAt?: number; /** от какой точки архива поднята: `сессия/точка` */ origin?: string };
 type SaveOpts = { label?: string; stop?: boolean; interrupt?: boolean; move?: boolean };
 
 /** Папка проекта рабочей папки: так её называет Claude Code. */
@@ -60,7 +62,8 @@ type Said = { type?: string; uuid?: string; message?: { id?: string; model?: str
 const textOf = (content: unknown): string =>
   typeof content === "string" ? content : Array.isArray(content) ? content.flatMap((b: { type?: string; text?: string }) => (b?.type === "text" && typeof b.text === "string" ? [b.text] : [])).join("\n") : "";
 
-export function make(): Module {
+export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
+  const retryMs = o.retryMs ?? RETRY_MS, waitMs = o.waitMs ?? WAIT_MS;
   let host: HostApi;
   let down = false;
   const lastAt = new Map<string, number>();
@@ -149,18 +152,20 @@ export function make(): Module {
   function mark(s: SessionApi, error: string | undefined): void {
     clearTimeout(retries.get(s.callsign));
     retries.delete(s.callsign);
-    const retryAt = error && s.spec.backup && !down ? Date.now() + RETRY_MS : undefined;
+    const was = markOf(s).get();
+    const failedAt = error ? (was?.failedAt ?? Date.now()) : undefined;
+    // повтор — пока не вышел предел от первого сбоя; остановленная сессия повторяет так же: её точка ещё не в архиве
+    const retryAt = error && s.spec.backup && !down && Date.now() + retryMs <= failedAt! + waitMs ? Date.now() + retryMs : undefined;
     if (retryAt) {
       const timer = setTimeout(() => {
         retries.delete(s.callsign);
         if (host.session(s.callsign)) auto(s);
-      }, RETRY_MS);
+      }, retryMs);
       timer.unref();
       retries.set(s.callsign, timer);
     }
-    const was = markOf(s).get();
     if (was?.error === error && !was?.retryAt === !retryAt) return;
-    markOf(s).update((m) => ({ ...m, error, retryAt }));
+    markOf(s).update((m) => ({ ...m, error, retryAt, failedAt }));
     if (host.session(s.callsign)) s.sync();
   }
 
@@ -301,8 +306,8 @@ export function make(): Module {
     name: "host-points",
     spec: { backup() {} },
     row(s) {
-      const { error, retryAt } = markOf(s).get() ?? {};
-      return error ? { archiveError: error, ...(retryAt ? { archiveRetryAt: retryAt } : {}) } : {};
+      const { error, retryAt, failedAt } = markOf(s).get() ?? {};
+      return error ? { archiveError: error, ...(retryAt ? { archiveRetryAt: retryAt } : {}), ...(failedAt ? { archiveUntil: failedAt + waitMs } : {}) } : {};
     },
     applied(s, keys) {
       if (keys.includes("backup")) auto(s);

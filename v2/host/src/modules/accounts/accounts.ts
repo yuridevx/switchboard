@@ -353,6 +353,9 @@ export function make(): Module {
     return to;
   }
 
+  /** Когда лимиты аккаунта замерены последний раз, секунды; замеров нет — 0. */
+  const measured = (a: Account) => Math.max(0, ...Object.values(a.limits).map((w) => w.at ?? 0));
+
   function rowOf(name: string, a: Account, t: number): AccountOut {
     const { order } = book();
     const at = order.indexOf(name);
@@ -360,7 +363,8 @@ export function make(): Module {
     const sessions = host.sessions().filter((s) => s.spec.account === name || (kindOf(s.spec.account) === "auto" && current() === name)).length;
     return {
       id: name, kind: "claude", email: name, ...(a.plan ? { plan: a.plan } : {}),
-      limits: Object.entries(shown(a, t).limits).map(([w, v]) => ({ name: w, used: v.utilization, ...(v.resetsAt ? { resets: v.resetsAt * 1000 } : {}) })),
+      limits: Object.entries(shown(a, t).limits).map(([w, v]) => ({ name: w, used: v.utilization, ...(v.resetsAt ? { resets: v.resetsAt * 1000 } : {}), ...(v.at ? { at: v.at * 1000 } : {}) })),
+      ...(measured(a) ? { at: measured(a) * 1000 } : {}), ...(a.expires ? { expires: a.expires * 1000 } : {}),
       ...(at >= 0 ? { slot: at } : {}), ok: a.login === "ok", ...(a.login === "ok" ? {} : { why: "входа нет" }), sessions,
       ...(current() === name ? { current: true } : {}), ...(back ? { wait: back * 1000 } : {}),
     };
@@ -446,7 +450,7 @@ export function make(): Module {
         const accounts = Object.entries(book().accounts).map(([n, a]) => rowOf(n, a, t));
         // ключи флота: список у службы; не ответила — только входы
         const keys = await within(host.call(keysList, {}), READ_MS).then((r) => r.keys, () => []);
-        for (const k of keys) accounts.push({ id: k.name, kind: "key", ok: true, sessions: host.sessions().filter((s) => s.spec.account === k.name).length, provider: k.provider, ...(k.base ? { base: k.base } : {}), ...(k.model ? { model: k.model } : {}) });
+        for (const k of keys) accounts.push({ id: k.name, kind: "key", ok: true, sessions: host.sessions().filter((s) => s.spec.account === k.name).length, provider: k.provider, ...(k.base ? { base: k.base } : {}), ...(k.model ? { model: k.model } : {}), ...(k.models && Object.keys(k.models).length ? { models: k.models } : {}) });
         return { accounts };
       },
       async "account.login"() {

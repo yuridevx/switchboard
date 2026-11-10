@@ -75,7 +75,7 @@ export class Session {
         },
         get info() {
           const { sessionId, cwd, by, since, last } = self.rec;
-          return { sessionId, cwd, by, since, last, model: self.model, launch: self.launched };
+          return { sessionId, cwd, by, since, last, model: self.model, queue: self.inbox.length, launch: self.launched };
         },
         input: (c, o) => self.input(c, o),
         sdk: (name, ...args) => self.call(name, args),
@@ -312,6 +312,7 @@ export class Session {
       return;
     }
     k.log.warn("session_exited", { callsign, why: `процесс claude вышел, ${words(x)}` });
+    k.meter.count("session.crash");
     // процесс не запустился, потому что папки сессии больше нет: вторая попытка ничего не даст — причина прямо в строке
     if (/no such file or directory|ENOENT|cannot find the path/i.test(words(x)) && !existsSync(this.rec.cwd)) {
       const why = `папки сессии нет: ${this.rec.cwd}`;
@@ -328,6 +329,7 @@ export class Session {
       this.setState("failed", why);
       return;
     }
+    k.meter.count("session.resume");
     quiet(this.launch("resume"));
   }
 

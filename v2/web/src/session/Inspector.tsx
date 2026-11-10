@@ -1,6 +1,7 @@
 // Инспектор сессии: обзор (документ и сведения), контекст, файлы, точки, журнал.
-import { accountList, machineJournal, peopleList, pointsList, pointsSave, sessionCall, slotSwap, type SessionRow } from "@sb/protocol";
+import { accountList, machineJournal, peopleList, pointsDelete, pointsList, pointsSave, sessionCall, slotSwap, type SessionRow } from "@sb/protocol";
 import { Badge, Button, Group, Progress, SegmentedControl, Select, Stack, Switch, Tabs, Text, TextInput } from "@mantine/core";
+import { modals } from "@mantine/modals";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
@@ -8,7 +9,9 @@ import { act, api, sayError } from "../api.ts";
 import { CONTEXT_PARTS, STATUS_LABELS } from "../chat/words.ts";
 import type { View } from "../chat/fold.ts";
 import { accountWord, confirmDanger, Failed, Lamp, personWord, STATE_WORD, useCall, useWide } from "../common.tsx";
-import { ago, count, day, duration, hhmm, kilo, LIMIT_NAMES, nTurns } from "../lib/time.ts";
+import { Sortable } from "../lib/Sortable.tsx";
+import { ago, bytesWord, count, day, duration, hhmm, kilo, LIMIT_NAMES, nPoints, nTurns } from "../lib/time.ts";
+import { DeleteTyped } from "../screens/archive/Raise.tsx";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { DocFields } from "./Conversation.tsx";
 import { patchDoc, useLabels, useLater } from "./doc.ts";
@@ -70,7 +73,13 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
       <Switch label={<>Быстрый режим <AfterTurn on={later.includes("fast")} /></>} disabled={off} checked={!!s.spec.fast} onChange={(e) => patchDoc(s, { fast: e.currentTarget.checked })} />
       <Switch label={<>Всегда размышлять <AfterTurn on={later.includes("thinking")} /></>} disabled={off} checked={!!s.spec.thinking} onChange={(e) => patchDoc(s, { thinking: e.currentTarget.checked })} />
       <Field label="Стиль ответа" disabled={off} value={s.spec.style ?? ""} note={<AfterTurn on={later.includes("style")} />} onSave={(style) => patchDoc(s, { style: style || undefined })} />
-      <Switch label="Сохранять точки в архив" disabled={off} checked={!!s.spec.backup} onChange={(e) => patchDoc(s, { backup: e.currentTarget.checked })} />
+      <Switch label="Сохранять точки в архив" disabled={off} checked={!!s.spec.backup} onChange={(e) => (e.currentTarget.checked ? void patchDoc(s, { backup: true }) : stopBackup(s, () => qc.invalidateQueries({ queryKey: ["points.list"] })))} />
+      {(s.spec.pieces?.length ?? 0) > 1 && !off && (
+        <div>
+          <Text size="sm" fw={500} mb={4}>Порядок кусочков <AfterTurn on={later.includes("pieces")} /></Text>
+          <Sortable ids={s.spec.pieces!} label={(id) => id} onOrder={(pieces) => void patchDoc(s, { pieces })} row={(id) => <span className="mono">{id}</span>} />
+        </div>
+      )}
       <Switch label={<>Открыть в приложении Claude <AfterTurn on={later.includes("remote")} /></>} disabled={off} checked={!!s.spec.remote} onChange={(e) => patchDoc(s, { remote: e.currentTarget.checked })} />
       {s.remoteUrl && <Text size="sm" component="a" href={s.remoteUrl} target="_blank" rel="noreferrer" style={{ overflowWrap: "anywhere" }}>{s.remoteUrl}</Text>}
       {other && <PairInfo s={s} other={other} />}
@@ -218,14 +227,42 @@ function Files({ s, view }: { s: SessionRow; view?: View }) {
   );
 }
 
+/** Заголовок вкладки «Точки»: сколько точек, когда последняя и сколько она весит; сбой последней точки — словами и когда повтор. */
+export function pointsHead(points: Array<{ at: number; bytes?: number }>, row: { archiveError?: string; archiveRetryAt?: number }): { word: string; error?: string } {
+  const last = points.at(-1);
+  const word = last ? `${nPoints(points.length)} · последняя ${day(last.at)}, ${hhmm(last.at)}${last.bytes ? ` · ${bytesWord(last.bytes)}` : ""}` : "Точек пока нет";
+  return row.archiveError ? { word, error: `Последняя точка не сохранилась: ${row.archiveError}${row.archiveRetryAt ? ` · повтор в ${hhmm(row.archiveRetryAt)}` : ""}` } : { word };
+}
+
+/** Снять «Сохранять точки в архив»: точки сессии удаляются сразу и без отмены — только после ввода её имени. */
+export function stopBackup(s: SessionRow, done: () => unknown) {
+  const name = s.callsign.slice(0, s.callsign.indexOf("@"));
+  const id = modals.open({
+    title: "Не сохранять точки в архив",
+    children: (
+      <DeleteTyped name={name} body="Точки этой сессии в архиве будут удалены сразу, без отмены. Поднять её на другой машине станет не из чего."
+        onDelete={async () => {
+          if (!(await patchDoc(s, { backup: false }))) return;
+          const mine = (await api.call(pointsList, { machine: machineOfCall(s.callsign) }).catch(() => null))?.sessions.find((a) => a.callsign === s.callsign);
+          if (mine) await act(pointsDelete, { sid: mine.sid }, "Точки удалены из архива");
+          modals.close(id);
+          await done();
+        }} />
+    ),
+  });
+}
+
 function Points({ s }: { s: SessionRow }) {
   const qc = useQueryClient();
   const list = useCall(pointsList, { machine: machineOfCall(s.callsign) });
   const mine = list.data?.sessions.find((a) => a.callsign === s.callsign);
   const points = useCall(pointsList, mine ? { sid: mine.sid } : null);
   if (list.error) return <Failed error={list.error} retry={list.refetch} />;
+  const head = pointsHead(points.data?.points ?? [], s as { archiveError?: string; archiveRetryAt?: number });
   return (
     <Stack gap="xs" p="md">
+      <Text size="sm">{head.word}</Text>
+      {head.error && <Text size="sm" c="red" role="alert">{head.error}</Text>}
       <Group gap="xs">
         <Button size="xs" variant="default" onClick={async () => (await act(pointsSave, { to: s.callsign }, "Точка сохранена")) && qc.invalidateQueries({ queryKey: ["points.list"] })}>Сохранить точку</Button>
         {mine && <Button size="xs" variant="subtle" component={Link} to={`/archive/${mine.sid}`}>Открыть в архиве</Button>}

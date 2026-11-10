@@ -1,6 +1,7 @@
 // Службы: выпуски, журнал флота, архив сессий, связь с людьми, настройки, ключи флота, GitHub, аналитика, наблюдение.
 import { Callsign, Done, Empty, Name, Person, request, z } from "../define.ts";
 import { SdkEvent, Spec } from "./session.ts";
+import { HostMetrics } from "./machine.ts";
 
 /* ===== Выпуски (builds) ===== */
 
@@ -57,8 +58,11 @@ export const ledgerRead = request("ledger.read", {
 export const ArchSession = z.object({
   sid: z.string(), machine: z.string(), callsign: z.string(), title: z.string().optional(), model: z.string().optional(),
   cwd: z.string().optional(), project: z.string().optional(), points: z.number(), last: z.number(), bytes: z.number().optional(), tokens: z.number().optional(),
-  /** строка с найденным словом */
+  /** строка с найденным словом: до 60 знаков по обе стороны от него */
   hit: z.string().optional(),
+  /** запись разговора, в которой слово найдено, и точка, с которой эта запись есть в архиве */
+  hitUuid: z.string().optional(),
+  hitPoint: z.string().optional(),
   /** документ сессии на последней точке: с ним сессию поднимают (отдаёт points.get) */
   spec: Spec.optional(),
   /** сессия с этим позывным сейчас есть на машине и не остановлена */
@@ -95,6 +99,13 @@ export const pointsList = request("points.list", {
   tool: "Архив сессий: каталог с поиском. q — слова в разговоре; machine — только эта машина; sid — точки одной сессии; since — не старше этого времени; order — last (последние) или tokens (по токенам).",
   input: z.object({ q: z.string().optional(), machine: z.string().optional(), sid: z.string().optional(), before: z.number().optional(), since: z.number().optional(), order: z.enum(["last", "tokens"]).optional(), limit: z.number().optional() }),
   output: z.object({ sessions: z.array(ArchSession), points: z.array(ArchPoint).optional(), more: z.boolean() }),
+});
+/** Обзор архива по машинам, до которых человек достаёт: сколько в нём лежит и когда линии точек редели в последний раз. */
+export const ArchStats = z.object({ sessions: z.number(), points: z.number(), blocks: z.number(), bytes: z.number(), sweep: z.object({ at: z.number(), points: z.number(), blocks: z.number() }).optional() });
+export const pointsStats = request("points.stats", {
+  owner: "archive", target: "service", tool: "Обзор архива сессий: число сессий, точек и блоков, размер, последняя уборка — всего и по машинам.",
+  input: z.object({ machine: z.string().optional() }),
+  output: ArchStats.extend({ machines: z.array(ArchStats.extend({ machine: z.string() })) }),
 });
 export const pointsGet = request("points.get", {
   owner: "archive", target: "service",
@@ -246,7 +257,17 @@ export const obsHealth = request("obs.health", {
     slow: z.array(z.object({ type: z.string(), p95: z.number(), n: z.number() })),
     failures: z.array(LedgerEvent),
     reports: z.array(z.object({ at: z.number(), part: z.string(), level: z.string(), msg: z.string(), who: z.string() })),
+    /** последние числа Host каждой машины */
+    hosts: z.array(HostMetrics.extend({ machine: z.string() })).optional(),
   }),
+});
+/** Числа Host за минуту: шлёт машина своим пропуском. Заодно служба сверяет картину: машина без связи дольше порога и сессия со сбоем — оповещение админам. */
+export const obsMetrics = request("obs.metrics", { owner: "obs", target: "service", machineOnly: true, input: HostMetrics, output: Done });
+/** Ряд чисел Host одной машины за период (хранится 7 дней), старые первыми. */
+export const obsSeries = request("obs.series", {
+  owner: "obs", target: "service", tool: "Ряд чисел Host машины по минутам за период: сессии, очередь ввода, время провайдера, сбои процессов. Хранится 7 дней.",
+  input: z.object({ machine: Name, since: z.number().optional(), until: z.number().optional(), limit: z.number().optional() }),
+  output: z.object({ rows: z.array(HostMetrics) }),
 });
 /** Ошибка страницы или Host, пойманная на месте. Видна в obs.recent строкой с именем report. */
 export const obsReport = request("obs.report", {

@@ -49,7 +49,8 @@ export function stand(fleet = newFleet(), opts: { env?: Partial<Env> } = {}) {
     { name: "laptop", owner: "~yuri@example.com", online: true, since: 1 },
     { name: "server", owner: "~yuri@example.com", online: true, since: 1 },
     { name: "anya-pc", owner: "~anya@example.com", online: true, since: 1 },
-    { name: "oleg-mac", owner: "~oleg@example.com", online: false, since: 1 },
+    // ушла только что: порог «машина без связи» ещё не вышел — тест, которому нужен давний уход, ставит since сам
+    { name: "oleg-mac", owner: "~oleg@example.com", online: false, since: Date.now() },
   ];
   const platform: Platform = {
     async who(k, as) {

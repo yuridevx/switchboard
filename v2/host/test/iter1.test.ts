@@ -176,7 +176,7 @@ describe("chat: строка и лента", () => {
     const doing = rows.filter((r, i) => r.doing && r.doing !== rows[i - 1]?.doing);
     expect(doing.length).toBeGreaterThanOrEqual(1);
     expect(doing.length).toBeLessThanOrEqual(1 + Math.floor((Date.now() - t0) / DOING_GAP_MS));
-    expect(doing[0]!.doing).toBe("Read src/f0.ts");
+    expect(doing[0]!.doing).toBe("Чтение src/f0.ts");
     expect(rows.length).toBeLessThanOrEqual(2 + doing.length);
     expect(rows.at(-1)).toMatchObject({ state: "idle" });
     expect(rows.at(-1).doing).toBeUndefined();

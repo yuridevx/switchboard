@@ -100,6 +100,8 @@ export const SessionRow = z.object({
   archiveError: z.string().optional(),
   /** когда Host повторит неудавшуюся точку сам, мс; раньше — при конце хода */
   archiveRetryAt: z.number().optional(),
+  /** до какого времени Host повторяет неудавшуюся точку сам, мс; после — повторов нет, причина остаётся */
+  archiveUntil: z.number().optional(),
   /** идёт сжатие контекста */
   compacting: z.boolean().optional(),
   /** очередь аккаунтов ждёт сброса лимита: когда он наступит, мс */
@@ -228,12 +230,13 @@ export const sessionRead = request("session.read", { owner: "host-chat", target:
 export const answer = request("answer", {
   owner: "host-chat", target: "session",
   tool: "Ответить на вопрос сессии: ask — номер вопроса из строки сессии, answer — ответ. Первый ответ выигрывает.",
-  input: z.object({ to: Callsign, ask: z.string(), answer: z.unknown() }),
+  /** via: "push" — ответ дан кнопкой уведомления, а не на странице */
+  input: z.object({ to: Callsign, ask: z.string(), answer: z.unknown(), via: z.literal("push").optional() }),
   output: Done,
 });
 
 /** Итог вопроса — событие ленты `ask.answered`: кто ответил и чем. answer — выбранные варианты, действие разрешения или «cancelled», если ход снял вопрос. */
-export const AskAnswered = z.object({ type: z.literal("ask.answered"), ask: z.string(), kind: Ask.shape.kind, by: z.string().optional(), answer: z.unknown().optional(), at: z.number() });
+export const AskAnswered = z.object({ type: z.literal("ask.answered"), ask: z.string(), kind: Ask.shape.kind, by: z.string().optional(), answer: z.unknown().optional(), via: z.literal("push").optional(), at: z.number() });
 export type AskAnswered = z.infer<typeof AskAnswered>;
 
 /** Лента: события пачкой тем, кто смотрит сессию. */

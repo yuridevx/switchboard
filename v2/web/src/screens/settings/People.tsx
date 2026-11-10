@@ -60,7 +60,7 @@ export function People() {
                   </Table.Td>
                 ))}
                 <Table.Td ta="center" data-l="Админ"><Switch style={{ display: "inline-block" }} aria-label={`${p.name ?? p.person} — админ`} disabled={!admin || p.person === me} checked={p.admin} onChange={async (e) => (await act(peopleSet, { person: p.person, admin: e.currentTarget.checked })) && refresh()} /></Table.Td>
-                <Table.Td data-l="Достаёт до машин"><Group gap={4}>{reachOf(p, everyone, Object.values(machines)).map((m) => <Badge key={m} variant="default" className="mono">{m}</Badge>)}</Group></Table.Td>
+                <Table.Td data-l="Достаёт до машин"><Group gap={4}>{reachOf(p, everyone, Object.values(machines)).map((m) => <Badge key={m} variant={machines[m]?.owner === p.person ? "light" : "default"} color={machines[m]?.owner === p.person ? "teal" : undefined} className="mono" title={machines[m]?.owner === p.person ? "его машина" : "через общий проект"}>{m}</Badge>)}</Group></Table.Td>
                 <Table.Td data-l="Устройства">
                   <Group gap={4}>
                     {(p.devices ?? []).map((d) => (

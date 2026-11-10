@@ -11,6 +11,7 @@ import { realClock, within, type Clock } from "./clock.ts";
 import type { Ctx, DecideOpts, HostApi, Module, OpenOpts, PermissionResult, QueryPart, SessionApi } from "./contract.ts";
 import { Holders, type HolderApi, type HoldFile } from "./holders.ts";
 import { hostLogger } from "./journal.ts";
+import { meter } from "./meter.ts";
 import { clientPath } from "./paths.ts";
 import { fleetPrompt } from "./prompt.ts";
 import { Session, quiet, type Parts } from "./session.ts";
@@ -81,6 +82,8 @@ export class Kernel {
   readonly version: string;
   readonly machine: string;
   readonly log: Logger;
+  /** счётчики окна: сбои и возобновления процессов, время провайдера — модуль машины отдаёт их службе наблюдения */
+  readonly meter = meter();
   readonly o: KernelOptions;
   shutting: Promise<void> | undefined;
   private requestOwners = new Map<string, Module>();
@@ -586,6 +589,7 @@ export class Kernel {
         cli: (args, o = {}) => this.sdk.cli(args, this.env(o.env), o.input),
         probe: (o) => this.probe(o),
         module: <T>(name: string) => this.mods.find((x) => x.name === name)?.api as T | undefined,
+        meter: this.meter,
       };
       this.hosts.set(m, host);
     }

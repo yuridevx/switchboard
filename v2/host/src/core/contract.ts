@@ -1,5 +1,6 @@
 // Договор ядра с модулями Host: что модуль отдаёт ядру и что ядро даёт модулю.
 import type { Frame, InputOf, Logger, OutputOf, RequestDef, SessionRow, SessionState, Spec } from "@sb/protocol";
+import type { Meter } from "./meter.ts";
 
 /** Хранилище раздела: значение таким, каким его прочтёт следующий Host. */
 export type Store<T> = { get(): T | undefined; set(v: T | undefined): void; update(fn: (v: T | undefined) => T | undefined): T | undefined };
@@ -25,7 +26,7 @@ export interface SessionApi {
   readonly spec: Spec;
   readonly state: SessionState;
   /** разговор claude, папка, кто открыл, модель процесса */
-  readonly info: { sessionId: string; cwd: string; by: string; since: number; last?: number; model: string | null; /** как поднят нынешний процесс: attach — процесс пережил подмену Host и ввод у него на руках */ launch?: "spawn" | "resume" | "attach" | "fork" };
+  readonly info: { sessionId: string; cwd: string; by: string; since: number; last?: number; model: string | null; /** сколько сообщений ждёт во вводе */ queue: number; /** как поднят нынешний процесс: attach — процесс пережил подмену Host и ввод у него на руках */ launch?: "spawn" | "resume" | "attach" | "fork" };
   /** текст или блоки — в очередь ввода */
   input(content: unknown, opts?: InputOpts): void;
   /** метод query() или функция SDK о разговоре */
@@ -117,6 +118,8 @@ export interface HostApi {
   probe(o?: { env?: Record<string, string> }): { sdk(name: string, ...args: unknown[]): Promise<unknown>; close(): void };
   /** модуль этого Host по имени: договор между модулями — его publicApi */
   module<T = unknown>(name: string): T | undefined;
+  /** счётчики Host за окно: сколько раз и сколько длилось */
+  readonly meter: Meter;
 }
 
 export type { Frame, SessionRow, SessionState, Spec };

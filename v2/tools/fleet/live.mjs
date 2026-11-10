@@ -1,6 +1,7 @@
 // Живые сценарии флота одним запуском: node tools/fleet/live.mjs <флот> <устройство> [машина] [вторая машина] [сессия]
 // По очереди: smoke.ts (запросы каждого вида цели), live-server.ts (MCP, вход OAuth, архив, подъём на второй машине),
-// live-page.mjs (страница в браузере), live-steps.ts (вопрос и ответ, пара, стоп и старт, откат файлов, скрипт, обращение, перезапуск Host).
+// live-page.mjs (страница в браузере), live-steps.ts (вопрос и ответ, пара, стоп и старт, откат файлов, скрипт, обращение, точка после
+// остановки, поиск с записью, числа Host, перезапуск Host), live-alert.mjs (сбой части доходит админу уведомлением в браузере).
 // Сессия не названа — берётся первая свободная на машине. Выход 0 — всё прошло («ждёт выкладки» сбоем не считается).
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -24,6 +25,7 @@ const parts = [
   ["серверные функции", "live-server.ts", session && second ? [fleet, device, session, second] : [fleet, device]],
   ["страница в браузере", "live-page.mjs", [fleet, device, ...(session ? [session] : [])]],
   ["сценарии", "live-steps.ts", [fleet, device, machine, second]],
+  ["оповещение о сбое", "live-alert.mjs", [fleet, device]],
 ];
 let failed = 0;
 for (const [title, file, args] of parts) {

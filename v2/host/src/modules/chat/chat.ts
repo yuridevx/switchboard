@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { opendir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { kindOf, personOf, reachSend, Refusal, type Frame, type SessionState } from "@sb/protocol";
+import { kindOf, personOf, reachSend, Refusal, toolLine, type Frame, type SessionState } from "@sb/protocol";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
 import { questions } from "./ask.ts";
 
@@ -38,12 +38,8 @@ type Block = { type?: string; name?: string; id?: string; tool_use_id?: string; 
 const down = (s: SessionApi) => s.state === "stopped" || s.state === "failed" || s.state === "stopping";
 const isHuman = (a: string) => kindOf(a) === "device" || kindOf(a) === "person";
 
-/** Чем занят ход — одной строкой: инструмент и его главный довод. */
-function doingOf(b: Block): string {
-  const i = b.input ?? {};
-  const arg = i.file_path ?? i.path ?? i.command ?? i.description ?? i.pattern ?? i.url ?? i.query ?? "";
-  return `${b.name ?? ""}${typeof arg === "string" && arg ? ` ${arg.split(/\r?\n/)[0]}` : ""}`.slice(0, DOING_MAX);
-}
+/** Чем занят ход — одной строкой по-русски: подпись инструмента и суть вызова из общей таблицы протокола. */
+const doingOf = (b: Block): string => toolLine(b.name ?? "", b.input ?? {}, DOING_MAX);
 
 const blocksOf = (m: { message?: { content?: unknown } }): Block[] => (Array.isArray(m.message?.content) ? (m.message!.content as Block[]) : []);
 
@@ -319,8 +315,8 @@ export function make(): Module {
         return {};
       },
 
-      answer({ to, ask: id, answer }: { to: string; ask: string; answer: unknown }, ctx: Ctx) {
-        ask.answer(to, id, answer, ctx.from);
+      answer({ to, ask: id, answer, via }: { to: string; ask: string; answer: unknown; via?: "push" }, ctx: Ctx) {
+        ask.answer(to, id, answer, ctx.from, via);
         return {};
       },
     },

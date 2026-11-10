@@ -5,7 +5,8 @@ const toMachine = z.object({ to: MachineAddr });
 
 /* ===== Аккаунты (host-accounts) ===== */
 
-export const Limit = z.object({ name: z.string(), used: z.number(), resets: z.number().optional() });
+/** at — когда окно замерено, мс: старый замер страница подписывает «от ЧЧ:ММ». */
+export const Limit = z.object({ name: z.string(), used: z.number(), resets: z.number().optional(), at: z.number().optional() });
 export const Account = z.object({
   id: z.string(),
   /** claude — вход Claude; key — ключ флота */
@@ -27,6 +28,12 @@ export const Account = z.object({
   provider: z.string().optional(),
   base: z.string().optional(),
   model: z.string().optional(),
+  /** у ключа флота: alias-модели — имя для сессии → модель провайдера */
+  models: z.record(z.string(), z.string()).optional(),
+  /** когда лимиты замерены последний раз, мс */
+  at: z.number().optional(),
+  /** до какого времени действует вход Claude, мс */
+  expires: z.number().optional(),
 });
 export type Account = z.infer<typeof Account>;
 
@@ -253,6 +260,25 @@ export const machineJournal = request("machine.journal", {
     /** вид строки: stop — остановки и сбои, refuse — отказы запросам, note — остальное */ kind: z.enum(["stop", "refuse", "note"]).optional(),
   }),
   output: z.object({ lines: z.array(JournalLine), more: z.boolean() }),
+});
+
+/** Числа Host за минуту: сессии по состояниям, очередь ввода, время ответа провайдера (до первых заголовков), сбои и возобновления процессов. */
+export const HostMetrics = z.object({
+  at: z.number(),
+  build: z.number().optional(),
+  /** сколько сессий в каждом состоянии */
+  sessions: z.record(z.string(), z.number()),
+  /** сообщений, ждущих во вводе всех сессий */
+  queue: z.number(),
+  provider: z.object({ n: z.number(), p50: z.number(), p95: z.number(), failed: z.number(), retries: z.number() }),
+  /** процесс claude вышел сам; из них возобновлено */
+  crashes: z.number(),
+  resumes: z.number(),
+});
+export type HostMetrics = z.infer<typeof HostMetrics>;
+export const machineMetrics = request("machine.metrics", {
+  owner: "host-machine", target: "machine", tool: "Числа Host машины за последнюю минуту: сессии по состояниям, очередь ввода, время ответа провайдера, сбои процессов.",
+  input: toMachine, output: HostMetrics,
 });
 
 /* ===== Keeper ===== */

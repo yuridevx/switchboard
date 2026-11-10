@@ -6,7 +6,7 @@ const REFUSAL = "The user doesn't want to proceed with this tool use.";
 const PLAN_ALWAYS = [{ type: "setMode", mode: "acceptEdits", destination: "session" }];
 
 type Q = { question?: string; multiSelect?: boolean; header?: string; options?: Array<{ label?: string; description?: string }> };
-type Pending = { ask: Ask; settle(answer: unknown, by: string): void };
+type Pending = { ask: Ask; settle(answer: unknown, by: string, via?: "push"): void };
 
 const isHuman = (a: string) => kindOf(a) === "device" || kindOf(a) === "person";
 
@@ -57,11 +57,11 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
       signal.addEventListener("abort", abort);
       of(cs).set(ask.id, {
         ask,
-        settle(answer, by) {
+        settle(answer, by, via) {
           close();
-          host().log.info("answered", { callsign: cs, ask: ask.id, from: by });
-          // итог вопроса — в ленту: кто ответил и чем
-          feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, by, answer, at: Date.now() });
+          host().log.info("answered", { callsign: cs, ask: ask.id, from: by, ...(via ? { via } : {}) });
+          // итог вопроса — в ленту: кто ответил, чем и откуда (кнопкой уведомления — via: push)
+          feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, by, answer, ...(via ? { via } : {}), at: Date.now() });
           resolve(answered(answer, by));
         },
       });
@@ -129,11 +129,11 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
       }, { action: "cancel" });
     },
     /** Запрос answer: первый ответ выигрывает. */
-    answer(cs: string, id: string, answer: unknown, from: string): void {
+    answer(cs: string, id: string, answer: unknown, from: string, via?: "push"): void {
       const p = open.get(cs)?.get(id);
       if (!p) throw done(cs).has(id) ? new Refusal("already_answered", `${id}: на вопрос уже ответили`) : new Refusal("unknown_question", `${id}: ждущего вопроса с таким номером нет`);
       if (p.ask.kind !== "question" && !isHuman(from)) throw new Refusal("not_client", `${id}: это решает человек, а не ${from}`);
-      p.settle(answer, from);
+      p.settle(answer, from, via);
     },
   };
 }

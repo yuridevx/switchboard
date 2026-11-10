@@ -25,6 +25,13 @@ export function HtmlFrame({ html, title = "Просмотр HTML" }: { html: str
   return <iframe key={round} className="htmlframe" title={title} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={html} onLoad={() => setLoads((n) => n + 1)} />;
 }
 
+/** Ответ — целый HTML-документ без блока кода: оборачивается в блок html, чтобы показаться кодом с «Просмотром», а не разметкой страницы. */
+export function fenceHtml(text: string): string {
+  const t = text.trim();
+  if (!/^<(!doctype html|html[\s>])/i.test(t) || !/<\/html>\s*$/i.test(t)) return text;
+  return "```html\n" + t + "\n```";
+}
+
 export const looksHtml = (lang: string, code: string) => lang === "html" || (!lang && /^\s*<(!doctype html|html[\s>])/i.test(code));
 export const looksSvg = (lang: string, code: string) => lang === "svg" || ((!lang || lang === "xml") && /^\s*(<\?xml[^>]*>\s*)?<svg[\s>]/i.test(code));
 

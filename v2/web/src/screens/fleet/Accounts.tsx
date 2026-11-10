@@ -7,8 +7,9 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { act, api } from "../../api.ts";
 import { confirmDanger, Failed, useCall, useMachineName } from "../../common.tsx";
-import { accountKey, bulkOrder, diverge, limitTone, limitWord, machineOrder, mergeAccounts, otherMail, queueOf, type Merged } from "../../lib/accounts.ts";
+import { accountKey, bulkOrder, diverge, limitTone, limitWord, machineOrder, mergeAccounts, otherMail, pollPlan, queueOf, type Merged } from "../../lib/accounts.ts";
 import { useRowDrag } from "../../lib/drag.ts";
+import { nudge } from "../../lib/Sortable.tsx";
 import { ago, day, hhmm, LIMIT_NAMES, nSessions } from "../../lib/time.ts";
 import { reorder, shift } from "../../lib/work.ts";
 import { useFleet } from "../../store/fleet.ts";
@@ -98,7 +99,7 @@ function Queue({ machine, list, refresh, marked }: { machine: string; list: Acco
   };
   const row = (a: Account, inQueue: boolean) => (
     <div key={a.id} className={`line${a.id === fresh ? " fresh" : ""}${accountKey(a) === marked ? " marked" : ""}${drag.dragging === a.id ? " dragging" : ""}`} {...(inQueue ? { "data-drag-id": a.id, "data-drag-group": "q", onPointerDown: drag.onPointerDown(a.id) } : {})} style={{ touchAction: "pan-y" }}>
-      {inQueue && <IconGripVertical size={14} className="muted" style={{ flex: "none", cursor: "grab" }} aria-hidden />}
+      {inQueue && <span className="grip" role="button" tabIndex={0} aria-label={`Порядок: ${a.email ?? a.id}`} title="Перетащите; с клавиатуры — Alt и стрелки" onKeyDown={(e) => { if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return; e.preventDefault(); void setOrder(nudge(order, a.id, e.key === "ArrowUp" ? -1 : 1)); }}><IconGripVertical size={14} /></span>}
       <div className="grow">
         <Group gap={6} wrap="wrap">
           {a.current && <span className="lamp idle" style={{ marginTop: 0 }} role="img" aria-label="стоит сейчас" />}
@@ -114,8 +115,6 @@ function Queue({ machine, list, refresh, marked }: { machine: string; list: Acco
         <Menu.Target><ActionIcon variant="subtle" aria-label={`Действия: ${a.email ?? a.id}`}><IconDots size={16} /></ActionIcon></Menu.Target>
         <Menu.Dropdown>
           {inQueue && !a.current && a.ok && <Menu.Item onClick={() => void swap(a.id)}>Поставить сейчас</Menu.Item>}
-          {inQueue && <Menu.Item disabled={order.indexOf(a.id) === 0} onClick={() => void setOrder(shift(order, a.id, -1))}>Выше в очереди</Menu.Item>}
-          {inQueue && <Menu.Item disabled={order.indexOf(a.id) === order.length - 1} onClick={() => void setOrder(shift(order, a.id, 1))}>Ниже в очереди</Menu.Item>}
           {inQueue ? <Menu.Item onClick={() => void setOrder(order.filter((x) => x !== a.id))}>Убрать из очереди</Menu.Item> : <Menu.Item onClick={() => void setOrder([...order, a.id])}>В очередь</Menu.Item>}
           <Menu.Item onClick={() => setLogin({ expect: a.email })}>Войти заново</Menu.Item>
           <Menu.Item color="red" onClick={() => confirmDanger({ title: `Убрать ${a.email ?? a.id} с ${machine}?`, body: a.sessions ? `На нём идёт ${nSessions(a.sessions)}. Они перейдут на другой аккаунт очереди или остановятся.` : "Вход на этой машине будет стёрт.", confirm: "Убрать", onConfirm: async () => (await act(accountRemove, { to: "@" + machine, account: a.id }, "Аккаунт убран")) && refresh() })}>Убрать с машины</Menu.Item>
@@ -257,7 +256,11 @@ export function Accounts() {
           <Text fw={600}>Аккаунты Claude</Text>
           <Group gap={6} wrap="wrap">
             {picked.length > 0 && <><Button size="compact-xs" variant="default" onClick={() => void bulk(false)}>Убрать из очередей</Button><Button size="compact-xs" variant="default" onClick={() => void bulk(true)}>Вернуть в очереди</Button></>}
-            <Button size="compact-xs" variant="subtle" onClick={refresh}>Опросить лимиты</Button>
+            <Button size="compact-xs" variant="subtle" onClick={() => {
+              // один опрос на почту с устаревшим замером, на минимуме машин; свежее не трогаем
+              const plan = pollPlan(byMachine);
+              for (const m of plan.length ? plan : online) void qc.invalidateQueries({ queryKey: ["account.list", { to: "@" + m }] });
+            }}>Опросить лимиты</Button>
           </Group>
         </Group>
         {merged.map((m) => { const key = accountKey(m); return <MergedRow key={key} m={m} marked={marked === key} onMark={() => setMarked(marked === key ? "" : key)} picked={picked.includes(key)} onPick={(on) => setPicked(on ? [...picked, key] : picked.filter((x) => x !== key))} />; })}

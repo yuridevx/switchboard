@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  answer, CallError, createApi, fleetList, hostRestart, httpTransport, incidentList, incidentRaise, keeperState, prefsGet, prefsSet,
+  answer, CallError, createApi, fleetList, hostRestart, httpTransport, incidentList, incidentRaise, keeperState, machineMetrics, obsHealth, pointsDelete, pointsList, prefsGet, prefsSet,
   sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionStart, sessionStop, sessionUpdate, shellInfo, shellRun, type SessionRow,
 } from "@sb/protocol";
 
@@ -149,6 +149,43 @@ await step("обращение: вид из настроек флота откр
   } finally {
     await api.call(prefsSet, { scope: "fleet", name: "incidents.kinds", value: kinds }).catch(() => {});
   }
+});
+
+/* Точка после остановки и поиск по переписке */
+let archived: { sid: string; word: string } | undefined;
+await step("точка после остановки: остановленная сессия сохранена в архив, сбоя точки в строке нет", async () => {
+  const word = "маяк" + tag;
+  const cs = await open("point-" + tag, machine, { backup: true }, `Ответь одним словом: ${word}`);
+  await until("ход закончен", async () => {
+    const r = await rowOf(cs);
+    return r?.state === "failed" ? Promise.reject(new Error("сессия failed: " + r.error)) : r?.state === "idle" && !!r.last;
+  });
+  await api.call(sessionStop, { to: cs });
+  await until("stopped", async () => (await rowOf(cs))?.state === "stopped", 60_000);
+  const s = await until("сессия в архиве", async () => (await api.call(pointsList, { machine })).sessions.find((x) => x.callsign === cs && x.points > 0), 60_000);
+  const row = await rowOf(cs);
+  if (row?.archiveError) throw new Error("точка не сохранилась: " + row.archiveError);
+  archived = { sid: s.sid, word };
+  return `точек ${s.points}`;
+});
+await step("поиск по слову называет запись разговора и точку, с которой она в архиве", async () => {
+  if (!archived) throw new Error("сохранённой сессии нет");
+  const { sid, word } = archived;
+  const r = await until("сессия найдена поиском", async () => (await api.call(pointsList, { q: word })).sessions.find((x) => x.sid === sid), 30_000);
+  if (!r.hitUuid) later("службы этой выкладки не называют запись (hitUuid)");
+  if (!r.hitPoint) throw new Error("запись названа, точка — нет");
+  if (!r.hit?.includes(word)) throw new Error("строка вокруг слова без самого слова: " + r.hit);
+  return `запись ${r.hitUuid!.slice(0, 8)}, точка ${r.hitPoint}, строка «${r.hit}»`;
+});
+if (archived) await api.call(pointsDelete, { sid: archived.sid }).catch(() => {});
+
+/* Числа Host в наблюдении */
+await step("числа Host: машина отвечает на запрос, служба наблюдения несёт её последнее окно", async () => {
+  const now = await api.call(machineMetrics, { to: "@" + machine }).catch((e) => (e instanceof CallError && e.word === "unknown_request" ? later(`Host на ${machine} не знает machine.metrics`) : Promise.reject(e)));
+  const h = await api.call(obsHealth, {});
+  const mine = h.hosts?.find((x) => x.machine === machine);
+  if (!mine) later("служба наблюдения ещё не получала числа Host этой машины");
+  return `сессий ${Object.values(now.sessions).reduce((a, b) => a + b, 0)}, очередь ${now.queue}; в сводке — окно от ${new Date(mine!.at).toISOString().slice(11, 19)}`;
 });
 
 /* Перезапуск Host с сохранением сессий */

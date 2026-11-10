@@ -35,6 +35,12 @@ export function raiseInput(kind: RaiseKind, s: ArchSession, f: { machine: string
   return { ...base, move: true, ...(f.name && f.name !== s.callsign.split("@")[0] ? { name: f.name } : {}), ...(f.point ? { point: f.point } : {}) };
 }
 
+/** Порядок машин для подъёма: сначала те, где уже идут сессии этого проекта, дальше остальные по имени. Ответ — машины и какие из них ближние. */
+export function nearFirst(targets: string[], project: string | undefined, sessions: Array<{ callsign: string; spec: { project?: string } }>): { order: string[]; near: string[] } {
+  const near = project ? [...new Set(sessions.filter((x) => x.spec.project === project).map((x) => x.callsign.slice(x.callsign.indexOf("@") + 1)))].filter((m) => targets.includes(m)) : [];
+  return { order: [...near.sort(), ...targets.filter((m) => !near.includes(m)).sort()], near };
+}
+
 /** Шаги хода — что произойдёт по порядку. */
 export function stepsOf(kind: RaiseKind, s: ArchSession, machine: string, liveRunning: boolean): string[] {
   if (kind === "rollback") return [...(liveRunning ? [`Остановить ${s.callsign}`] : []), "Вернуть разговор и папку к точке", `Запустить ${s.callsign} с точки`];
@@ -48,7 +54,8 @@ export function Raise({ kind, s, point, onDone, onClose }: { kind: RaiseKind; s:
   const nameOf = useMachineName();
   const online = Object.values(machines).filter((m) => m.online).map((m) => m.name);
   // перенос — на другую машину; откат — на своей
-  const targets = kind === "move" ? online.filter((m) => m !== s.machine) : online;
+  const all = useFleet((f) => f.sessions);
+  const { order: targets, near } = nearFirst(kind === "move" ? online.filter((m) => m !== s.machine) : online, s.project, Object.values(all));
   const base = s.callsign.split("@")[0]!;
   const [machine, setMachine] = useState<string | null>(kind === "rollback" ? s.machine : targets.includes(s.machine) && kind !== "move" ? s.machine : targets[0] ?? null);
   const [name, setName] = useState(kind === "copy" ? base + "-copy" : base);
@@ -104,8 +111,8 @@ export function Raise({ kind, s, point, onDone, onClose }: { kind: RaiseKind; s:
   return (
     <Stack gap="sm">
       {kind === "rollback"
-        ? <Text size="sm"><span className="mono">{s.callsign}</span> вернётся к точке: разговор после неё останется только в архиве.{running ? " Идущий ответ будет прерван, сессия остановлена и запущена с точки." : ""}</Text>
-        : <Select label="Машина" data={targets.map((m) => ({ value: m, label: nameOf(m) + (m === s.machine ? " · здесь была" : "") }))} value={machine} onChange={(m) => (setMachine(m), setCheck(null))} allowDeselect={false} error={!targets.length ? "Других машин на связи нет" : undefined} />}
+        ? <Text size="sm"><span className="mono">{s.callsign}</span> вернётся к точке: разговор после неё останется только в архиве.{running ? " Идущий ответ будет прерван, сессия остановлена и запущена с точки." : ""}{files === "point" ? " Нынешние файлы папки останутся веткой git «до отката»." : ""}{live?.spec.remote ? " Привязка к приложению Claude снимется: разговор там откроется заново." : ""}</Text>
+        : <Select label="Машина" data={targets.map((m) => ({ value: m, label: nameOf(m) + (m === s.machine ? " · здесь была" : near.includes(m) ? " · проект уже здесь" : "") }))} value={machine} onChange={(m) => (setMachine(m), setCheck(null))} allowDeselect={false} error={!targets.length ? "Других машин на связи нет" : undefined} />}
       {(kind === "copy" || kind === "raise") && <TextInput label="Имя сессии" className="mono" value={name} onChange={(e) => setName(e.currentTarget.value.toLowerCase())} error={badName ? "латиница, цифры, дефис" : undefined} />}
       {kind !== "rollback" && <TextInput label="Папка" className="mono" value={cwd} onChange={(e) => (setCwd(e.currentTarget.value), setCheck(null))} />}
       {kind !== "rollback" && <Select label="Аккаунт" data={[{ value: "auto", label: "авто — по очереди машины" }, ...(accounts.data?.accounts ?? []).filter((a) => a.ok).map((a) => ({ value: a.id, label: a.email ?? a.id }))]} value={account} onChange={(v) => setAccount(v ?? "auto")} allowDeselect={false} />}

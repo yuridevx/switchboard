@@ -45,3 +45,16 @@ describe("protocol", () => {
     await expect(api.call(sessionOpen, { to: "@gone", spec: { name: "site", cwd: "~/p" } })).rejects.toMatchObject({ word: "offline" });
   });
 });
+
+import { toolLine, toolLook, toolWord } from "./index.ts";
+describe("инструменты: одна таблица для страницы и Host", () => {
+  it("подпись по-русски, суть вызова одной строкой, сервер MCP — «сервер · инструмент»", () => {
+    expect(toolLine("Bash", { command: "npm test\nnpm run build" })).toBe("Команда npm test");
+    expect(toolLine("Read", { file_path: "src/a.ts", offset: 10, limit: 5 })).toBe("Чтение src/a.ts · с 10 · 5 строк");
+    expect(toolLine("TodoWrite", { todos: [{ status: "completed" }, { status: "pending" }] })).toBe("Задачи 1 из 2 готово");
+    expect(toolWord("mcp__fleet__message")).toBe("fleet · message");
+    expect(toolLine("Unknown", { x: "первое строковое" })).toBe("Unknown первое строковое");
+    expect(toolLine("Bash", { command: "x".repeat(300) }, 40).length).toBe(40);
+    expect(toolLook({ name: "Edit", input: { file_path: "a.ts" } })).toEqual({ word: "Правка", icon: "file-pen", body: "diff", open: true, sum: "a.ts" });
+  });
+});

@@ -1,6 +1,6 @@
 // Наблюдение: одна строка на каждый запрос флота с исходом и временем по частям; ошибки страницы и Host; сводка здоровья;
 // оповещение админам о сбоях частей и о высокой доле отказов. Хранится 7 дней.
-import { errFields, type LedgerEvent, type Logger, machineOf, newId, type ObsRow, type Who } from "@sb/protocol";
+import { errFields, type HostMetrics, type LedgerEvent, type Logger, machineOf, newId, type ObsRow, Refusal, type Who } from "@sb/protocol";
 import type { Env, Module, Platform } from "../env.ts";
 import { records } from "../records.ts";
 import { fleetPref } from "./prefs.ts";
@@ -17,6 +17,8 @@ const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS fails (id TEXT PRIMARY KEY, at INTEGER, what TEXT, who TEXT, machine TEXT, text TEXT)",
   // когда о чём оповещали: одно оповещение на причину за промежуток
   "CREATE TABLE IF NOT EXISTS alerts (kind TEXT PRIMARY KEY, at INTEGER)",
+  // числа Host по минутам: ряд на машину
+  "CREATE TABLE IF NOT EXISTS hosts (machine TEXT, at INTEGER, data TEXT NOT NULL, PRIMARY KEY (machine, at))",
 ];
 const db = (env: Env, fleet: string) => records(env, fleet, NAME, SCHEMA);
 
@@ -30,7 +32,11 @@ export const PART_FAILS = ["host.failed", "keeper.failed", "analytics.failed"];
 /* ===== Оповещения =====
    Настройка флота `obs.alerts`: off — не оповещать; rate — доля отказов (0..1), выше которой звать; min — с какого числа запросов за окно её считать; to — кого звать (по умолчанию админы). */
 
-type AlertPrefs = { off?: boolean; rate?: number; min?: number; to?: string[] };
+type AlertPrefs = { off?: boolean; rate?: number; min?: number; to?: string[]; /** машина без связи дольше стольких минут — звать; 0 — не звать */ offline?: number; /** звать о сессии со сбоем; false — не звать */ failed?: boolean };
+/** Машина без связи дольше этого — оповещение, если настройка не говорит иначе. */
+const OFFLINE_MIN = 10;
+/** Картину на сбои служба сверяет не чаще этого. */
+const WATCH_MS = 60_000;
 const RATE = 0.25, MIN = 20;
 const WINDOW_MS = 5 * 60_000;
 /** Одна причина — одно оповещение за этот промежуток. */
@@ -55,6 +61,28 @@ async function alert(env: Env, fleet: string, w: Watch, kind: string, title: str
   return to.length;
 }
 
+/** Сверка картины флота: машина без связи дольше порога и сессия со сбоем — оповещение. Причина — этот уход машины и этот сбой сессии:
+ *  пока они те же, второго оповещения нет. */
+export async function watchFleet(env: Env, fleet: string, w: Watch): Promise<number> {
+  const p = await fleetPref<AlertPrefs>(env, fleet, "obs.alerts");
+  if (p?.off) return 0;
+  const now = Date.now();
+  const [machines, sessions] = await Promise.all([w.platform.machines(fleet), w.platform.sessions(fleet)]);
+  let told = 0;
+  const limit = (p?.offline ?? OFFLINE_MIN) * 60_000;
+  if (limit > 0)
+    for (const m of machines)
+      if (!m.online && now - m.since >= limit)
+        told += await alert(env, fleet, w, `machine.offline/${m.name}/${m.since}`, `Машина ${m.name} без связи`, `нет связи ${Math.round((now - m.since) / 60_000)} мин`, p);
+  const gone = new Set(machines.filter((m) => !m.online).map((m) => m.name));
+  if (p?.failed !== false)
+    for (const s of sessions)
+      // сессия машины без связи — последнее известное: о ней уже сказано уходом машины
+      if (s.state === "failed" && !gone.has(machineOf(s.callsign) ?? ""))
+        told += await alert(env, fleet, w, `session.failed/${s.callsign}/${s.last ?? s.since}`, `Сессия ${s.callsign}: сбой`, s.error ?? "причина не названа", p);
+  return told;
+}
+
 /** Сбой части (Host, Keeper, аналитика): запомнить для сводки здоровья и позвать админов. */
 export async function partFailed(env: Env, fleet: string, w: Watch, e: { what: string; who: string; machine?: string; text?: string }): Promise<void> {
   await db(env, fleet).batch([
@@ -75,8 +103,13 @@ export async function note(env: Env, fleet: string, r: ObsRow, w?: Watch): Promi
     ["DELETE FROM req WHERE at < ?", r.at - KEEP_MS],
     ["DELETE FROM reports WHERE at < ?", r.at - KEEP_MS],
     ["SELECT count(*) AS n, coalesce(sum(ok = 0), 0) AS failed FROM req WHERE at >= ? AND type != ?", r.at - WINDOW_MS, REPORT],
+    // сверка картины — не чаще раза в минуту на флот
+    ["INSERT INTO alerts (kind, at) VALUES ('watch', ?1) ON CONFLICT (kind) DO UPDATE SET at = excluded.at WHERE alerts.at < ?2 RETURNING kind", r.at, r.at - WATCH_MS],
+    ["DELETE FROM alerts WHERE at < ?", r.at - KEEP_MS],
   ]);
-  if (r.ok || !w) return;
+  if (!w) return;
+  if (got[4]!.length) await watchFleet(env, fleet, w).catch((e) => w.log.error("сверка картины не прошла", { module: NAME, fleet, ...errFields(e) }));
+  if (r.ok) return;
   const { n, failed } = got[3]![0] as { n: number; failed: number };
   const p = await fleetPref<AlertPrefs>(env, fleet, "obs.alerts");
   if (n >= (p?.min ?? MIN) && failed / n >= (p?.rate ?? RATE))
@@ -154,6 +187,8 @@ export const obs: Module = {
           ["SELECT type, dst, ok, ms FROM req WHERE at >= ? AND type != ? LIMIT 50000", now - 3600_000, REPORT],
           ["SELECT * FROM fails WHERE at >= ? ORDER BY at DESC LIMIT 20", now - 24 * 3600_000],
           ["SELECT at, part, level, msg, who FROM reports WHERE at >= ? ORDER BY at DESC LIMIT 20", now - 24 * 3600_000],
+          // последняя строка чисел каждой машины
+          ["SELECT h.machine, h.data FROM hosts h JOIN (SELECT machine, max(at) AS at FROM hosts GROUP BY machine) l ON l.machine = h.machine AND l.at = h.at", ],
         ]),
       ]);
       const mine = machines.filter((m) => sees(m.name));
@@ -175,7 +210,29 @@ export const obs: Module = {
           .slice(0, 5),
         failures,
         reports: got[2] as unknown as { at: number; part: string; level: string; msg: string; who: string }[],
+        hosts: (got[3] as unknown as { machine: string; data: string }[]).filter((h) => sees(h.machine)).map((h) => ({ ...(JSON.parse(h.data) as HostMetrics), machine: h.machine })),
       };
+    },
+
+    /** Числа Host за минуту от машины: строка ряда; старше недели — убрать. Заодно сверка картины: это единственный такт, который идёт и без запросов людей. */
+    async "obs.metrics"(i: HostMetrics, ctx) {
+      const machine = machineOf(ctx.who.addr)!;
+      await db(ctx.env, ctx.fleet).batch([
+        ["INSERT OR REPLACE INTO hosts (machine, at, data) VALUES (?, ?, ?)", machine, i.at, JSON.stringify(i)],
+        ["DELETE FROM hosts WHERE at < ?", Date.now() - KEEP_MS],
+      ]);
+      const due = await db(ctx.env, ctx.fleet).all("INSERT INTO alerts (kind, at) VALUES ('watch', ?1) ON CONFLICT (kind) DO UPDATE SET at = excluded.at WHERE alerts.at < ?2 RETURNING kind", Date.now(), Date.now() - WATCH_MS);
+      if (due.length) await watchFleet(ctx.env, ctx.fleet, { platform: ctx.platform, fetch: ctx.fetch, log: ctx.log });
+      return {};
+    },
+
+    async "obs.series"(i: { machine: string; since?: number; until?: number; limit?: number }, ctx) {
+      if (!ctx.who.admin && !ctx.who.machines.includes(i.machine)) throw new Refusal("forbidden", `до машины ${i.machine} вы не достаёте`);
+      const rows = await db(ctx.env, ctx.fleet).all<{ data: string }>(
+        "SELECT data FROM (SELECT at, data FROM hosts WHERE machine = ? AND at >= ? AND at < ? ORDER BY at DESC LIMIT ?) ORDER BY at",
+        i.machine, i.since ?? 0, i.until ?? Number.MAX_SAFE_INTEGER, Math.min(i.limit ?? 1440, 10_080),
+      );
+      return { rows: rows.map((r) => JSON.parse(r.data) as HostMetrics) };
     },
 
     async "obs.report"(i: { part: string; level: "warn" | "error"; msg: string; stack?: string; data?: unknown }, ctx) {

@@ -61,7 +61,9 @@ export const ownerWord = (s: SessionRow, me: string): string => {
 export const rowMark = (s: SessionRow, me: string): "ask" | "new" | null => (s.ask ? "ask" : s.unread?.includes(me) ? "new" : null);
 
 /** Строка сессии в списке: лампа, заголовок, позывной и чем занята, время. Пара — одной строкой: «ведущий ▸ ведомый»; дочерняя — с отступом под родителем. */
-export function SessionLine({ s, selected, onPick, sub, depth = 0, wing, why }: { s: SessionRow; selected?: boolean; onPick: () => void; sub?: ReactNode; /** глубина под родителем */ depth?: number; /** ведомый пары: стоит в строке ведущего */ wing?: SessionRow; /** почему сессия в «Моих» */ why?: string }) {
+export type RowParts = { call: boolean; doing: boolean; when: boolean };
+export const ROW_PARTS: RowParts = { call: true, doing: true, when: true };
+export function SessionLine({ s, selected, onPick, sub, depth = 0, wing, why, parts = ROW_PARTS }: { s: SessionRow; selected?: boolean; onPick: () => void; sub?: ReactNode; /** глубина под родителем */ depth?: number; /** ведомый пары: стоит в строке ведущего */ wing?: SessionRow; /** почему сессия в «Моих» */ why?: string; /** что показывать в строке — «Вид списка» */ parts?: RowParts }) {
   const me = useFleet((f) => f.you?.person ?? "");
   const offline = useFleet((f) => f.machines[machineOfCall(s.callsign)]?.online === false);
   const mark = rowMark(s, me) ?? (wing ? rowMark(wing, me) : null);
@@ -75,9 +77,9 @@ export function SessionLine({ s, selected, onPick, sub, depth = 0, wing, why }: 
           {label ?? s.title ?? s.spec.name}
           {wing && <span className="pairmate"> ▸ <Lamp state={wing.state} offline={offline} /> {labels[wing.callsign] ?? wing.title ?? wing.spec.name}</span>}
         </div>
-        <div className="sub trunc"><span className="mono">{s.callsign}</span>{wing ? "" : treeWord(s)}{ownerWord(s, me)}{offline ? " · нет связи" : sub ?? (s.doing ? ` · ${s.doing}` : s.state === "failed" ? ` · ${s.error ?? "сбой"}` : "")}{s.archiveError && !offline ? " · точка не сохранилась" : ""}</div>
+        {(parts.call || parts.doing || offline) && <div className="sub trunc">{parts.call && <span className="mono">{s.callsign}</span>}{parts.call && (wing ? "" : treeWord(s))}{parts.call && ownerWord(s, me)}{offline ? " · нет связи" : !parts.doing ? "" : sub ?? (s.doing ? ` · ${s.doing}` : s.state === "failed" ? ` · ${s.error ?? "сбой"}` : "")}{s.archiveError && !offline ? " · точка не сохранилась" : ""}</div>}
       </div>
-      <span className="when">{mark === "ask" ? <span className="qmark" role="img" aria-label="ждёт ответа">?</span> : mark === "new" ? <span className="newdot" role="img" aria-label="есть новое" /> : null}{ago(s.last ?? s.since)}</span>
+      <span className="when">{mark === "ask" ? <span className="qmark" role="img" aria-label="ждёт ответа">?</span> : mark === "new" ? <span className="newdot" role="img" aria-label="есть новое" /> : null}{parts.when ? ago(s.last ?? s.since) : null}</span>
     </div>
   );
 }
