@@ -116,6 +116,14 @@ export function useTalk(callsign: string): Talk {
       if (seq.current !== null) seq.current = Math.max(seq.current, at);
       setEvents((e) => mergeEvents(e, list));
     };
+    const watch = () => api.call(sessionWatch, { to: callsign }).then((r) => {
+      if (!alive) return;
+      seq.current = r.seq;
+      // что уже ждёт в очереди сессии — видно сразу
+      // работы, которые идут сейчас: в файле разговора их нет — их отдаёт Host со своим временем начала
+      if (r.running?.length) setEvents((e) => mergeEvents(e, r.running!));
+      if (r.queued?.length) setEvents((e) => mergeEvents(e, r.queued!.flatMap((q) => [{ type: "user", uuid: q.uuid, from: q.from, message: { role: "user", content: q.text } }, { type: "message.status", uuid: q.uuid, status: "queued" }] as SdkEvent[])));
+    }, () => {});
     let opened = false;
     const link = api.transport.open("watch", {
       machine: machineOfCall(callsign),
@@ -124,17 +132,12 @@ export function useTalk(callsign: string): Talk {
       onState: (s) => {
         if (s !== "open") return;
         if (opened && seq.current !== null) void catchUp(seq.current);
+        // подписка — когда соединение зрителя уже стоит: закрытое перед ним (другая сессия той же машины, перезагрузка) объявляет зрителя ушедшим,
+        // и подписка, пришедшая раньше этого, снялась бы
+        if (!opened) watch();
         opened = true;
       },
     });
-    api.call(sessionWatch, { to: callsign }).then((r) => {
-      if (!alive) return;
-      seq.current = r.seq;
-      // что уже ждёт в очереди сессии — видно сразу
-      // работы, которые идут сейчас: в файле разговора их нет — их отдаёт Host со своим временем начала
-      if (r.running?.length) setEvents((e) => mergeEvents(e, r.running!));
-      if (r.queued?.length) setEvents((e) => mergeEvents(e, r.queued!.flatMap((q) => [{ type: "user", uuid: q.uuid, from: q.from, message: { role: "user", content: q.text } }, { type: "message.status", uuid: q.uuid, status: "queued" }] as SdkEvent[])));
-    }, () => {});
     void history();
     return () => {
       alive = false;
