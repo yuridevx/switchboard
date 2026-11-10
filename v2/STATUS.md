@@ -31,7 +31,7 @@
 
 ## Состояние (10 нояб. 2026, после трёх итераций)
 
-Тесты: protocol 8 · platform 40 · services 94 · host 77 · web 192 · keeper 25 (Windows и Linux; под macOS только сборка) — `node tools/test/run.mjs`; гейт импортов чист.
+Тесты: protocol 9 · platform 40 · services 95 · host 77 · web 212 · keeper 25 (Windows и Linux; под macOS только сборка) — `node tools/test/run.mjs`; гейт импортов чист.
 
 Живой флот `test`: машины `devbox` (Windows) и `wsl` (Linux), сборка 6; `node tools/build/check.mjs test 6 cli` — в дереве то же, что загружено.
 Живой прогон одной командой — `node tools/fleet/live.mjs test cli devbox wsl`: 39 шагов из 39 (запросы 8, серверные функции 12, страница в браузере 4, сценарии 12, оповещение о сбое пушем 3). Пуш в настоящий Chrome — `node web/shots/live-push.mjs`. Живые проходы экранов — `web/shots/live.mjs`, `live3.mjs`, `live4.mjs`.
