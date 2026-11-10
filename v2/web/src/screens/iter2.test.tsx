@@ -189,7 +189,7 @@ describe("пуши без открытой страницы", () => {
     await w.fire("push", { data: { json: () => push } });
     await w.fire("push", { data: { json: () => ({ title: "Доля отказов выше порога", kind: "alert" }) } });
     const kept = JSON.parse(w.kv.pushes!) as Missed[];
-    expect(kept.map((k) => k.hash)).toEqual(["/inbox/site@laptop?ask=q-9", "/observe"]);
+    expect(kept.map((k) => k.hash)).toEqual(["/inbox/site@laptop", "/observe"]);
     expect(kept[0]).toMatchObject({ title: push.title, callsign: "site@laptop", ask: "q-9", at: expect.any(Number) });
     const open = worker({}, [{ url: "https://fleet.example/#/inbox" }]);
     await open.fire("push", { data: { json: () => push } });
