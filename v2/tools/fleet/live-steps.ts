@@ -79,11 +79,18 @@ await step("вопрос сессии: разрешение в строке, о�
   const ask = row.ask!;
   askTo = ask.to;
   await api.call(answer, { to: asker, ask: ask.id, answer: "allow" });
+  // модель может спросить ещё раз (вторая команда того же хода): каждому новому вопросу — тот же ответ
+  let asked = 1, last = ask.id;
   await until("вопрос снят и ход закончен", async () => {
     const r = await rowOf(asker);
+    if (r?.ask && r.ask.id !== last) {
+      last = r.ask.id;
+      asked++;
+      await api.call(answer, { to: asker, ask: last, answer: "allow" });
+    }
     return r && !r.ask && r.state === "idle";
-  });
-  return `вид ${ask.kind}, инструмент ${ask.tool ?? "—"}${ask.to ? ", адресат " + ask.to : ""}`;
+  }, 180_000);
+  return `вид ${ask.kind}, инструмент ${ask.tool ?? "—"}${ask.to ? ", адресат " + ask.to : ""}, вопросов ${asked}`;
 });
 await step("вопрос назван по адресату: в строке — кому он задан", async () => {
   if (!asker) throw new Error("сессии с вопросом нет");

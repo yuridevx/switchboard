@@ -31,9 +31,11 @@
 
 ## Состояние (10 нояб. 2026, после трёх итераций)
 
-Тесты: protocol 9 · platform 40 · services 95 · host 77 · web 212 · keeper 25 (Windows и Linux; под macOS только сборка) — `node tools/test/run.mjs`; гейт импортов чист.
+Тесты: protocol 10 · platform 40 · services 95 · host 87 · web 212 · keeper 25 (Windows и Linux; под macOS только сборка) — `node tools/test/run.mjs`; гейт импортов чист.
 
-Живой флот `test`: машины `devbox` (Windows) и `wsl` (Linux), сборка 6; `node tools/build/check.mjs test 6 cli` — в дереве то же, что загружено.
+Живой флот `test`: машины `devbox` (Windows) и `wsl` (Linux), сборка 9 (очереди аккаунтов); `node tools/build/check.mjs test 9 cli` — в дереве то же, что загружено.
+
+Очереди аккаунтов (дизайн `docs/designs/v2-queues`, https://claude.ai/artifact/FoJ2S66zKPyzTWMLG4MWAz): на машине — именованные очереди; очередь сессии — поле `slot` её документа (имя очереди или ключа флота), закрепления за почтой и слова `auto` нет; `slot.set` и `slot.swap` называют очередь, `account.list` отдаёт `slots`. Живые шаги очередей — в `tools/fleet/live-steps.ts` (5 шагов) и `tools/fleet/live-flows.mjs` (экран «Аккаунты»). Тестовые сессии живых сценариев идут на ключе флота `muse`. Не проверено вживую: смена аккаунта в очереди и ротация по лимиту между двумя входами — на флоте один вход Claude.
 Живой прогон одной командой — `node tools/fleet/live.mjs test cli devbox wsl`: 39 шагов из 39 (запросы 8, серверные функции 12, страница в браузере 4, сценарии 12, оповещение о сбое пушем 3). Пуш в настоящий Chrome — `node web/shots/live-push.mjs`. Живые проходы экранов — `web/shots/live.mjs`, `live3.mjs`, `live4.mjs`.
 
 Сверка функций со старой системой (`docs/parity-a.md`, `parity-b.md`, 556 строк): есть 458 · заменено новым устройством 90 · частично 8 · нет 0.
