@@ -1,6 +1,6 @@
 // «Архив»: каталог сессий с поиском по словам; сессия архива — разговор с точками в ленте и линия точек по дням;
 // поднять, копия, перенос, откат, вызовы модели, выгрузка на свой компьютер, удаление.
-import { parsePass, peopleList, pointsCalls, pointsDelete, pointsHistory, pointsList, type ArchPoint, type ArchSession } from "@sb/protocol";
+import { parsePass, peopleList, pointsCalls, pointsDelete, pointsHistory, pointsList, pointsStats, type ArchPoint, type ArchSession, type OutputOf } from "@sb/protocol";
 import { ActionIcon, Badge, Button, CopyButton, Group, Loader, Menu, Modal, SegmentedControl, Select, Table, Text, TextInput } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { IconArrowLeft, IconDots, IconSearch } from "@tabler/icons-react";
@@ -52,7 +52,25 @@ export function Hit({ text, q }: { text: string; q: string }) {
   return <>{text.slice(0, at)}<mark>{text.slice(at, at + q.length)}</mark>{text.slice(at + q.length)}</>;
 }
 
-/** Найденное слово в открытом разговоре: подсветка и прокрутка к первому попаданию. */
+/** Строки ленты, сложенные из одной записи разговора, — отдельным куском: ключ строки начинается с номера её записи. */
+export function runsOfRecord<R extends { key: string }>(rows: R[], uuid?: string): Array<{ hit: boolean; rows: R[] }> {
+  const out: Array<{ hit: boolean; rows: R[] }> = [];
+  for (const r of rows) {
+    const hit = !!uuid && r.key.startsWith(uuid + ":");
+    const last = out.at(-1);
+    if (last && last.hit === hit) last.rows.push(r);
+    else out.push({ hit, rows: [r] });
+  }
+  return out;
+}
+
+/** Сводка архива от службы: всего и по машинам; машины с пустым архивом не показываются. */
+export function statsLines(st: OutputOf<typeof pointsStats>, nameOf: (m: string) => string = (m) => m): { total: string; machines: Array<{ machine: string; line: string }> } {
+  const line = (x: { sessions: number; points: number; bytes: number }) => `${nSessions(x.sessions)} · ${nPoints(x.points)}${x.bytes ? ` · ${bytesWord(x.bytes)}` : ""}`;
+  return { total: line(st), machines: st.machines.filter((m) => m.sessions > 0).sort((a, b) => b.bytes - a.bytes).map((m) => ({ machine: m.machine, line: `${nameOf(m.machine)}: ${line(m)}` })) };
+}
+
+/** Найденное в открытом разговоре: слово подсвечено; лента прокручена к найденной записи, а если её нет в ленте — к первому попаданию слова. */
 function useHits(box: RefObject<HTMLElement | null>, q: string, ready: unknown) {
   useEffect(() => {
     const reg = (CSS as any).highlights as Map<string, unknown> | undefined;
@@ -74,9 +92,9 @@ function useHits(box: RefObject<HTMLElement | null>, q: string, ready: unknown) 
           ranges.push(r);
         }
       }
-      if (!ranges.length) return;
-      if (reg && Hl) reg.set("hit", new Hl(...ranges));
-      ranges[0]!.startContainer.parentElement?.scrollIntoView({ block: "center" });
+      if (ranges.length && reg && Hl) reg.set("hit", new Hl(...ranges));
+      const record = el.querySelector("[data-hit]");
+      (record ?? ranges[0]?.startContainer.parentElement)?.scrollIntoView({ block: "center" });
     }, 250);
     return () => (clearTimeout(timer), void reg?.delete("hit"));
   }, [q, ready]);
@@ -149,7 +167,7 @@ function Detail({ s, q, onBack }: { s: ArchSession; q: string; onBack: () => voi
   // выбранная точка живёт в адресе: ссылкой можно поделиться; точка с найденным словом выбрана сразу, пока человек не выбрал сам
   const [sp, setSp] = useSearchParams();
   const [chose, setChose] = useState(false);
-  const point = sp.get("point") ?? (chose ? undefined : (s as { hitPoint?: string }).hitPoint);
+  const point = sp.get("point") ?? (chose ? undefined : s.hitPoint);
   const setPoint = (p?: string) => {
     setChose(true);
     setSp((x) => { const n = new URLSearchParams(x); if (p) n.set("point", p); else n.delete("point"); return n; }, { replace: true });
@@ -176,9 +194,17 @@ function Detail({ s, q, onBack }: { s: ArchSession; q: string; onBack: () => voi
     setLoading(false);
     if (r) { setEvents([...(r.events as Msg[]), ...events]); setMore(r.more); }
   };
+  // найденная запись может лежать раньше загруженной страницы: дочитываем назад, пока она не появится (не больше восьми страниц)
+  const pages = useRef(0);
+  const hitHere = !s.hitUuid || events.some((e) => e.uuid === s.hitUuid);
+  useEffect(() => {
+    if (hitHere || !more || loading || pages.current >= 8) return;
+    pages.current++;
+    void earlier();
+  }, [hitHere, more, loading, events.length]);
   const view = useMemo(() => fold(events), [events]);
   const feed = useRef<HTMLDivElement>(null);
-  useHits(feed, q, events.length);
+  useHits(feed, q, hitHere ? events.length : 0);
   const list = points.data?.points ?? [];
   const last = list.at(-1)?.point;
   const selected = point ?? last;
@@ -254,7 +280,9 @@ function Detail({ s, q, onBack }: { s: ArchSession; q: string; onBack: () => voi
               {loading && !events.length ? <Loader size="sm" style={{ alignSelf: "center" }} /> : first.error ? <Failed error={first.error} retry={first.refetch} /> : parts.map((part, i) => (
                 // всё, что после выбранной точки, приглушено: так выглядит разговор «на точке»
                 <div key={i} className={selAt >= 0 && i > selAt ? "after-point" : undefined} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  <Rows rows={part.rows as never} view={view} />
+                  {runsOfRecord(part.rows, s.hitUuid).map((run, j) => (run.hit
+                    ? <div key={j} data-hit className="hit-record"><Rows rows={run.rows as never} view={view} /></div>
+                    : <Rows key={j} rows={run.rows as never} view={view} />))}
                   {part.point && <div className="pointmark"><button type="button" aria-pressed={selected === part.point} onClick={() => setPoint(part.point === last ? undefined : part.point)}>{pointOf(part.point)?.label ?? "точка"} · {hhmm(pointOf(part.point)?.at ?? 0)}</button></div>}
                 </div>
               ))}
@@ -301,6 +329,11 @@ export function Archive() {
   const names = Object.fromEntries((projects.data?.projects ?? []).map((p) => [p.id, p.name]));
   const rows = (list.data?.sessions ?? []).filter((s) => !ui.project || s.project === ui.project);
   const [bare, setBare] = useState(false);
+  const [byMachine, setByMachine] = useState(false);
+  const nameOf = useMachineName();
+  // сводка — от службы: всё, что в архиве, а не только загруженная страница каталога
+  const stats = useCall(pointsStats, ui.machine ? { machine: ui.machine } : {});
+  const st = stats.data ? statsLines(stats.data, nameOf) : null;
   const sum = archiveSummary(rows, Object.values(sessions));
   // «пожар»: машины без связи, чьи сессии ждут на точках архива
   const burning = Object.values(machines).map((m) => ({ m, n: fireCount(m, Object.values(sessions)) })).filter((x) => x.n > 0);
@@ -327,8 +360,10 @@ export function Archive() {
           ))}
           {list.data && !term && rows.length > 0 && (
             <div className="sub" style={{ padding: "8px 14px 2px" }}>
-              {nSessions(sum.total)} в архиве{sum.bytes ? ` · ${bytesWord(sum.bytes)}` : ""} · идёт {sum.going} · только в архиве {sum.only}
+              {st ? <>В архиве {st.total}</> : <>{nSessions(sum.total)} в архиве{sum.bytes ? ` · ${bytesWord(sum.bytes)}` : ""}</>} · идёт {sum.going} · только в архиве {sum.only}
+              {st && st.machines.length > 1 && <> · <button type="button" className="linklike" style={{ fontWeight: 400 }} aria-expanded={byMachine} onClick={() => setByMachine(!byMachine)}>по машинам</button></>}
               {sum.bare.length > 0 && <> · <button type="button" className="linklike" style={{ fontWeight: 400 }} aria-expanded={bare} onClick={() => setBare(!bare)}>без архива: {sum.bare.length}</button></>}
+              {byMachine && st && <div style={{ paddingTop: 6 }}>{st.machines.map((m) => <div key={m.machine}>{m.line}</div>)}</div>}
               {bare && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingTop: 6 }}>{sum.bare.map((c) => <Badge key={c} variant="default" className="mono" component="button" type="button" style={{ cursor: "pointer" }} onClick={() => go(`/work/${c}`)}>{c}</Badge>)}</div>}
             </div>
           )}

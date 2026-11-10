@@ -53,9 +53,9 @@ export function iter2Handlers(c: MockCtx, base: H): H {
       point: f.point ?? "p-last", call: f.call, model: "claude-fable-5-2", more: false,
       system: "Ты работаешь в репозитории сайта. Внутренние адреса вида internal.example.com наружу не называй.",
       messages: [
-        { n: 1, role: "user", text: "Проверь счёт для ООО «Ромашка»: он лежит на internal.example.com/billing" },
-        { n: 2, role: "assistant", text: "Открываю счёт на internal.example.com/billing." },
-        { n: 3, role: "tool", text: "Счёт 412 от 4 ноября, сумма 18 400 ₽" },
+        { n: 0, role: "user", text: "Проверь счёт для ООО «Ромашка»: он лежит на internal.example.com/billing" },
+        { n: 1, role: "assistant", text: "Открываю счёт на internal.example.com/billing." },
+        { n: 2, role: "tool", text: "Счёт 412 от 4 ноября, сумма 18 400 ₽" },
       ],
     }),
     // лимиты с временем замера: старше часа подписаны «от ЧЧ:ММ»; вход с датой окончания

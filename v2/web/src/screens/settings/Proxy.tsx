@@ -33,7 +33,7 @@ export function callParts(c: { system: string; messages: Array<{ n: number; role
   const word = (role: string) => (role === "assistant" ? "Модель" : role === "tool" || role === "tool_result" ? "Инструмент" : "Человек");
   return [
     ...(c.system ? [{ id: "system", word: "Промпт", scope: "system" as const, text: c.system }] : []),
-    ...c.messages.filter((m) => m.text.trim()).slice(-last).map((m) => ({ id: "m" + m.n, word: `${word(m.role)} · ${m.n}`, scope: scopeOf(m.role), text: m.text })),
+    ...c.messages.filter((m) => m.text.trim()).slice(-last).map((m) => ({ id: "m" + m.n, word: `${word(m.role)} · ${m.n + 1}`, scope: scopeOf(m.role), text: m.text })),
   ];
 }
 

@@ -105,7 +105,7 @@ function Queue({ machine, list, refresh, marked }: { machine: string; list: Acco
           {a.current && <span className="lamp idle" style={{ marginTop: 0 }} role="img" aria-label="стоит сейчас" />}
           <Text size="sm" fw={a.current ? 600 : 400} className="trunc">{a.email ?? a.id}</Text>
           {a.wait !== undefined && <Text size="xs" c="orange">ждёт сброса до {hhmm(a.wait)}</Text>}
-          {(a as { expires?: number }).expires !== undefined && <Text size="xs" className="muted">вход до {day((a as { expires?: number }).expires!)}</Text>}
+          {a.expires !== undefined && <Text size="xs" c={a.expires < Date.now() ? "red" : undefined} className={a.expires < Date.now() ? undefined : "muted"}>{a.expires < Date.now() ? "вход истёк" : "вход до"} {day(a.expires)}</Text>}
           {!inQueue && <Text size="xs" className="muted">вне очереди</Text>}
         </Group>
         {!a.ok && <Text size="xs" c="red">{a.why}</Text>}

@@ -8,7 +8,7 @@ export type Merged = {
   /** где этот аккаунт вошёл */
   seats: Seat[];
   /** лимиты: по каждому окну — самое свежее из известного (большее использование) */
-  limits: Array<{ name: string; used: number; resets?: number }>;
+  limits: Array<{ name: string; used: number; resets?: number; /** время замера: своё у окна, иначе общее у аккаунта */ at?: number }>;
   /** на всех машинах вход годен */
   ok: boolean;
   /** сколько сессий идёт на нём по всем машинам */
@@ -31,9 +31,12 @@ export function mergeAccounts(byMachine: Record<string, Account[]>): Merged[] {
       m.plan ??= a.plan;
       m.ok &&= a.ok;
       m.sessions += a.sessions ?? 0;
-      for (const l of a.limits ?? []) {
+      for (const raw of a.limits ?? []) {
+        // время замера — у окна, а если Host назвал его только у аккаунта, берётся оно
+        const at = raw.at ?? a.at;
+        const l = { ...raw, ...(at !== undefined ? { at } : {}) };
         const was = m.limits.find((x) => x.name === l.name);
-        if (!was) m.limits.push({ ...l });
+        if (!was) m.limits.push(l);
         else if (l.used > was.used) Object.assign(was, l);
       }
       out.set(key, m);
@@ -48,12 +51,12 @@ export function mergeAccounts(byMachine: Record<string, Account[]>): Merged[] {
 
 /** План опроса лимитов: одна машина на почту, чей замер старше двух минут (или без времени замера); машин — как можно меньше. */
 export const POLL_STALE_MS = 120_000;
-export function pollPlan(byMachine: Record<string, Array<{ kind: string; email?: string; id: string; limits?: Array<{ at?: number }> }>>, now = Date.now()): string[] {
+export function pollPlan(byMachine: Record<string, Array<{ kind: string; email?: string; id: string; at?: number; limits?: Array<{ at?: number }> }>>, now = Date.now()): string[] {
   const stale = new Map<string, string[]>();
   for (const [machine, list] of Object.entries(byMachine)) {
     for (const a of list) {
       if (a.kind !== "claude") continue;
-      const at = Math.max(0, ...(a.limits ?? []).map((l) => l.at ?? 0));
+      const at = Math.max(a.at ?? 0, ...(a.limits ?? []).map((l) => l.at ?? 0));
       if (now - at <= POLL_STALE_MS) continue;
       const key = a.email ?? a.id;
       stale.set(key, [...(stale.get(key) ?? []), machine]);

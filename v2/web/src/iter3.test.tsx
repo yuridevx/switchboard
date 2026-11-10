@@ -134,7 +134,7 @@ describe("проверка правил на вызове из архива", ()
     const api = createApi(createMock({ now: () => T, live: false, latency: 0 }).transport);
     const r = await api.call(pointsCall, { sid: "s1", call: "c1" });
     expect(r.system).toMatch(/internal\.example\.com/);
-    expect(r.messages[0]).toMatchObject({ n: 1, role: "user" });
+    expect(r.messages[0]).toMatchObject({ n: 0, role: "user" });
   });
 });
 

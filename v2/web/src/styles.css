@@ -183,6 +183,7 @@ kbd.k { font-family: var(--mantine-font-family-monospace); font-size: 11.5px; bo
 .me-note { font-size: 12px; margin-top: 4px; display: flex; gap: 10px; }
 .linkbtn { border: 0; background: none; padding: 0; font: inherit; color: var(--mantine-color-text); text-decoration: underline; cursor: pointer; }
 .fresh { background: var(--st-idle-weak); border-radius: 6px; }
+.hit-record { display: flex; flex-direction: column; gap: 12px; outline: 2px solid var(--st-waiting); outline-offset: 6px; border-radius: 6px; }
 ::highlight(hit) { background: var(--st-waiting); color: #16201d; }
 
 /* здоровье флота одной строкой */

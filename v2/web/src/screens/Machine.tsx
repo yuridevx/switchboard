@@ -1,11 +1,12 @@
 // Машина: одно место, где видно всё, что о ней известно — связь, сборки Host и Keeper, её сессии, события флота о ней и строки её журнала.
 // Без связи — последнее известное и «пожар»: поднять её сессии на другой машине. Сюда ведут строка «Вам», карточка «Флота» и палитра.
-import { keeperState, ledgerRead, machineJournal } from "@sb/protocol";
+import { keeperState, ledgerRead, machineJournal, machineMetrics } from "@sb/protocol";
 import { ActionIcon, Badge, Button, Group, Modal, Stack, Text } from "@mantine/core";
 import { IconArrowLeft } from "@tabler/icons-react";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { partWord, personWord, SessionLine, useCall, useMachineName, useUi } from "../common.tsx";
+import { HostNumbers, HostSeries } from "../lib/metrics.tsx";
 import { ago, day, hhmm, nSessions } from "../lib/time.ts";
 import { byUrgency, machineOfCall, useFleet } from "../store/fleet.ts";
 import { Fire } from "./archive/Fire.tsx";
@@ -24,6 +25,8 @@ export function Machine() {
   const keeper = useCall(keeperState, m?.online ? { to: ".keeper@" + name } : null, { refetch: 15_000 });
   const events = useCall(ledgerRead, { machine: name, limit: 20 });
   const journal = useCall(machineJournal, m?.online ? { to: "@" + name, limit: 30 } : null);
+  // числа Host: последнее окно — у самой машины; машина на старой сборке запроса не знает — блока нет
+  const metrics = useCall(machineMetrics, m?.online ? { to: "@" + name } : null, { refetch: 60_000 });
   if (!m) return <div className="hole">Такой машины нет: <span className="mono">&nbsp;{name}</span></div>;
   const here = Object.values(sessions).filter((s) => machineOfCall(s.callsign) === name).sort(byUrgency);
   const k = keeper.data;
@@ -57,6 +60,12 @@ export function Machine() {
             </dl>
             <Button size="compact-xs" variant="subtle" w="fit-content" onClick={() => go("/fleet/releases")}>План в «Выпусках»</Button>
           </div>
+          {m.online && metrics.data && (
+            <div className="card">
+              <Text fw={600}>Числа Host</Text>
+              <HostNumbers m={metrics.data} />
+            </div>
+          )}
           <div className="card" style={{ padding: "14px 0 6px" }}>
             <Text fw={600} px={14}>{m.online ? "Сессии" : "Что на ней стояло"}</Text>
             {here.map((s) => <SessionLine key={s.callsign} s={s} onPick={() => go(`/work/${s.callsign}`)} />)}
@@ -74,6 +83,7 @@ export function Machine() {
               {events.data && !events.data.events.length && <Text size="sm" className="muted">Событий нет</Text>}
             </Stack>
           </div>
+          <div style={{ gridColumn: "1 / -1" }}><HostSeries machine={m.name} /></div>
           {m.online && (
             <div className="card" style={{ gridColumn: "1 / -1" }}>
               <Group justify="space-between"><Text fw={600}>Журнал машины</Text><Button size="compact-xs" variant="subtle" onClick={() => go(`/observe/machine?m=${m.name}`)}>Весь журнал</Button></Group>

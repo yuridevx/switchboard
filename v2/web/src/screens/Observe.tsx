@@ -1,13 +1,14 @@
 // «Наблюдение»: здоровье флота, последние запросы с путём по частям, журнал флота и журнал машины.
 import { ledgerRead, machineJournal, obsHealth, obsRecent, obsStats, type LedgerEvent, type ObsRow, type OutputOf } from "@sb/protocol";
 import { BarChart } from "@mantine/charts";
-import { Badge, Button, Group, Select, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
+import { Badge, Button, Group, SegmentedControl, Select, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { api, sayError, sayWord } from "../api.ts";
 import { Failed, partWord, useCall, useMachineName, useWide } from "../common.tsx";
-import { byDay, duration, hhmm } from "../lib/time.ts";
+import { hostLine, HostSeries, SERIES_PERIODS } from "../lib/metrics.tsx";
+import { byDay, day, duration, hhmm } from "../lib/time.ts";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { TabsPage } from "./Fleet.tsx";
 
@@ -219,8 +220,39 @@ function MachineLog() {
   );
 }
 
+/** Ряды за период: запросы и отказы флота и числа Host выбранной машины. */
+function Series() {
+  const wide = useWide();
+  const machines = useFleet((f) => f.machines);
+  const nameOf = useMachineName();
+  const [sp, setSp] = useSearchParams();
+  const names = Object.values(machines).sort((a, b) => Number(b.online) - Number(a.online)).map((m) => m.name);
+  const machine = sp.get("m") ?? names[0] ?? null;
+  const [period, setPeriod] = useState("24h");
+  const span = SERIES_PERIODS.find(([id]) => id === period)![2];
+  const range = useMemo(() => { const until = Math.ceil(Date.now() / 60_000) * 60_000; return { until, since: until - span }; }, [span]);
+  const stats = useCall(obsStats, range, { refetch: 60_000 });
+  const long = span > 24 * 3_600_000;
+  return (
+    <Stack gap="sm">
+      <Group gap="sm">
+        <SegmentedControl size="xs" value={period} onChange={setPeriod} data={SERIES_PERIODS.map(([value, label]) => ({ value, label }))} aria-label="Период рядов" />
+        <Select size="xs" w={200} aria-label="Машина" allowDeselect={false} data={names.map((m) => ({ value: m, label: nameOf(m) }))} value={machine} onChange={(v) => v && setSp({ m: v }, { replace: true })} />
+      </Group>
+      <div className="card" style={{ gap: 4 }}>
+        <Text size="sm" fw={600}>Запросы флота</Text>
+        {stats.error ? <Failed error={stats.error} retry={stats.refetch} /> : (
+          <BarChart h={wide ? 150 : 110} data={(stats.data?.buckets ?? []).map((b) => ({ t: long ? `${day(b.at)} ${hhmm(b.at)}` : hhmm(b.at), ok: b.n - b.failed, bad: b.failed }))} dataKey="t" type="stacked" series={[{ name: "ok", label: "Приняты", color: "#869f96" }, { name: "bad", label: "Отказы", color: "#c5352b" }]} tickLine="none" gridAxis="y" withXAxis={wide} withLegend legendProps={{ verticalAlign: "bottom", height: 28 }} />
+        )}
+      </div>
+      {machine ? <HostSeries machine={machine} period={period} /> : <Text size="sm" className="muted">Машин нет</Text>}
+    </Stack>
+  );
+}
+
 function Health() {
   const go = useNavigate();
+  const nameOf = useMachineName();
   const wide = useWide();
   const range = useMemo(() => ({ until: Date.now(), since: Date.now() - 2 * 3_600_000 }), []);
   const stats = useCall(obsStats, range, { refetch: 15_000 });
@@ -240,6 +272,17 @@ function Health() {
       <div className="card" style={{ padding: "10px 10px 4px" }}>
         <BarChart h={wide ? 110 : 70} data={(stats.data?.buckets ?? []).map((b) => ({ t: hhmm(b.at), ok: b.n - b.failed, bad: b.failed }))} dataKey="t" type="stacked" series={[{ name: "ok", label: "Запросы", color: "#869f96" }, { name: "bad", label: "Отказы", color: "#c5352b" }]} tickLine="none" gridAxis="none" withYAxis={false} withXAxis={wide} />
       </div>
+      {d?.hosts && d.hosts.length > 0 && (
+        <div className="card" style={{ gap: 2 }}>
+          {d.hosts.map((x) => (
+            <div key={x.machine} className="line" style={{ flexWrap: "wrap" }}>
+              <button type="button" className="linkbtn" style={{ fontWeight: 600 }} onClick={() => go(`/machine/${x.machine}`)}>{nameOf(x.machine)}</button>
+              <Text size="sm" className="grow" style={{ minWidth: 0, flex: "1 1 220px", overflowWrap: "anywhere" }}>{hostLine(x)}</Text>
+              <Button size="compact-xs" variant="subtle" onClick={() => go(`/observe/series?m=${x.machine}`)}>Ряды</Button>
+            </div>
+          ))}
+        </div>
+      )}
       {d && (d.failures.length > 0 || d.reports.length > 0) && (
         <div className="cards" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
           {d.failures.length > 0 && (
@@ -264,6 +307,7 @@ export function Observe() {
   return (
     <TabsPage title="Наблюдение" base="/observe" tabs={[
       ["requests", "Запросы", () => <><Health /><Requests /></>],
+      ["series", "Ряды", () => <Series />],
       ["ledger", "Журнал флота", () => <Ledger />],
       ["machine", "Журнал машины", () => <MachineLog />],
     ]} />

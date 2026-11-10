@@ -8,12 +8,17 @@ import { act } from "../../api.ts";
 import { Failed, personWord, useCall } from "../../common.tsx";
 import { useFleet } from "../../store/fleet.ts";
 
-export type AlertPrefs = { off?: boolean; rate?: number; min?: number; to?: string[] };
+export type AlertPrefs = { off?: boolean; rate?: number; min?: number; to?: string[]; /** машина без связи дольше стольких минут — звать; 0 — не звать */ offline?: number; /** false — о сбое сессии не звать */ failed?: boolean };
 export type Prices = Record<string, { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }>;
 type PriceRow = { model: string; input: number | ""; output: number | ""; cacheRead: number | ""; cacheWrite: number | "" };
 
 /** Значения служб по умолчанию: доля отказов 25% при 20 и более запросах за пять минут. */
-export const ALERT_DEFAULTS = { rate: 0.25, min: 20 };
+export const ALERT_DEFAULTS = { rate: 0.25, min: 20, offline: 10 };
+/** Что уйдёт в настройку: значения по умолчанию не пишутся, выключенные случаи пишутся явно. */
+export function alertsToSave(a: AlertPrefs): AlertPrefs {
+  const { offline, failed, ...rest } = a;
+  return { ...rest, ...(offline !== undefined && offline !== ALERT_DEFAULTS.offline ? { offline } : {}), ...(failed === false ? { failed: false } : {}) };
+}
 const COLS: Array<[keyof Omit<PriceRow, "model">, string]> = [["input", "Ввод"], ["output", "Вывод"], ["cacheRead", "Чтение кэша"], ["cacheWrite", "Запись кэша"]];
 export const rowsOfPrices = (p: Prices): PriceRow[] => Object.entries(p).map(([model, v]) => ({ model, input: v.input ?? "", output: v.output ?? "", cacheRead: v.cacheRead ?? "", cacheWrite: v.cacheWrite ?? "" }));
 /** Строки таблицы → настройка: пустые ячейки не пишутся, строки без модели пропускаются. */
@@ -53,8 +58,13 @@ export function Fleetwide() {
           <NumberInput label="Доля отказов, %" w={150} min={1} max={100} disabled={!admin || a.off} value={Math.round((a.rate ?? ALERT_DEFAULTS.rate) * 100)} onChange={(v) => setAlerts({ ...a, rate: Number(v) / 100 })} />
           <NumberInput label="Начиная с запросов за 5 минут" w={230} min={1} disabled={!admin || a.off} value={a.min ?? ALERT_DEFAULTS.min} onChange={(v) => setAlerts({ ...a, min: Number(v) })} />
         </Group>
+        <Group align="end" gap="lg">
+          <Switch label="Машина без связи" checked={a.offline !== 0} disabled={!admin || a.off} onChange={(e) => setAlerts({ ...a, offline: e.currentTarget.checked ? ALERT_DEFAULTS.offline : 0 })} />
+          <NumberInput label="Дольше, минут" w={150} min={1} disabled={!admin || a.off || a.offline === 0} value={a.offline === 0 ? "" : (a.offline ?? ALERT_DEFAULTS.offline)} onChange={(v) => setAlerts({ ...a, offline: Math.max(1, Number(v)) })} />
+          <Switch label="Сессия со сбоем" checked={a.failed !== false} disabled={!admin || a.off} onChange={(e) => setAlerts({ ...a, failed: e.currentTarget.checked ? undefined : false })} />
+        </Group>
         <MultiSelect label="Кого звать" placeholder={a.to?.length ? undefined : `админов: ${admins.join(", ")}`} disabled={!admin || a.off} data={(people.data?.people ?? []).map((p) => ({ value: p.person, label: p.name ?? personWord(p.person) }))} value={a.to ?? []} onChange={(v) => setAlerts({ ...a, to: v.length ? v : undefined })} clearable />
-        {admin && <Button w="fit-content" size="xs" onClick={() => void save("obs.alerts", a, "Оповещения сохранены")}>Сохранить</Button>}
+        {admin && <Button w="fit-content" size="xs" onClick={() => void save("obs.alerts", alertsToSave(a), "Оповещения сохранены")}>Сохранить</Button>}
       </div>
       <div className="card">
         <Text fw={600}>Цены моделей, $ за миллион токенов</Text>

@@ -4,6 +4,7 @@ import {
   type ObsRow, type PassRow, type PersonRow, type Piece, type Project, type Reply, type SessionRow, type Span, type Transport, fail, machineOf, newId, ok, Refusal,
 } from "@sb/protocol";
 import { iter2Handlers } from "./iter2.ts";
+import { iter4Handlers } from "./iter4.ts";
 import { screenHandlers } from "./screens.ts";
 import { done, type Ev, liveSteps, peer, reply, researchTurn, say, shortTurn, siteTurn, text, uid } from "./convo.ts";
 
@@ -726,6 +727,8 @@ export function createMock(o: MockOptions = {}) {
   Object.assign(H, screenHandlers(screenCtx));
   // запросы второй итерации экранов — поверх: iter2.ts
   Object.assign(H, iter2Handlers(screenCtx, { ...H }));
+  // наблюдение первого класса и находки архива в формах службы — поверх: iter4.ts
+  Object.assign(H, iter4Handlers(screenCtx, { ...H }));
 
   const SPANS: Record<string, string[]> ={ session: ["services", "platform", "host"], machine: ["services", "platform", "host"], fleet: ["services", "platform"] };
   const call = async (f: Frame): Promise<Reply> => {
