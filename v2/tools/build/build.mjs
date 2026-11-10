@@ -9,6 +9,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { digest, hostBundle } from "./digest.mjs";
+import { fleetEnv } from "../dev.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(path.join(root, "package.json"));
@@ -50,7 +51,7 @@ const up = process.argv.indexOf("--upload");
 if (up > 0) {
   const fleet = process.argv[up + 1], device = process.argv[up + 2] ?? "cli";
   const dir = path.join(os.homedir(), ".switchboard-dev");
-  const env = Object.fromEntries(fs.readFileSync(path.join(dir, "v2-fleet.env"), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+  const env = fleetEnv;
   const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
   let commit;
   try {

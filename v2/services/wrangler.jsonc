@@ -14,7 +14,21 @@
     "producers": [{ "binding": "ANALYTICS", "queue": "sb2-analytics" }],
     "consumers": [{ "queue": "sb2-analytics", "max_batch_size": 10, "max_retries": 3 }]
   },
-  "vars": { "FILES_BUCKET": "sb2-files", "VAPID_SUB": "mailto:fleet@example.com" }
+  "vars": { "FILES_BUCKET": "sb2-files", "VAPID_SUB": "mailto:fleet@example.com" },
+  // Прод — отдельный Worker sb2-services-prod со своей платформой, бакетом и очередью: wrangler --env prod.
+  "env": {
+    "prod": {
+      "services": [{ "binding": "PLATFORM", "service": "sb2-platform-prod", "entrypoint": "Platform" }],
+      "durable_objects": { "bindings": [{ "name": "RECORDS", "class_name": "Records" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Records"] }],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "sb2-files-prod" }],
+      "queues": {
+        "producers": [{ "binding": "ANALYTICS", "queue": "sb2-analytics-prod" }],
+        "consumers": [{ "queue": "sb2-analytics-prod", "max_batch_size": 10, "max_retries": 3 }]
+      },
+      "vars": { "FILES_BUCKET": "sb2-files-prod", "VAPID_SUB": "mailto:fleet@example.com" }
+    }
+  }
   // Секреты (wrangler secret put): R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, VAPID_PRIVATE, CH_URL, CH_USER, CH_PASSWORD.
   // Бот Telegram — у каждого флота свой: его токен админ записывает запросом reach.bot, в секретах Worker'а его нет.
 }

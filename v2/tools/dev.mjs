@@ -7,4 +7,6 @@ export const dev = path.join(os.homedir(), ".switchboard-dev");
 /** Файл вида КЛЮЧ=значение; строки с # и без = пропускаются; файла нет — пусто. */
 export const readEnv = (file) => (fs.existsSync(file) ? Object.fromEntries(fs.readFileSync(file, "utf8").split("\n").filter((l) => l.includes("=") && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()])) : {});
 /** Адреса и секреты тестового флота v2. */
-export const fleetEnv = readEnv(path.join(dev, "v2-fleet.env"));
+/** Файл настроек флота: тестовый по умолчанию; SB2_ENV=prod — прод (v2-prod.env). */
+export const fleetEnvFile = path.join(dev, process.env.SB2_ENV === "prod" ? "v2-prod.env" : "v2-fleet.env");
+export const fleetEnv = readEnv(fleetEnvFile);

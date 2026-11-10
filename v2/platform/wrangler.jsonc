@@ -10,5 +10,17 @@
       { "name": "MACHINE", "class_name": "MachineObject" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FleetObject", "MachineObject"] }]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FleetObject", "MachineObject"] }],
+  // Прод — отдельный Worker sb2-platform-prod со своими объектами: wrangler --env prod.
+  "env": {
+    "prod": {
+      "durable_objects": {
+        "bindings": [
+          { "name": "FLEET", "class_name": "FleetObject" },
+          { "name": "MACHINE", "class_name": "MachineObject" }
+        ]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FleetObject", "MachineObject"] }]
+    }
+  }
 }
