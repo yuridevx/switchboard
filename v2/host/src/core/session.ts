@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 // Сессия: один разговор и его процесс у держателя. Запуск — значение Run; его конец решает одну ветку: наш close, остановка ОС или сбой.
 import { existsSync } from "node:fs";
 import type { SessionRow, SessionState } from "@sb/protocol";
@@ -290,11 +291,15 @@ export class Session {
       this.model = m.model ?? null;
       if (m.session_id && m.session_id !== this.rec.sessionId) {
         this.rec.sessionId = m.session_id;
+        this.rec.upto = undefined;
         this.k.save();
+        // у работающего процесса разговор стал другим (/clear): ленте об этом говорит ядро — SDK своим событием говорит не всегда
+        if (run.ready) this.tell({ type: "conversation_reset", uuid: randomUUID(), new_conversation_id: m.session_id });
       }
     }
-    // /clear и подобное: разговор сессии теперь другой
+    // то же событием самого SDK: о разговоре, который ядро уже знает, второй раз не говорим
     if (m.type === "conversation_reset" && typeof m.new_conversation_id === "string") {
+      if (m.new_conversation_id === this.rec.sessionId) return;
       this.rec.sessionId = m.new_conversation_id;
       this.rec.upto = undefined;
       this.k.save();

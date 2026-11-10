@@ -125,8 +125,12 @@ describe("откат разговора", () => {
     expect((await st.request("session.rewind", { to: CS }, PULT)).result).toEqual({ cut: 6 });
     await until(() => proc.inputs.some((i) => i.message.content === "/clear"), 5000, "ввод /clear");
     expect(st.sdk.of(CS)).toHaveLength(1);
+    // процесс после /clear называет новый разговор в init; событие сброса от SDK о том же разговоре второй строки не даёт
+    proc.send({ type: "system", subtype: "init", session_id: "11111111-2222-4333-8444-555555555555", model: "m" });
     proc.send({ type: "conversation_reset", new_conversation_id: "11111111-2222-4333-8444-555555555555", trigger: "clear" });
     const mark = await until(() => events(st!).find((e) => e.type === "conversation_reset"), 5000, "сброс в ленте");
+    await tick(40);
+    expect(events(st).filter((e) => e.type === "conversation_reset")).toHaveLength(1);
     expect(mark.text).toBe("Разговор очищен");
     expect(s.rec.sessionId).toBe("11111111-2222-4333-8444-555555555555");
     // след очистки — и в истории нового разговора: перечитанная лента его покажет

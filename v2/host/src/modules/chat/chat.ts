@@ -162,7 +162,8 @@ export function make(): Module {
     void s.sdk("getSessionInfo").then(
       (info) => {
         const title = (info as { customTitle?: string; summary?: string } | undefined)?.customTitle ?? (info as { summary?: string } | undefined)?.summary;
-        if (title && title !== part(s).title && host.session(cs)) {
+        // разговор, начатый командой, заголовка ещё не имеет: «/clear» — не заголовок
+        if (title && !(title.startsWith("/") && !title.includes(" ")) && title !== part(s).title && host.session(cs)) {
           merge(s, { title });
           s.sync();
         }
@@ -363,7 +364,7 @@ export function make(): Module {
             lastUuid.set(cs, msg.after);
           } else {
             // разговор новый: прежние итоги ходов не про него; след очистки встаёт первым
-            merge(s, { ends: [{ after: "", event: mark }] });
+            merge(s, { ends: [{ after: "", event: mark }], title: undefined });
             lastUuid.delete(cs);
           }
           recent.set(cs, []);
