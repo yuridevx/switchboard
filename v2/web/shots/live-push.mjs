@@ -8,20 +8,14 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { fleetEnv } from "../../tools/dev.mjs";
+import { chromium, fleetCall } from "../../tools/fleet/harness.mjs";
 
 const web = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const root = path.resolve(web, "..");
-const { chromium } = createRequire(path.join(root, "package.json"))("playwright-core");
 const [fleet = "test", device = "cli", port = "4832", mode = "window"] = process.argv.slice(2);
 const dir = path.join(os.homedir(), ".switchboard-dev");
 const env = fleetEnv;
-const call = (type, fields) => {
-  try {
-    return JSON.parse(execFileSync(process.execPath, [path.join(root, "tools/fleet/call.ts"), fleet, device, type, JSON.stringify(fields)], { cwd: root, stdio: ["ignore", "pipe", "pipe"] }).toString());
-  } catch (e) {
-    return JSON.parse(e.stdout.toString());
-  }
-};
+const { call } = fleetCall(fleet, device);
 
 const vite = spawn("npx", ["vite", "--config", "vite.live.config.ts", "--port", port], { cwd: web, shell: true, env: { ...process.env, SB2_BASE: env.SB2_BASE }, stdio: "pipe" });
 const stopVite = () => (process.platform === "win32" ? spawnSync("taskkill", ["/pid", String(vite.pid), "/t", "/f"]) : vite.kill());

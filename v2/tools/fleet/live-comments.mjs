@@ -7,14 +7,14 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { fleetEnv } from "../dev.mjs";
+import { chromium, fleetCall } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const { chromium } = createRequire(path.join(root, "package.json"))("playwright-core");
 const [fleet = "test", device = "cli"] = process.argv.slice(2);
 const dir = path.join(os.homedir(), ".switchboard-dev");
 const env = fleetEnv;
 const run = (file, ...args) => execFileSync(process.execPath, [path.join(root, "tools/fleet", file), fleet, device, ...args], { cwd: root }).toString();
-const call = (type, fields) => JSON.parse(run("call.ts", type, JSON.stringify(fields)));
+const { call } = fleetCall(fleet, device);
 
 const me = call("whoami", {}).result;
 const invite = call("invite", { addr: "cmt" + Date.now().toString(36).slice(-5) + me.person }).result;

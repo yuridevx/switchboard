@@ -8,29 +8,16 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { fleetEnv } from "../dev.mjs";
+import { chromium, fleetCall } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const { chromium } = createRequire(path.join(root, "package.json"))("playwright-core");
 const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
 const out = outArg ?? path.join(root, "dist", "talk");
 fs.mkdirSync(out, { recursive: true });
 const dir = path.join(os.homedir(), ".switchboard-dev");
 const env = fleetEnv;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// сеть этой машины моргает: запрос, не дошедший до флота, повторяется
-const call = (type, fields) => {
-  for (let i = 0; ; i++) {
-    let r;
-    try {
-      r = JSON.parse(execFileSync(process.execPath, [path.join(root, "tools/fleet/call.ts"), fleet, device, type, JSON.stringify(fields)], { cwd: root, stdio: ["ignore", "pipe", "pipe"] }).toString());
-    } catch (e) {
-      r = JSON.parse(e.stdout.toString());
-    }
-    if (r.ok || r.error !== "offline" || i >= 4) return r;
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
-  }
-};
-const must = (type, fields) => { const r = call(type, fields); if (!r.ok) throw new Error(`${type}: ${r.error} ${r.why ?? ""}`); return r.result; };
+const { call, must } = fleetCall(fleet, device);
 const me = must("whoami", {});
 const tag = Date.now().toString(36).slice(-4);
 const cwd = machine === "wsl" ? `/tmp/sb2-talk-${tag}` : `C:/Users/${os.userInfo().username}/AppData/Local/Temp/sb2-talk-${tag}`;
