@@ -1,4 +1,5 @@
 // Перетаскивание строк списка мышью и пальцем: палец — после удержания, Esc отменяет, у края список прокручивается сам, место показывает линия.
+// Группы могут стоять колонками: строка падает в ту, над которой указатель.
 // Строки помечены data-drag-id и data-drag-group, заголовки групп — data-drop-group.
 import { useEffect, useRef, useState } from "react";
 import { dropTarget } from "./work.ts";
@@ -10,6 +11,8 @@ export type Drop = { id: string; before: string | null; group: string };
 export function useRowDrag(o: { box: React.RefObject<HTMLElement | null>; onDrop: (d: Drop) => void; enabled?: boolean }) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [line, setLine] = useState<number | null>(null);
+  /** где линия по ширине: края группы, в которую падает строка */
+  const [span, setSpan] = useState<{ left: number; width: number } | null>(null);
   const live = useRef<{ id: string; target: ReturnType<typeof dropTarget>; stop: () => void } | null>(null);
   const onDrop = useRef(o.onDrop);
   onDrop.current = o.onDrop;
@@ -23,20 +26,26 @@ export function useRowDrag(o: { box: React.RefObject<HTMLElement | null>; onDrop
     if (!box) return;
     const touch = e.pointerType !== "mouse";
     const x0 = e.clientX, y0 = e.clientY;
-    let started = false, y = y0, raf = 0;
+    let started = false, x = x0, y = y0, raf = 0;
     const hold = touch ? setTimeout(() => begin(), HOLD_MS) : null;
 
     const measure = () => {
-      const top = box.getBoundingClientRect().top - box.scrollTop;
+      const boxRect = box.getBoundingClientRect();
+      const top = boxRect.top - box.scrollTop;
       const rows = [...box.querySelectorAll<HTMLElement>("[data-drag-id]")].map((el) => {
         const r = el.getBoundingClientRect();
         return { id: el.dataset.dragId!, group: el.dataset.dragGroup!, top: r.top, bottom: r.bottom };
       }).filter((r) => r.id !== id);
-      const groups = [...box.querySelectorAll<HTMLElement>("[data-drop-group]")].map((el) => {
+      const all = [...box.querySelectorAll<HTMLElement>("[data-drop-group]")].map((el) => {
         const r = el.getBoundingClientRect();
-        return { group: el.dataset.dropGroup!, top: r.top, bottom: r.bottom };
+        return { group: el.dataset.dropGroup!, top: r.top, bottom: r.bottom, left: r.left, right: r.right };
       });
+      // колонки: в счёт идут группы под указателем по ширине; указатель между колонками — все
+      const under = all.filter((g) => x >= g.left && x <= g.right);
+      const groups = under.length ? under : all;
       const t = dropTarget(rows, groups, y);
+      const g = t && groups.find((q) => q.group === t.group);
+      setSpan(g ? { left: g.left - boxRect.left, width: g.right - g.left } : null);
       live.current && (live.current.target = t);
       setLine(t ? t.lineY - top : null);
     };
@@ -55,6 +64,7 @@ export function useRowDrag(o: { box: React.RefObject<HTMLElement | null>; onDrop
       raf = requestAnimationFrame(scroll);
     };
     const move = (ev: PointerEvent) => {
+      x = ev.clientX;
       y = ev.clientY;
       const far = Math.hypot(ev.clientX - x0, ev.clientY - y0);
       if (!started) {
@@ -91,6 +101,7 @@ export function useRowDrag(o: { box: React.RefObject<HTMLElement | null>; onDrop
       live.current = null;
       setDragging(null);
       setLine(null);
+      setSpan(null);
     }
     window.addEventListener("pointermove", move, { passive: false });
     window.addEventListener("pointerup", up);
@@ -99,5 +110,5 @@ export function useRowDrag(o: { box: React.RefObject<HTMLElement | null>; onDrop
     window.addEventListener("touchmove", noScroll, { passive: false });
   };
 
-  return { dragging, line, onPointerDown };
+  return { dragging, line, span, onPointerDown };
 }

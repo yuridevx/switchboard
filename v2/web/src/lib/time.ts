@@ -27,7 +27,20 @@ export function plural(n: number, one: string, few: string, many: string) {
   if (units === 1 && tens !== 11) return one;
   return units >= 2 && units <= 4 && (tens < 12 || tens > 14) ? few : many;
 }
-export const LIMIT_NAMES: Record<string, string> = { five_hour: "5 ч", seven_day: "неделя", seven_day_opus: "неделя opus", seven_day_sonnet: "неделя sonnet" };
+const LIMIT_NAMES: Record<string, string> = { five_hour: "5 ч", seven_day: "неделя" };
+/** Имя окна лимита: недельное окно модели — «неделя fable», «неделя opus»; незнакомое — как назвал Claude. */
+export const limitName = (name: string) => LIMIT_NAMES[name] ?? (name.startsWith("seven_day_") ? "неделя " + name.slice(10).replaceAll("_", " ") : name.replaceAll("_", " "));
+/** Когда сброс: сегодня — час, в ближайшую неделю — день недели и час, дальше — дата. */
+export function resetWord(t: number, now = Date.now()) {
+  const d = new Date(t);
+  if (d.toDateString() === new Date(now).toDateString()) return hhmm(d);
+  return t - now < 7 * 86_400_000 ? d.toLocaleDateString("ru-RU", { weekday: "short" }) + " " + hhmm(d) : day(t);
+}
+/** Сколько осталось до t: «через 40 мин», «через 3 ч», «через 2 дн». */
+export function untilWord(t: number, now = Date.now()) {
+  const min = Math.max(1, Math.round((t - now) / 60_000));
+  return "через " + (min < 60 ? min + " мин" : min < 48 * 60 ? Math.round(min / 60) + " ч" : Math.round(min / 1440) + " дн");
+}
 export const num = (n: number) => n.toLocaleString("ru-RU");
 export const kilo = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1).replace(".", ",")} млн` : n >= 1000 ? `${Math.round(n / 1000)} тыс` : String(n));
 

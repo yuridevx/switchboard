@@ -1,4 +1,4 @@
-// «Флот»: машины, аккаунты, профили, выпуски, инциденты. Сами вкладки — в папке fleet/.
+// «Флот»: аккаунты, машины, профили, выпуски, инциденты. Сами вкладки — в папке fleet/.
 import { Select, Tabs } from "@mantine/core";
 import { useNavigate, useParams } from "react-router";
 import { useWide } from "../common.tsx";
@@ -32,5 +32,5 @@ export function TabsPage({ title, base, tabs }: { title: string; base: string; t
 }
 
 export function Fleet() {
-  return <TabsPage title="Флот" base="/fleet" tabs={[["machines", "Машины", () => <Machines />], ["accounts", "Аккаунты", () => <Accounts />], ["profiles", "Профили", () => <Profiles />], ["releases", "Выпуски", () => <Releases />], ["incidents", "Инциденты", () => <Incidents />]]} />;
+  return <TabsPage title="Флот" base="/fleet" tabs={[["accounts", "Аккаунты", () => <Accounts />], ["machines", "Машины", () => <Machines />], ["profiles", "Профили", () => <Profiles />], ["releases", "Выпуски", () => <Releases />], ["incidents", "Инциденты", () => <Incidents />]]} />;
 }

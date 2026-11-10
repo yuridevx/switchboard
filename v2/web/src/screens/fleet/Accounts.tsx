@@ -1,6 +1,6 @@
-// «Флот → Аккаунты»: очереди аккаунтов на каждой машине — именованные, сколько нужно; аккаунты Claude одной строкой на все машины с лимитами; ключи флота.
+// «Флот → Аккаунты»: аккаунты Claude одной строкой на все машины с лимитами; машины строками, очереди аккаунтов машины — колонками; ключи флота.
 import { accountCode, accountList, accountLogin, accountRemove, keyCheck, keysList, keysRemove, keysSet, slotSet, slotSwap, type Account, type KeyRow, type Slot } from "@sb/protocol";
-import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, JsonInput, Menu, NumberInput, PasswordInput, Progress, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
+import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, JsonInput, Menu, NumberInput, PasswordInput, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { Page } from "../../shell/Page.tsx";
 import { notifications } from "@mantine/notifications";
 import { IconDots, IconGripVertical, IconX } from "@tabler/icons-react";
@@ -8,10 +8,11 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { act, api } from "../../api.ts";
 import { confirmDanger, Failed, useCall, useMachineName } from "../../common.tsx";
-import { accountKey, diverge, dropFromQueues, limitTone, limitWord, machineOrder, mergeAccounts, otherMail, pollPlan, queueMove, type Merged } from "../../lib/accounts.ts";
+import { AccountView } from "../../lib/AccountView.tsx";
+import { accountKey, diverge, dropFromQueues, machineOrder, mergeAccounts, otherMail, pollPlan, queueMove, type Merged } from "../../lib/accounts.ts";
 import { useRowDrag } from "../../lib/drag.ts";
 import { nudge } from "../../lib/Sortable.tsx";
-import { ago, day, hhmm, LIMIT_NAMES, nSessions } from "../../lib/time.ts";
+import { ago, day, nSessions, resetWord } from "../../lib/time.ts";
 import { useFleet } from "../../store/fleet.ts";
 
 /** «a = b» построчно ⇄ запись. Пустые строки и строки без «=» пропускаются. */
@@ -57,27 +58,15 @@ function MergedRow({ m, marked, onMark, picked, onPick }: { m: Merged; marked: b
   const [why, setWhy] = useState(false);
   const split = diverge(m);
   return (
-    <div className={`line${marked ? " marked" : ""}`} style={{ alignItems: "start" }}>
-      <Checkbox mt={2} aria-label={`Выбрать ${m.email ?? m.id}`} checked={picked} onChange={(e) => onPick(e.currentTarget.checked)} />
+    <div className={`line${marked ? " marked" : ""}`} style={{ padding: "5px 0" }}>
+      <Checkbox aria-label={`Выбрать ${m.email ?? m.id}`} checked={picked} onChange={(e) => onPick(e.currentTarget.checked)} />
       <div className="grow">
-        <Group gap={6} wrap="wrap">
-          <button type="button" className="linklike trunc" style={{ fontSize: 14 }} aria-pressed={marked} onClick={onMark}>{m.email ?? m.id}</button>
+        <AccountView full name={<button type="button" className="linklike" aria-pressed={marked} onClick={onMark}>{m.email ?? m.id}</button>} plan={m.plan} limits={m.limits} wait={m.wait}>
           {split.length > 0 && <button type="button" className="warnmark" aria-expanded={why} aria-label="Машины говорят разное" onClick={() => setWhy(!why)}>⚠</button>}
-          {m.kind === "key" ? <Badge variant="default">ключ флота</Badge> : m.plan && <Text size="xs" className="muted">{m.plan}</Text>}
-          {m.wait !== undefined && <Badge color="orange" variant="light">ждёт сброса до {hhmm(m.wait)}</Badge>}
           {m.sessions > 0 && <Text size="xs" className="muted">{nSessions(m.sessions)}</Text>}
-        </Group>
-        {m.limits.map((l) => (
-          <Group key={l.name} gap={8} wrap="nowrap" mt={3}>
-            <Text size="xs" className="muted" w={84}>{LIMIT_NAMES[l.name] ?? l.name}</Text>
-            <Progress value={l.used * 100} color={limitTone(l.used)} style={{ flex: 1 }} aria-label={`${LIMIT_NAMES[l.name] ?? l.name}: ${limitWord(l)}`} />
-            <Text size="xs" ta="right" c={limitTone(l.used) === "red" ? "red" : undefined} style={{ flex: "none", whiteSpace: "nowrap", minWidth: 104 }}>{limitWord(l)}</Text>
-          </Group>
-        ))}
+          <span className="seats">{m.seats.map((s) => <Badge key={s.machine} size="sm" variant={s.account.ok ? "default" : "light"} color={s.account.ok ? undefined : "red"} title={s.account.why}>{nameOf(s.machine)}{s.account.ok ? "" : " ⚠ " + (s.account.why ?? "вход не годен")}</Badge>)}</span>
+        </AccountView>
         {why && split.map((w) => <Text key={w} size="xs" c="orange" className="mono" style={{ overflowWrap: "anywhere" }}>{w}</Text>)}
-        <Group gap={4} mt={5}>
-          {m.seats.map((s) => <Badge key={s.machine} variant={s.account.ok ? "default" : "light"} color={s.account.ok ? undefined : "red"} title={s.account.why}>{nameOf(s.machine)}{s.account.ok ? "" : " ⚠ " + (s.account.why ?? "вход не годен")}</Badge>)}
-        </Group>
       </div>
     </div>
   );
@@ -128,18 +117,17 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
     const r = await act(slotSwap, { to: "@" + machine, slot, ...(account ? { account } : {}) });
     if (r) { notifications.show({ message: `${slot} на ${nameOf(machine)}: теперь ${r.account}`, color: "teal" }); refresh(); }
   };
-  const five = (a?: Account) => a?.limits?.find((l) => l.name === "five_hour");
   return (
-    <div className="card">
-      <Group justify="space-between" wrap="nowrap">
-        <Text fw={600} className="trunc">{nameOf(machine)}</Text>
+    <div className="card mrow">
+      <div className="mrow-head">
+        <Text fw={600} className="trunc" maw="100%">{nameOf(machine)}</Text>
         <Group gap={6} wrap="nowrap">
           <Button size="compact-xs" variant="default" disabled={!logins.some((a) => a.ok)} onClick={() => setAdding(true)}>+ очередь</Button>
           <Button size="compact-xs" variant="default" onClick={() => setLogin({})}>Войти</Button>
         </Group>
-      </Group>
-      <div ref={box} className="dragbox">
-        {drag.line !== null && <div className="dragline" style={{ top: drag.line }} />}
+      </div>
+      <div ref={box} className="dragbox queues">
+        {drag.line !== null && <div className="dragline" style={{ top: drag.line, ...(drag.span ? { left: drag.span.left, width: drag.span.width, right: "auto" } : {}) }} />}
         {slots.map((q) => {
           const others = q.order.filter((m) => m !== q.account && byId[m]?.ok && byId[m]?.wait === undefined).length;
           return (
@@ -147,7 +135,7 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
               <div className="queue-head">
                 <Text fw={600} className="mono">{q.name}</Text>
                 {q.sessions > 0 && <Text size="xs" className="muted">{nSessions(q.sessions)}</Text>}
-                {q.wait !== undefined && <Badge color="orange" variant="light">ждёт сброса до {hhmm(q.wait)}</Badge>}
+                {q.wait !== undefined && <Badge size="sm" color="orange" variant="light">ждёт до {resetWord(q.wait)}</Badge>}
                 <span className="grow" />
                 {others > 0 && <Button size="compact-xs" variant="subtle" onClick={() => void swap(q.name)}>Сменить сейчас</Button>}
                 <Button size="compact-xs" variant="subtle" color="red" disabled={q.sessions > 0} title={q.sessions > 0 ? "На очереди идут сессии" : undefined} aria-label={`Удалить очередь ${q.name}`}
@@ -156,28 +144,19 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
               {q.order.map((mail) => {
                 const a = byId[mail];
                 const cur = q.account === mail;
-                const l = five(a);
                 return (
                   <div key={mail} className={`line${accountKey({ kind: "claude", id: mail, email: mail }) === marked ? " marked" : ""}${drag.dragging === rowId(q.name, mail) ? " dragging" : ""}`} data-drag-id={rowId(q.name, mail)} data-drag-group={q.name} onPointerDown={drag.onPointerDown(rowId(q.name, mail))} style={{ touchAction: "pan-y" }}>
                     <span className="grip" role="button" tabIndex={0} aria-label={`Порядок в ${q.name}: ${mail}`} title="Перетащите; с клавиатуры — Alt и стрелки" onKeyDown={(e) => { if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return; e.preventDefault(); void apply([{ slot: q.name, order: nudge(q.order, mail, e.key === "ArrowUp" ? -1 : 1) }]); }}><IconGripVertical size={14} /></span>
-                    <div className="grow">
-                      <Group gap={6} wrap="wrap">
-                        {cur && <span className="lamp idle" style={{ marginTop: 0 }} role="img" aria-label="стоит сейчас" />}
-                        <Text size="sm" fw={cur ? 600 : 400} className="trunc">{mail}</Text>
-                        {l && <Text size="xs" c={limitTone(l.used) === "teal" ? undefined : limitTone(l.used)} className={limitTone(l.used) === "teal" ? "muted" : undefined}>5 ч {Math.round(l.used * 100)}%</Text>}
-                        {a?.wait !== undefined && <Text size="xs" c="orange">до {hhmm(a.wait)}</Text>}
-                        {a && !a.ok && <Text size="xs" c="red">{a.why}</Text>}
-                      </Group>
-                    </div>
+                    <div className="grow"><AccountView name={mail} current={cur} limits={a?.limits ?? []} wait={a?.wait} bad={a && !a.ok ? a.why ?? "вход не годен" : undefined} /></div>
                     {!cur && a?.ok && <Button size="compact-xs" variant="subtle" onClick={() => void swap(q.name, mail)}>Поставить</Button>}
-                    <ActionIcon variant="subtle" color="gray" aria-label={`Убрать ${mail} из ${q.name}`} onClick={() => void apply([{ slot: q.name, order: q.order.filter((m) => m !== mail) }])}><IconX size={14} /></ActionIcon>
+                    <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Убрать ${mail} из ${q.name}`} onClick={() => void apply([{ slot: q.name, order: q.order.filter((m) => m !== mail) }])}><IconX size={14} /></ActionIcon>
                   </div>
                 );
               })}
             </div>
           );
         })}
-        {!slots.length && logins.length > 0 && <Text size="sm" className="muted">Очередей нет: сессии на этой машине идут только на ключах флота</Text>}
+        {!slots.length && logins.length > 0 && <Text size="sm" className="muted" w="100%">Очередей нет: сессии на этой машине идут только на ключах флота</Text>}
         <div className="queue logins" data-drop-group={LOGINS}>
           <div className="queue-head"><Text size="sm" fw={600}>Входы</Text></div>
           {logins.map((a) => {
@@ -195,7 +174,7 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
                 </div>
                 {!a.ok && <Button size="compact-xs" variant="default" onClick={() => setLogin({ expect: a.email })}>Войти заново</Button>}
                 <Menu withinPortal position="bottom-end">
-                  <Menu.Target><ActionIcon variant="subtle" aria-label={`Действия: ${a.email ?? a.id}`}><IconDots size={16} /></ActionIcon></Menu.Target>
+                  <Menu.Target><ActionIcon variant="subtle" size="sm" aria-label={`Действия: ${a.email ?? a.id}`}><IconDots size={16} /></ActionIcon></Menu.Target>
                   <Menu.Dropdown>
                     <Menu.Item onClick={() => setLogin({ expect: a.email })}>Войти заново</Menu.Item>
                     <Menu.Item color="red" onClick={() => confirmDanger({ title: `Убрать ${a.email ?? a.id} с ${machine}?`, body: inQ.length ? `Аккаунт уйдёт из очередей: ${inQ.join(", ")}. Сессии на них перейдут на следующий аккаунт очереди.` : "Вход на этой машине будет стёрт.", confirm: "Убрать", onConfirm: async () => (await act(accountRemove, { to: "@" + machine, account: a.id }, "Аккаунт убран")) && refresh() })}>Убрать с машины</Menu.Item>
@@ -323,10 +302,6 @@ export function Accounts() {
   return (
     <Stack>
       {failed?.error ? <Failed error={failed.error} retry={refresh} /> : null}
-      <div className="cards" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))" }}>
-        {machineOrder(byMachine).map((m) => <MachineQueues key={m} machine={m} list={byMachine[m] ?? []} slots={slots[m] ?? []} refresh={refresh} marked={marked} />)}
-        {gone.map((m) => <div key={m.name} className="card off"><Group justify="space-between" wrap="nowrap"><Text fw={600} className="trunc">{m.name}</Text><Text size="sm" c="red" style={{ whiteSpace: "nowrap" }}>ушла {ago(m.since)}</Text></Group><Text size="sm" className="muted">Очереди покажутся, когда машина вернётся</Text></div>)}
-      </div>
       <div className="card">
         <Group justify="space-between" wrap="wrap">
           <Text fw={600}>Аккаунты Claude</Text>
@@ -340,7 +315,11 @@ export function Accounts() {
           </Group>
         </Group>
         {merged.map((m) => { const key = accountKey(m); return <MergedRow key={key} m={m} marked={marked === key} onMark={() => setMarked(marked === key ? "" : key)} picked={picked.includes(key)} onPick={(on) => setPicked(on ? [...picked, key] : picked.filter((x) => x !== key))} />; })}
-        {!merged.length && <Text size="sm" className="muted">Входов нет. Войдите в аккаунт на машине выше.</Text>}
+        {!merged.length && <Text size="sm" className="muted">Входов нет. Войдите в аккаунт на машине ниже.</Text>}
+      </div>
+      <div className="rows">
+        {machineOrder(byMachine).map((m) => <MachineQueues key={m} machine={m} list={byMachine[m] ?? []} slots={slots[m] ?? []} refresh={refresh} marked={marked} />)}
+        {gone.map((m) => <div key={m.name} className="card off mline"><Text fw={600} className="trunc">{m.name}</Text><Text size="sm" c="red" style={{ whiteSpace: "nowrap" }}>ушла {ago(m.since)}</Text><Text size="sm" className="muted">Очереди покажутся, когда машина вернётся</Text></div>)}
       </div>
       <FleetKeys machines={online} />
     </Stack>

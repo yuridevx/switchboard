@@ -10,7 +10,8 @@ import { CONTEXT_PARTS, STATUS_LABELS } from "../chat/words.ts";
 import type { View } from "../chat/fold.ts";
 import { accountWord, AfterTurn, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels, useWide } from "../common.tsx";
 import { Sortable } from "../lib/Sortable.tsx";
-import { ago, bytesWord, count, day, duration, hhmm, kilo, LIMIT_NAMES, nPoints, nTurns } from "../lib/time.ts";
+import { Limits } from "../lib/AccountView.tsx";
+import { ago, bytesWord, count, day, duration, hhmm, kilo, nPoints, nTurns } from "../lib/time.ts";
 import { DeleteTyped } from "../lib/DeleteTyped.tsx";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { DocFields } from "./DocFields.tsx";
@@ -93,8 +94,8 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
         {/* у пары кусочки, аккаунт и срок стоят в её двух колонках выше */}
         {!other && <><dt>Кусочки</dt><dd>{(s.spec.pieces ?? []).join(", ") || "нет"}</dd></>}
         {!other ? <><dt>Очередь</dt><dd><span className="mono">{accountWord(s.spec.slot)}</span>{s.account && s.account !== s.spec.slot ? ` · ${s.account}` : ""}{mine?.plan ? ` · ${mine.plan}` : ""}</dd></> : mine?.plan ? <><dt>План</dt><dd>{mine.plan}</dd></> : null}
-        {(mine?.limits ?? []).map((l) => <span key={l.name} style={{ display: "contents" }}><dt>{LIMIT_NAMES[l.name] ?? l.name}</dt><dd style={l.used >= 0.9 ? { color: "var(--st-failed)" } : l.used >= 0.7 ? { color: "var(--st-waiting)" } : undefined}>{Math.round(l.used * 100)}%{l.resets ? ` · сброс ${day(l.resets)}, ${hhmm(l.resets)}` : ""}</dd></span>)}
       </dl>
+      <Limits full limits={mine?.limits ?? []} />
       {auto && !off && <Button size="xs" variant="default" w="fit-content" onClick={async () => (await act(slotSwap, { to: "@" + machine, slot: s.spec.slot ?? "" }, "Аккаунт очереди сменён")) && qc.invalidateQueries({ queryKey: ["account.list"] })}>Сменить аккаунт сейчас</Button>}
     </Stack>
   );
@@ -141,10 +142,12 @@ function Context({ s }: { s: SessionRow }) {
           const windows = Object.entries((x.rate_limits ?? {}) as Record<string, Any | null>).filter(([, w]) => w && w.utilization != null);
           const ses = x.session;
           return (
+            <Stack gap={6}>
             <dl className="kv">
               {ses && <><dt>Этот запуск</dt><dd>${Number(ses.total_cost_usd ?? 0).toFixed(2).replace(".", ",")}</dd><dt>Время API</dt><dd>{duration(ses.total_api_duration_ms ?? 0)}</dd><dt>Строки</dt><dd className="stat-pm"><b className="plus">+{ses.total_lines_added ?? 0}</b> <b className="minus">−{ses.total_lines_removed ?? 0}</b></dd></>}
-              {windows.map(([name, w]) => <span key={name} style={{ display: "contents" }}><dt>{LIMIT_NAMES[name] ?? name}</dt><dd>{Math.round(Number(w!.utilization))}%{w!.resets_at ? ` · сброс ${day(Date.parse(w!.resets_at))}, ${hhmm(Date.parse(w!.resets_at))}` : ""}</dd></span>)}
             </dl>
+            <Limits full limits={windows.map(([name, w]) => ({ name, used: Number(w!.utilization) / 100, ...(w!.resets_at ? { resets: Date.parse(w!.resets_at) } : {}) }))} />
+            </Stack>
           );
         }}
       </Section>

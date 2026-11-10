@@ -14,10 +14,10 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
-import { limitTone, limitWord, mergeAccounts, otherMail, queueMove, seatOptions } from "../lib/accounts.ts";
+import { limitTone, limitWord, mergeAccounts, otherMail, queueMove, seatOptions, sortLimits } from "../lib/accounts.ts";
 import { getLocal, setLocal } from "../lib/local.ts";
 import { deviceLabel, keyBytes, pushStateOf, subscriptionFields } from "../lib/push.ts";
-import { byDay, dayWord } from "../lib/time.ts";
+import { byDay, dayWord, limitName, resetWord, untilWord } from "../lib/time.ts";
 import { SAY, sayWord } from "../lib/words.ts";
 import { BUILTIN, dropTarget, groupsOf, matches, projectOf, reorder, rowsOf, shift } from "../lib/work.ts";
 import { applyRules } from "../mock/screens.ts";
@@ -256,7 +256,15 @@ describe("аккаунты и ключи", () => {
   });
   it("пороги лимита 70 и 90; подпись окна — доля и время сброса", () => {
     expect([0.5, 0.71, 0.91].map(limitTone)).toEqual(["teal", "orange", "red"]);
-    expect(limitWord({ used: 0.456, resets: new Date(2026, 0, 1, 9, 5).getTime() })).toBe("46% · до 09:05");
+    const now = new Date(2026, 0, 1, 8, 0).getTime();
+    expect(limitWord({ used: 0.456, resets: new Date(2026, 0, 1, 9, 5).getTime() }, now)).toBe("46% · до 09:05");
+    // сброс не сегодня — с днём недели; дальше недели — датой
+    expect(limitWord({ used: 0.9, resets: new Date(2026, 0, 3, 14, 0).getTime() }, now)).toBe("90% · до сб 14:00");
+    expect(resetWord(new Date(2026, 0, 20, 14, 0).getTime(), now)).toBe("20 янв.");
+    expect(untilWord(now + 40 * 60_000, now)).toBe("через 40 мин");
+    expect(untilWord(now + 3 * 86_400_000, now)).toBe("через 3 дн");
+    // окно модели называется по модели; порядок — 5 часов, неделя, модели
+    expect(sortLimits([{ name: "seven_day_fable" }, { name: "seven_day" }, { name: "five_hour" }]).map((l) => limitName(l.name))).toEqual(["5 ч", "неделя", "неделя fable"]);
   });
   it("перенос аккаунта: порядок в очереди, из входов в очередь, между очередями, вон из очереди; вход под другой почтой замечен", () => {
     const slots = [{ name: "main", order: ["a", "b", "c"], sessions: 0 }, { name: "night", order: ["c"], sessions: 0 }];

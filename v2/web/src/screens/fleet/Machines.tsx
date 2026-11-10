@@ -1,4 +1,4 @@
-// «Флот → Машины»: карточки машин и приглашение новой машины с командой установки.
+// «Флот → Машины»: машины строками и приглашение новой машины с командой установки.
 import { invite, keeperState, type MachineRow, type SessionRow } from "@sb/protocol";
 import { Badge, Button, CopyButton, Group, SegmentedControl, Stack, Text, TextInput } from "@mantine/core";
 import { Page } from "../../shell/Page.tsx";
@@ -67,24 +67,20 @@ function MachineCard({ m }: { m: MachineRow }) {
   const k = keeper.data;
   const fire = fireCount(m, here);
   return (
-    <div className={`card${m.online ? "" : " off"}`}>
-      <Group justify="space-between" wrap="nowrap">
-        <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
-          <span className={`lamp ${m.online ? "idle" : "off"}`} style={{ marginTop: 0 }} />
-          <Text fw={600} className="trunc" component="button" type="button" style={{ border: 0, background: "none", padding: 0, cursor: "pointer", color: "inherit", textDecoration: "underline dotted", textUnderlineOffset: 3 }} onClick={() => go(`/machine/${m.name}`)}>{nameOf(m.name)}</Text>
-          {nameOf(m.name) !== m.name && <Text size="xs" className="mono muted">{m.name}</Text>}
-        </Group>
-        <Text size="sm" c={m.online ? undefined : "red"} style={{ whiteSpace: "nowrap" }}>{m.online ? "на связи" : `без связи ${ago(m.since)}`}</Text>
+    <div className={`card mline${m.online ? "" : " off"}`}>
+      <Group gap={8} wrap="nowrap" style={{ minWidth: 0, flex: "0 1 190px" }}>
+        <span className={`lamp ${m.online ? "idle" : "off"}`} style={{ marginTop: 0 }} />
+        <Text fw={600} className="trunc" component="button" type="button" style={{ border: 0, background: "none", padding: 0, cursor: "pointer", color: "inherit", textDecoration: "underline dotted", textUnderlineOffset: 3 }} onClick={() => go(`/machine/${m.name}`)}>{nameOf(m.name)}</Text>
+        {nameOf(m.name) !== m.name && <Text size="xs" className="mono muted">{m.name}</Text>}
       </Group>
-      <dl className="kv">
-        <dt>Владелец</dt><dd>{personWord(m.owner)}</dd>
-        <dt>Host</dt><dd>{!m.online ? `сборка ${m.build ?? "—"}` : k ? `сборка ${k.host.build} · ${HOST_WORD[k.host.state] ?? k.host.state}${k.host.why ? `: ${k.host.why}` : ""}` : `сборка ${m.build ?? "—"}`}</dd>
-        <dt>Keeper</dt><dd>{!m.online ? (m.keeper === false ? "не на связи" : "—") : k ? `сборка ${k.build}` : keeper.error ? "не отвечает" : "…"}</dd>
-        <dt>Система</dt><dd>{m.os ?? "—"}</dd>
-      </dl>
+      {!m.online && <Text size="sm" c="red" style={{ whiteSpace: "nowrap" }}>без связи {ago(m.since)}</Text>}
+      <Text size="sm" className="muted" style={{ whiteSpace: "nowrap" }}>{personWord(m.owner)}</Text>
+      <Text size="sm" style={{ overflowWrap: "anywhere" }}>Host {!m.online ? `сборка ${m.build ?? "—"}` : k ? `сборка ${k.host.build} · ${HOST_WORD[k.host.state] ?? k.host.state}${k.host.why ? `: ${k.host.why}` : ""}` : `сборка ${m.build ?? "—"}`}</Text>
+      <Text size="sm" style={{ whiteSpace: "nowrap" }}>Keeper {!m.online ? (m.keeper === false ? "не на связи" : "—") : k ? `сборка ${k.build}` : keeper.error ? "не отвечает" : "…"}</Text>
+      {m.os && <Text size="sm" className="muted" style={{ whiteSpace: "nowrap" }}>{m.os}</Text>}
       {fire > 0 && <Badge color="red" variant="light" w="fit-content">пожар: {nSessions(fire)} ждут на точках архива</Badge>}
-      <Group gap={4}>{here.map((s) => <Badge key={s.callsign} variant="default" className="mono" component="button" type="button" style={{ cursor: "pointer" }} onClick={() => go(`/work/${s.callsign}`)}>{s.spec.name}</Badge>)}</Group>
-      <Group gap={6} mt="auto">
+      <Group gap={4} className="grow">{here.map((s) => <Badge key={s.callsign} size="sm" variant="default" className="mono" component="button" type="button" style={{ cursor: "pointer" }} onClick={() => go(`/work/${s.callsign}`)}>{s.spec.name}</Badge>)}</Group>
+      <Group gap={6} wrap="nowrap">
         <Button size="compact-xs" variant="default" disabled={!m.online} onClick={() => go(newPath({ machine: m.name }))}>Новая сессия</Button>
         <Button size="compact-xs" variant="subtle" onClick={() => go(`/machine/${m.name}`)}>{m.online ? "Подробнее" : "Что известно"}</Button>
       </Group>
@@ -98,7 +94,7 @@ export function Machines() {
   return (
     <Stack>
       <Button w="fit-content" size="xs" onClick={() => setAdd(true)}>Добавить машину</Button>
-      <div className="cards">{Object.values(machines).sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name)).map((m) => <MachineCard key={m.name} m={m} />)}</div>
+      <div className="rows">{Object.values(machines).sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name)).map((m) => <MachineCard key={m.name} m={m} />)}</div>
       <Page name="add" opened={add} onClose={() => setAdd(false)} title="Добавить машину"><AddMachine onClose={() => setAdd(false)} /></Page>
     </Stack>
   );

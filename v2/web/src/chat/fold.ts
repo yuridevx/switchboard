@@ -1,5 +1,5 @@
 // Свёртка разговора: сообщения SDK по порядку → строки ленты, карточки инструментов, задачи и состояние хода. Чистая функция: живое и история идут одним шагом; шаг на вид записи — своя функция.
-import { duration, hhmm, kilo, LIMIT_NAMES, plural } from "../lib/time.ts";
+import { duration, hhmm, kilo, limitName, plural } from "../lib/time.ts";
 import { askedOf, askOutcome } from "./answers.ts";
 import { API_ERRORS, FALLBACK_WHY, modelName, REFUSAL_AREAS, RESULT_ERRORS, TASK_END } from "./words.ts";
 
@@ -291,7 +291,7 @@ function result(v: View, m: Msg) {
 function rateLimit(v: View, m: Msg) {
   const info = m.rate_limit_info ?? {};
   if (info.status !== "allowed_warning" && info.status !== "rejected") return;
-  const name = LIMIT_NAMES[info.rateLimitType] ?? info.rateLimitType;
+  const name = limitName(info.rateLimitType);
   const body = name ? `${name}${info.resetsAt ? `, сброс в ${hhmm(info.resetsAt * 1000)}` : ""}` : "";
   ban(v, "wait", info.status === "rejected" ? "Лимит подписки исчерпан" : "Лимит подписки скоро кончится", body, "gauge");
 }

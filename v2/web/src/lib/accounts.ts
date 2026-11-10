@@ -1,14 +1,18 @@
 // Аккаунты: один аккаунт на нескольких машинах — одна строка; лимиты, пороги, ожидание сброса.
 import type { Account, Slot } from "@sb/protocol";
-import { hhmm } from "./time.ts";
+import { hhmm, resetWord } from "./time.ts";
 
 export type Seat = { machine: string; account: Account };
+export type LimitRow = { name: string; used: number; resets?: number; /** время замера: своё у окна, иначе общее у аккаунта */ at?: number };
+/** Порядок окон: 5 часов, неделя, недельные окна моделей. */
+export const sortLimits = <T extends { name: string }>(l: T[]): T[] => [...l].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+const rank = (n: string) => (n === "five_hour" ? 0 : n === "seven_day" ? 1 : 2);
 export type Merged = {
   id: string; kind: Account["kind"]; email?: string; plan?: string;
   /** где этот аккаунт вошёл */
   seats: Seat[];
   /** лимиты: по каждому окну — самое свежее из известного (большее использование) */
-  limits: Array<{ name: string; used: number; resets?: number; /** время замера: своё у окна, иначе общее у аккаунта */ at?: number }>;
+  limits: LimitRow[];
   /** на всех машинах вход годен */
   ok: boolean;
   /** сколько сессий идёт на нём по всем машинам */
@@ -75,10 +79,10 @@ export function pollPlan(byMachine: Record<string, Array<{ kind: string; email?:
   return plan;
 }
 
-/** Подпись окна лимита: «46% · до 14:30»; значение старше часа подписано временем замера — «от 09:12». */
+/** Подпись окна лимита: «46% · до 14:30» (сброс не сегодня — «до чт 14:30»); значение старше часа подписано временем замера — «от 09:12». */
 export const STALE_MS = 3_600_000;
 export const limitWord = (l: { used: number; resets?: number; at?: number }, now = Date.now()) =>
-  `${Math.round(l.used * 100)}%${l.resets ? ` · до ${hhmm(l.resets)}` : ""}${l.at !== undefined && now - l.at > STALE_MS ? ` · от ${hhmm(l.at)}` : ""}`;
+  `${Math.round(l.used * 100)}%${l.resets ? ` · до ${resetWord(l.resets, now)}` : ""}${l.at !== undefined && now - l.at > STALE_MS ? ` · от ${hhmm(l.at)}` : ""}`;
 
 /** Машины говорят об аккаунте разное: тариф или час сброса окна расходятся больше чем на минуту. Ответ — что говорит каждая. */
 export function diverge(m: Merged): string[] {
