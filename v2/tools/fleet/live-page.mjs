@@ -10,7 +10,9 @@ import { fleetEnv } from "../dev.mjs";
 import { chromium, fleetCall } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const [fleet = "test", device = "cli", callsign = "", outArg] = process.argv.slice(2);
+// третьим аргументом — машина, на которой сценарий открывает свою сессию; ключ флота — SB2_SEAT (по умолчанию muse)
+const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
+const SEAT = process.env.SB2_SEAT ?? "muse";
 const out = outArg ?? path.join(root, "dist", "live");
 fs.mkdirSync(out, { recursive: true });
 const dir = path.join(os.homedir(), ".switchboard-dev");
@@ -20,6 +22,11 @@ const { call } = fleetCall(fleet, device);
 const me = call("whoami", {}).result;
 const name = "live" + Date.now().toString(36).slice(-5);
 const invite = call("invite", { addr: name + me.person }).result;
+// своя сессия на ключе флота: ответ модели не зависит от чужой сессии и её ключа
+const cwd = machine === "wsl" ? "/tmp/sb2-live-steps" : "C:/Users/" + os.userInfo().username + "/AppData/Local/Temp/sb2-live-steps";
+const opened = call("session.open", { to: "@" + machine, spec: { name, cwd, slot: SEAT }, mkdir: true });
+const callsign = opened.ok ? opened.result.callsign : "";
+if (!opened.ok) console.log(`сессия не открылась: ${opened.error} ${opened.why ?? ""}`);
 
 const steps = [];
 const step = async (label, fn) => {
@@ -67,8 +74,9 @@ await step("экран «Наблюдение» показывает запро�
 await page.screenshot({ path: path.join(out, "4-observe.png") });
 await browser.close();
 call("revoke", { kid: invite.kid });
+if (callsign) call("session.remove", { to: callsign });
 
 for (const s of steps) console.log(s);
 console.log("ошибок страницы:", errors.length, errors.slice(0, 5).join(" | ").slice(0, 600));
 console.log("снимки:", out);
-process.exit(steps.some((s) => s.startsWith("✗")) || errors.length ? 1 : 0);
+process.exit(!callsign || steps.some((s) => s.startsWith("✗")) || errors.length ? 1 : 0);

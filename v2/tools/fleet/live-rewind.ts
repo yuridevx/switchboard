@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CallError, createApi, fleetList, httpTransport, machineConversations, message, sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, shellRun, type SessionRow } from "@sb/protocol";
+import { CallError, createApi, fleetList, httpTransport, machineConversations, message, sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellRun, answer, type SessionRow } from "@sb/protocol";
 import { fleetEnv } from "../dev.mjs";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
@@ -166,6 +166,33 @@ await step("пара: ведущая сжимает и откатывает ве
   const has = (w: string) => got.some((t) => t.includes(w));
   if (!has("очищен")) throw new Error("вести об очистке нет: " + got.map((t) => t.slice(0, 80)).join(" | "));
   return `вестей ведущей ${got.length}: ${["открыт", "сжат", "очищен"].filter(has).join(", ")}`;
+});
+
+/** Вести ведущей о ведомом — строки её разговора со словом «Ведомый». */
+const news = async () => (await said(lead)).map((e) => JSON.stringify(e.message?.content ?? "")).filter((t) => t.includes("Ведомый"));
+
+await step("пара: ведомый с длинным разговором сжат — ведущей пришла весть «сжат»", async () => {
+  // почти пустой разговор Claude не сжимает: сначала ведомый набирает разговор
+  for (let i = 1; i <= 3; i++) await turn(wing, `Напиши связный текст на 400 слов о том, как устроен велосипед, часть ${i}. Инструменты не используй.`);
+  const before = (await news()).filter((t) => t.includes("сжат")).length;
+  await api.call(sessionCall, { to: wing, method: "compact" });
+  await until("весть «сжат» у ведущей", async () => (await news()).filter((t) => t.includes("сжат")).length > before, 180_000);
+  return "весть пришла";
+});
+
+await step("пара: ведомый ждёт разрешения человека — ведущей пришла весть «ждёт ответа человека»", async () => {
+  await idle(wing);
+  await api.call(sessionUpdate, { to: wing, patch: { mode: "ask" } as never });
+  await idle(wing);
+  const before = (await news()).filter((t) => t.includes("ждёт ответа человека")).length;
+  // задачу даёт человек: вопрос идёт человеку, а не ведущей
+  await api.call(message, { to: wing, text: "Создай файл ask-" + tag + ".txt со словом ok. Ничего больше." });
+  const row = await until("вопрос у ведомого", async () => { const r = await rowOf(wing); return r?.ask ? r : undefined; }, 120_000);
+  await until("весть «ждёт ответа человека» у ведущей", async () => (await news()).filter((t) => t.includes("ждёт ответа человека")).length > before, 60_000);
+  await api.call(answer, { to: wing, ask: row.ask!.id, answer: { action: "allow" } });
+  await idle(wing);
+  await api.call(sessionUpdate, { to: wing, patch: { mode: "all" } as never });
+  return "весть пришла, вопрос отвечен";
 });
 
 await step("метод вне закрытого списка от сессии — отказ; от человека — проходит", async () => {

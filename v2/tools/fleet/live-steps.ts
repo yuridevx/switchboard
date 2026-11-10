@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fleetEnv } from "../dev.mjs";
 import {
-  accountList, answer, CallError, createApi, fleetList, hostRestart, httpTransport, incidentList, incidentRaise, keeperState, machineMetrics, obsHealth, pointsDelete, pointsList, prefsGet, prefsSet,
+  accountList, answer, CallError, createApi, fleetList, hostRestart, httpTransport, incidentList, incidentRaise, keeperState, machineMetrics, obsHealth, pointsDelete, pointsList, prefsGet, prefsSet, profileList, profileSync,
   sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellInfo, shellRun, slotSet, slotSwap, type SessionRow,
 } from "@sb/protocol";
 
@@ -258,6 +258,33 @@ await step("числа Host: машина отвечает на запрос, с
   });
   // сбой посреди шагов не оставляет очередь на машине
   if (login) await api.call(slotSet, { to: "@" + machine, slot: queue, order: [] }).catch(() => {});
+}
+
+/* Кусочки: правка пришла с другой машины — работающая сессия перечитывает скилы */
+if (second) {
+  await step("кусочки обновились на другой машине — работающая сессия видит новый скил", async () => {
+    const far = (await api.call(profileList, { to: "@" + second })).repos?.find((r) => r.state === "ok" && r.dir);
+    const piece = (await api.call(profileList, { to: "@" + machine })).pieces.find((p) => p.ok && far && p.repo === far.repo && (p.has?.skills ?? 0) > 0);
+    if (!far || !piece) throw new Error("на машинах нет общего сведённого репозитория кусочков со скилами");
+    const folder = piece.id.split("/").pop()!;
+    const cs = await open("skills-" + tag, machine, { pieces: [piece.id] });
+    await until("сессия свободна", async () => (await rowOf(cs))?.state === "idle");
+    const skill = "live-" + tag;
+    const names = async () => JSON.stringify(await api.call(sessionCall, { to: cs, method: "commands" }));
+    if ((await names()).includes(skill)) throw new Error("скил уже есть до правки");
+    const write = (rm: boolean) => api.call(shellRun, { to: "@" + second, shell: "node", wait: 30, script: `import fs from "node:fs";const d=${JSON.stringify(far.dir + "/" + folder + "/skills/" + skill)};${rm ? "fs.rmSync(d,{recursive:true,force:true});" : `fs.mkdirSync(d,{recursive:true});fs.writeFileSync(d+"/SKILL.md","---\\nname: ${skill}\\ndescription: живая проверка перечитывания\\n---\\nтекст\\n");`}` });
+    await write(false);
+    await api.call(profileSync, { to: "@" + second });
+    await api.call(profileSync, { to: "@" + machine });
+    try {
+      await until("скил виден сессии", async () => (await names()).includes(skill), 60_000);
+    } finally {
+      await write(true);
+      await api.call(profileSync, { to: "@" + second }).catch(() => {});
+      await api.call(profileSync, { to: "@" + machine }).catch(() => {});
+    }
+    return `${piece.id}: скил ${skill} появился`;
+  });
 }
 
 /* Перезапуск Host с сохранением сессий */

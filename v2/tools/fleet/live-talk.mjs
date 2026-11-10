@@ -177,6 +177,58 @@ try {
     return `${w0} → ${w1}, после перезагрузки ${w2}`;
   });
 
+  await step("карточка разрешения: путь и строка правила «Разрешать всегда»; «Разрешить» продолжает ход", async () => {
+    await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
+    await box.waitFor({ timeout: 15_000 });
+    must("session.update", { to: cs, patch: { mode: "ask" } });
+    await idle(cs);
+    await box.fill("Создай файл perm-" + tag + ".txt со словом ok. Ничего больше.");
+    await box.press("Enter");
+    const card = page.locator(".feed-in .askcard[data-open]");
+    await card.first().waitFor({ timeout: 90_000 });
+    await card.getByText(/запишет правило/).first().waitFor({ timeout: 5000 });
+    await card.getByText(/Путь:/).first().waitFor({ timeout: 5000 });
+    await shot("permission");
+    await card.getByRole("button", { name: "Разрешить", exact: true }).click();
+    await idle(cs);
+    must("session.update", { to: cs, patch: { mode: "all" } });
+    if (fileOn("perm-" + tag + ".txt") !== "ok") throw new Error("файл не создан после разрешения");
+  });
+
+  await step("граница списка тянется пальцем", async () => {
+    const width = async () => Math.round((await page.locator(".pane.list").boundingBox()).width);
+    const w0 = await width();
+    const edge = page.getByRole("separator", { name: "Ширина списка" });
+    const b = await edge.boundingBox();
+    const at = (x) => ({ pointerId: 7, pointerType: "touch", isPrimary: true, clientX: x, clientY: b.y + 200, bubbles: true });
+    const x0 = b.x + b.width / 2;
+    await edge.dispatchEvent("pointerdown", at(x0));
+    for (const dx of [20, 40, 60]) await edge.dispatchEvent("pointermove", at(x0 + dx));
+    await edge.dispatchEvent("pointerup", at(x0 + 60));
+    const w1 = await width();
+    await edge.dblclick();
+    if (Math.abs(w1 - w0 - 60) > 12) throw new Error(`ширина ${w0} → ${w1}`);
+    return `${w0} → ${w1}`;
+  });
+
+  await step("пара: шапка с двумя участниками, выбор стороны, инспектор у стороны ведомого", async () => {
+    const wing = must("session.update", { to: cs, patch: {}, pair: true }).wing;
+    await idle(wing);
+    await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
+    const bar = page.getByRole("group", { name: "Пара" });
+    await bar.waitFor({ timeout: 20_000 });
+    if ((await bar.locator(".pm-who").count()) !== 2) throw new Error("в шапке пары не два участника");
+    // выбрать ведомого: показана его сторона, адрес — его
+    await bar.locator(`.pm-who[aria-label$="${wing}"]`).click();
+    await page.waitForFunction((w) => location.hash.includes(w), wing, { timeout: 10_000 });
+    // инспектор стороны
+    await page.locator(".composer-opts").getByRole("button", { name: "Инспектор" }).first().click();
+    await page.locator('aside.insp[aria-label="Инспектор"]').waitFor({ timeout: 10_000 });
+    await shot("pair-inspector");
+    await page.locator(".composer-opts").getByRole("button", { name: "Инспектор" }).first().click();
+    must("session.update", { to: cs, patch: { wing: null } });
+  });
+
   await step("«Работа» открывает последнюю сессию; раздела «Вам» нет", async () => {
     await page.goto(`${env.SB2_BASE}/#/work`);
     await page.waitForFunction((c) => location.hash.includes(c), cs, { timeout: 10_000 });

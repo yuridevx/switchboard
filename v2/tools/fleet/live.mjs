@@ -23,7 +23,7 @@ if (!session) {
 const parts = [
   ["запросы", "smoke.ts", [fleet, device]],
   ["серверные функции", "live-server.ts", session && second ? [fleet, device, session, second] : [fleet, device]],
-  ["страница в браузере", "live-page.mjs", [fleet, device, ...(session ? [session] : [])]],
+  ["страница в браузере", "live-page.mjs", [fleet, device, machine]],
   ["сценарии", "live-steps.ts", [fleet, device, machine, second]],
   ["оповещение о сбое", "live-alert.mjs", [fleet, device]],
 ];
