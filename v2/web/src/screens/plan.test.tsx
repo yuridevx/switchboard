@@ -168,6 +168,20 @@ describe("ClickHouse в наблюдении", () => {
 
 describe("нажатие на уведомление", () => {
   const note = { title: "site@laptop закончила", text: "Готово", callsign: "site@laptop", kind: "done" };
+  // находка: оповещение о сбое пропадало — у оповещений был один тег, и соседнее заменяло его
+  it("оповещения о разном стоят рядом, о том же — заменяют себя: тег несёт вид и предмет", async () => {
+    const w = worker({});
+    const push = (n: Record<string, unknown>) => w.fire("push", { data: { json: () => n } });
+    await push({ title: "Host машины laptop: сбой", text: "упал", kind: "alert", subject: "host.failed/laptop" });
+    await push({ title: "Машина server без связи", text: "5 мин", kind: "alert", subject: "machine.offline/server/1" });
+    await push({ title: "Host машины laptop: сбой", text: "снова", kind: "alert", subject: "host.failed/laptop" });
+    const tags = w.shown.map((x) => x.o.tag);
+    expect(tags[0]).not.toBe(tags[1]);
+    expect(tags[2]).toBe(tags[0]);
+    // уведомления сессии — как были: сессия и вид
+    await push(note);
+    expect(w.shown.at(-1)!.o.tag).toBe("site@laptop:done");
+  });
   it("10 · страница уже открыта — она выходит вперёд и переходит к сессии; новой вкладки нет", async () => {
     // источник: слово пользователя «при тапе на уведомление сразу открывать сессию»
     const said: unknown[] = [];

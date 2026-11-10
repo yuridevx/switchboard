@@ -46,7 +46,7 @@ export const keys: Module = {
       const opts: Opts = { ...(was?.opts ? (JSON.parse(was.opts) as Opts) : {}) };
       for (const k of OPTS) if (i[k] !== undefined) (opts as Record<string, unknown>)[k] = i[k];
       await d.batch([
-        ["INSERT OR REPLACE INTO keys (name, provider, value, base, model, at) VALUES (?, ?, ?, ?, ?, ?)", i.name, i.provider, i.value ?? was!.value, i.base ?? null, i.model ?? null, Date.now()],
+        ["INSERT OR REPLACE INTO keys (name, provider, value, base, model, at) VALUES (?, ?, ?, ?, ?, ?)", i.name, i.provider, i.value ?? was!.value, i.base ?? was?.base ?? null, i.model ?? was?.model ?? null, Date.now()],
         Object.keys(opts).length ? ["INSERT OR REPLACE INTO keyopts (name, opts) VALUES (?, ?)", i.name, JSON.stringify(opts)] : ["DELETE FROM keyopts WHERE name = ?", i.name],
       ]);
       await told(ctx);

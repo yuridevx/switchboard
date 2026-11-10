@@ -1,6 +1,6 @@
 // Наблюдение: одна строка на каждый запрос флота с исходом и временем по частям; ошибки страницы и Host; сводка здоровья;
 // оповещение админам о сбоях частей и о высокой доле отказов. Хранится 7 дней.
-import { errFields, type HostMetrics, type LedgerEvent, type Logger, machineOf, newId, type ObsRow, Refusal, type Who } from "@sb/protocol";
+import { errFields, type HostMetrics, type LedgerEvent, type Logger, machineOf, newId, type ObsRow, personOf, Refusal, type Who } from "@sb/protocol";
 import type { Env, Module, Platform } from "../../env.ts";
 import { records } from "../../records.ts";
 import { fleetPref } from "../prefs/contract.ts";
@@ -56,7 +56,7 @@ async function alert(env: Env, fleet: string, w: Watch, kind: string, title: str
   const fresh = await db(env, fleet).all("INSERT INTO alerts (kind, at) VALUES (?1, ?2) ON CONFLICT (kind) DO UPDATE SET at = excluded.at WHERE alerts.at < ?3 RETURNING kind", kind, now, now - GAP_MS);
   if (!fresh.length) return 0;
   const to = p?.to?.length ? p.to : await w.platform.admins(fleet);
-  const sent = await Promise.all(to.map((person) => sendTo({ env, fleet, platform: w.platform, fetch: w.fetch, log: w.log }, { to: person, title, text, kind: "alert", force: true })));
+  const sent = await Promise.all(to.map((person) => sendTo({ env, fleet, platform: w.platform, fetch: w.fetch, log: w.log }, { to: person, title, text, kind: "alert", subject: kind, force: true })));
   w.log.warn("оповещение о сбое", { module: NAME, fleet, kind, to: to.join(","), sent: sent.reduce((n, s) => n + s.sent, 0), why: text });
   return to.length;
 }
@@ -209,7 +209,7 @@ export const obs: Module = {
           .sort((a, b) => b.p95 - a.p95)
           .slice(0, 5),
         failures,
-        reports: got[2] as unknown as { at: number; part: string; level: string; msg: string; who: string }[],
+        reports: (got[2] as unknown as { at: number; part: string; level: string; msg: string; who: string }[]).filter((r) => ctx.who.admin || personOf(r.who) === ctx.who.person || sees(machineOf(r.who) ?? "")),
         hosts: (got[3] as unknown as { machine: string; data: string }[]).filter((h) => sees(h.machine)).map((h) => ({ ...(JSON.parse(h.data) as HostMetrics), machine: h.machine })),
       };
     },

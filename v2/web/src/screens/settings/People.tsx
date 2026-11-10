@@ -77,7 +77,7 @@ export function People() {
                       <Menu.Dropdown>
                         <Menu.Item onClick={() => setName({ person: p.person, name: p.name ?? "" })}>Назвать…</Menu.Item>
                         <Menu.Item onClick={() => setMore({ person: p.person, kind: "device", name: "phone" })}>Пригласить устройство или машину…</Menu.Item>
-                        {p.person !== me && <Menu.Item color="red" onClick={() => confirmDanger({ title: `Удалить ${p.name ?? personWord(p.person)} из флота?`, body: "Его пропуска будут отозваны, соединения закрыты. Машины, которыми он владеет, останутся во флоте.", confirm: "Удалить", onConfirm: async () => (await act(peopleRemove, { person: p.person }, "Человек удалён из флота")) && refresh() })}>Удалить из флота…</Menu.Item>}
+                        {p.person !== me && <Menu.Item color="red" onClick={() => confirmDanger({ title: `Удалить ${p.name ?? personWord(p.person)} из флота?`, body: "Его пропуска будут отозваны, соединения закрыты. Машины, которыми он владеет, уйдут из флота вместе с ним.", confirm: "Удалить", onConfirm: async () => (await act(peopleRemove, { person: p.person }, "Человек удалён из флота")) && refresh() })}>Удалить из флота…</Menu.Item>}
                       </Menu.Dropdown>
                     </Menu>
                   )}

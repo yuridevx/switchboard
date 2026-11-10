@@ -44,6 +44,17 @@ describe("настройки", () => {
 });
 
 describe("ключи флота", () => {
+  // находка: правка одного свойства записанного ключа не затирает неназванные адрес и модель
+  it("keys.set без адреса или модели оставляет их прежними", async () => {
+    const s = stand();
+    const keys = async () => ((await s.ask("keys.list", {}, "kanya1")).result as { keys: Record<string, unknown>[] }).keys;
+    await s.ask("keys.set", { name: "orca", provider: "anthropic", value: "sk-secret-9876", base: "https://orca.example" });
+    await s.ask("keys.set", { name: "orca", provider: "anthropic", model: "m1" });
+    expect(await keys()).toMatchObject([{ name: "orca", base: "https://orca.example", model: "m1", tail: "9876" }]);
+    await s.ask("keys.set", { name: "orca", provider: "anthropic", base: "https://orca2.example" });
+    expect(await keys()).toMatchObject([{ name: "orca", base: "https://orca2.example", model: "m1" }]);
+  });
+
   it("список без значений — только хвост; значение отдаётся машине; смена — кадр «изменилось»", async () => {
     const s = stand();
     await s.ask("keys.set", { name: "orca", provider: "anthropic", value: "sk-secret-9876", base: "https://orca.example" });
@@ -96,5 +107,15 @@ describe("наблюдение", () => {
     expect(((await s.ask("obs.recent", {}, "kanya1")).result as { rows: ObsRow[] }).rows).toHaveLength(0);
     expect(((await s.ask("obs.recent", {}, "koleg1")).result as { rows: ObsRow[] }).rows).toMatchObject([{ type: "shell.info", to: "@oleg-mac" }]);
     expect(await s.ask("obs.report", { part: "web", level: "error", msg: "экран упал", stack: "at Chat" }, "kanya1")).toMatchObject({ ok: true });
+  });
+
+  // находка: ошибки, пойманные на месте, видит админ и тот, чьё это устройство или машина
+  it("ошибку страницы в сводке здоровья видит её человек и админ; чужой не админ — нет", async () => {
+    const s = stand();
+    await s.ask("obs.report", { part: "web", level: "error", msg: "экран Ани упал" }, "kanya1");
+    const reports = async (key: string) => ((await s.ask("obs.health", {}, key)).result as { reports: Array<{ msg: string }> }).reports.map((r) => r.msg);
+    expect(await reports("kanya1")).toEqual(["экран Ани упал"]);
+    expect(await reports("kyura1")).toEqual(["экран Ани упал"]);
+    expect(await reports("koleg1")).toEqual([]);
   });
 });

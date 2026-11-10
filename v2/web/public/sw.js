@@ -19,6 +19,9 @@ function kv(key) {
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
+/** Тег уведомления: то же событие заменяет себя, другое встаёт рядом. У сессии — она и вид; у оповещения без сессии — вид и его предмет. */
+const tagOf = (n) => (n.callsign ? n.callsign + ":" + (n.kind ?? "") : (n.kind ?? "fleet") + (n.subject ? ":" + n.subject : ""));
+
 /** Пуш флота: { title, text, callsign?, kind?, ask?, options? }. У вопроса — до двух вариантов кнопками. */
 self.addEventListener("push", (e) => {
   let n = { title: "Switchboard", text: "" };
@@ -30,7 +33,7 @@ self.addEventListener("push", (e) => {
   const actions = n.ask && Array.isArray(n.options) ? n.options.slice(0, 2).map((title, i) => ({ action: "answer:" + i, title: String(title).slice(0, 40) })) : [];
   e.waitUntil(
     self.registration.showNotification(n.title, {
-      body: n.text, tag: n.callsign ? n.callsign + ":" + (n.kind ?? "") : n.kind ?? "fleet", renotify: true, data: n, actions,
+      body: n.text, tag: tagOf(n), renotify: true, data: n, actions,
       icon: "/icon-192.png", badge: "/icon-192.png", requireInteraction: n.kind === "ask",
     }),
   );

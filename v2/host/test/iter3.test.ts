@@ -79,21 +79,31 @@ describe("аккаунты", () => {
 });
 
 describe("точки: предел повторов, остановленная сессия, снятие архива", () => {
+  /** Двигать часы стенда шагами, пока условие не выполнится: повторы точек идут по часам ядра. */
+  const ticking = async (cond: () => boolean, label: string) => {
+    for (let i = 0; i < 300 && !cond(); i++) {
+      st!.clock.advance(20);
+      await wait(5);
+    }
+    if (!cond()) throw new Error("не дождались: " + label);
+  };
+
   it("сбой точки повторяется сам до предела от первого сбоя; срок виден в строке; после предела повторов нет, причина остаётся", async () => {
     const { state } = await withConversation({ retryMs: 40, waitMs: 150 });
     state.fail = true;
-    const t0 = Date.now();
+    const t0 = st!.clock.now();
     expect(await st!.request("points.save", { to: "site@laptop" })).toMatchObject({ ok: false, error: "store_failed" });
     const first = lastRow("site@laptop");
     expect(first.archiveError).toContain("архив не отвечает");
     expect(first.archiveUntil).toBeGreaterThanOrEqual(t0 + 150);
     expect(first.archiveUntil).toBeLessThan(t0 + 150 + 1000);
     expect(first.archiveRetryAt).toBeGreaterThanOrEqual(t0 + 40);
-    await until(() => !lastRow("site@laptop").archiveRetryAt, 5000, "повторы кончились");
+    await ticking(() => !lastRow("site@laptop").archiveRetryAt, "повторы кончились");
     const tries = state.tries;
     expect(tries).toBeGreaterThanOrEqual(2); // сам запрос и хотя бы один повтор
     expect(tries).toBeLessThanOrEqual(1 + Math.ceil(150 / 40));
-    await wait(120);
+    st!.clock.advance(120);
+    await wait(30);
     expect(state.tries).toBe(tries);
     const after = lastRow("site@laptop");
     expect(after.archiveError).toContain("архив не отвечает");
@@ -105,11 +115,11 @@ describe("точки: предел повторов, остановленная 
     more();
     state.fail = true;
     expect((await st!.request("session.stop", { to: "site@laptop" })).ok).toBe(true);
-    await until(() => state.tries >= 2, 5000, "повтор у остановленной");
+    await ticking(() => state.tries >= 2, "повтор у остановленной");
     expect(lastRow("site@laptop")).toMatchObject({ state: "stopped", archiveError: expect.stringContaining("архив не отвечает") });
     state.fail = false;
-    await until(() => state.puts.some((p) => p.commit), 5000, "точка записана");
-    await until(() => !lastRow("site@laptop").archiveError, 5000, "причина снята");
+    await ticking(() => state.puts.some((p) => p.commit), "точка записана");
+    await ticking(() => !lastRow("site@laptop").archiveError, "причина снята");
     expect(lastRow("site@laptop").archiveUntil).toBeUndefined();
     expect(lastRow("site@laptop").archiveRetryAt).toBeUndefined();
   });

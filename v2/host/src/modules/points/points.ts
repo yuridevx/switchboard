@@ -67,9 +67,9 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
   let host: HostApi;
   let down = false;
   const lastAt = new Map<string, number>();
-  const turns = new Map<string, ReturnType<typeof setTimeout>>();
+  const turns = new Map<string, unknown>();
   /** повтор неудавшейся точки */
-  const retries = new Map<string, ReturnType<typeof setTimeout>>();
+  const retries = new Map<string, unknown>();
   /** точки одной сессии идут по очереди */
   const queue = new Map<string, Promise<unknown>>();
   const markOf = (s: SessionApi) => s.store<Mark>();
@@ -150,19 +150,18 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
 
   /** Причина сбоя последней точки и час повтора — в строку сессии; удалась — их нет. Повтор — сам, через RETRY_MS; раньше — при конце хода. */
   function mark(s: SessionApi, error: string | undefined): void {
-    clearTimeout(retries.get(s.callsign));
+    host.clock.clearTimeout(retries.get(s.callsign));
     retries.delete(s.callsign);
     const was = markOf(s).get();
-    const failedAt = error ? (was?.failedAt ?? Date.now()) : undefined;
+    const now = host.clock.now();
+    const failedAt = error ? (was?.failedAt ?? now) : undefined;
     // повтор — пока не вышел предел от первого сбоя; остановленная сессия повторяет так же: её точка ещё не в архиве
-    const retryAt = error && s.spec.backup && !down && Date.now() + retryMs <= failedAt! + waitMs ? Date.now() + retryMs : undefined;
+    const retryAt = error && s.spec.backup && !down && now + retryMs <= failedAt! + waitMs ? now + retryMs : undefined;
     if (retryAt) {
-      const timer = setTimeout(() => {
+      retries.set(s.callsign, host.clock.setTimeout(() => {
         retries.delete(s.callsign);
         if (host.session(s.callsign)) auto(s);
-      }, retryMs);
-      timer.unref();
-      retries.set(s.callsign, timer);
+      }, retryMs));
     }
     if (was?.error === error && !was?.retryAt === !retryAt) return;
     markOf(s).update((m) => ({ ...m, error, retryAt, failedAt }));
@@ -174,7 +173,7 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
     const turn = (queue.get(s.callsign) ?? Promise.resolve()).catch(() => {}).then(async () => {
       try {
         const r = await snap(s, label);
-        lastAt.set(s.callsign, Date.now());
+        lastAt.set(s.callsign, host.clock.now());
         host.log.info("point", { callsign: s.callsign, point: r.point, ...(r.same ? { why: "то же, что прошлая" } : {}) });
         mark(s, undefined);
         return r;
@@ -209,16 +208,14 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
   }
 
   function longTurn(s: SessionApi): void {
-    const timer = setTimeout(() => {
+    turns.set(s.callsign, host.clock.setTimeout(() => {
       turns.delete(s.callsign);
       auto(s);
       if (s.state === "busy") longTurn(s);
-    }, LONG_MS);
-    timer.unref();
-    turns.set(s.callsign, timer);
+    }, LONG_MS));
   }
   const endTurn = (callsign: string) => {
-    clearTimeout(turns.get(callsign));
+    host.clock.clearTimeout(turns.get(callsign));
     turns.delete(callsign);
   };
 
@@ -322,11 +319,11 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
         }
         if (state !== "idle") return;
         endTurn(cs);
-        if (Date.now() - (lastAt.get(cs) ?? 0) >= GAP_MS) auto(s);
+        if (host.clock.now() - (lastAt.get(cs) ?? 0) >= GAP_MS) auto(s);
       },
       removed(cs) {
         endTurn(cs);
-        clearTimeout(retries.get(cs));
+        host.clock.clearTimeout(retries.get(cs));
         retries.delete(cs);
         lastAt.delete(cs);
         queue.delete(cs);
@@ -341,7 +338,7 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
     },
     async stop() {
       down = true;
-      for (const timer of [...turns.values(), ...retries.values()]) clearTimeout(timer);
+      for (const timer of [...turns.values(), ...retries.values()]) host.clock.clearTimeout(timer);
       await Promise.allSettled(queue.values());
     },
   };

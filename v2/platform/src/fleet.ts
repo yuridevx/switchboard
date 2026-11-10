@@ -305,6 +305,8 @@ export class FleetObject extends DurableObject<Env> {
   }
 
   private peopleSet(i: { person: string; name?: string; admin?: boolean; projects?: string[] }): { drop?: Drop } {
+    // проверки — до первой записи: отказ ничего не оставляет
+    for (const id of i.projects ?? []) if (!this.q("SELECT 1 FROM projects WHERE id = ?", id).length) throw new Refusal("not_found", "проекта " + id + " нет");
     const was = this.q<{ admin: number }>("SELECT admin FROM people WHERE person = ?", i.person)[0];
     if (!was) this.q("INSERT INTO people(person, admin, at) VALUES(?, 0, ?)", i.person, Date.now());
     if (i.name !== undefined) this.q("UPDATE people SET name = ? WHERE person = ?", i.name, i.person);
@@ -314,7 +316,6 @@ export class FleetObject extends DurableObject<Env> {
       touched.push(i.person);
     }
     if (i.projects) {
-      for (const id of i.projects) if (!this.q("SELECT 1 FROM projects WHERE id = ?", id).length) throw new Refusal("not_found", "проекта " + id + " нет");
       const old = this.q<{ project: string }>("SELECT project FROM members WHERE person = ?", i.person).map((r) => r.project);
       const changed = [...old.filter((p) => !i.projects!.includes(p)), ...i.projects.filter((p) => !old.includes(p))];
       if (changed.length) {
@@ -344,9 +345,10 @@ export class FleetObject extends DurableObject<Env> {
   }
 
   private projectSet(i: { project: string; name: string; members?: string[] }): { drop?: Drop } {
+    // проверки — до первой записи: отказ не оставляет созданный или переименованный проект
+    for (const p of i.members ?? []) if (!this.q("SELECT 1 FROM people WHERE person = ?", p).length) throw new Refusal("not_found", "человека " + p + " нет во флоте");
     this.q("INSERT INTO projects(id, name) VALUES(?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name", i.project, i.name);
     if (!i.members) return {};
-    for (const p of i.members) if (!this.q("SELECT 1 FROM people WHERE person = ?", p).length) throw new Refusal("not_found", "человека " + p + " нет во флоте");
     const old = this.q<{ person: string }>("SELECT person FROM members WHERE project = ?", i.project).map((r) => r.person);
     const same = old.length === i.members.length && old.every((p) => i.members!.includes(p));
     if (same) return {};

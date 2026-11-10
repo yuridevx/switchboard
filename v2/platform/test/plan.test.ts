@@ -124,6 +124,16 @@ describe("люди и проекты: кто что видит после пра
     expect(list.projects.find((p) => p.id === "site")!.members.sort()).toEqual([ANYA, YURI]);
     expect(await Promise.race([a.closed.then(() => "closed"), new Promise((r) => setTimeout(() => r("open"), 300))])).toBe("open");
   });
+
+  // находка: проверки — до первой записи, отказ ничего не оставляет
+  it("отказ project.set и people.set не оставляет частичной записи: проект не создан, человек не заведён", async () => {
+    const t = await trio();
+    expect(await ask(t.fleet, t.yuri, { type: "project.set", project: "fresh", name: "Новый", members: ["~ghost@example.com"] })).toMatchObject({ ok: false, error: "not_found" });
+    expect(await ask(t.fleet, t.yuri, { type: "people.set", person: "~new@example.com", name: "Новый", admin: true, projects: ["nope"] })).toMatchObject({ ok: false, error: "not_found" });
+    const list = (await ask(t.fleet, t.yuri, { type: "people.list" })).result as { projects: Array<{ id: string }>; people: Array<{ person: string }> };
+    expect(list.projects.some((p) => p.id === "fresh")).toBe(false);
+    expect(list.people.some((p) => p.person === "~new@example.com")).toBe(false);
+  });
 });
 
 describe("соединение машины", () => {

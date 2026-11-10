@@ -7,6 +7,14 @@ export const realClock: Clock = {
   clearTimeout: (h) => clearTimeout(h as NodeJS.Timeout),
 };
 
+/** Обещание или отказ late() за предел ms: таймер снимается, как только работа ответила. */
+export function limited<T>(clock: Clock, p: Promise<T>, ms: number, late: () => Error): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = clock.setTimeout(() => reject(late()), ms);
+    p.then(resolve, reject).finally(() => clock.clearTimeout(timer));
+  });
+}
+
 /** Обещание или late() за предел ms. Саму работу не прерывает: что прервать, знает вызывающий. */
 export function within<T>(clock: Clock, p: Promise<T>, ms: number, late: () => T): Promise<T> {
   return new Promise((resolve, reject) => {

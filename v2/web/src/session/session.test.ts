@@ -232,7 +232,8 @@ describe("мок отвечает в формах Host", () => {
     expect(m.state.sessions["duo-wing@laptop"]).toMatchObject({ lead: "duo@laptop", by: "duo@laptop" });
     await api.call(sessionUpdate, { to: "duo@laptop", patch: { wing: null } });
     expect(m.state.sessions["duo@laptop"].spec.wing).toBeUndefined();
-    expect(m.state.sessions["duo-wing@laptop"].lead).toBeUndefined();
+    // как Host: снятый ведомый убран с машины
+    expect(m.state.sessions["duo-wing@laptop"]).toBeUndefined();
     await expect(api.call(sessionOpen, { to: "@laptop", spec: { name: "x", cwd: "~/projects/nope" } })).rejects.toMatchObject({ word: "bad_input" });
   });
   it("проход к SDK: команды и модели — массивы SDK; откат файлов требует сообщение и с пробой только считает", async () => {

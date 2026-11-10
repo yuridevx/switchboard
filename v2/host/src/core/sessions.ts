@@ -1,6 +1,7 @@
 // Запросы ядра о сессиях: открыть, изменить документ, остановить, запустить, убрать, список, проход к SDK. Родитель и пара — здесь.
 import { randomUUID } from "node:crypto";
 import { kindOf, ledgerAdd, message, Refusal, sessionName, sessionRemove, sessionStart, sessionStop, TOOL_METHODS, type Spec, type SpecPatch } from "@sb/protocol";
+import { limited } from "./clock.ts";
 import { tildePath } from "./paths.ts";
 import type { Ctx, Module, SessionApi } from "./contract.ts";
 import { FLAGS, MODES } from "./flags.ts";
@@ -192,7 +193,7 @@ export function coreModule(k: Kernel): Module {
       const api = s.facade(self);
       if (!live(api)) throw new Refusal("stopped", `session.rewind ${to}: сессия ${api.state}`);
       const step = <T>(name: string, ...a: unknown[]) =>
-        Promise.race([sdk(api, name, ...a) as Promise<T>, new Promise<T>((_, rej) => setTimeout(() => rej(new Refusal("sdk_error", `${to}: ${name} — Claude не ответил за ${REWIND_MS / 1000} с`)), REWIND_MS).unref())]);
+        limited(k.clock, sdk(api, name, ...a) as Promise<T>, REWIND_MS, () => new Refusal("sdk_error", `${to}: ${name} — Claude не ответил за ${REWIND_MS / 1000} с`));
       const said = ((await step<Said[]>("getSessionMessages", { includeSystemMessages: true })) ?? []).filter((m) => !m.parent_tool_use_id);
       const at = upto ? said.findIndex((m) => m.uuid === upto) : 0;
       if (at < 0) throw new Refusal("not_found", `session.rewind ${to}: сообщения ${upto} в разговоре нет`);
@@ -236,10 +237,7 @@ export function coreModule(k: Kernel): Module {
     /** Разговоры папки на диске машины: что можно продолжить новой сессией и какой из них ведёт сессия. */
     async "machine.conversations"({ cwd }: { cwd: string }) {
       const dir = k.folder(cwd);
-      const list = ((await Promise.race([
-        k.sdk.functions.listSessions!({ dir }),
-        new Promise((_, rej) => setTimeout(() => rej(new Refusal("sdk_error", `machine.conversations ${cwd}: список не получен за ${REWIND_MS / 1000} с`)), REWIND_MS).unref()),
-      ])) ?? []) as Array<{ sessionId: string; summary?: string; customTitle?: string; firstPrompt?: string; lastModified: number; fileSize?: number }>;
+      const list = ((await limited(k.clock, Promise.resolve(k.sdk.functions.listSessions!({ dir })), REWIND_MS, () => new Refusal("sdk_error", `machine.conversations ${cwd}: список не получен за ${REWIND_MS / 1000} с`))) ?? []) as Array<{ sessionId: string; summary?: string; customTitle?: string; firstPrompt?: string; lastModified: number; fileSize?: number }>;
       const held = new Map([...k.sessions.values()].map((x) => [x.rec.sessionId, x.callsign]));
       return {
         conversations: list
@@ -255,7 +253,7 @@ export function coreModule(k: Kernel): Module {
       if (method === "reload") {
         // скилы и агенты с диска, затем внешние серверы плагинов: перечитывание запущенные серверы не трогает
         const step = (name: string, ...a: unknown[]) =>
-          Promise.race([sdk(s, name, ...a), new Promise((_, rej) => setTimeout(() => rej(new Refusal("sdk_error", `${to}: ${name} — Claude не ответил за ${RELOAD_MS / 1000} с`)), RELOAD_MS))]);
+          limited(k.clock, sdk(s, name, ...a), RELOAD_MS, () => new Refusal("sdk_error", `${to}: ${name} — Claude не ответил за ${RELOAD_MS / 1000} с`));
         const { mcpServers = [] } = ((await step("reloadPlugins")) ?? {}) as { mcpServers?: Array<{ name: string; status: string }> };
         await Promise.all(mcpServers.filter((m) => m.name.startsWith("plugin:") && m.status === "connected").map((m) => step("reconnectMcpServer", m.name)));
         return {};

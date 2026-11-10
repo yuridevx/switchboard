@@ -1,5 +1,6 @@
 // Договор ядра с модулями Host: что модуль отдаёт ядру и что ядро даёт модулю.
 import type { Ask, Frame, InputOf, Logger, OutputOf, RequestDef, SessionRow, SessionState, Spec } from "@sb/protocol";
+import type { Clock } from "./clock.ts";
 import type { Meter } from "./meter.ts";
 
 /** Хранилище раздела: значение таким, каким его прочтёт следующий Host. */
@@ -122,6 +123,8 @@ export interface HostApi {
   probe(o?: { env?: Record<string, string> }): { sdk(name: string, ...args: unknown[]): Promise<unknown>; close(): void };
   /** модуль этого Host по имени: договор между модулями — его publicApi */
   module<T = unknown>(name: string): T | undefined;
+  /** часы ядра: такты и пределы модуля идут по ним */
+  readonly clock: Clock;
   /** счётчики Host за окно: сколько раз и сколько длилось */
   readonly meter: Meter;
 }

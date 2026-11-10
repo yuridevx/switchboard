@@ -24,7 +24,8 @@ const SCHEMA = [
 const db = (env: Env, fleet: string) => records(env, fleet, NAME, SCHEMA);
 
 type Device = { id: string; kind: "webpush" | "telegram"; person: string; label: string | null; at: number; kid: string | null; endpoint: string | null; p256dh: string | null; auth: string | null; chat: number | null };
-type Note = { title: string; text: string; callsign?: string; kind?: string; ask?: string; options?: string[] };
+/** subject — о чём оповещение без сессии (часть и машина, уход машины): по нему страница отличает одно уведомление от другого. */
+type Note = { title: string; text: string; callsign?: string; kind?: string; subject?: string; ask?: string; options?: string[] };
 type Bot = { token: string; name: string };
 
 const B64U = /^[A-Za-z0-9_-]+$/;
@@ -291,7 +292,7 @@ export async function telegram(req: Request, env: Env, exec: ExecutionContext, d
 /* ===== Отправка ===== */
 
 /** Позвать человека на все его устройства. На связи и не force — не слать. Отозванный пропуск — устройство убирается. */
-export async function sendTo(c: Sender, i: { to: string; title: string; text: string; callsign?: string; kind?: string; force?: boolean; ask?: string; options?: string[] }): Promise<{ sent: number; online: boolean }> {
+export async function sendTo(c: Sender, i: { to: string; title: string; text: string; callsign?: string; kind?: string; subject?: string; force?: boolean; ask?: string; options?: string[] }): Promise<{ sent: number; online: boolean }> {
   const online = await c.platform.online(c.fleet, i.to);
   if (online && !i.force) return { sent: 0, online };
   const d = db(c.env, c.fleet);
@@ -304,7 +305,7 @@ export async function sendTo(c: Sender, i: { to: string; title: string; text: st
     devices = devices.filter((x) => !x.kid || alive.has(x.kid));
   }
   const n: Note = {
-    title: i.title, text: i.text, ...(i.callsign ? { callsign: i.callsign } : {}), ...(i.kind ? { kind: i.kind } : {}),
+    title: i.title, text: i.text, ...(i.callsign ? { callsign: i.callsign } : {}), ...(i.kind ? { kind: i.kind } : {}), ...(i.subject ? { subject: i.subject } : {}),
     ...(i.ask ? { ask: i.ask } : {}), ...(i.options?.length ? { options: i.options } : {}),
   };
   const plain = c.env.VAPID_PRIVATE ? fit(n) : null;
@@ -323,7 +324,7 @@ export async function sendTo(c: Sender, i: { to: string; title: string; text: st
 export const reach: Module = {
   name: NAME,
   handlers: {
-    async "reach.send"(i: { to: string; title: string; text: string; callsign?: string; kind?: string; force?: boolean; ask?: string; options?: string[] }, ctx) {
+    async "reach.send"(i: { to: string; title: string; text: string; callsign?: string; kind?: string; subject?: string; force?: boolean; ask?: string; options?: string[] }, ctx) {
       return sendTo(ctx, i);
     },
 

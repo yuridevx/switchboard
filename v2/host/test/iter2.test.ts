@@ -80,7 +80,7 @@ describe("точки: ветки, повтор, сверка", () => {
     st.services.handlers["points.put"] = () => {
       throw { word: "store_failed", message: "архив не отвечает" };
     };
-    const t0 = Date.now();
+    const t0 = st.clock.now();
     expect(await st.request("points.save", { to: "site@laptop" })).toMatchObject({ ok: false, error: "store_failed" });
     const row = st.link.rows("site@laptop").at(-1)!.row as any;
     expect(row.archiveError).toContain("архив не отвечает");

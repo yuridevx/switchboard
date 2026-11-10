@@ -84,17 +84,17 @@ export function content(text: string, files: FileIn[] = []): unknown {
 }
 
 /** Файлы папки, путь содержит q: в git — без скрытого .gitignore, иначе обход; предел — FILES_MAX, FILES_MS и остановка Host. */
-async function files(cwd: string, q: string, signal: AbortSignal): Promise<string[]> {
+async function files(cwd: string, q: string, signal: AbortSignal, now: () => number): Promise<string[]> {
   const fit = (f: string) => f.toLowerCase().includes(q);
   const listed = await new Promise<string[] | null>((done) =>
     execFile("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd, timeout: FILES_MS, maxBuffer: 1 << 26, signal }, (e, out) => done(e ? null : out.split("\n").filter(Boolean))),
   );
   if (listed) return listed.filter(fit).slice(0, FILES_MAX);
-  const until = Date.now() + FILES_MS;
+  const until = now() + FILES_MS;
   const found: string[] = [];
   for await (const e of await opendir(cwd, { recursive: true })) {
     if (signal.aborted) throw new Refusal("shutting_down", "обход папки остановлен");
-    if (Date.now() > until) throw new Refusal("timeout", `список файлов не собран за ${FILES_MS} мс`);
+    if (now() > until) throw new Refusal("timeout", `список файлов не собран за ${FILES_MS} мс`);
     if (!e.isFile()) continue;
     const path = relative(cwd, join(e.parentPath, e.name)).split(sep).join("/");
     if (fit(path) && found.push(path) >= FILES_MAX) break;
@@ -247,9 +247,10 @@ export function make(): Module {
         let body: unknown;
         if (isHuman(from)) {
           const person = personOf(from)!;
+          // негодное вложение — отказ до первой записи: строка сессии не меняется
+          body = content(text, attached);
           const { people = [], unread = [] } = part(s);
           merge(s, { people: [...new Set([...people, person])], unread: unread.filter((p) => p !== person), asker: from });
-          body = content(text, attached);
           s.input(body, { from, priority, uuid });
           s.sync();
         } else {
@@ -271,9 +272,12 @@ export function make(): Module {
       },
 
       /** Отмена своего сообщения, пока ход его не взял. */
-      async "message.cancel"({ to, uuid }: { to: string; uuid: string }) {
+      async "message.cancel"({ to, uuid }: { to: string; uuid: string }, ctx: Ctx) {
         const s = session(to);
-        if (!(queued.get(to) ?? []).some((q) => q.uuid === uuid)) return { cancelled: false };
+        const mine = (queued.get(to) ?? []).find((q) => q.uuid === uuid);
+        if (!mine) return { cancelled: false };
+        // отменяет автор: тот же человек с любого своего устройства или та же сессия
+        if ((personOf(mine.from) ?? mine.from) !== (personOf(ctx.from) ?? ctx.from)) throw new Refusal("not_owner", `${to}: сообщение ${uuid} отправил ${mine.from} — отменяет он`);
         const r = await s.sdk("cancelAsyncMessage", uuid).catch((e: unknown) => {
           throw new Refusal("sdk_error", `${to}: отмена сообщения — ${(e as Error).message}`);
         });
@@ -296,7 +300,7 @@ export function make(): Module {
       },
 
       async "session.files"({ to, q }: { to: string; q: string }, ctx: Ctx) {
-        return { files: await files(session(to).info.cwd, q.toLowerCase(), ctx.signal) };
+        return { files: await files(session(to).info.cwd, q.toLowerCase(), ctx.signal, () => host.clock.now()) };
       },
 
       /** Смотреть ленту. after — номер последнего события у зрителя: пропущенное — в ответе; его уже нет в памяти — gap. */

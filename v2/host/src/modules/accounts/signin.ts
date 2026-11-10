@@ -42,7 +42,7 @@ type Hooks = {
 
 export function signin(host: () => Host, dirs: Folders, hooks: Hooks) {
   let started: Started | null = null;
-  let timer: ReturnType<typeof setInterval>;
+  let timer: unknown;
   /** Чей токен проверяется за такт: один аккаунт, чтобы не поднимать процесс на каждый. */
   let turn = 0;
   let checks = 0;
@@ -142,14 +142,19 @@ export function signin(host: () => Host, dirs: Folders, hooks: Hooks) {
     start() {
       end(); // процесс входа умер вместе с прежним Host
       clear(".who", dirs.clearWho);
-      timer = setInterval(() => {
-        const names = Object.keys(hooks.read());
-        for (const email of names) void check(email);
-        if (names.length && !asking) void checkOwner(names[turn++ % names.length]!);
-      }, CHECK_MS);
+      // такт проверки входов — по часам ядра
+      const beat = () => {
+        timer = host().clock.setTimeout(() => {
+          const names = Object.keys(hooks.read());
+          for (const email of names) void check(email);
+          if (names.length && !asking) void checkOwner(names[turn++ % names.length]!);
+          beat();
+        }, CHECK_MS);
+      };
+      beat();
     },
     stop() {
-      clearInterval(timer);
+      host().clock.clearTimeout(timer);
       asking?.close();
       end();
       clear(".who", dirs.clearWho);

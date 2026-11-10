@@ -28,6 +28,8 @@ type Run = {
   /** сессия, которой сказать о конце запуска, если она его не дождалась */
   owner?: string;
   waited: boolean;
+  /** сколько запросов сейчас ждут конца запуска */
+  waiting: number;
   limit?: NodeJS.Timeout; ttl?: NodeJS.Timeout; timeout?: NodeJS.Timeout;
   over: Promise<void>; finish: () => void; killing?: State;
 };
@@ -96,7 +98,7 @@ export function make({ root = join(tmpdir(), "sb2-shell") }: { root?: string } =
     r.ttl.unref();
     r.finish();
     // сессия пустила запуск и не дождалась — конец придёт ей сообщением
-    if (r.owner && !r.waited) {
+    if (r.owner && !r.waited && !r.waiting) {
       const text = `Запуск ${r.id} на ${host.machine} кончился: ${state}${r.code !== undefined ? `, код ${r.code}` : ""}. Вывод — shell_wait с run ${r.id}.`;
       void host.call(message, { to: r.owner, text }).catch((e: unknown) => host.log.warn("run_message", { run: r.id, to: r.owner, why: (e as Error).message }));
     }
@@ -119,7 +121,9 @@ export function make({ root = join(tmpdir(), "sb2-shell") }: { root?: string } =
   async function wait(r: Run, seconds: number | undefined): Promise<void> {
     if (!seconds) return;
     let timer: NodeJS.Timeout | undefined;
+    r.waiting++;
     await Promise.race([r.over, new Promise((res) => (timer = setTimeout(res, seconds * 1000)))]);
+    r.waiting--;
     clearTimeout(timer);
   }
 
@@ -173,7 +177,7 @@ export function make({ root = join(tmpdir(), "sb2-shell") }: { root?: string } =
         }
         let finish = () => {};
         const over = new Promise<void>((r) => (finish = r));
-        const r: Run = { id, dir, started: Date.now(), state: "running", pid: child.pid ?? 0, owner: kindOf(ctx.from) === "session" ? ctx.from : undefined, waited: false, over, finish };
+        const r: Run = { id, dir, started: Date.now(), state: "running", pid: child.pid ?? 0, owner: kindOf(ctx.from) === "session" ? ctx.from : undefined, waited: false, waiting: 0, over, finish };
         runs.set(id, r);
         ctx.log.info("run_start", { run: id, from: ctx.from, shell: sh, pid: child.pid, line: script.split("\n")[0]!.slice(0, 200) });
         const closed = new Promise<void>((res) => child.once("close", () => res()));

@@ -113,7 +113,7 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
     "people.list": () => ({ people: people.map((p) => ({ ...p, online: p.person === ME || devicesOf(p.person).some((d) => d.online && !d.addr.startsWith("@")), devices: devicesOf(p.person) })), projects }),
     "people.remove": (f) => {
       people.splice(people.findIndex((p) => p.person === f.person), 1);
-      for (let i = passes.length - 1; i >= 0; i--) if (passes[i]!.person === f.person && !passes[i]!.addr.startsWith("@")) passes.splice(i, 1);
+      for (let i = passes.length - 1; i >= 0; i--) if (passes[i]!.person === f.person) passes.splice(i, 1);
       return {};
     },
     consent: (f) => {

@@ -432,7 +432,8 @@ export function createMock(o: MockOptions = {}) {
         const spec = { ...s.spec, ...patch };
         delete spec.wing;
         setRow(c, { spec });
-        if (was && sessions[was]) setRow(was, { lead: undefined });
+        // как Host: снятый ведомый убирается с машины
+        if (was && sessions[was]) setRow(was, null);
       } else {
         if (f.pair && !s.spec.wing) {
           wing = `${s.spec.name}-wing@${machineOf(c)}`;

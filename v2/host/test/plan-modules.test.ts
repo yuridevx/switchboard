@@ -1,6 +1,6 @@
 // План тестов v2, модули машины: отказы словом и ожидаемые ветки, которых не держал ни один тест.
 // Источник свойств — устав («система ловит», graceful shutdown) и код (помечено «чьё: код»).
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -86,7 +86,7 @@ describe("план v2: запуски оболочки", () => {
 
   // чьё: код — замысел в shell.ts: «сессия пустила запуск и не дождалась — конец придёт ей сообщением».
   // Находка (fails.md): флаг «дождалась» ставится после конца запуска, и сообщение уходит и дождавшейся сессии. После починки снять .fails.
-  it.fails("сессия дождалась конца своего запуска — сообщение «Запуск кончился» ей не уходит", async () => {
+  it("сессия дождалась конца своего запуска — сообщение «Запуск кончился» ей не уходит", async () => {
     st = await stand({ modules: [chat(), shell({ root: shellRoot() })] });
     await st.open("site");
     const started = (await st.request("shell.run", { to: "@laptop", shell: "node", script: "setTimeout(() => {}, 300)" }, CS)).result as { run: string };
@@ -588,6 +588,46 @@ describe("план v2: точки сами", () => {
     expect(puts).toBe(1);
   });
 
+  // чьё: код — «не чаще раза в 2 мин»: такт идёт по часам ядра
+  it("ход кончился через 2 минуты после прошлой точки — точка снимается снова", async () => {
+    st = await stand({ modules: [points()] });
+    const { s } = await st.open("site", { backup: true });
+    const file = fileOf(s);
+    writeFileSync(file, line(1));
+    let puts = 0;
+    st.services.handlers["points.put"] = () => (puts++, { upload: {}, done: true });
+    await st.turn(CS);
+    await until(() => puts === 1, 5000, "точка после хода");
+    st.clock.advance(2 * 60_000);
+    writeFileSync(file, line(1) + line(2));
+    await st.turn(CS);
+    await until(() => puts === 2, 5000, "точка через 2 минуты");
+  });
+
+  // чьё: код — «ход идёт 10 мин — точка посреди хода»
+  it("долгий ход: каждые 10 минут — точка посреди хода; ход кончился — такт снят", async () => {
+    st = await stand({ modules: [points()] });
+    const { s, proc } = await st.open("site", { backup: true });
+    const file = fileOf(s);
+    writeFileSync(file, line(1));
+    let puts = 0;
+    st.services.handlers["points.put"] = () => (puts++, { upload: {}, done: true });
+    proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
+    await until(() => s.state === "busy", 5000, "ход идёт");
+    st.clock.advance(10 * 60_000);
+    await until(() => puts === 1, 5000, "точка на десятой минуте");
+    writeFileSync(file, line(1) + line(2));
+    st.clock.advance(10 * 60_000);
+    await until(() => puts === 2, 5000, "точка на двадцатой минуте");
+    proc.send({ type: "system", subtype: "session_state_changed", state: "idle" });
+    await until(() => s.state === "idle", 5000, "ход кончился");
+    await new Promise((r) => setTimeout(r, 100));
+    const after = puts;
+    st.clock.advance(10 * 60_000);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(puts).toBe(after);
+  });
+
   // устав: graceful shutdown — «доводит или отдаёт текущее»
   it("штатная остановка Host: идущая точка записана в архив до выхода", async () => {
     st = await stand({ modules: [points()] });
@@ -607,4 +647,57 @@ describe("план v2: точки сами", () => {
     expect((await saving).ok).toBe(true);
     expect(st.exits).toEqual([0]);
   });
+});
+
+describe("план v2: такт проверки входов", () => {
+  const A = "a@example.com", B = "b@example.com";
+  const accountsOf = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).accounts as Array<{ id: string; ok: boolean; why?: string }>;
+  const slotsOf = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).slots as Array<{ name: string; account?: string }>;
+  /** Ждать, пока вход аккаунта не станет таким. */
+  const login = async (id: string, ok: boolean, ms: number) => {
+    const end = Date.now() + ms;
+    while ((await accountsOf()).find((a) => a.id === id)?.ok !== ok) {
+      if (Date.now() > end) throw new Error(`вход ${id} не стал ${ok}`);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  };
+
+  // устав: «система ловит» — остановить, записать причину
+  it("вход пропал: аккаунт без входа, очередь идёт на следующего, в журнале login_lost", async () => {
+    const home = homeWithAccounts({ [A]: "ok", [B]: "ok" }, { main: [A, B] });
+    st = await stand({ home, modules: [accounts()] });
+    st.services.handlers["keys.list"] = () => ({ keys: [] });
+    st.sdk.cli = async (args, env) => ({ code: args.includes("status") && String(env.CLAUDE_CONFIG_DIR ?? "").includes(folders(home).accDir(A)) ? 1 : 0, out: "{}" });
+    st.clock.advance(2 * 60_000);
+    await login(A, false, 8000);
+    expect((await slotsOf()).find((x) => x.name === "main")?.account).toBe(B);
+    expect(st.journal().some((l) => l.msg === "login_lost")).toBe(true);
+  }, 20_000);
+
+  // чьё: код — «чужая почта — „нет входа“ и подмена»
+  it("в папке входа чужой токен: аккаунт без входа, очередь идёт на следующего, в журнале login_foreign", async () => {
+    const home = homeWithAccounts({ [A]: "ok", [B]: "ok" }, { main: [A, B] });
+    st = await stand({ home, modules: [accounts()] });
+    st.services.handlers["keys.list"] = () => ({ keys: [] });
+    st.sdk.cli = async () => ({ code: 0, out: "{}" });
+    st.clock.advance(2 * 60_000);
+    const who = folders(home).whoDir(1);
+    await until(() => existsSync(who), 5000, "проба владельца пошла");
+    writeFileSync(join(who, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "c@example.com" } }));
+    await login(A, false, 12_000);
+    expect((await slotsOf()).find((x) => x.name === "main")?.account).toBe(B);
+    expect(st.journal().some((l) => l.msg === "login_foreign")).toBe(true);
+  }, 30_000);
+
+  // чьё: код — «обрыв сети слот не меняет»
+  it("claude не ответил: вход остаётся годным, очередь не тронута, в журнале причина", async () => {
+    const home = homeWithAccounts({ [A]: "ok", [B]: "ok" }, { main: [A, B] });
+    st = await stand({ home, modules: [accounts()] });
+    st.services.handlers["keys.list"] = () => ({ keys: [] });
+    st.sdk.cli = async (args) => (args.includes("status") ? new Promise(() => {}) : { code: 0, out: "{}" });
+    st.clock.advance(2 * 60_000);
+    await until(() => st!.journal().some((l) => l.msg === "check"), 15_000, "причина в журнале");
+    expect((await accountsOf()).find((a) => a.id === A)?.ok).toBe(true);
+    expect((await slotsOf()).find((x) => x.name === "main")?.account).toBe(A);
+  }, 30_000);
 });

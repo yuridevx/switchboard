@@ -591,6 +591,7 @@ export class Kernel {
         cli: (args, o = {}) => this.sdk.cli(args, this.env(o.env), o.input),
         probe: (o) => this.probe(o),
         module: <T>(name: string) => this.mods.find((x) => x.name === name)?.api as T | undefined,
+        clock: this.clock,
         meter: this.meter,
       };
       this.hosts.set(m, host);
