@@ -15,7 +15,6 @@ import { createHashRouter, Navigate, RouterProvider } from "react-router";
 import { api, isMock } from "./api.ts";
 import { Boundary } from "./common.tsx";
 import { onOpenFromPush } from "./lib/push.ts";
-import { Inbox } from "./screens/Inbox.tsx";
 import { Work } from "./screens/Work.tsx";
 import { Consent } from "./shell/Consent.tsx";
 import { Gate } from "./shell/Gate.tsx";
@@ -43,8 +42,7 @@ const router = createHashRouter([
   {
     path: "/", element: <Shell />,
     children: [
-      { index: true, element: <Navigate to="/inbox" replace /> },
-      { path: "inbox/:callsign?", element: <Inbox /> },
+      { index: true, element: <Navigate to="/work" replace /> },
       { path: "work/:callsign?", element: <Work /> },
       { path: "archive/:sid?", element: late(<Archive />) },
       { path: "spend", element: late(<Spend />) },
@@ -56,7 +54,7 @@ const router = createHashRouter([
       { path: "find", element: <Find /> },
       { path: "more", element: <More /> },
       { path: "keys", element: <Keys /> },
-      { path: "*", element: <Navigate to="/inbox" replace /> },
+      { path: "*", element: <Navigate to="/work" replace /> },
     ],
   },
 ]);

@@ -476,4 +476,3 @@ export function fold(msgs: readonly Msg[]): View {
 export const todoProgress = (todos: readonly Todo[]) => ({ done: todos.filter((t) => t.status === "completed").length, of: todos.length });
 
 /** Задачи в фоне: идут и ушли в фон. */
-export const backgrounded = (v: View) => Object.values(v.tasks).filter((t) => t.bg && !t.end);

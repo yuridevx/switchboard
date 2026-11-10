@@ -5,7 +5,7 @@ import { fold } from "../chat/fold.ts";
 import { rowMark } from "../common.tsx";
 import { groupsByMachine, matches, treeOf, whyMine } from "../lib/work.ts";
 import { tabInto } from "../shell/NewSession.tsx";
-import { inboxOf, type Picture } from "../store/fleet.ts";
+import type { Picture } from "../store/fleet.ts";
 import { askOutcome, seenWord } from "./answers.ts";
 import { returned } from "./Composer.tsx";
 import { pairOf, toggleHeadPart } from "./Conversation.tsx";
@@ -138,20 +138,6 @@ describe("лента", () => {
   it("отменённое сообщение возвращает текст в поле: к набранному — с новой строки", () => {
     expect(returned("", "проверь ссылки")).toBe("проверь ссылки");
     expect(returned("уже пишу  \n", "проверь ссылки")).toBe("уже пишу\nпроверь ссылки");
-  });
-});
-
-describe("«Вам»", () => {
-  it("ведомый открывается через своего ведущего; сессия, которая ждёт сброса лимита, — в списке; чужая ждущая — нет", () => {
-    const p = picture([
-      row("lead@laptop", { wing: "wing@laptop" }),
-      row("wing@laptop", { lead: "lead@laptop", by: "lead@laptop", ask: { id: "q", kind: "question", text: "?", at: 5 } }),
-      row("slow@server", { wait: 99 }),
-      row("alien@server", { by: "pult~anya@example.com", wait: 99 }),
-    ]);
-    const box = inboxOf(p);
-    expect(box.asks).toEqual([{ kind: "ask", key: "a:wing@laptop", callsign: "wing@laptop", at: 5, open: "lead@laptop" }]);
-    expect(box.fails.map((i) => i.key)).toEqual(["w:slow@server"]);
   });
 });
 

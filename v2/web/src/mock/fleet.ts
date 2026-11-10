@@ -6,7 +6,7 @@ import {
 import { iter2Handlers } from "./iter2.ts";
 import { iter4Handlers } from "./iter4.ts";
 import { screenHandlers } from "./screens.ts";
-import { done, type Ev, liveSteps, peer, reply, researchTurn, say, shortTurn, siteTurn, text, uid } from "./convo.ts";
+import { done, type Ev, got, liveSteps, peer, reply, researchTurn, say, shortTurn, siteTurn, text, uid, use } from "./convo.ts";
 
 const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
 const ME = "~yuri@example.com", ANYA = "~anya@example.com", OLEG = "~oleg@example.com";
@@ -62,6 +62,16 @@ export function createMock(o: MockOptions = {}) {
   add(row("docs@laptop", "idle", "site", { title: "Раздел про выкладку в документации", unread: [ME], last: T - 14 * MIN, context: 0.18, result: "Дописал раздел «Выкладка»: три шага, откат и пример. Проверил ссылки в разделе — 14 из 14 открываются." }));
   add(row("lead@laptop", "busy", "research", { title: "Замена клиента оплаты", doing: "Ждёт итог от wing@laptop", last: T - 2 * MIN, spec: { name: "lead", cwd: "~/projects/billing", model: M, effort: "xhigh", mode: "all", account: "auto", pieces: ["base", "research"], wing: "wing@laptop", project: "research", backup: true } }));
   add(row("wing@laptop", "busy", "research", { title: "Поиск вызовов старого клиента", doing: "Читает src/jobs/renew.ts", by: "lead@laptop", lead: "lead@laptop", last: T - 1 * MIN, model: "claude-sonnet-5-5", spec: { name: "wing", cwd: "~/projects/billing", model: "claude-sonnet-5-5", effort: "medium", mode: "all", account: "auto", pieces: ["base"], parent: "lead@laptop", project: "research", backup: true } }));
+  // четыре больших вопроса разом: карточка на каждый, всё прокручивается вместе с лентой
+  const longQ = (about: string, n: number) => `${about}\n\n` + Array.from({ length: n }, (_, i) => `${i + 1}. ${["Проверил текущую схему и её ограничения", "Сравнил с тем, что уже лежит в репозитории", "Посчитал, сколько файлов это затронет", "Оценил, что сломается у соседних команд", "Нашёл место, где это решение уже пробовали"][i % 5]} — пункт ${i + 1} разбора, от которого зависит ответ.`).join("\n");
+  add(row("survey@laptop", "waiting", "site", { title: "Перенос сайта на новую сборку", last: T - 5 * MIN, pieces: ["base", "web"],
+    ask: ask({ kind: "question", title: "Перенос сайта", text: "Четыре решения перед переносом", tool: "AskUserQuestion", input: { questions: [
+      { header: "Сборщик", question: longQ("**Какой сборщик берём?** Ниже — что я выяснил по каждому.", 32), options: [{ label: "Vite", description: "уже стоит в соседнем проекте, сборка 3 с" }, { label: "Rspack", description: "совместим с нынешним конфигом, сборка 5 с" }, { label: "Оставить webpack", description: "ничего не трогаем, сборка 48 с" }] },
+      { header: "Порядок", question: longQ("**В каком порядке переносим разделы?** Зависимости между ними:", 34), options: [{ label: "Сначала каталог", description: "самый большой, но без общих стилей" }, { label: "Сначала корзина", description: "маленькая, зато задевает оплату" }, { label: "Всё одним заходом", description: "один большой дифф на 400 файлов" }] },
+      { header: "Проверки", question: longQ("**Что прогонять после каждого шага?** Можно несколько.", 31), multiSelect: true, options: [{ label: "Тесты", description: "214 штук, 40 с" }, { label: "Снимки экранов", description: "62 экрана, 3 мин" }, { label: "Проверка ссылок", description: "1 900 ссылок, 6 мин" }, { label: "Замер скорости", description: "5 страниц, 2 мин" }] },
+      { header: "Откат", question: longQ("**Как откатываемся, если после переноса что-то сломалось?**", 30), options: [{ label: "Веткой", description: "старая сборка живёт в ветке до конца недели" }, { label: "Флагом", description: "обе сборки в коде, переключатель в настройках" }] },
+    ] } }, 5) }));
+  add(row("audit@server", "busy", "infra", { title: "Проверка прав доступа по службам", doing: "Ждёт трёх субагентов", last: T - 1 * MIN, context: 0.41, pieces: ["base", "ops"] }));
   add(row("hotfix@laptop", "failed", "site", { title: "Срочная правка формы входа", error: "процесс claude дважды вышел до готовности: код 1, «Invalid API key»", last: T - 50 * MIN, account: "work@example.com" }));
   add(row("deploy@server", "waiting", "infra", { title: "Пересборка и выкладка статики", mode: "ask", last: T - 3 * MIN, pieces: ["base", "ops"],
     ask: ask({ kind: "permission", title: "Команда", text: "rm -rf dist && npm run build", tool: "Bash", input: { command: "rm -rf dist && npm run build", description: "Чистая пересборка" }, rule: "Bash(rm -rf dist *)", blocked: "~/projects/site/dist", notes: "Команда удаляет папку вне списка разрешённых правил проекта", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 3) }));
@@ -86,6 +96,20 @@ export function createMock(o: MockOptions = {}) {
     reply([text("Дописал раздел «Выкладка»: три шага, откат и пример.\n\n```bash\nnpm run deploy -- prod 412   # выложить\nnpm run deploy -- prod 411   # откатить\n```\n\nПроверил ссылки в разделе — 14 из 14 открываются.")], T - 15 * MIN), done(T - 14 * MIN, 96_000, 0.31, 5, 36_000));
   talk("lead@laptop").push(...researchTurn(T - 30 * MIN, "Надо уйти со старого клиента оплаты. Разберись, где он используется, и предложи замену."), say("Делай обёртку. Поиск оставшихся вызовов отдай ведомому.", T - 4 * MIN), reply([text("Отдал поиск ведомому `wing@laptop`, сам пишу обёртку.")], T - 3 * MIN));
   talk("wing@laptop").push(peer("lead@laptop", "Найди все оставшиеся вызовы payments/legacy после правки обёртки и пришли список файлов.", T - 3 * MIN));
+  talk("survey@laptop").push(say("Перенеси сайт на новую сборку. Перед началом спроси, что нужно решить.", T - 9 * MIN), reply([text("Собрал четыре решения, без которых перенос не начать.")], T - 5 * MIN));
+  // идут сейчас: три субагента с шагами и фоновая команда — блок над полем ввода
+  talk("audit@server").push(
+    say("Проверь права доступа в трёх службах и скажи, где они шире нужного.", T - 8 * MIN),
+    reply([text("Раздаю проверку трём субагентам, сам слежу за журналом входа."), use("ag1", "Agent", { description: "Права службы оплаты", subagent_type: "Explore", prompt: "Пройди services/billing: какие роли что могут, где права шире нужного." }), use("ag2", "Agent", { description: "Права службы каталога", subagent_type: "Explore", prompt: "Пройди services/catalog: роли и их права." }), use("ag3", "Agent", { description: "Сводка по ролям", subagent_type: "general-purpose", prompt: "Собери таблицу ролей по трём службам из docs/roles." })], T - 7 * MIN),
+    ...[["ag1", "t-ag1", "Права службы оплаты", 6], ["ag2", "t-ag2", "Права службы каталога", 5], ["ag3", "t-ag3", "Сводка по ролям", 4]].map(([tool, id, desc, min]) => ({ type: "system", subtype: "task_started", uuid: uid("s"), task_id: id, tool_use_id: tool, description: desc, task_type: "local_agent", is_backgrounded: false, timestamp: new Date(T - (min as number) * MIN).toISOString() }) as Ev),
+    reply([use("ag1-a", "Grep", { pattern: "role:", path: "services/billing" })], T - 6 * MIN, "ag1"), got("ag1-a", "services/billing/src/roles.ts:14\nservices/billing/src/refund.ts:8", T - 6 * MIN + 4000, "ag1"),
+    reply([use("ag1-b", "Read", { file_path: "services/billing/src/refund.ts" })], T - 5 * MIN, "ag1"), got("ag1-b", "export const canRefund = (r: Role) => r !== \"guest\";", T - 5 * MIN + 3000, "ag1"),
+    reply([use("ag2-a", "Glob", { pattern: "services/catalog/**/*.ts" })], T - 4 * MIN, "ag2"), got("ag2-a", "services/catalog/src/index.ts\nservices/catalog/src/acl.ts", T - 4 * MIN + 2000, "ag2"),
+    { type: "system", subtype: "task_progress", uuid: uid("s"), task_id: "t-ag1", last_tool_name: "Read", usage: { tool_uses: 12 } } as Ev,
+    { type: "system", subtype: "task_progress", uuid: uid("s"), task_id: "t-ag2", last_tool_name: "Glob", usage: { tool_uses: 7 } } as Ev,
+    { type: "system", subtype: "task_progress", uuid: uid("s"), task_id: "t-ag3", summary: "сводит роли службы оплаты", usage: { tool_uses: 3 } } as Ev,
+    { type: "system", subtype: "task_started", uuid: uid("s"), task_id: "bg-audit", description: "tail -f /var/log/auth.log", task_type: "local_bash", is_backgrounded: true, timestamp: new Date(T - 7 * MIN).toISOString() } as Ev,
+  );
   talk("hotfix@laptop").push(say("Форма входа падает при пустом пароле. Почини срочно.", T - 55 * MIN));
   talk("deploy@server").push(...shortTurn(T - 25 * MIN, "Какая сборка статики сейчас на сервере?", "На сервере сборка от вчера, 18:40, коммит `a41f9c2`."), say("Пересобери с нуля и выложи.", T - 4 * MIN), reply([text("Начну с чистой пересборки.")], T - 3 * MIN));
   talk("api@server").push(say("Добавь предел запросов на входе. Сначала план.", T - 26 * MIN), reply([text("Составил план, жду решения.")], T - 22 * MIN));

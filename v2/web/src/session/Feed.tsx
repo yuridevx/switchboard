@@ -177,8 +177,8 @@ function ToolLine({ tool, view }: { tool: Tool; view: View }) {
   const task: Task | undefined = tool.task ? view.tasks[tool.task] : undefined;
   const waiting = env.waiting === tool.id;
   const state = toolState(tool, task, waiting);
-  // сам раскрыт: правка, список дел, вопрос; субагент — пока идёт; план — пока его не показывает карточка вопроса. Выбор человека главнее
-  const usual = look.body === "agent" ? !(task?.bg ? task.final : tool.result) : look.body === "plan" ? !waiting : look.open;
+  // сам раскрыт: правка, список дел, вопрос; план — пока его не показывает карточка вопроса; шаги идущего субагента — в блоке «Идут сейчас» над полем ввода. Выбор человека главнее
+  const usual = look.body === "agent" ? false : look.body === "plan" ? !waiting : look.open;
   const open = choice ?? usual;
   const kind = isAgent(tool) && typeof tool.input?.subagent_type === "string" ? tool.input.subagent_type : "";
   const now = isAgent(tool) && task && !task.end ? (task.summary ?? (task.last ? `сейчас: ${task.last}` : "")) : "";
@@ -336,8 +336,9 @@ const RowView = memo(function RowView({ r, view }: { r: Item; view: View }) {
     case "line":
       return <div className={`sysline${r.tone ? ` tone-${r.tone}` : ""}`}><Icon name={r.icon} size={14} /><span>{r.text}{"dim" in r && r.dim}</span></div>;
     case "task": {
+      // идущая задача стоит строкой в блоке «Идут сейчас» над полем ввода; в ленте — только законченная
       const t = view.tasks[r.id];
-      return t ? (
+      return t?.end ? (
         <div className="sysline"><IconRobot size={14} /><span>{t.desc}{t.summary ? ` — ${t.summary}` : ""}{t.steps ? ` · ${t.steps} ${plural(t.steps, "шаг", "шага", "шагов")}` : ""}</span>
           {!t.end && env.canAct && <button type="button" className="linkbtn" onClick={() => env.act?.("taskStop", [t.id])}>Стоп</button>}
         </div>

@@ -136,7 +136,9 @@ export function NewForm() {
   };
   return (
     <Stack gap="sm">
-      <Textarea autoFocus autosize minRows={2} maxRows={8} placeholder="Что сделать" aria-label="Первое сообщение" value={prompt} onChange={(e) => setPrompt(e.currentTarget.value)}
+      <TextInput autoFocus label="Имя" className="mono" placeholder={finalName} value={name} onChange={(e) => setName(e.currentTarget.value.toLowerCase())}
+        onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (e.preventDefault(), void start())} />
+      <Textarea autosize minRows={2} maxRows={8} placeholder="Что сделать" aria-label="Первое сообщение" value={prompt} onChange={(e) => setPrompt(e.currentTarget.value)}
         onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && (e.preventDefault(), void start())} />
       {places.length > 0 && (
         <Group gap={6} aria-label="Недавние места">
@@ -153,7 +155,6 @@ export function NewForm() {
         <TextInput label="Папка" className="mono" style={{ flex: 2 }} value={cwd} onChange={(e) => setCwd(e.currentTarget.value)}
           error={inside.error ? sayError(inside.error) : undefined}
           onKeyDown={(e) => { const to = e.key === "Tab" && !e.shiftKey ? tabInto(parent, leaf, inside.data?.dirs ?? []) : null; if (to) (e.preventDefault(), setCwd(to)); }} />
-        <TextInput label="Имя" className="mono" style={{ flex: 1 }} placeholder={finalName} value={name} onChange={(e) => setName(e.currentTarget.value.toLowerCase())} />
       </Group>
       {parent && !leaf && inside.data && inside.data.path === parent && !inside.data.dirs.length && <Text size="xs" className="muted">В папке {parent} подпапок нет</Text>}
       {sub.length > 0 && (

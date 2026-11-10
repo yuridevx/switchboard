@@ -68,10 +68,10 @@ describe("раскрытие", () => {
     fireEvent.click(line());
     expect(screen.queryByText(/стало/)).toBeNull();
   });
-  it("субагент раскрыт, пока идёт, и свёрнут с итогом; у идущего — чип типа и «сейчас: …»", () => {
+  it("субагент в ленте свёрнут и пока идёт, и с итогом — его шаги в блоке «Идут сейчас»; у идущего — чип типа и «сейчас: …»", () => {
     const task: Task = { id: "k", desc: "поиск", bg: false, started: Date.now(), last: "Grep", steps: 2 };
     const { unmount } = feed([tool({ name: "Agent", task: "k", input: { subagent_type: "Explore", prompt: "найди вход" } })], { tasks: [task] });
-    expect(screen.getByText("найди вход")).toBeTruthy();
+    expect(screen.queryByText("найди вход")).toBeNull();
     expect(screen.getByText("Explore").className).toBe("toolchip");
     expect(screen.getByText("сейчас: Grep")).toBeTruthy();
     unmount();

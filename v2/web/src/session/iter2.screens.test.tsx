@@ -10,7 +10,6 @@ import * as apiModule from "../api.ts";
 import { usePending } from "../common.tsx";
 import { getLocal, setLocal } from "../lib/local.ts";
 import type { Mock } from "../mock/fleet.ts";
-import { Inbox } from "../screens/Inbox.tsx";
 import { Work } from "../screens/Work.tsx";
 import { useFleet } from "../store/fleet.ts";
 import { AskCard } from "./Ask.tsx";
@@ -65,15 +64,14 @@ describe("ввод: вложения и возврат текста", () => {
     expect(screen.queryByAltText("снимок.png")).toBeNull();
     expect(screen.getByText("заметки.txt")).toBeTruthy();
   });
-  it("отменённое сообщение возвращается в поле, не затирая набранное; «/ команды» ставит слеш", async () => {
+  it("отменённое сообщение возвращается в поле, не затирая набранное; кнопки «/ команды» нет — хватает слеша в поле", async () => {
     const ref = createRef<ComposerHandle>();
     page(<Composer ref={ref} s={session("docs@laptop")} talk={fakeTalk()} />);
     const box = screen.getByLabelText("Сообщение сессии") as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: "уже пишу" } });
     flush(() => ref.current!.giveBack("проверь ссылки"));
     expect(box.value).toBe("уже пишу\nпроверь ссылки");
-    fireEvent.click(screen.getByRole("button", { name: "Команды сессии" }));
-    expect(box.value).toBe("/");
+    expect(screen.queryByRole("button", { name: "Команды сессии" })).toBeNull();
   });
 });
 
@@ -119,12 +117,9 @@ describe("лента: картинки, правка, документ, спис
 
 describe("вопрос: кто видит и кто ответил", () => {
   const ask = (a: Partial<Ask>): Ask => ({ id: "q1", kind: "question", text: "Какую ветку?", at: T, options: [{ label: "main" }], ...a });
-  it("под вопросом — «Вопрос видят: …»; в строке «Вам» её нет", () => {
-    const { unmount } = page(<AskCard callsign="site@laptop" ask={ask({ to: "~yuri@example.com", seen: ["pult~yuri@example.com", "pult~anya@example.com"] })} />);
+  it("под вопросом — «Вопрос видят: …»", () => {
+    page(<AskCard callsign="site@laptop" ask={ask({ to: "~yuri@example.com", seen: ["pult~yuri@example.com", "pult~anya@example.com"] })} />);
     expect(screen.getByText("Вопрос видят: вы (pult), pult anya")).toBeTruthy();
-    unmount();
-    page(<AskCard inline callsign="site@laptop" ask={ask({ to: "~yuri@example.com" })} />);
-    expect(screen.queryByText(/Вопрос видят/)).toBeNull();
   });
   it("ответ на вопрос встаёт в ленту строкой «отвечено: …» с тем, кто ответил", async () => {
     page(<Conversation callsign="site-tests@laptop" />);
@@ -136,15 +131,20 @@ describe("вопрос: кто видит и кто ответил", () => {
 });
 
 describe("пара", () => {
-  it("в разговоре пары — выбор «кого показать»; «обе» ставит разговоры рядом, ведущий слева; выбор помнит устройство", async () => {
+  it("в разговоре пары — участники в шапке: лампа и модель каждого; стрелка ставит разговоры рядом, ведущий слева; скрытая сторона — строкой под шапкой; выбор помнит устройство", async () => {
     page(<Routes><Route path="/work/:c" element={<Conversation callsign="lead@laptop" />} /></Routes>, "/work/lead@laptop");
-    const pick = await screen.findByRole("radiogroup", { name: "Кого показать" });
+    const pick = await screen.findByRole("group", { name: "Кого показать" });
     expect(document.querySelectorAll(".conv")).toHaveLength(1);
-    fireEvent.click(within(pick).getByText("обе"));
+    expect(within(pick).getByRole("button", { name: "Ведущий lead@laptop" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(pick).getByRole("button", { name: "Ведомый wing@laptop" }).textContent).toContain("Sonnet 5.5");
+    // скрытая сторона видна строкой: кто и чем занят
+    expect(screen.getByRole("button", { name: "Показать: ведомый wing@laptop" }).textContent).toContain("Читает src/jobs/renew.ts");
+    fireEvent.click(within(pick).getByRole("button", { name: "Обе стороны" }));
     await waitFor(() => expect(document.querySelectorAll(".conv")).toHaveLength(2));
     expect(getLocal(pairKey("lead@laptop"), "lead")).toBe("both");
     const heads = [...document.querySelectorAll(".conv .conv-head .mono")].map((e) => e.textContent);
     expect(heads.indexOf("lead@laptop")).toBeLessThan(heads.indexOf("wing@laptop"));
+    expect(screen.queryByRole("button", { name: /Показать: / })).toBeNull();
   });
   it("«Обзор» и «Журнал» инспектора у пары — в две колонки: ведущий и ведомый", async () => {
     page(<Inspector s={session("lead@laptop")} other={session("wing@laptop")} tab="doc" />);
@@ -167,14 +167,5 @@ describe("пара", () => {
     expect(lead.textContent).toContain("Поиск вызовов старого клиента");
     expect(document.querySelector('[aria-label="Работа"] [data-call="wing@laptop"]')).toBeNull();
     expect(lead.getAttribute("title")).toBe("вы открыли");
-  });
-});
-
-describe("«Вам»", () => {
-  it("сессия, ждущая сброса лимита, стоит в списке со сроком; в строке — проект", async () => {
-    page(<Routes><Route path="*" element={<Inbox />} /></Routes>, "/inbox");
-    const list = within(await screen.findByLabelText("Вам"));
-    await waitFor(() => expect(list.getByText(/Ждёт сброса лимита: продолжит/)).toBeTruthy());
-    await waitFor(() => expect(document.querySelector('[aria-label="Вам"] [data-call="site-tests@laptop"]')!.textContent).toContain("Сайт"));
   });
 });

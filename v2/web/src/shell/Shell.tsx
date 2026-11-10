@@ -1,19 +1,19 @@
 // Оболочка: панель разделов слева (на телефоне — снизу), горячие клавиши, полоса «нет связи», место для страницы шага.
 import { ActionIcon, Button, Tooltip, useMantineColorScheme } from "@mantine/core";
 import { useHotkeys } from "@mantine/hooks";
-import { IconArchive, IconDots, IconInbox, IconLayoutList, IconMoon, IconPlus, IconSearch, IconSun } from "@tabler/icons-react";
+import { IconArchive, IconDots, IconLayoutList, IconMoon, IconPlus, IconSearch, IconSun } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { Boundary, personWord, useUi } from "../common.tsx";
 import { hhmm } from "../lib/time.ts";
-import { inboxOf, useFleet } from "../store/fleet.ts";
+import { useFleet, waitsYou } from "../store/fleet.ts";
 import { linkWord, openPage, useLink } from "./link.ts";
 import { LAMP, NAV } from "./nav.ts";
 import { newPath } from "./NewSession.tsx";
 import { HOST, Steps, StepUrl } from "./Page.tsx";
 import { PushBar } from "./PushBar.tsx";
 
-const GO: Record<string, string> = { i: "/inbox", w: "/work", a: "/archive", s: "/spend", f: "/fleet", o: "/observe", t: "/settings", в: "/inbox", р: "/work", а: "/archive", х: "/spend", ф: "/fleet", н: "/observe", с: "/settings" };
+const GO: Record<string, string> = { w: "/work", a: "/archive", s: "/spend", f: "/fleet", o: "/observe", t: "/settings", р: "/work", а: "/archive", х: "/spend", ф: "/fleet", н: "/observe", с: "/settings" };
 
 function useGoKeys() {
   const go = useNavigate();
@@ -59,15 +59,14 @@ export function Shell() {
   const picture = useFleet();
   const ui = useUi();
   const { colorScheme, setColorScheme } = useMantineColorScheme();
-  const inbox = useMemo(() => inboxOf(picture), [picture.sessions, picture.machines, picture.you]);
-  const waiting = inbox.asks.length + inbox.done.length > 0;
+  const waiting = useMemo(() => waitsYou(picture), [picture.sessions, picture.machines, picture.you]);
   useGoKeys();
   useHotkeys([
     ["n", () => go(newPath())], ["т", () => go(newPath())],
     ["i", () => ui.set({ inspector: !ui.inspector })], ["ш", () => ui.set({ inspector: !ui.inspector })],
     ["shift+/", () => go("/keys")], ["mod+K", () => go("/find")],
   ]);
-  const inTalk = /^\/(inbox|work|archive)\/.+/.test(loc.pathname);
+  const inTalk = /^\/(work|archive)\/.+/.test(loc.pathname);
   // экран машины — часть «Флота»: раздел в панели остаётся подсвеченным
   const section = loc.pathname.startsWith("/machine") ? "/fleet" : "/" + (loc.pathname.split("/")[1] ?? "");
   const lamp = LAMP[picture.link] ?? "failed";
@@ -79,7 +78,7 @@ export function Shell() {
         {NAV.map(([to, word, I]) => (
           <NavLink key={to} to={to} className={({ isActive }) => (isActive || section === to ? "active" : "")}>
             <I size={21} stroke={1.6} />{word}
-            {to === "/inbox" && waiting && <span className="dot" aria-label="есть новое" />}
+            {to === "/work" && waiting && <span className="dot" aria-label="ждут вас" />}
           </NavLink>
         ))}
         <div style={{ flex: 1 }} />
@@ -99,8 +98,7 @@ export function Shell() {
         <StepUrl />
       </main>
       <nav className="tabbar" aria-label="Разделы">
-        <NavLink to="/inbox" className={({ isActive }) => (isActive ? "active" : "")}><IconInbox size={21} stroke={1.6} />Вам{waiting && <span className="dot" />}</NavLink>
-        <NavLink to="/work" className={({ isActive }) => (isActive ? "active" : "")}><IconLayoutList size={21} stroke={1.6} />Работа</NavLink>
+        <NavLink to="/work" className={({ isActive }) => (isActive ? "active" : "")}><IconLayoutList size={21} stroke={1.6} />Работа{waiting && <span className="dot" aria-label="ждут вас" />}</NavLink>
         <button type="button" aria-label="Новая сессия" onClick={() => go(newPath())}><IconPlus size={24} />Новая</button>
         <NavLink to="/archive" className={({ isActive }) => (isActive ? "active" : "")}><IconArchive size={21} stroke={1.6} />Архив</NavLink>
         {/* лампа связи на телефоне — у «Ещё»: зелёная, жёлтая при подключении, красная без связи */}

@@ -1,66 +1,72 @@
-// Вопрос сессии человеку: варианты кнопками, несколько вопросов по одному, разрешение, план, форма, ссылка.
-// Один компонент — в разговоре и прямо в строке «Вам». Ответ уходит через несколько секунд: до этого его можно отменить.
+// Вопрос сессии человеку — карточками в ленте разговора: варианты кнопками, разрешение, план, форма, ссылка.
+// Несколько вопросов — карточка на каждый, все видны сразу и прокручиваются вместе с лентой. Ответ уходит через несколько секунд: до этого его можно отменить.
 import { answer, type Ask } from "@sb/protocol";
 import { Button, Checkbox, Group, NumberInput, Select, Switch, Text, TextInput } from "@mantine/core";
 import { useState } from "react";
 import { act } from "../api.ts";
 import { later, usePending } from "../common.tsx";
 import { useFleet } from "../store/fleet.ts";
-import { ACTION_WORD, type Action, actionAnswer, answeredAll, formAnswer, formFields, formReady, questionAnswer, questionSaid, questionsOf, seenWord } from "./answers.ts";
+import { ACTION_WORD, type Action, actionAnswer, formAnswer, formFields, formReady, questionAnswer, questionSaid, questionsOf, seenWord } from "./answers.ts";
 import { Md } from "./Feed.tsx";
 
 const KIND: Record<Ask["kind"], string> = { question: "Вопрос", permission: "Разрешение", plan: "План", form: "Форма", url: "Ссылка" };
-const firstLine = (md: string) => md.replace(/[#*`]/g, "").split("\n").map((l) => l.trim()).filter(Boolean)[0] ?? "";
 
 type Send = (value: unknown, said: string) => void;
 
-/** Вопросы с вариантами: по одному; у выбора нескольких — флажки; свой ответ — полем. */
-function Questions({ ask, send, inline }: { ask: Ask; send: Send; inline?: boolean }) {
+/** Вопросы с вариантами: карточка на вопрос. Один вопрос с одним выбором уходит нажатием варианта; несколько — выбираются на местах и уходят вместе. */
+function Questions({ ask, send, head, seen }: { ask: Ask; send: Send; head: string; seen: string }) {
   const qs = questionsOf(ask);
-  const [at, setAt] = useState(0);
   const [picked, setPicked] = useState<string[][]>(() => qs.map(() => []));
-  const [own, setOwn] = useState("");
-  const q = qs[at]!;
-  const last = at === qs.length - 1;
-  const put = (list: string[]) => picked.map((p, i) => (i === at ? list : p));
-  const finish = (all: string[][]) => send(questionAnswer(qs, all), questionSaid(all));
-  const next = (all: string[][]) => (last ? finish(all) : (setPicked(all), setOwn(""), setAt(at + 1)));
-  const mine = picked[at] ?? [];
+  const [own, setOwn] = useState<string[]>(() => qs.map(() => ""));
+  const one = qs.length === 1;
+  const all = picked.map((p, i) => [...p, ...(own[i]!.trim() ? [own[i]!.trim()] : [])]);
+  const answered = all.filter((a) => a.length).length;
+  const finish = (a: string[][] = all) => send(questionAnswer(qs, a), questionSaid(a));
+  const put = (i: number, list: string[]) => setPicked(picked.map((p, j) => (j === i ? list : p)));
   return (
-    <div className="ask-q">
-      {qs.length > 1 && <Text size="xs" className="muted">{at + 1} из {qs.length}{q.header ? ` · ${q.header}` : ""}</Text>}
-      {(qs.length > 1 || !inline) && qs.length > 1 && <Text size="sm">{q.question}</Text>}
-      {q.multi ? (
-        <>
-          {q.options.map((o) => (
-            <Checkbox key={o.label} size="xs" label={o.label} description={o.about} checked={mine.includes(o.label)}
-              onChange={(e) => setPicked(put(e.currentTarget.checked ? [...mine, o.label] : mine.filter((x) => x !== o.label)))} />
-          ))}
-          <Group gap={6}>
-            <Button size="xs" disabled={!mine.length && !own.trim()} onClick={() => next(put([...mine, ...(own.trim() ? [own.trim()] : [])]))}>{last ? "Ответить" : "Дальше"}</Button>
-            {at > 0 && <Button size="xs" variant="default" onClick={() => setAt(at - 1)}>Назад</Button>}
+    <>
+      {qs.map((q, i) => {
+        const mine = picked[i] ?? [];
+        const done = all[i]!.length > 0;
+        return (
+          <div key={i} className="askcard" data-ask={ask.id} data-open={done ? undefined : ""} role="group" aria-label={one ? head : `Вопрос ${i + 1} из ${qs.length}`}>
+            <Text size="xs" fw={600}>{one ? head : `Вопрос ${i + 1} из ${qs.length}${q.header ? ` · ${q.header}` : ""}`}</Text>
+            <Md text={q.question} />
+            <div className="ask-opts">
+              {q.options.map((o) => q.multi ? (
+                <Checkbox key={o.label} size="xs" label={o.label} description={o.about} checked={mine.includes(o.label)} onChange={(e) => put(i, e.currentTarget.checked ? [...mine, o.label] : mine.filter((x) => x !== o.label))} />
+              ) : (
+                <button key={o.label} type="button" className="ask-opt" aria-pressed={mine.includes(o.label)} aria-label={o.label}
+                  onClick={() => (one ? finish([[o.label]]) : (put(i, mine.includes(o.label) ? [] : [o.label]), setOwn(own.map((x, j) => (j === i ? "" : x)))))}>
+                  <b>{o.label}</b>{o.about && <span>{o.about}</span>}
+                </button>
+              ))}
+            </div>
+            <Group gap={6} wrap="nowrap">
+              <TextInput size="xs" placeholder="Свой ответ" aria-label={one ? "Свой ответ" : `Свой ответ на вопрос ${i + 1}`} value={own[i]} style={{ flex: 1 }}
+                onChange={(e) => (setOwn(own.map((x, j) => (j === i ? e.currentTarget.value : x))), !q.multi && e.currentTarget.value && put(i, []))}
+                onKeyDown={(e) => e.key === "Enter" && one && all[0]!.length > 0 && finish()} />
+              {one && (q.multi || own[0]!.trim()) && <Button size="xs" disabled={!all[0]!.length} onClick={() => finish()}>Ответить</Button>}
+            </Group>
+            {one && seen && <div className="ask-seen">{seen}</div>}
+          </div>
+        );
+      })}
+      {!one && (
+        <div className="askcard askdone" data-ask={ask.id}>
+          <Group gap="sm" justify="space-between" wrap="nowrap">
+            <Text size="sm">Отвечено {answered} из {qs.length}</Text>
+            <Button size="xs" disabled={answered < qs.length} onClick={() => finish()}>Ответить</Button>
           </Group>
-        </>
-      ) : (
-        <Group gap={6}>
-          {q.options.map((o, i) => <Button key={o.label} size="xs" variant={i === 0 ? "filled" : "default"} title={o.about} onClick={() => next(put([o.label]))}>{o.label}</Button>)}
-          {at > 0 && <Button size="xs" variant="subtle" onClick={() => setAt(at - 1)}>Назад</Button>}
-        </Group>
+          {seen && <div className="ask-seen">{seen}</div>}
+        </div>
       )}
-      {!inline && (
-        <Group gap={6}>
-          <TextInput size="xs" placeholder="Свой ответ" aria-label="Свой ответ" value={own} onChange={(e) => setOwn(e.currentTarget.value)}
-            onKeyDown={(e) => e.key === "Enter" && !q.multi && own.trim() && next(put([own.trim()]))} style={{ flex: 1 }} />
-          {!q.multi && <Button size="xs" variant="default" disabled={!own.trim()} onClick={() => next(put([own.trim()]))}>{last ? "Ответить" : "Дальше"}</Button>}
-        </Group>
-      )}
-      {qs.length > 1 && answeredAll(qs.slice(0, at), picked) && at > 0 && <Text size="xs" className="muted">уже выбрано: {questionSaid(picked.slice(0, at))}</Text>}
-    </div>
+    </>
   );
 }
 
 /** Разрешение и план: три действия; отказ — с причиной, которую увидит модель. */
-function Actions({ ask, send, inline }: { ask: Ask; send: Send; inline?: boolean }) {
+function Actions({ ask, send }: { ask: Ask; send: Send }) {
   const words = ACTION_WORD[ask.kind === "plan" ? "plan" : "permission"];
   const [deny, setDeny] = useState(false);
   const [why, setWhy] = useState("");
@@ -78,7 +84,7 @@ function Actions({ ask, send, inline }: { ask: Ask; send: Send; inline?: boolean
     <Group gap={6}>
       <Button size="xs" onClick={() => go("allow")}>{words.allow}</Button>
       <Button size="xs" variant="default" onClick={() => go("allow_always")}>{words.allow_always}</Button>
-      <Button size="xs" variant="default" onClick={() => (inline ? go("deny") : setDeny(true))}>{words.deny}</Button>
+      <Button size="xs" variant="default" onClick={() => setDeny(true)}>{words.deny}</Button>
     </Group>
   );
 }
@@ -100,47 +106,31 @@ function Form({ ask, send }: { ask: Ask; send: Send }) {
   );
 }
 
-export function AskCard({ callsign, ask, inline, quiet, sessionTitle, onOpen }: {
-  callsign: string; ask: Ask;
-  /** в строке «Вам»: коротко; сложный вопрос свёрнут до кнопки */
-  inline?: boolean;
-  /** разговор открыт рядом: кнопки ответа не повторяются */
-  quiet?: boolean;
-  sessionTitle?: string;
-  onOpen?: () => void;
-}) {
+export function AskCard({ callsign, ask }: { callsign: string; ask: Ask }) {
   const [whole, setWhole] = useState(false);
   const key = "ask:" + ask.id;
   const sent = usePending((p) => p.items[key]);
   const me = useFleet((f) => f.you?.person);
-  const seen = inline ? "" : seenWord(ask, me);
+  const seen = seenWord(ask, me);
   const send: Send = (value, said) => later({ key, label: `${callsign}: отвечено «${said}»`, run: () => act(answer, { to: callsign, ask: ask.id, answer: value }) });
-  const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
-  const qs = ask.kind === "question" ? questionsOf(ask) : [];
-  const complex = qs.length > 1 || qs.some((q) => q.multi);
   const head = ask.title && ask.title !== KIND[ask.kind] ? `${KIND[ask.kind]} · ${ask.title}` : KIND[ask.kind];
-  const planLine = ask.kind === "plan" ? firstLine(ask.text) : "";
-  if (sent) return <div className={`askcard${inline ? " inline" : ""}`}><Text size="sm" className="muted">{sent.replace(/^[^:]*: /, "")} — уходит сессии</Text></div>;
+  if (sent) return <div className="askcard" data-ask={ask.id}><Text size="sm" className="muted">{sent.replace(/^[^:]*: /, "")} — уходит сессии</Text></div>;
+  if (ask.kind === "question") return <Questions ask={ask} send={send} head={head} seen={seen} />;
   return (
-    <div className={`askcard${inline ? " inline" : ""}`} onClick={stop} onKeyDown={stop}>
-      {!inline && <Text size="xs" fw={600}>{head}</Text>}
+    <div className="askcard" data-ask={ask.id} data-open="" role="group" aria-label={head}>
+      <Text size="xs" fw={600}>{head}</Text>
       {ask.kind === "permission" ? (
         <div className="ask-in">
           <pre>{ask.text}</pre>
           {ask.notes && <Text size="sm">{ask.notes}</Text>}
           {ask.blocked && <Text size="sm">Путь: <span className="mono">{ask.blocked}</span></Text>}
           {ask.rule && <Text size="sm">«Разрешать всегда» запишет правило <span className="mono">{ask.rule}</span></Text>}
-          {!inline && ask.input != null && <button type="button" className="linkbtn" aria-expanded={whole} onClick={() => setWhole((w) => !w)}>{whole ? "Скрыть ввод" : "Весь ввод"}</button>}
+          {ask.input != null && <button type="button" className="linkbtn" aria-expanded={whole} onClick={() => setWhole((w) => !w)}>{whole ? "Скрыть ввод" : "Весь ввод"}</button>}
           {whole && <pre>{JSON.stringify(ask.input, null, 2)}</pre>}
         </div>
-      )
-        : ask.kind === "plan" && !inline ? <Md text={ask.text} />
-        : ask.kind === "plan" ? (planLine && planLine !== sessionTitle ? <Text size="sm" className="clamp2">{planLine}</Text> : <Text size="sm">Ждёт решения по плану</Text>)
-        : (qs.length <= 1 || inline) && <Text size="sm" className={inline ? "clamp2" : undefined}>{ask.text}</Text>}
-      {quiet ? null
-        : ask.kind === "question" ? (inline && complex ? <Button size="xs" w="fit-content" onClick={onOpen}>Ответить</Button> : <Questions ask={ask} send={send} inline={inline} />)
-        : ask.kind === "permission" || ask.kind === "plan" ? <Actions ask={ask} send={send} inline={inline} />
-        : ask.kind === "form" ? (inline ? <Button size="xs" w="fit-content" onClick={onOpen}>Заполнить</Button> : <Form ask={ask} send={send} />)
+      ) : ask.kind === "plan" ? <Md text={ask.text} /> : <Text size="sm">{ask.text}</Text>}
+      {ask.kind === "permission" || ask.kind === "plan" ? <Actions ask={ask} send={send} />
+        : ask.kind === "form" ? <Form ask={ask} send={send} />
         : (
           <Group gap={6}>
             {ask.url && <Button component="a" href={ask.url} target="_blank" rel="noreferrer" size="xs" w="fit-content">Открыть ссылку</Button>}

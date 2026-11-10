@@ -1,20 +1,20 @@
 // Разговор сессии: шапка с документом (правка на месте), лента, вопрос, список дел, фон, ввод. Рядом — инспектор или второй разговор пары.
 import { accountList, prefsSet, profileList, sessionCall, sessionCompact, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, type SessionRow } from "@sb/protocol";
-import { ActionIcon, Badge, Button, Checkbox, Group, Loader, Menu, MultiSelect, SegmentedControl, Select, Stack, Text, TextInput, Tooltip } from "@mantine/core";
+import { ActionIcon, Button, Checkbox, Group, Loader, Menu, MultiSelect, SegmentedControl, Select, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { Page } from "../shell/Page.tsx";
-import { IconArrowDown, IconArrowLeft, IconCheck, IconChevronDown, IconDots, IconLayoutSidebarRight, IconPlayerPlay } from "@tabler/icons-react";
+import { IconArrowDown, IconArrowLeft, IconArrowsMinimize, IconCheck, IconDots, IconEraser, IconLayoutSidebarRight, IconPlayerPlay, IconUserMinus, IconUserPlus } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { act } from "../api.ts";
 import { useLocal } from "../lib/local.ts";
 import { exportMd, focused } from "../chat/focus.ts";
-import { confirmDanger, EFFORTS, Failed, Lamp, MODES, personWord, STATE_WORD, useCall, useMachineName, useMyPrefs, useUi, useWide } from "../common.tsx";
+import { confirmDanger, EFFORTS, Failed, Lamp, MODES, modelWord, personWord, STATE_WORD, useCall, useMachineName, useMyPrefs, useUi, useWide } from "../common.tsx";
 import { day, hhmm } from "../lib/time.ts";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { AskCard } from "./Ask.tsx";
 import { Composer, type ComposerHandle } from "./Composer.tsx";
-import { Asides, Background } from "./Dock.tsx";
+import { Asides, Running } from "./Dock.tsx";
 import { effectiveModel, modelsFor, patchDoc, useLabels, useLater, useModels } from "./doc.ts";
 import { type FeedEnv, FeedEnvProvider, Rows, Tail, TodoList } from "./Feed.tsx";
 import { Inspector } from "./Inspector.tsx";
@@ -23,16 +23,15 @@ import { type Talk, useMarkRead, useTalk } from "./talk.ts";
 const isLive = (s: SessionRow) => s.state !== "stopped" && s.state !== "failed";
 const AfterTurn = ({ on }: { on: boolean }) => (on ? <span className="after-turn">после хода</span> : null);
 
-/** Чип документа сессии под полем ввода: «что это · значение» и меню замены — один запрос session.update. */
+/** Значение документа сессии в ряду под полем ввода: само значение без слова-ярлыка, ярлык — в подсказке и в меню; замена — один запрос session.update. */
 function Chip({ label, value, word, options, later, onPick }: { label: string; value?: string; word?: string; options: ReadonlyArray<readonly [string, string]>; later?: boolean; onPick: (v: string) => void }) {
   return (
-    <Menu position="bottom-start" withinPortal>
+    <Menu position="top-start" withinPortal>
       <Menu.Target>
-        <Badge component="button" type="button" variant="default" rightSection={<IconChevronDown size={11} />} aria-label={label} style={{ cursor: "pointer" }}>
-          <span className="muted">{label.toLowerCase()}</span> {word ?? options.find(([v]) => v === value)?.[1] ?? value} <AfterTurn on={!!later} />
-        </Badge>
+        <button type="button" className="docval" aria-label={label} title={label}>{word ?? options.find(([v]) => v === value)?.[1] ?? value}<AfterTurn on={!!later} /></button>
       </Menu.Target>
       <Menu.Dropdown>
+        <Menu.Label>{label}</Menu.Label>
         {options.map(([v, w]) => <Menu.Item key={v} onClick={() => onPick(v)} fw={v === value ? 700 : undefined}>{w}</Menu.Item>)}
       </Menu.Dropdown>
     </Menu>
@@ -76,7 +75,8 @@ const HEAD_KEY = "head.parts";
 /** Переключить часть шапки: порядок частей — всегда как в списке. */
 export const toggleHeadPart = (parts: string[], id: string): string[] => (parts.includes(id) ? parts.filter((p) => p !== id) : HEAD_PARTS.map(([p]) => p as string).filter((p) => p === id || parts.includes(p)));
 
-function Chips({ s, running }: { s: SessionRow; running?: string }) {
+/** Значения документа сессии одной строкой: режим · модель · усилие · аккаунт · кусочки. */
+function DocValues({ s, running }: { s: SessionRow; running?: string }) {
   const [piecesOpen, setPiecesOpen] = useState(false);
   const d = useDoc(s, running);
   const picked = s.spec.pieces ?? [];
@@ -84,22 +84,14 @@ function Chips({ s, running }: { s: SessionRow; running?: string }) {
   const machineName = useMachineName();
   const on = (p: string) => parts.includes(p);
   return (
-    <div className="chiprow dock-chips">
+    <div className="docvals" role="group" aria-label="Документ сессии">
       <Chip label="Режим" value={s.spec.mode ?? "all"} options={MODES} onPick={(mode) => patchDoc(s, { mode: mode as never })} />
-      {on("machine") && <Badge variant="default" component={Link} to={`/machine/${machineOfCall(s.callsign)}`} style={{ cursor: "pointer" }}><span className="muted">машина</span> {machineName(machineOfCall(s.callsign))}</Badge>}
-      {on("owner") && <Badge variant="default"><span className="muted">открыл</span> {personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</Badge>}
       {on("model") && <Chip label="Модель" value={d.model.value} word={d.model.label} options={d.models.map((m) => [m.value, m.label] as const)} later={d.later.includes("model")} onPick={(model) => patchDoc(s, { model })} />}
-      {on("effort") && <Chip label="Усилие" value={s.spec.effort} word={s.spec.effort ? undefined : "как у модели"} options={d.efforts} later={d.later.includes("effort")} onPick={(effort) => patchDoc(s, { effort: effort as never })} />}
+      {on("effort") && <Chip label="Усилие" value={s.spec.effort} word={s.spec.effort ? undefined : "усилие модели"} options={d.efforts} later={d.later.includes("effort")} onPick={(effort) => patchDoc(s, { effort: effort as never })} />}
       {on("account") && <Chip label="Аккаунт" value={s.spec.account ?? "auto"} options={d.accountOptions} later={d.later.includes("account")} onPick={(account) => patchDoc(s, { account })} />}
-      {on("pieces") && (
-        <Badge component="button" type="button" variant="default" rightSection={<IconChevronDown size={11} />} aria-label="Кусочки" style={{ cursor: "pointer" }} onClick={() => setPiecesOpen(true)}>
-          <span className="muted">кусочки</span> {picked.length ? picked.map(d.title).join(" + ") : "нет"} <AfterTurn on={d.later.includes("pieces")} />
-        </Badge>
-      )}
-      {isLive(s) && <button type="button" className="linkbtn" disabled={!!s.compacting} onClick={() => act(sessionCompact, { to: s.callsign })}>сжать</button>}
-      {isLive(s) && !s.spec.wing && !s.lead && <button type="button" className="linkbtn" onClick={() => act(sessionUpdate, { to: s.callsign, patch: {}, pair: true })}>+ ведомый</button>}
-      {s.spec.wing && <button type="button" className="linkbtn" onClick={() => confirmDanger({ title: `Убрать ведомого ${s.spec.wing}?`, body: `${s.spec.wing} перестанет получать задачи от ${s.callsign} и слать ей вести. Сама сессия ведомого останется.`, confirm: "Убрать ведомого", onConfirm: () => void patchDoc(s, { wing: null }) })}>убрать ведомого</button>}
-      {isLive(s) && <button type="button" className="linkbtn far" onClick={() => confirmDanger({ title: `Очистить разговор ${s.callsign}?`, body: "Разговор начнётся заново: сессия забудет всё, что было сказано. Файлы останутся как есть.", confirm: "Очистить", onConfirm: async () => void (await act(sessionRewind, { to: s.callsign })) })}>очистить</button>}
+      {on("pieces") && <button type="button" className="docval" aria-label="Кусочки" title="Кусочки" onClick={() => setPiecesOpen(true)}>{picked.length ? picked.map(d.title).join(" + ") : "без кусочков"}<AfterTurn on={d.later.includes("pieces")} /></button>}
+      {on("machine") && <Link className="docval" to={`/machine/${machineOfCall(s.callsign)}`} title="Машина">{machineName(machineOfCall(s.callsign))}</Link>}
+      {on("owner") && <span className="docval still" title="Открыл">{personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</span>}
       <Page name="pieces" opened={piecesOpen} onClose={() => setPiecesOpen(false)} title={`Кусочки ${s.callsign}`}>
         <Stack gap="sm">
           {d.pieces.map((p) => (
@@ -110,6 +102,45 @@ function Chips({ s, running }: { s: SessionRow; running?: string }) {
         <Button mt="md" style={{ alignSelf: "flex-start" }} onClick={() => setPiecesOpen(false)}>Готово</Button>
       </Page>
     </div>
+  );
+}
+
+/** Действия над разговором значками справа: сжать, ведомый, очистить. */
+function DocActs({ s }: { s: SessionRow }) {
+  if (!isLive(s)) return null;
+  return (
+    <div className="docacts">
+      <Tooltip label="Сжать разговор"><ActionIcon variant="subtle" color="gray" size="md" aria-label="Сжать" disabled={!!s.compacting} onClick={() => act(sessionCompact, { to: s.callsign })}><IconArrowsMinimize size={16} /></ActionIcon></Tooltip>
+      {!s.spec.wing && !s.lead && <Tooltip label="Открыть ведомого"><ActionIcon variant="subtle" color="gray" size="md" aria-label="Открыть ведомого" onClick={() => act(sessionUpdate, { to: s.callsign, patch: {}, pair: true })}><IconUserPlus size={16} /></ActionIcon></Tooltip>}
+      {s.spec.wing && <Tooltip label="Убрать ведомого"><ActionIcon variant="subtle" color="gray" size="md" aria-label="Убрать ведомого" onClick={() => confirmDanger({ title: `Убрать ведомого ${s.spec.wing}?`, body: `${s.spec.wing} перестанет получать задачи от ${s.callsign} и слать ей вести. Сама сессия ведомого останется.`, confirm: "Убрать ведомого", onConfirm: () => void patchDoc(s, { wing: null }) })}><IconUserMinus size={16} /></ActionIcon></Tooltip>}
+      <Tooltip label="Очистить разговор"><ActionIcon variant="subtle" color="gray" size="md" className="far" aria-label="Очистить" onClick={() => confirmDanger({ title: `Очистить разговор ${s.callsign}?`, body: "Разговор начнётся заново: сессия забудет всё, что было сказано. Файлы останутся как есть.", confirm: "Очистить", onConfirm: async () => void (await act(sessionRewind, { to: s.callsign })) })}><IconEraser size={16} /></ActionIcon></Tooltip>
+    </div>
+  );
+}
+
+/** Выбор стороны пары, как в первой версии: лампа и модель каждого участника; участник — только он, он же ещё раз или стрелка — обе стороны. */
+function PairPick({ lead, wing, side, onSide, wide }: { lead: SessionRow; wing: SessionRow; side: Side; onSide: (s: Side) => void; wide: boolean }) {
+  const same = modelWord(lead.spec.model) === modelWord(wing.spec.model);
+  const item = (of: "lead" | "wing", x: SessionRow) => (
+    <button type="button" aria-pressed={side === "both" || side === of} aria-label={of === "lead" ? `Ведущий ${x.callsign}` : `Ведомый ${x.callsign}`} title={`${x.callsign} · ${STATE_WORD[x.state]}`} onClick={() => onSide(side === of && wide ? "both" : of)}>
+      <Lamp state={x.state} /><b>{modelWord(x.spec.model)}</b>{same && <span>{x.spec.name}</span>}
+    </button>
+  );
+  return (
+    <div className="pairpick" role="group" aria-label="Кого показать">
+      {item("lead", lead)}
+      {wide ? <button type="button" className="arrow" aria-label="Обе стороны" aria-pressed={side === "both"} onClick={() => onSide("both")}>▸</button> : <i aria-hidden="true">▸</i>}
+      {item("wing", wing)}
+    </div>
+  );
+}
+
+/** Скрытая сторона пары одной строкой под шапкой: кто это и чем занят; нажатие показывает её. */
+function PairStrip({ x, word, onOpen }: { x: SessionRow; word: string; onOpen(): void }) {
+  return (
+    <button type="button" className="pairstrip" aria-label={`Показать: ${word} ${x.callsign}`} onClick={onOpen}>
+      <Lamp state={x.state} /><b>{word}</b><span className="mono">{x.callsign}</span><span className="trunc muted">{x.compacting ? "сжимает контекст" : (x.doing ?? STATE_WORD[x.state])}</span>
+    </button>
   );
 }
 
@@ -141,7 +172,7 @@ function save(name: string, text: string) {
 
 export type Side = "lead" | "wing" | "both";
 
-function Header({ s, talk, onBack, pair, side, onSide, onSheet, focus, onFocus }: { s: SessionRow; talk: Talk; onBack?: () => void; pair?: boolean; /** сессия в паре: какая сторона показана и как её сменить */ side?: Side; onSide?: (s: Side) => void; onSheet?: () => void; focus: boolean; onFocus(): void }) {
+function Header({ s, talk, onBack, pair, side, onSide, mates, onSheet, focus, onFocus }: { s: SessionRow; talk: Talk; onBack?: () => void; pair?: boolean; /** сессия в паре: какая сторона показана и как её сменить */ side?: Side; onSide?: (s: Side) => void; mates?: { lead: SessionRow; wing: SessionRow }; onSheet?: () => void; focus: boolean; onFocus(): void }) {
   const machine = machineOfCall(s.callsign);
   const offline = useFleet((f) => f.machines[machine]?.online === false);
   const ui = useUi();
@@ -165,7 +196,7 @@ function Header({ s, talk, onBack, pair, side, onSide, onSheet, focus, onFocus }
       </div>
       <Group gap={4} wrap="nowrap" className="h-acts">
         {down && !offline && <Button size="xs" leftSection={<IconPlayerPlay size={14} />} onClick={() => act(sessionStart, { to: s.callsign })}>Запустить</Button>}
-        {onSide && side && <SegmentedControl size="xs" aria-label="Кого показать" value={side === "both" && !wide ? "lead" : side} onChange={(v) => onSide(v as Side)} data={[{ value: "lead", label: "ведущий" }, { value: "wing", label: "▸ ведомый" }, ...(wide ? [{ value: "both", label: "обе" }] : [])]} />}
+        {onSide && side && mates && <PairPick lead={mates.lead} wing={mates.wing} side={side === "both" && !wide ? "lead" : side} onSide={onSide} wide={wide} />}
         {onSheet && <Tooltip label="Инспектор (I)"><ActionIcon variant={wide && ui.inspector && !pair ? "light" : "subtle"} aria-label="Инспектор" onClick={() => (wide ? ui.set({ inspector: !ui.inspector }) : onSheet())}><IconLayoutSidebarRight size={17} /></ActionIcon></Tooltip>}
         <Menu position="bottom-end" withinPortal>
           <Menu.Target><ActionIcon variant="subtle" aria-label="Ещё"><IconDots size={17} /></ActionIcon></Menu.Target>
@@ -269,7 +300,15 @@ function FeedPane({ s, talk, focus, autoFocus, pair, onWhy }: { s: SessionRow; t
   useEffect(() => {
     const el = box.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [talk.events, talk.loading, s.ask?.id, talk.asides]);
+  }, [talk.events, talk.loading, talk.asides]);
+  // вопрос сессии стоит карточками в конце ленты: лента встаёт на первый неотвеченный и больше сама вниз не едет
+  useEffect(() => {
+    const el = box.current, card = el?.querySelector<HTMLElement>("[data-ask][data-open]");
+    if (!el || !card || talk.loading) return;
+    stick.current = false;
+    el.scrollTop = Math.max(0, card.offsetTop - 12);
+    setStuck(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+  }, [s.ask?.id, talk.loading]);
   const todos = talk.view.todos?.some((t) => t.status !== "completed") ? talk.view.todos : undefined;
   const live = isLive(s) && !offline;
   const env = useMemo<FeedEnv>(() => ({
@@ -303,6 +342,7 @@ function FeedPane({ s, talk, focus, autoFocus, pair, onWhy }: { s: SessionRow; t
             </FeedEnvProvider>
             {live && <Tail view={talk.view} compacting={s.compacting} />}
             <StateCards s={s} onWhy={onWhy} />
+            {s.ask && !offline && <AskCard key={s.ask.id} callsign={s.callsign} ask={s.ask} />}
           </div>
         </div>
         {!stuck && <Button className="to-last" size="compact-sm" variant="default" leftSection={<IconArrowDown size={14} />} onClick={toLast}>К последнему</Button>}
@@ -314,10 +354,9 @@ function FeedPane({ s, talk, focus, autoFocus, pair, onWhy }: { s: SessionRow; t
         <div className="dock">
           <div className="dock-in">
             {todos && <TodoList todos={todos} fold />}
-            {live && <Background callsign={s.callsign} view={talk.view} />}
+            {live && <FeedEnvProvider value={env}><Running callsign={s.callsign} view={talk.view} /></FeedEnvProvider>}
             <Asides asides={talk.asides} drop={talk.dropAside} />
-            {s.ask && <AskCard callsign={s.callsign} ask={s.ask} />}
-            <Composer ref={composer} s={s} talk={talk} hint={s.state === "idle" ? talk.view.hint : undefined} autoFocus={autoFocus} tools={<Chips s={s} running={talk.view.model} />} />
+            <Composer ref={composer} s={s} talk={talk} hint={s.state === "idle" ? talk.view.hint : undefined} autoFocus={autoFocus} values={<DocValues s={s} running={talk.view.model} />} acts={<DocActs s={s} />} />
           </div>
         </div>
       )}
@@ -326,13 +365,14 @@ function FeedPane({ s, talk, focus, autoFocus, pair, onWhy }: { s: SessionRow; t
 }
 
 /** Один разговор: шапка и лента. */
-function Column({ s, pair, primary, onBack, side, onSide, onSheet, onWhy, onView }: { s: SessionRow; pair?: boolean; primary?: boolean; onBack?: () => void; side?: Side; onSide?: (s: Side) => void; onSheet?: () => void; onWhy(): void; onView?(talk: Talk): void }) {
+function Column({ s, pair, primary, onBack, side, onSide, mates, onSheet, onWhy, onView }: { s: SessionRow; pair?: boolean; primary?: boolean; onBack?: () => void; side?: Side; onSide?: (s: Side) => void; mates?: { lead: SessionRow; wing: SessionRow }; onSheet?: () => void; onWhy(): void; onView?(talk: Talk): void }) {
   const talk = useTalk(s.callsign);
   const [focus, setFocus] = useState(false);
   useEffect(() => onView?.(talk), [talk.view]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="conv">
-      <Header s={s} talk={talk} onBack={onBack} pair={pair} side={side} onSide={onSide} onSheet={onSheet} focus={focus} onFocus={() => setFocus((f) => !f)} />
+      <Header s={s} talk={talk} onBack={onBack} pair={pair} side={side} onSide={onSide} mates={mates} onSheet={onSheet} focus={focus} onFocus={() => setFocus((f) => !f)} />
+      {mates && onSide && side && side !== "both" && <PairStrip x={side === "lead" ? mates.wing : mates.lead} word={side === "lead" ? "ведомый" : "ведущий"} onOpen={() => onSide(side === "lead" ? "wing" : "lead")} />}
       <FeedPane key={s.callsign} s={s} talk={talk} focus={focus} autoFocus={primary && pair} pair={pair} onWhy={onWhy} />
     </div>
   );
@@ -380,7 +420,7 @@ export function Conversation({ callsign, onBack }: { callsign: string; onBack?: 
   const right = showPair && other ? (left === s ? other : s) : undefined;
   return (
     <div className={`talk${showPair ? " pair" : showInsp ? " with-insp" : ""}`}>
-      <Column key={left.callsign} s={left} primary={left === s} pair={showPair} onBack={onBack} side={side} onSide={other ? pickSide : undefined} onSheet={() => setSheet(true)} onWhy={why} onView={left === s ? setTalk : undefined} />
+      <Column key={left.callsign} s={left} primary={left === s} pair={showPair} onBack={onBack} side={side} onSide={other ? pickSide : undefined} mates={other ? { lead: callsign === leadCall ? s : other, wing: callsign === leadCall ? other : s } : undefined} onSheet={() => setSheet(true)} onWhy={why} onView={left === s ? setTalk : undefined} />
       {right && <Column key={right.callsign} s={right} primary={right === s} pair onWhy={why} onView={right === s ? setTalk : undefined} />}
       {showInsp && wide && <aside className="insp" aria-label="Инспектор">{inspector}</aside>}
       {!wide && <Page name="info" opened={sheet} onClose={() => setSheet(false)} title={s.callsign}>{inspector}</Page>}

@@ -127,7 +127,7 @@ describe("уведомления", () => {
   it("клик по уведомлению без кнопки открывает сессию; без пропуска на устройстве ответ не уходит", async () => {
     const w = worker({});
     await w.fire("notificationclick", { action: "", notification: { data: note, close() {} } });
-    expect(w.calls[0]!.url).toBe("open:/#/inbox/site@laptop");
+    expect(w.calls[0]!.url).toBe("open:/#/work/site@laptop");
     await w.fire("notificationclick", { action: "answer:0", notification: { data: note, close() {} } });
     expect(w.calls.length).toBe(1);
     expect(w.shown.at(-1)!.title).toMatch(/Ответ не ушёл: нет пропуска/);

@@ -71,7 +71,7 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
       <Field label="Папка" mono disabled={off} value={s.spec.cwd} note={<AfterTurn on={later.includes("cwd")} />} onSave={(cwd) => patchDoc(s, { cwd })} />
       <Select label="Проект" clearable disabled={off} data={(people.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={s.spec.project ?? null} onChange={(v) => patchDoc(s, { project: v ?? undefined })} />
       <Switch label={<>Быстрый режим <AfterTurn on={later.includes("fast")} /></>} disabled={off} checked={!!s.spec.fast} onChange={(e) => patchDoc(s, { fast: e.currentTarget.checked })} />
-      <Switch label={<>Всегда размышлять <AfterTurn on={later.includes("thinking")} /></>} disabled={off} checked={!!s.spec.thinking} onChange={(e) => patchDoc(s, { thinking: e.currentTarget.checked })} />
+      <Switch label={<>Размышлять перед ответом <AfterTurn on={later.includes("thinking")} /></>} disabled={off} checked={!!s.spec.thinking} onChange={(e) => patchDoc(s, { thinking: e.currentTarget.checked })} />
       <Field label="Стиль ответа" disabled={off} value={s.spec.style ?? ""} note={<AfterTurn on={later.includes("style")} />} onSave={(style) => patchDoc(s, { style: style || undefined })} />
       <Switch label="Сохранять точки в архив" disabled={off} checked={!!s.spec.backup} onChange={(e) => (e.currentTarget.checked ? void patchDoc(s, { backup: true }) : stopBackup(s, () => qc.invalidateQueries({ queryKey: ["points.list"] })))} />
       {(s.spec.pieces?.length ?? 0) > 1 && !off && (
