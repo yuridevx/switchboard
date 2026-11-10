@@ -118,7 +118,11 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
     },
     decide(s: SessionApi, input: Record<string, unknown>, opts: DecideOpts): PermissionResult | Promise<PermissionResult> {
       if (opts.tool === "AskUserQuestion") return question(s, input, opts);
-      if ((s.spec.mode ?? "all") === "all") return { behavior: "allow", updatedInput: input };
+      if ((s.spec.mode ?? "all") === "all") {
+        // в режиме «разрешено всё» разрешает сам SDK и сюда не приходит; пришёл — это видно в журнале, человека не спрашиваем
+        host().log.info("allow", { callsign: s.callsign, tool: opts.tool, why: "режим all: SDK спросил вопреки режиму" });
+        return { behavior: "allow", updatedInput: input };
+      }
       return permission(s, input, opts);
     },
     elicit(s: SessionApi, req: Record<string, unknown>, opts: { signal: AbortSignal; requestId: string }): Promise<unknown> {

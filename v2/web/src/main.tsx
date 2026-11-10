@@ -14,7 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { createHashRouter, Navigate, RouterProvider } from "react-router";
-import { api } from "./api.ts";
+import { api, isMock } from "./api.ts";
 import { Boundary } from "./common.tsx";
 import { onOpenFromPush } from "./lib/push.ts";
 import { Inbox } from "./screens/Inbox.tsx";
@@ -74,6 +74,9 @@ const errorText = (message: string, error?: { name?: string; message?: string })
 // у ошибки без подробностей («Script error.») называем, откуда она: файл и строка отличают свой код от вставки браузера
 window.addEventListener("error", (e) => report(errorText(e.message, e.error) + (e.error ? "" : ` · ${e.filename || "источник не назван"}:${e.lineno ?? 0}`), e.error?.stack));
 window.addEventListener("unhandledrejection", (e) => report(String(e.reason?.message ?? e.reason), e.reason?.stack));
+
+// тестовая выкладка: комментарии к элементам страницы (Ctrl+C), пачкой — в журнал флота
+if (import.meta.env.VITE_COMMENTS && !isMock) void import("./lib/comments.ts").then((m) => m.startComments((def, input) => api.call(def, input)));
 
 /** Экран согласия внешнего клиента живёт по пути /consent, а не в маршрутах после #. */
 const isConsent = location.pathname.replace(/\/+$/, "") === "/consent";
