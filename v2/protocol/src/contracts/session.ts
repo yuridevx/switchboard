@@ -59,6 +59,10 @@ export const Ask = z.object({
   /** схема формы у form */
   schema: z.unknown().optional(),
   url: z.string().optional(),
+  /** у permission: rule — что запишет «Разрешать всегда»; blocked — путь, из-за которого спросили; notes — пояснение причины */
+  rule: z.string().optional(),
+  blocked: z.string().optional(),
+  notes: z.string().optional(),
   at: z.number(),
   /** кому вопрос адресован: тот, кто дал задачу (человек или сессия) */
   to: z.string().optional(),
@@ -225,6 +229,18 @@ export const sessionWatch = request("session.watch", {
 export const sessionUnwatch = request("session.unwatch", { owner: "host-chat", target: "session", input: toSession, output: Done });
 
 /** «Прочитано»: человек дочитал сессию — пометка снимается у него на всех устройствах. */
+/** Откат разговора. upto — uuid сообщения человека: оно и всё после него уходит; без upto — разговор начинается заново.
+ *  files — вернуть и файлы к тому же моменту; dry — только посчитать. text — текст ушедшего сообщения: страница кладёт его в поле ввода. */
+export const sessionRewind = request("session.rewind", {
+  owner: "host", target: "session",
+  tool: "Откатить разговор сессии к сообщению человека: upto — uuid этого сообщения, оно и всё после него уходит; без upto — разговор начинается заново. files: true — вернуть и файлы к тому же моменту. dry: true — только показать, что уйдёт.",
+  input: z.object({ to: Callsign, upto: z.string().optional(), files: z.boolean().optional(), dry: z.boolean().optional() }),
+  output: z.object({ cut: z.number(), text: z.string().optional(), files: z.array(z.string()).optional(), plus: z.number().optional(), minus: z.number().optional() }),
+});
+export const sessionCompact = request("session.compact", {
+  owner: "host", target: "session", tool: "Сжать разговор сессии: история заменяется сводкой, место в контексте освобождается.",
+  input: toSession, output: Done,
+});
 export const sessionRead = request("session.read", { owner: "host-chat", target: "session", input: toSession, output: Done });
 
 export const answer = request("answer", {

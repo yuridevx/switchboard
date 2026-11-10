@@ -7,7 +7,7 @@ export type Msg = Record<string, any>;
 export type Part = { k: "text"; text: string; live?: boolean } | { k: "think"; text: string; live?: boolean } | { k: "tool"; id: string };
 export type Row =
   | { k: "me"; key: string; uuid?: string; text: string; pics: string[]; /** имена приложенных документов */ files?: string[]; /** кто написал: устройство человека; своё — без подписи */ from?: string; state?: MeState }
-  | { k: "in"; key: string; via: "session" | "agent" | "owner" | "service"; from: string; tag?: string; text: string; at: string }
+  | { k: "in"; key: string; uuid?: string; via: "session" | "agent" | "owner" | "service"; from: string; tag?: string; text: string; at: string }
   | { k: "reply"; key: string; parts: Part[] }
   | { k: "cmd"; key: string; name: string; args: string; out?: string }
   | { k: "sys"; key: string; icon: string; text: string; tone?: "wait" | "swap"; retry?: boolean; boundary?: boolean }
@@ -156,7 +156,7 @@ function tagged(v: View, m: Msg, [, tag, attrs, inner]: RegExpExecArray) {
   const attr = (name: string) => new RegExp(`\\b${name}="([^"]*)"`).exec(attrs)?.[1];
   const mode = attr("from-mode");
   const text = tag === "fleet-question" ? inner.replace(/\n?Ответь инструментом fleet\.answer:[^\n]*$/, "") : inner;
-  push(v, { k: "in", via: tag === "agent-message" ? "agent" : "session", from: attr("from") ?? attr("from-name") ?? "", ...(mode && mode !== "default" ? { tag: mode } : {}), text, at: timeOf(m) });
+  push(v, { k: "in", uuid: m.uuid, via: tag === "agent-message" ? "agent" : "session", from: attr("from") ?? attr("from-name") ?? "", ...(mode && mode !== "default" ? { tag: mode } : {}), text, at: timeOf(m) });
 }
 
 /** Конец задачи: один раз на задачу, откуда бы ни пришёл. */
@@ -226,7 +226,7 @@ function text(v: View, m: Msg, body: string, pics: string[]) {
   if (m.origin?.kind === "peer") {
     closeTurn(v);
     const mode = m.origin.fromMode;
-    return push(v, { k: "in", via: "session", from: m.origin.name ?? m.origin.from ?? "", ...(mode && mode !== "default" ? { tag: mode } : {}), text: body, at: timeOf(m) });
+    return push(v, { k: "in", uuid: m.uuid, via: "session", from: m.origin.name ?? m.origin.from ?? "", ...(mode && mode !== "default" ? { tag: mode } : {}), text: body, at: timeOf(m) });
   }
   // сообщение в очереди ждёт конца идущего хода: прошлый ход им не закрывается
   const known = typeof m.uuid === "string" ? v.status[m.uuid] : undefined;

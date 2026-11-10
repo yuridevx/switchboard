@@ -127,6 +127,9 @@ export function AskCard({ callsign, ask, inline, quiet, sessionTitle, onOpen }: 
       {ask.kind === "permission" ? (
         <div className="ask-in">
           <pre>{ask.text}</pre>
+          {ask.notes && <Text size="sm">{ask.notes}</Text>}
+          {ask.blocked && <Text size="sm">Путь: <span className="mono">{ask.blocked}</span></Text>}
+          {ask.rule && <Text size="sm">«Разрешать всегда» запишет правило <span className="mono">{ask.rule}</span></Text>}
           {!inline && ask.input != null && <button type="button" className="linkbtn" aria-expanded={whole} onClick={() => setWhole((w) => !w)}>{whole ? "Скрыть ввод" : "Весь ввод"}</button>}
           {whole && <pre>{JSON.stringify(ask.input, null, 2)}</pre>}
         </div>

@@ -1,11 +1,12 @@
 // «Новая сессия»: одно поле и Enter — сессия пошла с разумными значениями; все поля — на одном уровне, ничего не спрятано.
 // Недавние места — пары «машина + папка»; папку можно создать; кусочки подхватываются от соседней сессии той же папки.
-import { accountList, machineDirs, peopleList, profileList, profileView, sessionOpen, type MachineRow, type SessionRow } from "@sb/protocol";
+import { accountList, machineConversations, machineDirs, peopleList, profileList, profileView, sessionOpen, type MachineRow, type SessionRow } from "@sb/protocol";
 import { Badge, Button, Chip, Group, Select, SimpleGrid, Stack, Switch, Text, Textarea, TextInput } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { act, sayError } from "../api.ts";
 import { EFFORTS, MODELS, MODES, useCall, useMyPrefs } from "../common.tsx";
+import { ago } from "../lib/time.ts";
 import { RoutePage } from "./Page.tsx";
 import { useFleet } from "../store/fleet.ts";
 
@@ -22,6 +23,9 @@ export function freeName(base: string, machine: string, sessions: Record<string,
 export function sortMachines(list: MachineRow[], me?: string): MachineRow[] {
   return [...list].sort((a, b) => Number(b.online) - Number(a.online) || Number(b.owner === me) - Number(a.owner === me) || a.name.localeCompare(b.name));
 }
+
+/** Пустой путь разговоров не ищет. */
+const missing0 = (cwd: string) => !cwd.trim();
 
 export type Place = { machine: string; cwd: string };
 /** Недавние места: новое — в начало, без повторов, не больше восьми. */
@@ -98,6 +102,7 @@ export function NewForm() {
   const list = useCall(profileList, machine ? { to: "@" + machine } : null);
   const accounts = useCall(accountList, machine ? { to: "@" + machine } : null);
   const people = useCall(peopleList, {});
+  const talks = useCall(machineConversations, machine && cwd && !missing0(cwd) ? { to: "@" + machine, cwd } : null);
   useEffect(() => { if (!cwd && dirs.data?.recent?.[0]) setCwdRaw(dirs.data.recent[0]); }, [dirs.data, cwd]);
   const here = places.filter((p) => p.machine === machine).map((p) => p.cwd);
   const recent = [...new Set([...here, ...(dirs.data?.recent ?? [])])].slice(0, 8);
@@ -180,10 +185,23 @@ export function NewForm() {
         <Switch label="Сохранять точки в архив" checked={backup} onChange={(e) => setBackup(e.currentTarget.checked)} />
         <Switch label="Номер к имени" checked={number} onChange={(e) => setNumber(e.currentTarget.checked)} />
       </Group>
-      <Group gap="sm" align="end" wrap="nowrap">
-        <TextInput label="Продолжить разговор с диска машины" placeholder="номер разговора" className="mono" style={{ flex: 1 }} value={resume} onChange={(e) => setResume(e.currentTarget.value)} />
-        <Switch label="Копией" disabled={!resume.trim()} checked={fork} onChange={(e) => setFork(e.currentTarget.checked)} />
-      </Group>
+      {(talks.data?.conversations ?? []).length > 0 && (
+        <div>
+          <Group justify="space-between" mb={4}>
+            <Text size="sm" fw={500}>Продолжить разговор этой папки</Text>
+            <Switch size="xs" label="Копией" disabled={!resume} checked={fork} onChange={(e) => setFork(e.currentTarget.checked)} />
+          </Group>
+          <div role="listbox" aria-label="Разговоры папки" className="card" style={{ gap: 0, padding: 4 }}>
+            {talks.data!.conversations.slice(0, 6).map((t) => (
+              <div key={t.id} role="option" aria-selected={resume === t.id} tabIndex={0} className={`row${resume === t.id ? " sel" : ""}`} style={{ gridTemplateColumns: "minmax(0,1fr) auto", padding: "6px 10px" }}
+                onClick={() => setResume(resume === t.id ? "" : t.id)} onKeyDown={(e) => e.key === "Enter" && setResume(resume === t.id ? "" : t.id)}>
+                <span className="trunc">{t.title}</span>
+                <span className="muted" style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{t.live ? <span className="mono">{t.live} · </span> : null}{ago(t.at)} · {Math.max(1, Math.round(t.size / 1024))} КБ</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {noAccount && <Text size="sm" c="red" role="alert">На машине {machine} нет входа Claude и ключа флота: войдите в аккаунт во «Флоте».</Text>}
       <Group justify="space-between">
         <Text size="sm" className="mono muted">{finalName}{number ? "-N" : ""}@{machine}</Text>

@@ -64,7 +64,7 @@ export function createMock(o: MockOptions = {}) {
   add(row("wing@laptop", "busy", "research", { title: "Поиск вызовов старого клиента", doing: "Читает src/jobs/renew.ts", by: "lead@laptop", lead: "lead@laptop", last: T - 1 * MIN, model: "claude-sonnet-5-5", spec: { name: "wing", cwd: "~/projects/billing", model: "claude-sonnet-5-5", effort: "medium", mode: "all", account: "auto", pieces: ["base"], parent: "lead@laptop", project: "research", backup: true } }));
   add(row("hotfix@laptop", "failed", "site", { title: "Срочная правка формы входа", error: "процесс claude дважды вышел до готовности: код 1, «Invalid API key»", last: T - 50 * MIN, account: "work@example.com" }));
   add(row("deploy@server", "waiting", "infra", { title: "Пересборка и выкладка статики", mode: "ask", last: T - 3 * MIN, pieces: ["base", "ops"],
-    ask: ask({ kind: "permission", title: "Команда", text: "rm -rf dist && npm run build", tool: "Bash", input: { command: "rm -rf dist && npm run build", description: "Чистая пересборка" }, options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 3) }));
+    ask: ask({ kind: "permission", title: "Команда", text: "rm -rf dist && npm run build", tool: "Bash", input: { command: "rm -rf dist && npm run build", description: "Чистая пересборка" }, rule: "Bash(rm -rf dist *)", blocked: "~/projects/site/dist", notes: "Команда удаляет папку вне списка разрешённых правил проекта", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 3) }));
   add(row("api@server", "waiting", "infra", { title: "Предел запросов на входе", mode: "plan", last: T - 22 * MIN, pieces: ["base", "ops"],
     ask: ask({ kind: "plan", title: "План", text: "## Предел запросов на входе\n\n1. Счётчик на адрес в памяти процесса, окно 10 секунд.\n2. Отказ `429` со словом `too_many` и временем сброса.\n3. Тесты: 3 сценария — ровно на пределе, сверх предела, после сброса.\n\nФайлы: `src/entrance.ts`, `src/limit.ts`, `test/limit.test.ts`.", tool: "ExitPlanMode", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 22) }));
   add(row("ingest@server", "busy", "infra", { title: "Разбор ночной выгрузки", doing: "Выполняет node scripts/ingest.mjs", last: T - 1 * MIN, context: 0.67, pieces: ["base", "ops"] }));
@@ -249,6 +249,11 @@ export function createMock(o: MockOptions = {}) {
     else sessions[c] = { ...sessions[c], ...patch };
     delta({ sessions: [{ callsign: c, row: patch === null ? null : sessions[c] }] });
   };
+  /** Весть ведущему от ведомого: тем же сообщением, что и итог хода. */
+  const tellLead = (wing: string, words: string) => {
+    const lead = sessions[wing]?.lead;
+    if (lead && sessions[lead]) emit(lead, [{ type: "user", uuid: uid("w"), from: wing, timestamp: new Date(now()).toISOString(), message: { role: "user", content: words } } as Ev]);
+  };
   /** последние события ленты по сессиям: из них дочитывается пропущенное */
   const recent = new Map<string, Ev[]>();
   const FEED_ONLY = new Set(["message.status", "prompt_suggestion"]);
@@ -420,6 +425,37 @@ export function createMock(o: MockOptions = {}) {
       const c = String(f.to);
       if (f.after_turn && sessions[c]?.state === "busy") return removeAfter.add(c), { after_turn: true };
       return setRow(c, null), {};
+    },
+    "session.rewind": (f) => {
+      const { c, s } = sess(f);
+      const all = talk(c);
+      const at = f.upto ? all.findIndex((e) => e.uuid === f.upto) : 0;
+      if (at < 0) throw new Refusal("not_found", `${c}: сообщения ${f.upto} в разговоре нет`);
+      const gone = all[at] as any;
+      const text = f.upto && typeof gone?.message?.content === "string" && !gone.message.content.startsWith("<") ? gone.message.content : undefined;
+      const files = f.files ? { files: ["src/components/Header.tsx", "src/components/MenuButton.tsx", "src/styles/header.css"], plus: 41, minus: 17 } : {};
+      const out = { cut: all.length - at, ...(text ? { text } : {}), ...files };
+      if (f.dry) return out;
+      live.delete(c);
+      all.splice(at);
+      recent.set(c, []);
+      emit(c, [{ type: "conversation_reset", uuid: uid("r") } as Ev], true);
+      setRow(c, { state: "idle", doing: undefined, ask: null, context: all.length ? 0.2 : 0.02, last: now() });
+      tellLead(c, f.upto ? `Ведомый ${c} откачен${text ? ` к сообщению «${text.slice(0, 60)}»` : " к полученной задаче"}: ушло записей — ${out.cut}${f.files ? ", файлы возвращены" : ""}.` : `Ведомый ${c} очищен: разговор начат заново.`);
+      void s;
+      return out;
+    },
+    "session.compact": (f) => {
+      const { c } = sess(f);
+      setRow(c, { compacting: true });
+      setTimeout(() => { if (!sessions[c]) return; setRow(c, { compacting: undefined, context: 0.12 }); tellLead(c, `Ведомый ${c} сжат: контекст 12%.`); }, 2500);
+      return {};
+    },
+    "machine.conversations": (f) => {
+      mach(f);
+      const here = Object.values(sessions).find((x) => x.spec.cwd === f.cwd && machineOf(x.callsign) === String(f.to).slice(1));
+      const rows = [["7e6eb2c6-73ab-4290-8286-f98d91d104f5", "Почини мобильное меню: на узких экранах кнопка уезжает за край", 12 * MIN, 412_000], ["53502722-b9da-4943-82c2-201f9e95efa2", "Обнови зависимости и прогони тесты", 3 * HOUR, 199_797], ["d17a4f49-0c1e-4c7b-9a51-2f6f3f0e9b11", "Разберись, почему падает сборка на CI", DAY, 1_240_000], ["1c681a70-b6a7-4fb2-b783-9de0a319be5a", "Напиши раздел README про выкладку", 3 * DAY, 88_300], ["90e911a9-81a8-4d2c-8c49-d92507b11402", "Сравни два варианта кэша и предложи один", 9 * DAY, 640_500]] as const;
+      return { conversations: rows.map(([id, title, ago, size], i) => ({ id, title, at: now() - ago, size, ...(i === 0 && here ? { live: here.callsign } : {}) })) };
     },
     "session.call": (f) => {
       const { c } = sess(f);

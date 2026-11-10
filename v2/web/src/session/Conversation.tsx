@@ -1,5 +1,5 @@
 // Разговор сессии: шапка с документом (правка на месте), лента, вопрос, список дел, фон, ввод. Рядом — инспектор или второй разговор пары.
-import { accountList, prefsSet, profileList, sessionCall, sessionRemove, sessionStart, sessionStop, type SessionRow } from "@sb/protocol";
+import { accountList, prefsSet, profileList, sessionCall, sessionCompact, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, type SessionRow } from "@sb/protocol";
 import { ActionIcon, Badge, Button, Checkbox, Group, Loader, Menu, MultiSelect, SegmentedControl, Select, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { Page } from "../shell/Page.tsx";
 import { IconArrowDown, IconArrowLeft, IconCheck, IconChevronDown, IconDots, IconLayoutSidebarRight, IconPlayerPlay } from "@tabler/icons-react";
@@ -96,6 +96,9 @@ function Chips({ s, running }: { s: SessionRow; running?: string }) {
           <span className="muted">кусочки</span> {picked.length ? picked.map(d.title).join(" + ") : "нет"} <AfterTurn on={d.later.includes("pieces")} />
         </Badge>
       )}
+      {isLive(s) && <button type="button" className="linkbtn" disabled={!!s.compacting} onClick={() => act(sessionCompact, { to: s.callsign })}>сжать</button>}
+      {isLive(s) && <button type="button" className="linkbtn" onClick={() => confirmDanger({ title: `Очистить разговор ${s.callsign}?`, body: "Разговор начнётся заново: сессия забудет всё, что было сказано. Файлы останутся как есть.", confirm: "Очистить", onConfirm: async () => void (await act(sessionRewind, { to: s.callsign })) })}>очистить</button>}
+      {isLive(s) && !s.spec.wing && !s.lead && <button type="button" className="linkbtn" onClick={() => act(sessionUpdate, { to: s.callsign, patch: {}, pair: true }, "Ведомый открыт")}>+ ведомый</button>}
       <Page name="pieces" opened={piecesOpen} onClose={() => setPiecesOpen(false)} title={`Кусочки ${s.callsign}`}>
         <Stack gap="sm">
           {d.pieces.map((p) => (
@@ -209,6 +212,36 @@ function StateCards({ s, onWhy }: { s: SessionRow; onWhy(): void }) {
   );
 }
 
+/** Шаг отката: что уйдёт — видно до нажатия; после — текст ушедшего сообщения возвращается в поле ввода. */
+function Rewind({ s, upto, onDone }: { s: SessionRow; upto: string; onDone(text?: string): void }) {
+  const [what, setWhat] = useState<"talk" | "both">("talk");
+  const files = what === "both";
+  const dry = useCall(sessionRewind, { to: s.callsign, upto, files, dry: true });
+  const d = dry.data;
+  return (
+    <Stack gap="sm">
+      <SegmentedControl value={what} onChange={(v) => setWhat(v as "talk" | "both")} data={[{ value: "talk", label: "Только разговор" }, { value: "both", label: "Разговор и файлы" }]} aria-label="Что откатить" />
+      {dry.error ? <Failed error={dry.error} /> : !d ? <Loader size="sm" /> : (
+        <>
+          {d.text && <div className="me" style={{ alignSelf: "stretch", maxWidth: "none" }}><Text size="sm" className="clamp2">{d.text}</Text></div>}
+          <Text size="sm">Из разговора уйдёт записей: <b>{d.cut}</b>{d.text ? " — это сообщение и всё после него. Его текст вернётся в поле ввода." : "."}</Text>
+          {files && (
+            <div className="card" style={{ gap: 2 }}>
+              <Text size="sm" fw={600}>Файлы вернутся к состоянию до этого сообщения · <span style={{ color: "var(--st-idle)" }}>+{d.plus ?? 0}</span> <span style={{ color: "var(--st-failed)" }}>−{d.minus ?? 0}</span></Text>
+              {(d.files ?? []).map((f) => <div key={f} className="line mono" style={{ fontSize: 12.5 }}>{f}</div>)}
+              {!d.files?.length && <Text size="sm" className="muted">Файлы с этого сообщения не менялись</Text>}
+            </div>
+          )}
+        </>
+      )}
+      <Group gap="sm">
+        <Button color="red" disabled={!d} onClick={async () => { const r = await act(sessionRewind, { to: s.callsign, upto, files }); if (r) onDone(r.text); }}>Откатить</Button>
+        <Button variant="default" onClick={() => onDone()}>Отмена</Button>
+      </Group>
+    </Stack>
+  );
+}
+
 function FeedPane({ s, talk, focus, autoFocus, pair, onWhy }: { s: SessionRow; talk: Talk; focus: boolean; autoFocus?: boolean; pair?: boolean; onWhy(): void }) {
   const machine = machineOfCall(s.callsign);
   const m = useFleet((f) => f.machines[machine]);
@@ -219,6 +252,7 @@ function FeedPane({ s, talk, focus, autoFocus, pair, onWhy }: { s: SessionRow; t
   const box = useRef<HTMLDivElement>(null);
   const composer = useRef<ComposerHandle>(null);
   const [stuck, setStuck] = useState(true);
+  const [rewindAt, setRewindAt] = useState<string | null>(null);
   const [drop, setDrop] = useState(false);
   const stick = useRef(true);
   const items = useMemo(() => (focus ? focused(talk.view) : talk.view.rows), [focus, talk.view]);
@@ -240,6 +274,7 @@ function FeedPane({ s, talk, focus, autoFocus, pair, onWhy }: { s: SessionRow; t
     // снятое с очереди сообщение возвращает свой текст в поле ввода
     cancel: (id) => void talk.cancel(id).then((text) => text && composer.current?.giveBack(text)), resend: talk.resend, drop: talk.drop,
     edit: (text) => composer.current?.setText(text),
+    rewind: setRewindAt,
     name: labels.name,
   }), [live, me, s.ask?.id, s.callsign, talk.cancel, talk.resend, talk.drop, labels.name]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
@@ -268,6 +303,9 @@ function FeedPane({ s, talk, focus, autoFocus, pair, onWhy }: { s: SessionRow; t
         </div>
         {!stuck && <Button className="to-last" size="compact-sm" variant="default" leftSection={<IconArrowDown size={14} />} onClick={toLast}>К последнему</Button>}
       </div>
+      <Page name="rewind" opened={!!rewindAt} onClose={() => setRewindAt(null)} title={`Откатить ${s.callsign}`}>
+        {rewindAt && <Rewind s={s} upto={rewindAt} onDone={(text) => (setRewindAt(null), text && composer.current?.setText(text))} />}
+      </Page>
       {!offline && (
         <div className="dock">
           <div className="dock-in">

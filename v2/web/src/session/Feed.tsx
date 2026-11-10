@@ -34,6 +34,8 @@ export type FeedEnv = {
   drop?(id: string): void;
   /** вернуть текст в поле ввода */
   edit?(text: string): void;
+  /** откатить разговор к этому сообщению человека */
+  rewind?(uuid: string): void;
   /** номер вызова инструмента, который ждёт решения человека */
   waiting?: string;
   /** как звать отправителя: имя сессии из настроек */
@@ -281,6 +283,7 @@ function Mine({ r }: { r: Extract<Row, { k: "me" }> }) {
       <Long text={r.text} />
       <Pics pics={r.pics} />
       {r.files?.map((f) => <div key={f} className="me-file"><IconFile size={13} /> {f}</div>)}
+      {(!state || state === "sent") && r.uuid && env.rewind && env.canAct && <div className="me-note"><button type="button" className="linkbtn" onClick={() => env.rewind!(r.uuid!)}>Откатить сюда</button></div>}
       {state && ME_NOTE[state] && (
         <div className="me-note">
           {ME_NOTE[state]}
@@ -311,6 +314,7 @@ function Incoming({ r }: { r: Extract<Row, { k: "in" }> }) {
       </Text>
       <div className={long && !whole ? "peer-clamp" : undefined}><Md text={r.text} /></div>
       {long && <button type="button" className="linkbtn" aria-expanded={whole} onClick={() => setWhole((w) => !w)}>{whole ? "свернуть" : "показать всё"}</button>}
+      {r.via === "session" && r.uuid && env.rewind && env.canAct && <div><button type="button" className="linkbtn" onClick={() => env.rewind!(r.uuid!)}>Откатить сюда</button></div>}
     </div>
   );
 }
