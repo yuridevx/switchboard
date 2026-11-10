@@ -4,14 +4,14 @@
 <style>
 :root {
   --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
-  --accent: #1f7a63; --accent-soft: #dcefe8; --new: #b8590f; --new-soft: #fbe9d7; --bad: #b3362b; --bad-soft: #f7e1de; --code: #f0eee7;
+  --accent: #1f7a63; --accent-soft: #dcefe8; --new: #b8590f; --new-soft: #fbe9d7; --bad: #b3362b; --bad-soft: #f7e1de; --code: #f0eee7; --chg: #fff3b0;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
-  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; color-scheme: dark } }
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4416; color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
-  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; color-scheme: dark }
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4416; color-scheme: dark }
 body { background: var(--bg); color: var(--fg); font: 15px/1.5 Inter, system-ui, sans-serif; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
 main { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
 h1, h2 { font-family: "Space Grotesk", Inter, sans-serif; text-wrap: balance; margin: 0; }
@@ -52,6 +52,9 @@ pre { font: 12.5px/1.45 "JetBrains Mono", monospace; background: var(--code); bo
 .shots figure { margin: 0; }
 .shots img { width: 100%; border: 1px solid var(--line); border-radius: 10px; display: block; }
 .shots figure.ph img { max-width: 260px; }
+.chg { background: var(--chg); border-radius: 6px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+figure.chg, .card.chg { outline: 3px solid var(--chg); background: var(--chg); }
+.card.chg { background: var(--card); }
 .shots figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
 .et { display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr); gap: 8px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
 .et:first-child { border-top: 0; }
@@ -174,9 +177,19 @@ pre { font: 12.5px/1.45 "JetBrains Mono", monospace; background: var(--code); bo
     <figure><img src="shots/lead-news-1280-dark.png" alt="Лента ведущей: вести «ведомый откачен» и «ведомый сжат»"><figcaption>Вести ведомого в ленте ведущей</figcaption></figure>
     <figure><img src="shots/conversations-1280-light.png" alt="Форма новой сессии: разговоры папки сразу под папкой, занятый — только копией"><figcaption>Разговоры папки — сразу под папкой</figcaption></figure>
     <figure><img src="shots/permission-1280-light.png" alt="Карточка разрешения: правило, путь и пояснение"><figcaption>Карточка разрешения: правило, путь, причина</figcaption></figure>
+    <figure class="chg" data-chg="shot-questions-1280-light"><img src="shots/questions-1280-light.png" alt="Четыре больших вопроса карточками в ленте, внизу полоса «Отвечено 0 из 4»"><figcaption>Вопросы — карточками ленты: прокручиваются вместе с ней, ответ уходит, когда отвечены все</figcaption></figure>
+    <figure class="chg" data-chg="shot-running-1280-light"><img src="shots/running-1280-light.png" alt="Блок «Идут сейчас» над полем ввода: три субагента и фоновая команда, первый раскрыт до шагов"><figcaption>«Идут сейчас»: субагенты и фоновые задачи; шаги раскрываются на месте</figcaption></figure>
+    <figure class="chg" data-chg="shot-composer-row-1280-light"><img src="shots/composer-row-1280-light.png" alt="Ряд под полем ввода: значения через точку, справа значки сжать, ведомый, очистить"><figcaption>Ряд под полем — одна строка: значения без ярлыков, действия значками</figcaption></figure>
+    <figure class="chg" data-chg="shot-pair-pick-1280-light"><img src="shots/pair-pick-1280-light.png" alt="Шапка пары: два участника с лампой и моделью, стрелка между ними; под шапкой строка ведомого"><figcaption>Пара как в первой версии: участники в шапке, скрытая сторона строкой</figcaption></figure>
+    <figure class="chg" data-chg="shot-pair-both-1280-light"><img src="shots/pair-both-1280-light.png" alt="Обе стороны пары рядом"><figcaption>Стрелка между участниками — обе стороны рядом</figcaption></figure>
+    <figure class="chg" data-chg="shot-work-1280-light"><img src="shots/work-1280-light.png" alt="«Работа»: узкий список с низкими заголовками групп, открыта последняя сессия"><figcaption>«Работа»: список 280 px, открыта последняя сессия; раздела «Вам» нет</figcaption></figure>
+    <figure class="chg" data-chg="shot-new-name-1280-light"><img src="shots/new-name-1280-light.png" alt="Форма новой сессии: имя первым полем"><figcaption>Имя — первое поле новой сессии</figcaption></figure>
     <figure class="ph"><img src="shots/rewind-390-dark.png" alt="Шаг отката на телефоне, тёмная тема"><figcaption>Шаг отката на телефоне</figcaption></figure>
     <figure class="ph"><img src="shots/clear-390-light.png" alt="Подтверждение очистки на телефоне"><figcaption>«Очистить» — страница подтверждения</figcaption></figure>
     <figure class="ph"><img src="shots/conversations-390-dark.png" alt="Список разговоров на телефоне"><figcaption>Разговоры папки на телефоне</figcaption></figure>
+    <figure class="ph chg" data-chg="shot-questions-390-light"><img src="shots/questions-390-light.png" alt="Вопросы карточками на телефоне"><figcaption>Вопросы на телефоне</figcaption></figure>
+    <figure class="ph chg" data-chg="shot-running-390-dark"><img src="shots/running-390-dark.png" alt="«Идут сейчас» на телефоне"><figcaption>«Идут сейчас» на телефоне</figcaption></figure>
+    <figure class="ph chg" data-chg="shot-composer-row-390-light"><img src="shots/composer-row-390-light.png" alt="Ряд под полем ввода на телефоне"><figcaption>Ряд под полем на телефоне — одна строка</figcaption></figure>
   </div>
 </section>
 
@@ -206,15 +219,9 @@ pre { font: 12.5px/1.45 "JetBrains Mono", monospace; background: var(--code); bo
   </div>
 </section>
 
-<section id="b-forks" data-block>
-  <h2>Развилки вам</h2>
-  <div class="card"><b>Раздел «Вам» повторяет группу «Ждут вас» в «Работе»</b>
-    <div class="fork" style="margin-top:10px"><div class="rec"><small>рекомендую</small>Убрать «Вам»; первым открывается «Работа», группа «Ждут вас» — сверху</div><div><small>иначе</small>Оставить оба</div><div><small>не скажете иначе</small>Убираю при «делай»</div></div></div>
-</section>
-
 <section id="b-gate" data-block>
   <h2>Гейт</h2>
-  <div class="card gate">Гейт (33 строки реестров): дубликаты ответственности 2 → 0 («Вам» и «Ждут вас» — по рекомендованной развилке; вести ведущей слали бы ядро Host и модуль разговора → одно место, ядро) · состояния 0 → 0 · логики 0 → 0 · смысла 0 → 0 · других 1 → 0 (два входа к откату файлов → один запрос) · лишние коммуникации 2 → 0 (номер разговора человек искал на машине сам → список; вопрос ведомого самой ведущей шёл бы ей дважды — вопросом и вестью «ждёт человека» → только вопросом) · циклы 0 → 0
+  <div class="card gate">Гейт (33 строки реестров): дубликаты ответственности 2 → 0 («Вам» и «Ждут вас» — <span class="chg" data-chg="gate-inbox">по слову пользователя: «Вам» вырезан</span>; вести ведущей слали бы ядро Host и модуль разговора → одно место, ядро) · состояния 0 → 0 · логики 0 → 0 · смысла 0 → 0 · других 1 → 0 (два входа к откату файлов → один запрос) · лишние коммуникации 2 → 0 (номер разговора человек искал на машине сам → список; вопрос ведомого самой ведущей шёл бы ей дважды — вопросом и вестью «ждёт человека» → только вопросом) · циклы 0 → 0
 Числа: запросы +2 (session.rewind — ядро Host; machine.conversations — модуль машины) · методы session.call −1 (rewindFiles) · инструменты модели +1 (session.call с закрытым списком методов) · поля вопроса +3 · имена договора +4 (2 запроса, 3 поля, −1 метод) · кадры 0 новых (conversation_reset страница уже знает) · вести ведущей 4 → 7 · каналы 0 новых · секреты 0 · настройки 0 · ожидаемые ветки сбоев 0 новых · эталоны 8 → 11
 Работа: большая — меняет договор сессии
 Сделано:
@@ -227,6 +234,7 @@ pre { font: 12.5px/1.45 "JetBrains Mono", monospace; background: var(--code); bo
   8. Юнификация · инструменты ведущей · прервать, сжать, перечитать инструменты, серверы MCP, занятость контекста — уже методы session.call: он получает описание для модели; session.compact, session.set и session.mcp не вводятся · выигрыш: новых запросов 3 → 0
   9. Удаление раньше добавления · пара · один вход «+ ведомый» под полем ввода и «убрать ведомого» на его месте; кнопки пары в «Обзоре» уходят · входов 2 → 1
   7. Простые коммуникации · обновление ленты · событие conversation_reset вместо перечитывания по ответу · выигрыш: одинаково у всех зрителей
+<span class="chg" data-chg="gate-words">Слово пользователя 10 нояб. по прототипу: «весь функционал вкладки „Вам“ абсолютно бесполезен, начисто вырежи всё» — раздела, адреса, клавиши и кода нет, ждущее видно лампой на «Работе»; вопросы — карточками чата, а не блоком над вводом; ряд под полем ввода — одна строка; «Работа» сразу открывает последнюю сессию; ширина списка тянется и помнится устройством; пара — как в первой версии; имя — первое поле новой сессии; нужен блок работающих агентов</span>
 Слово пользователя 10 нояб.: откат «только файлы» убрать — в шаге два варианта, «Только разговор» и «Разговор и файлы»; после отката то же окно: та же сессия, тот же адрес, лента обрезана на месте
 Уже открыто ведущей инструментами и не меняется: session.update (модель, усилие, режим, быстрый, размышления, кусочки), session.stop, session.start, session.remove, answer, session.history
 Проверено и оставлено: откат к точке архива и откат к сообщению — два разных отката (между машинами по архиву / на месте средствами Claude), второй — слово пользователя
@@ -240,9 +248,8 @@ pre { font: 12.5px/1.45 "JetBrains Mono", monospace; background: var(--code); bo
     <div class="card"><b>Договор</b><div class="done">Два запроса с описанием для модели, описание для модели у session.call с закрытым списком методов, три поля вопроса, слова в conversation_reset; rewindFiles уходит из session.call. <b>Готово:</b> тесты протокола 9 → 10, гейт импортов чист.</div></div>
     <div class="card"><b>Host · сначала живая проверка</b><div class="done">После отката разговора копией остаются ли снимки файлов для отката к более ранним сообщениям: копия по описанию SDK начинается без них. Не остаются — обрезка через resumeSessionAt вместо копии. Заодно — копия на работающей сессии. <b>Готово:</b> два отката подряд с файлами на одной сессии: файл вернулся 2 раза из 2.</div></div>
     <div class="card"><b>Host</b><div class="done">Откат (показ, прерывание хода, файлы, копия, перезапуск, conversation_reset со словами), три новые вести, разговоры папки, поля вопроса, session.call инструментом ведущей. <b>Готово:</b> тесты Host 77 → 88 — одиннадцать эталонов выше.</div></div>
-    <div class="card"><b>Страница</b><div class="done">Прототип переносится как есть: шаг отката, ряд под полем ввода, список разговоров, карточка разрешения; вкладка отката файлов и кнопки пары уходят из инспектора. <b>Готово:</b> тесты страницы 212 → 218, живые флоу в Chrome 25 → 29.</div></div>
+    <div class="card chg" data-chg="order-page"><b>Страница</b><div class="done">Прототип переносится как есть. Откат и ведомый: шаг отката, список разговоров, карточка разрешения; вкладка отката файлов и кнопки пары уходят из инспектора. По комментариям к прототипу: вопросы сессии — карточками в конце ленты, вопрос на карточку, лента встаёт на первый неотвеченный · кнопки «/ команды» нет · ряд под полем — одна строка значений без ярлыков, «сжать», «ведомый», «очистить» значками · раздел «Вам» вырезан, лампа «ждут вас» на «Работе» · «Работа» открывает последнюю сессию · список 280 px, низкие заголовки групп, граница тянется мышью и пальцем, ширину помнит устройство · блок «Идут сейчас» вместо блока фона · участники пары в шапке с лампой и моделью, скрытая сторона строкой · имя — первое поле формы. <b>Готово:</b> тесты страницы 212 → 214, сценарий прототипа в Chrome 26 → 56 шагов из 56 на 1280 и 390 в двух темах, живые флоу 25 → 36.</div></div>
     <div class="card"><b>Тестовый флот</b><div class="done">Выкладка и живой прогон на Windows и WSL. <b>Готово:</b> записей в разговоре 6 → 2, файл вернулся, ведущая получила 3 вести из 3.</div></div>
-    <div class="card"><b>«Вам» — по развилке</b><div class="done"><b>Готово:</b> разделов 7 → 6, первым открывается «Работа».</div></div>
   </div>
 </section>
 </main>
