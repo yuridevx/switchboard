@@ -159,11 +159,10 @@ export const sessionRemove = request("session.remove", {
 });
 
 /** Проход к методам SDK живой сессии: один список методов — здесь.
- *  compact — сжать контекст сейчас; permissionRules — правила разрешений сессии; renameSession — args: заголовок;
- *  cancelMessage — args { uuid }: отменить своё сообщение, пока ход его не взял (то же, что message.cancel). */
+ *  compact — сжать контекст сейчас; permissionRules — правила разрешений сессии; renameSession — args: заголовок. */
 export const SDK_METHODS = [
   "interrupt", "contextUsage", "commands", "models", "agents", "mcpStatus", "mcpToggle", "mcpReconnect", "mcpAuthenticate",
-  "tasks", "taskStop", "taskOutput", "reload", "sideQuestion", "cancelMessage", "status", "hooks",
+  "tasks", "taskStop", "taskOutput", "reload", "sideQuestion", "status", "hooks",
   "usage", "renameSession", "getSessionInfo", "permissionRules", "compact",
 ] as const;
 /** Методы, которые сессия зовёт у другой сессии инструментом: остальные — только страница. */

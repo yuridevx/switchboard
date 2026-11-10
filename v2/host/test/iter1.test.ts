@@ -226,11 +226,8 @@ describe("chat: строка и лента", () => {
     expect(st.sdk.last(CS)!.calls.find((c) => c.name === "cancelAsyncMessage")!.args).toEqual([uuid]);
     await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === uuid && e.status === "cancelled"), 5000, "статус cancelled");
     expect((await st.request("message.cancel", { to: CS, uuid }, PULT)).result).toEqual({ cancelled: false });
-    // та же отмена — проходом session.call cancelMessage { uuid }
-    const third = ((await st.request("message", { to: CS, text: "третье" }, PULT)).result as any).uuid as string;
-    expect((await st.request("session.call", { to: CS, method: "cancelMessage", args: { uuid: third } }, PULT)).result).toEqual({ cancelled: true });
-    await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === third && e.status === "cancelled"), 5000, "отмена проходом");
-    expect(await st.request("session.call", { to: CS, method: "cancelMessage", args: {} }, PULT)).toMatchObject({ ok: false, error: "bad_input" });
+    // вход отмены один: проходом session.call её нет
+    expect(await st.request("session.call", { to: CS, method: "cancelMessage", args: { uuid } }, PULT)).toMatchObject({ ok: false });
     const second = ((await st.request("message", { to: CS, text: "и ещё" }, PULT)).result as any).uuid as string;
     proc.send({ type: "system", subtype: "status", user_message_uuids: [second] });
     await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === second && e.status === "taken"), 5000, "статус taken");

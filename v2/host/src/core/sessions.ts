@@ -1,6 +1,6 @@
 // Запросы ядра о сессиях: открыть, изменить документ, остановить, запустить, убрать, список, проход к SDK. Родитель и пара — здесь.
 import { randomUUID } from "node:crypto";
-import { kindOf, ledgerAdd, message, messageCancel, Refusal, sessionName, sessionRemove, sessionStart, sessionStop, TOOL_METHODS, type Spec, type SpecPatch } from "@sb/protocol";
+import { kindOf, ledgerAdd, message, Refusal, sessionName, sessionRemove, sessionStart, sessionStop, TOOL_METHODS, type Spec, type SpecPatch } from "@sb/protocol";
 import { tildePath } from "./paths.ts";
 import type { Ctx, Module, SessionApi } from "./contract.ts";
 import { FLAGS, MODES, type Kernel } from "./kernel.ts";
@@ -15,7 +15,7 @@ const SDK: Record<string, string> = {
   interrupt: "interrupt", contextUsage: "getContextUsage", commands: "supportedCommands", models: "supportedModels", agents: "supportedAgents",
   mcpStatus: "mcpServerStatus", mcpToggle: "toggleMcpServer", mcpReconnect: "reconnectMcpServer", mcpAuthenticate: "mcpAuthenticate",
   tasks: "backgroundTasks", taskStop: "stopTask", taskOutput: "getTaskOutput", sideQuestion: "askSideQuestion",
-  cancelMessage: "cancelAsyncMessage", status: "getStatus", hooks: "getHooksListing",
+  status: "getStatus", hooks: "getHooksListing",
   usage: USAGE, renameSession: "renameSession", getSessionInfo: "getSessionInfo", permissionRules: "listPermissionRules",
 };
 /** Методы, которым процесс не нужен: читают и правят файл разговора. */
@@ -265,14 +265,6 @@ export function coreModule(k: Kernel): Module {
         // сжатие — команда самого Claude: идёт вводом, как её набрал бы человек
         s.input("/compact", { priority: "next" });
         return {};
-      }
-      if (method === "cancelMessage") {
-        // отмена сообщения из очереди: args — { uuid } или сам номер. Очередь ведёт модуль разговора — отмена идёт его запросом
-        const a = list[0] as { uuid?: unknown } | string | undefined;
-        const uuid = typeof a === "string" ? a : a?.uuid;
-        if (typeof uuid !== "string" || !uuid) throw new Refusal("bad_input", "cancelMessage: args — { uuid: номер сообщения }");
-        if (k.owns(messageCancel.name)) return k.call(messageCancel, { to, uuid });
-        return { cancelled: (await sdk(s, "cancelAsyncMessage", uuid)) !== false };
       }
       if (method === "usage") return sdk(s, USAGE, { skipBehaviors: true });
       if (method === "mcpStatus") {

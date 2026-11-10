@@ -212,11 +212,6 @@ export function createMock(o: MockOptions = {}) {
     me: { pins: ["site@laptop"], view: { work: "list" } },
     fleet: {
       "labels": { "site@laptop": "Сайт: шапка и подвал" },
-      "proxy.rules": [
-        { name: "Внутренние адреса", match: "internal\\.example\\.com", replace: "example.com", on: true },
-        { name: "Имена клиентов", match: "ООО «[^»]+»", replace: "ООО «Клиент»", on: true },
-        { name: "Номера карт", match: "\\b\\d{4} \\d{4} \\d{4} \\d{4}\\b", replace: "**** **** **** ****", on: false },
-      ],
     },
   };
   const ledger: LedgerEvent[] = [
@@ -383,7 +378,6 @@ export function createMock(o: MockOptions = {}) {
       passes.splice(i, 1);
       return {};
     },
-    "people.list": () => ({ people, projects }),
     "people.set": (f) => {
       let p = people.find((x) => x.person === f.person);
       if (!p) people.push((p = { person: f.person, admin: false, projects: [], at: now() }));
@@ -395,7 +389,6 @@ export function createMock(o: MockOptions = {}) {
       }
       return {};
     },
-    "people.remove": (f) => (people.splice(people.findIndex((p) => p.person === f.person), 1), {}),
     "project.set": (f) => {
       const p = projects.find((x) => x.id === f.project);
       if (p) Object.assign(p, { name: f.name, ...(f.members ? { members: f.members } : {}) });
@@ -494,7 +487,6 @@ export function createMock(o: MockOptions = {}) {
     "session.call": (f) => {
       const { c } = sess(f);
       const args: any[] = f.args === undefined ? [] : Array.isArray(f.args) ? f.args : [f.args];
-      if (f.method === "cancelMessage") return cancelQueued(c, typeof args[0] === "string" ? args[0] : args[0]?.uuid);
       if (f.method === "interrupt") {
         live.delete(c);
         emit(c, [say("[Request interrupted by user]", now())]);
@@ -624,53 +616,13 @@ export function createMock(o: MockOptions = {}) {
       return {};
     },
     "key.check": (f) => (mach(f), { ok: true, word: "glm-abliterated ответила за 1,4 с" }),
-    "profile.list": (f) => (mach(f), { pieces }),
-    "profile.view": (f) => {
-      mach(f);
-      const items = (f.pieces as string[]).flatMap((p) => {
-        const piece = pieces.find((x) => x.id === p);
-        if (!piece?.ok) return [];
-        return [
-          { kind: "скил", name: p === "web" ? "shots" : p === "ops" ? "deploy" : "design", piece: p, about: p === "web" ? "Снимки экранов настоящего кода" : p === "ops" ? "Выкладка по шагам" : "Дизайн в персоне архитектора" },
-          { kind: "скил", name: p === "web" ? "a11y" : p === "ops" ? "logs" : "deliver", piece: p, about: p === "web" ? "Проверка доступности" : p === "ops" ? "Разбор журналов" : "Довести принятое до конца" },
-          ...(p === "base" ? [{ kind: "хук", name: "pre-commit", piece: p, about: "Гейт импортов перед коммитом" }, { kind: "настройка", name: "permissions", piece: p, about: "Разрешено всё, вопросы человеку — наружу" }] : []),
-          ...(p === "web" ? [{ kind: "сервер MCP", name: "playwright", piece: p, about: "Браузер для снимков" }, { kind: "агент", name: "critic", piece: p, about: "Критик прототипа" }] : []),
-        ];
-      });
-      return { items };
-    },
     "profile.file": () => ({ text: "---\nname: deliver\ndescription: Доводит принятое до конца\n---\n\n# Порядок\n\n1. Код с тестами\n2. Выпуск и живой прогон\n3. Второй проход" }),
-    "points.save": (f) => {
-      const { c } = sess(f);
-      const s = archive.find((a) => a.callsign === c);
-      if (s) (s.points++, (s.last = now()));
-      return { point: "p" + ((s?.points ?? 0) + 1) };
-    },
-    "points.raise": (f) => {
-      const m = mach(f);
-      const src = need(archive.find((a) => a.sid === f.sid), "такой сессии в архиве нет");
-      const name = f.name ?? src.callsign.split("@")[0];
-      const c = `${name}@${m}`;
-      if (sessions[c]) throw new Refusal("name_taken", `сессия ${c} уже есть`);
-      talks.set(c, [...talk(src.callsign)]);
-      sessions[c] = row(c, "idle", src.project, { title: src.title, cwd: f.cwd ?? src.cwd, last: now(), since: now() });
-      delta({ sessions: [{ callsign: c, row: sessions[c] }] });
-      return { callsign: c };
-    },
     "shell.info": (f) => ({ os: machines[mach(f)].os, shells: ["bash", "node"], home: "/home/yuri" }),
     "shell.run": (f) => (mach(f), { run: "r" + newId().slice(0, 5), state: "done", code: 0, out: "ok", started: now() - 800, ended: now() }),
-    "incident.list": (f) => ({ incidents: incidents[mach(f)] ?? [] }),
     "machine.dirs": (f) => {
       mach(f);
       const path = f.path ?? "~/projects";
       return { path, dirs: path === "~/projects" ? ["site", "billing", "docs", "infra", "prices", "sandbox"] : ["src", "test", "scripts", "docs"], recent: ["~/projects/site", "~/projects/billing", "~/projects/docs", "~/projects/infra"], git: path !== "~/projects" };
-    },
-    "machine.journal": (f) => {
-      const who = f.session ? String(f.session).slice(0, String(f.session).indexOf("@")) : "";
-      const KIND: Record<string, RegExp> = { stop: /вышел|сбой|failed|остановл/, refuse: /отказ|устарел/ };
-      const all = journal(mach(f)).filter((l) => (!f.level || l.level === f.level) && (!f.part || l.part === f.part) && (!f.of || l.trace === f.of) && (!who || new RegExp(`сессия ${who}\\b`).test(l.msg)) && (!f.since || l.t >= f.since) && (!f.kind || (f.kind === "note" ? !KIND.stop!.test(l.msg) && !KIND.refuse!.test(l.msg) : KIND[f.kind as string]!.test(l.msg))));
-      const p = page(all, f.before, f.limit ?? 40, (l) => l.t);
-      return { lines: p.items, more: p.more };
     },
     "keeper.state": (f) => {
       const m = mach(f);
@@ -691,37 +643,9 @@ export function createMock(o: MockOptions = {}) {
       }, 1500 * (i + 1)));
       return {};
     },
-    "ledger.read": (f) => {
-      const all = ledger.filter((e) => (!f.what || e.what.startsWith(f.what)) && (!f.machine || e.machine === f.machine));
-      const p = page(all, f.before, f.limit ?? 50, (e) => e.at);
-      return { events: p.items, more: p.more };
-    },
     "ledger.add": () => ({}),
-    "points.list": (f) => {
-      if (f.sid) {
-        const s = need(archive.find((a) => a.sid === f.sid), "такой сессии в архиве нет");
-        return { sessions: [s], points: archPoints(s), more: false };
-      }
-      const q = String(f.q ?? "").trim().toLowerCase();
-      const found = archive.filter((a) => !f.machine || a.machine === f.machine).flatMap((a) => {
-        if (!q) return [a];
-        const line = talk(a.callsign).flatMap((e) => (e.type === "assistant" ? (e.message.content as any[]).filter((b) => b.type === "text").map((b) => String(b.text)) : typeof e.message?.content === "string" ? [e.message.content] : [])).flatMap((t) => t.split("\n")).find((l) => l.toLowerCase().includes(q));
-        const hit = line ?? (a.title?.toLowerCase().includes(q) ? a.title : undefined);
-        return hit ? [{ ...a, hit: hit.slice(0, 160), hitPoint: `p${Math.max(1, a.points - 1)}` }] : [];
-      });
-      return { sessions: found.sort((a, b) => b.last - a.last), more: false };
-    },
-    "points.history": (f) => {
-      const s = need(archive.find((a) => a.sid === f.sid), "такой сессии в архиве нет");
-      const all = talk(s.callsign).length ? talk(s.callsign) : shortTurn(s.last - 20 * MIN, "Продолжи с прошлого раза.", `Работа по «${s.title}» доведена до точки. Тесты зелёные.`);
-      return { events: all, more: false };
-    },
-    "points.delete": (f) => (archive.splice(archive.findIndex((a) => a.sid === f.sid), 1), {}),
     "reach.devices": () => ({ devices }),
-    "reach.key": () => ({ key: "BMockVapidPublicKey" }),
-    "reach.subscribe": (f) => (devices.push({ id: "d" + newId().slice(0, 4), kind: "webpush", person: ME, label: f.label ?? "Этот браузер", at: now() }), { id: devices.at(-1)!.id }),
     "reach.remove": (f) => (devices.splice(devices.findIndex((d) => d.id === f.device), 1), {}),
-    "reach.telegram": () => ({ code: "SB-" + newId().slice(0, 6).toUpperCase(), bot: "switchboard_fleet_bot" }),
     "reach.send": () => ({ sent: 0, online: true }),
     "prefs.get": (f) => ({ values: Object.fromEntries(Object.entries(prefs[f.scope as "me" | "fleet"]).filter(([k]) => !f.prefix || k.startsWith(f.prefix))) }),
     "prefs.set": (f) => {
@@ -733,17 +657,7 @@ export function createMock(o: MockOptions = {}) {
       } else store[f.name] = f.value;
       return {};
     },
-    "keys.list": () => ({ keys }),
-    "keys.set": (f) => {
-      const k = keys.find((x) => x.name === f.name);
-      const next = { name: f.name, provider: f.provider, base: f.base, model: f.model, at: now(), tail: "…" + String(f.value).slice(-4) };
-      if (k) Object.assign(k, next);
-      else keys.push(next);
-      return {};
-    },
-    "keys.remove": (f) => (keys.splice(keys.findIndex((k) => k.name === f.name), 1), {}),
     "github.app": () => ({ installed: true, name: "switchboard-fleet", url: "https://github.com/apps/switchboard-fleet", repos: ["example/sb-base", "example/sb-web", "example/sb-ops"] }),
-    "github.setup": () => ({ installed: true }),
     "analytics.state": () => (analyticsDown ? { on: true, ok: false, error: "ClickHouse не ответил за 10 с", machines: [] } : { on: true, ok: true, ms: 180, machines: [{ machine: "server", rows: 18_420, last: now() - 4 * 60_000, pending: 0 }, { machine: "laptop", rows: 9_310, last: now() - 3 * HOUR, pending: 2 }, { machine: "anya-pc", rows: 0, pending: 0 }] }),
     "analytics.fill": () => ({ queued: 2 }),
     "analytics.query": (f) => {
@@ -790,7 +704,6 @@ export function createMock(o: MockOptions = {}) {
       });
       return { types: [...by].map(([type, ms]) => ({ type, n: ms.length, failed: bad.get(type) ?? 0, p50: q(ms, 0.5), p95: q(ms, 0.95) })).sort((a, b) => b.n - a.n), buckets };
     },
-    "obs.report": () => ({}),
   };
 
   // запросы экранов (пропуска, аккаунты, профили, архив, правила, наблюдение) — в screens.ts: ложатся поверх прежних

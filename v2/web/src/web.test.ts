@@ -1,4 +1,4 @@
-import { accountList, analyticsQuery, answer, buildsDeploy, buildsList, contract, createApi, type Frame, incidentList, invite, keeperState, keysList, ledgerRead, machineDirs, machineJournal, message, obsRecent, obsStats, passes, peopleList, peopleSet, pointsHistory, pointsList, pointsRaise, prefsGet, prefsSet, profileList, profileView, reachDevices, revoke, sessionCall, sessionHistory, sessionOpen, sessionUpdate, sessionWatch, whoami } from "@sb/protocol";
+import { accountList, analyticsQuery, answer, buildsDeploy, buildsList, contract, createApi, type Frame, incidentList, invite, keeperState, keysList, ledgerRead, machineDirs, machineJournal, message, messageCancel, obsRecent, obsStats, passes, peopleList, peopleSet, pointsHistory, pointsList, pointsRaise, prefsGet, prefsSet, profileList, profileView, reachDevices, revoke, sessionCall, sessionHistory, sessionOpen, sessionUpdate, sessionWatch, whoami } from "@sb/protocol";
 import { describe, expect, it } from "vitest";
 import { fold } from "./chat/fold.ts";
 import { nPoints, nTools, nTurns } from "./lib/time.ts";
@@ -146,9 +146,9 @@ describe("мок флота", () => {
     const q = (await api.call(message, { to: "site@laptop", text: "И подвал" })) as { queued?: boolean; uuid?: string };
     expect(q).toMatchObject({ queued: true });
     expect((await api.call(sessionHistory, { to: "site@laptop" })).events.length).toBe(before);
-    await expect(api.call(sessionCall, { to: "site@laptop", method: "cancelMessage", args: { uuid: q.uuid } })).resolves.toEqual({ cancelled: true });
+    await expect(api.call(messageCancel, { to: "site@laptop", uuid: q.uuid! })).resolves.toEqual({ cancelled: true });
     // второй раз снимать нечего
-    await expect(api.call(sessionCall, { to: "site@laptop", method: "cancelMessage", args: { uuid: q.uuid } })).resolves.toEqual({ cancelled: false });
+    await expect(api.call(messageCancel, { to: "site@laptop", uuid: q.uuid! })).resolves.toEqual({ cancelled: false });
     await expect(api.call(message, { to: "crawler@base2", text: "Как дела?" })).rejects.toMatchObject({ word: "offline" });
   });
   it("ответ мока — копия: следующая запись его не меняет", async () => {
