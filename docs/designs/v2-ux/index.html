@@ -1,0 +1,287 @@
+<title>Опыт Switchboard v2</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@500;600&display=swap">
+<style>
+/* Раскладка: колонка 1080px; сверху карта всей системы, ниже — погружение по слоям; цвета и шрифты — как у других дизайнов Switchboard. */
+:root{
+  --bg:#F2F4F8; --surface:#FFFFFF; --surface2:#E8ECF2; --ink:#131A25; --muted:#576377; --line:#D2D9E3; --line2:#E3E8EF;
+  --accent:#1E4ED0; --accent-weak:#E2E9FB; --on-accent:#FFFFFF;
+  --ok:#1C7548; --ok-weak:#DBF0E4; --wait:#955700; --wait-weak:#FAEACD; --bad:#B0222E; --bad-weak:#F7DDE0;
+  --chg-bg:#FFF5C2; --chg-edge:#D9B400;
+  --disp:"Unbounded","Golos Text",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:400 15.5px/1.5 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 72px;overflow-wrap:break-word}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:22px;min-width:0}
+h1,h2,h3{text-wrap:balance;margin:0}
+h3{font:600 14px/1.3 var(--body)}
+h1{font:600 clamp(26px,4.6vw,40px)/1.12 var(--disp);letter-spacing:-.01em}
+h2{font:600 19px/1.25 var(--disp)}
+p{margin:0;max-width:70ch}
+code,.mono{font-family:var(--mono);font-size:.88em;overflow-wrap:anywhere}
+button{font:500 13.5px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,.d [tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.top{display:flex;flex-direction:column;gap:14px;padding-block:8px 6px}
+.lede{font-size:17.5px}
+.keys{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+kbd{font:600 12px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:var(--surface);color:var(--ink)}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:13px;border:1px solid var(--line);border-radius:999px;padding:4px 11px;background:var(--surface)}
+.blk{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.chg{background:var(--chg-bg);border-color:var(--chg-edge)}
+.chg.read{background:var(--surface);border-color:var(--line)}
+.blk-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.blk-h p{color:var(--muted);font-size:14px;flex-basis:100%}
+.tag{font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border-radius:999px;padding:4px 8px;background:var(--chg-edge);color:#1E1A00}
+.tag::after{content:"новое"}
+.chg.read .tag{background:var(--ok-weak);color:var(--ok)}
+.chg.read .tag::after{content:"прочитано ✓"}
+.inner{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
+.chg.read .inner{background:var(--surface2);border-color:var(--line2)}
+.seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.fig{overflow-x:auto;padding:6px}
+svg.d{display:block;width:100%;min-width:700px;height:auto}
+.d .band{fill:var(--surface2);opacity:.55}
+.d .bandl{font:600 10.5px var(--mono);letter-spacing:.12em;text-transform:uppercase;fill:var(--muted)}
+.d .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.d .node,.d .edge,.d .step{cursor:pointer}
+.d .t{font:600 13.5px var(--body);fill:var(--ink);text-anchor:middle}
+.d .s{font:400 10.5px var(--body);fill:var(--muted);text-anchor:middle}
+.d .ln{fill:none;stroke:var(--muted);stroke-width:1.5}
+.d .hit{fill:none;stroke:transparent;stroke-width:16}
+.d .ah{fill:var(--muted)}
+.d .el{font:500 11px var(--body);fill:var(--ink);text-anchor:middle}
+.d .elb{fill:var(--surface)}
+.d .life{stroke:var(--line);stroke-width:1.5;stroke-dasharray:3 5}
+.d .num{fill:var(--ink)}
+.d .numt{font:600 10.5px var(--mono);fill:var(--bg);text-anchor:middle}
+.d .hot .box,.d .sel .box{stroke:var(--accent);fill:var(--accent-weak)}
+.d .hot .ln,.d .sel .ln{stroke:var(--accent);stroke-width:2.4}
+.d .hot .ah,.d .sel .ah,.d .sel .num{fill:var(--accent)}
+.d .live .box{stroke:var(--ok);fill:var(--ok-weak)}
+.d .again .box{stroke:var(--wait);fill:var(--wait-weak)}
+.d .dead .box{stroke:var(--bad);fill:var(--bad-weak)}
+.info{border-top:1px solid var(--line);padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:14px;min-height:64px}
+.info b{font:600 14px var(--body)}
+.info pre{margin:4px 0 0;font:400 12px/1.5 var(--mono);background:var(--surface2);border-radius:8px;padding:10px 12px;overflow-x:auto;white-space:pre}
+.two{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:14px}
+@media (max-width:760px){.two{grid-template-columns:minmax(0,1fr)}}
+.code{font:400 12.5px/1.6 var(--mono);padding:14px;overflow-x:auto;white-space:pre;margin:0}
+.code i{font-style:normal;color:var(--accent)}
+.code u{text-decoration:none;color:var(--ok)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);padding:0 14px 10px}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;border:1.5px solid}
+.legend .l-live::before{background:var(--ok-weak);border-color:var(--ok)}
+.legend .l-again::before{background:var(--wait-weak);border-color:var(--wait)}
+.legend .l-dead::before{background:var(--bad-weak);border-color:var(--bad)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.card{padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+.card h3{font:600 14px var(--body)}
+.card .arrow{color:var(--muted)}
+.pill{align-self:flex-start;font:600 10.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:4px 8px}
+.p-word{background:var(--ok-weak);color:var(--ok)} .p-fact{background:var(--accent-weak);color:var(--accent)} .p-new{background:var(--wait-weak);color:var(--wait)}
+.card .rec{border-left:2px solid var(--ok);padding-left:9px}
+.card .alt{border-left:2px solid var(--line);padding-left:9px;color:var(--muted)}
+.bars{display:grid;grid-template-columns:minmax(120px,240px) minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:14px;font-size:13.5px}
+.bars .n{font:600 13px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bars .tr{display:flex;flex-direction:column;gap:3px;min-width:0}
+.bars .b{height:7px;border-radius:4px;background:var(--muted);min-width:2px}
+.bars .a{height:7px;border-radius:4px;background:var(--accent);min-width:2px}
+.bars button{all:unset;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.bars button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.report{font:400 12.5px/1.65 var(--mono);padding:14px;margin:0;white-space:pre-wrap}
+.track{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.stepc{padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+.stepc .no{font:600 20px/1 var(--disp);color:var(--accent)}
+.stepc .done{border-left:2px solid var(--ok);padding-left:9px}
+.stepc .done b{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.mark-banner{position:fixed;left:max(16px,env(safe-area-inset-left,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);font-size:13px;padding:8px 12px;border-radius:9px;z-index:5}
+</style>
+<style>
+.gal{display:grid;grid-template-columns:minmax(0,230px) minmax(0,1fr);gap:14px}
+@media (max-width:760px){.gal{grid-template-columns:minmax(0,1fr)}}
+.nav{display:flex;flex-direction:column;gap:2px;padding:8px;max-height:640px;overflow:auto}
+.nav h3{font:600 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:10px 8px 4px}
+.nav button{all:unset;cursor:pointer;font-size:13.5px;padding:5px 8px;border-radius:7px}
+.nav button:hover{background:var(--surface2)}
+.nav button[aria-current="true"]{background:var(--accent-weak);color:var(--accent);font-weight:600}
+.nav button:focus-visible{outline:2px solid var(--accent)}
+.view{padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.view img{border:1px solid var(--line);border-radius:8px;display:block;margin:0 auto;max-height:640px;height:auto}
+.cap{font-weight:600}
+.dots{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;padding:14px;font-size:14px;align-items:center}
+.dots i{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--accent);margin-left:4px}
+.facts{display:flex;gap:10px;flex-wrap:wrap}
+.fact2{padding:12px 14px;min-width:150px}
+.fact2 b{font:600 22px/1 var(--disp);display:block;font-variant-numeric:tabular-nums}
+.fact2 span{font-size:13px}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Опыт Switchboard v2</h1>
+    <p class="lede">Один пульт на широкий экран и телефон: что ждёт вас, разговор с сессией, флот. Экраны ниже — снимки живого прототипа на настоящем коде страницы.</p>
+    <div class="keys"><span>Раздел слева — нажмите</span><span><kbd>A</kbd> прочитал</span><span><kbd>Z</kbd> снять</span></div>
+  </header>
+
+  <section class="blk chg" data-chg="screens">
+    <div class="blk-h"><h2>Экраны</h2><span class="tag"></span></div>
+    <div class="gal">
+      <div class="inner nav" id="nav"></div>
+      <div class="inner view">
+        <div class="seg" id="modes"></div>
+        <span class="cap" id="cap"></span>
+        <img id="img" alt="">
+      </div>
+    </div>
+  </section>
+
+  <section class="blk chg" data-chg="tasks">
+    <div class="blk-h"><h2>Задачи</h2><span class="tag"></span><p>Сколько действий от экрана «Вам». Точка — одно действие.</p></div>
+    <div class="inner dots" id="tasks"></div>
+  </section>
+
+  <section class="blk chg" data-chg="rules">
+    <div class="blk-h"><h2>Правила интерфейса</h2><span class="tag"></span></div>
+    <div class="chips">
+      <span class="chip">одно действие — один вход</span>
+      <span class="chip">один объект — одно место</span>
+      <span class="chip">опасное — с подтверждением и списком затронутого</span>
+      <span class="chip">ответ — прямо в строке, с отменой</span>
+      <span class="chip">машина без связи — последнее известное, без мёртвых кнопок</span>
+      <span class="chip">в навигации и вкладках нет чисел</span>
+      <span class="chip">телефон без прокрутки вбок</span>
+      <span class="chip">клавиатура: N, J/K, E, I, Ctrl K</span>
+    </div>
+  </section>
+
+  <section class="blk chg" data-chg="proof">
+    <div class="blk-h"><h2>Проверка</h2><span class="tag"></span></div>
+    <div class="facts">
+      <div class="inner fact2"><b>24 из 24</b><span>находок критика закрыто</span></div>
+      <div class="inner fact2"><b>107</b><span>тестов страницы</span></div>
+      <div class="inner fact2"><b>280</b><span>снимков: два размера, две темы</span></div>
+      <div class="inner fact2"><b>4 из 4</b><span>шагов на живом флоте в браузере</span></div>
+      <div class="inner fact2"><b>0</b><span>блоков с прокруткой вбок на 390</span></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  const DATA = [{"group":"Вам","items":[{"id":"inbox-question","cap":"Вопросы сессий — ответ прямо в строке","wide":"shots/inbox-question.1440.light.png","dark":"shots/inbox-question.1440.dark.png","phone":"shots/inbox-question.390.light.png"},{"id":"inbox-done","cap":"Закончили без вас — итог и быстрый ответ","wide":"shots/inbox-done.1440.light.png","dark":"shots/inbox-done.1440.dark.png","phone":"shots/inbox-done.390.light.png"},{"id":"inbox-answered","cap":"Отвечено — с отменой на несколько секунд","wide":"shots/inbox-answered.1440.light.png","dark":null,"phone":null}]},{"group":"Работа","items":[{"id":"work","cap":"Сессии по проектам","wide":"shots/work.1440.light.png","dark":"shots/work.1440.dark.png","phone":"shots/work.390.light.png"},{"id":"work-board","cap":"Доска по состояниям","wide":"shots/work-board.1440.light.png","dark":null,"phone":null},{"id":"work-filters","cap":"Свои фильтры","wide":"shots/work-filters.1440.light.png","dark":null,"phone":null},{"id":"work-project-menu","cap":"Меню проекта","wide":"shots/work-project-menu.1440.light.png","dark":null,"phone":null}]},{"group":"Разговор","items":[{"id":"work-session","cap":"Лента, документ сессии чипами, инспектор","wide":"shots/work-session.1440.light.png","dark":"shots/work-session.1440.dark.png","phone":"shots/work-session.390.light.png"},{"id":"session-tool-open","cap":"Вызов инструмента раскрыт","wide":"shots/session-tool-open.1440.light.png","dark":"shots/session-tool-open.1440.dark.png","phone":"shots/session-tool-open.390.light.png"},{"id":"session-permission","cap":"Разрешение","wide":"shots/session-permission.1440.light.png","dark":null,"phone":null},{"id":"session-plan","cap":"План на одобрение","wide":"shots/session-plan.1440.light.png","dark":null,"phone":null},{"id":"session-form","cap":"Форма","wide":"shots/session-form.1440.light.png","dark":null,"phone":null},{"id":"session-queued","cap":"Сообщение в очереди","wide":"shots/session-queued.1440.light.png","dark":null,"phone":null},{"id":"session-background","cap":"Фоновые задачи","wide":"shots/session-background.1440.light.png","dark":null,"phone":null},{"id":"session-inspector-context","cap":"Контекст: расход, серверы, правила","wide":"shots/session-inspector-context.1440.light.png","dark":null,"phone":null},{"id":"session-inspector-points","cap":"Точки сессии","wide":"shots/session-inspector-points.1440.light.png","dark":null,"phone":null},{"id":"session-pair","cap":"Пара ведущий — ведомый","wide":"shots/session-pair.1440.light.png","dark":null,"phone":null},{"id":"session-focus","cap":"Фокус","wide":"shots/session-focus.1440.light.png","dark":null,"phone":null},{"id":"session-offline","cap":"Машина без связи — последнее известное","wide":"shots/session-offline.1440.light.png","dark":null,"phone":null},{"id":"session-failed","cap":"Сбой с причиной","wide":"shots/session-failed.1440.light.png","dark":null,"phone":null}]},{"group":"Новая сессия","items":[{"id":"new-session","cap":"Одно поле и Enter","wide":"shots/new-session.1440.light.png","dark":"shots/new-session.1440.dark.png","phone":"shots/new-session.390.light.png"},{"id":"new-session-more","cap":"Документ сессии целиком","wide":"shots/new-session-more.1440.light.png","dark":null,"phone":null},{"id":"palette","cap":"Палитра команд","wide":"shots/palette.1440.light.png","dark":null,"phone":null},{"id":"keys","cap":"Клавиши","wide":"shots/keys.1440.light.png","dark":null,"phone":null}]},{"group":"Архив","items":[{"id":"archive","cap":"Каталог сессий","wide":"shots/archive.1440.light.png","dark":"shots/archive.1440.dark.png","phone":"shots/archive.390.light.png"},{"id":"archive-search","cap":"Поиск по словам","wide":"shots/archive-search.1440.light.png","dark":null,"phone":null},{"id":"archive-session","cap":"Разговор и линия точек","wide":"shots/archive-session.1440.light.png","dark":null,"phone":null},{"id":"archive-raise","cap":"Поднять с проверкой папки","wide":"shots/archive-raise.1440.light.png","dark":null,"phone":null},{"id":"archive-move","cap":"Перенос на другую машину","wide":"shots/archive-move.1440.light.png","dark":null,"phone":null},{"id":"archive-calls","cap":"Вызовы модели у точки","wide":"shots/archive-calls.1440.light.png","dark":null,"phone":null}]},{"group":"Расход","items":[{"id":"spend","cap":"Расход по дням и разрезам","wide":"shots/spend.1440.light.png","dark":"shots/spend.1440.dark.png","phone":"shots/spend.390.light.png"},{"id":"spend-down","cap":"Аналитика недоступна — остальное работает","wide":"shots/spend-down.1440.light.png","dark":null,"phone":null}]},{"group":"Флот","items":[{"id":"fleet-machines","cap":"Машины","wide":"shots/fleet-machines.1440.light.png","dark":"shots/fleet-machines.1440.dark.png","phone":"shots/fleet-machines.390.light.png"},{"id":"machine-offline","cap":"Машина без связи","wide":"shots/machine-offline.1440.light.png","dark":null,"phone":null},{"id":"machine-fire","cap":"«Пожар»: поднять её сессии на другой","wide":"shots/machine-fire.1440.light.png","dark":null,"phone":null},{"id":"fleet-accounts","cap":"Аккаунты и лимиты","wide":"shots/fleet-accounts.1440.light.png","dark":"shots/fleet-accounts.1440.dark.png","phone":"shots/fleet-accounts.390.light.png"},{"id":"fleet-login","cap":"Вход Claude по ссылке и коду","wide":"shots/fleet-login.1440.light.png","dark":null,"phone":null},{"id":"fleet-key-form","cap":"Ключ флота","wide":"shots/fleet-key-form.1440.light.png","dark":null,"phone":null},{"id":"fleet-profiles","cap":"Кусочки профилей","wide":"shots/fleet-profiles.1440.light.png","dark":null,"phone":null},{"id":"fleet-releases","cap":"Выпуски","wide":"shots/fleet-releases.1440.light.png","dark":null,"phone":null},{"id":"fleet-releases-confirm","cap":"Подтверждение раскатки","wide":"shots/fleet-releases-confirm.1440.light.png","dark":null,"phone":null},{"id":"fleet-releases-rollout","cap":"Ход раскатки по машинам","wide":"shots/fleet-releases-rollout.1440.light.png","dark":null,"phone":null},{"id":"fleet-incidents","cap":"Инциденты","wide":"shots/fleet-incidents.1440.light.png","dark":null,"phone":null}]},{"group":"Наблюдение","items":[{"id":"observe","cap":"Здоровье флота и запросы","wide":"shots/observe.1440.light.png","dark":"shots/observe.1440.dark.png","phone":"shots/observe.390.light.png"},{"id":"observe-failed","cap":"Почему запрос отказал — путь по частям","wide":"shots/observe-failed.1440.light.png","dark":"shots/observe-failed.1440.dark.png","phone":"shots/observe-failed.390.light.png"},{"id":"observe-ledger","cap":"Журнал флота","wide":"shots/observe-ledger.1440.light.png","dark":null,"phone":null},{"id":"observe-machine","cap":"Журнал машины","wide":"shots/observe-machine.1440.light.png","dark":null,"phone":null}]},{"group":"Настройки","items":[{"id":"settings-people","cap":"Люди и проекты","wide":"shots/settings-people.1440.light.png","dark":"shots/settings-people.1440.dark.png","phone":"shots/settings-people.390.light.png"},{"id":"settings-passes","cap":"Пропуска и устройства","wide":"shots/settings-passes.1440.light.png","dark":null,"phone":null},{"id":"settings-invite-qr","cap":"Приглашение устройства","wide":"shots/settings-invite-qr.1440.light.png","dark":null,"phone":null},{"id":"settings-alerts","cap":"Уведомления","wide":"shots/settings-alerts.1440.light.png","dark":null,"phone":null},{"id":"settings-telegram","cap":"Telegram","wide":"shots/settings-telegram.1440.light.png","dark":null,"phone":null},{"id":"settings-proxy","cap":"Правила прокси","wide":"shots/settings-proxy.1440.light.png","dark":null,"phone":null},{"id":"settings-proxy-edit","cap":"Редактор правила","wide":"shots/settings-proxy-edit.1440.light.png","dark":null,"phone":null},{"id":"settings-github","cap":"GitHub","wide":"shots/settings-github.1440.light.png","dark":null,"phone":null},{"id":"consent","cap":"Согласие для внешнего Claude","wide":"shots/consent.1440.light.png","dark":null,"phone":null}]}];
+  const TASKS = [["Ответить на вопрос сессии",1],["Увидеть законченное и ответить одной",1],["Новая сессия в недавней папке",2],["Сменить модель у работающей",2],["Прервать ход",1],["Найти в архиве по слову и поднять на другой машине",4],["Какая машина без связи и что на ней было",1],["Войти в аккаунт Claude",4],["Назначить сборку и откатить",3],["Дать доступ через проект",2],["Отозвать потерянный телефон",3],["Понять, почему запрос отказал",3],["Расход за неделю по моделям",1]];
+  const nav = document.getElementById("nav"), img = document.getElementById("img"), cap = document.getElementById("cap"), modes = document.getElementById("modes");
+  let cur = DATA[0].items[0], mode = "wide";
+  const LABEL = { wide: "Широкий, светлая", dark: "Широкий, тёмная", phone: "Телефон" };
+  function show(){
+    if (!cur[mode]) mode = "wide";
+    img.src = cur[mode]; img.alt = cur.cap; cap.textContent = cur.cap;
+    img.style.maxWidth = mode === "phone" ? "300px" : "100%";
+    nav.querySelectorAll("button").forEach(b => b.setAttribute("aria-current", String(b.dataset.id === cur.id)));
+    modes.textContent = "";
+    for (const m of ["wide", "dark", "phone"]) {
+      if (!cur[m]) continue;
+      const b = document.createElement("button"); b.type = "button"; b.textContent = LABEL[m]; b.setAttribute("aria-pressed", String(m === mode));
+      b.addEventListener("click", () => { mode = m; show(); }); modes.appendChild(b);
+    }
+  }
+  for (const g of DATA) {
+    const h = document.createElement("h3"); h.textContent = g.group; nav.appendChild(h);
+    for (const it of g.items) {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = it.cap; b.dataset.id = it.id;
+      b.addEventListener("click", () => { cur = it; show(); }); nav.appendChild(b);
+    }
+  }
+  show();
+  const t = document.getElementById("tasks");
+  for (const [name, n] of TASKS) {
+    const a = document.createElement("span"); a.textContent = name; t.appendChild(a);
+    const d = document.createElement("span"); for (let i = 0; i < n; i++) d.appendChild(document.createElement("i")); t.appendChild(d);
+  }
+})();
+</script>
+
+<script>
+/* ===== Метки «прочитал» (устав): A — прочитал, Z — снять ===== */
+(function(){
+  let hovered = null, coll = null, ready = false;
+  const queue = [];
+  const blockOf = t => (t && t.closest) ? t.closest("[data-chg]") : null;
+  document.addEventListener("pointerover", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("pointerdown", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("focusin", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  function paint(id, on){ document.querySelectorAll('[data-chg="' + id + '"]').forEach(b => b.classList.toggle("read", on)); }
+  function idsOf(b){ const ids = [b.getAttribute("data-chg")]; b.querySelectorAll("[data-chg]").forEach(n => ids.push(n.getAttribute("data-chg"))); return ids; }
+  async function mark(ids, on){
+    ids.forEach(id => paint(id, on));
+    if (!coll) return;
+    for (const id of ids){
+      try { if (on) await coll.doc(id).set({read:true, at:Date.now()}); else await coll.doc(id).delete(); }
+      catch (_) { banner("Метка не сохранилась — обновите страницу"); }
+    }
+  }
+  function act(on){ if (!hovered) return; const ids = idsOf(hovered); if (ready) mark(ids, on); else queue.push([ids, on]); }
+  const A = new Set(["a","A","а","А"]), Z = new Set(["z","Z","я","Я"]);
+  document.addEventListener("keydown", e => {
+    const t = e.target;
+    if (t && t.matches && t.matches("input:not([type=range]):not([type=checkbox]),textarea,select,[contenteditable],[contenteditable=true]")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (A.has(e.key) || e.code === "KeyA"){ e.preventDefault(); act(true); }
+    else if (Z.has(e.key) || e.code === "KeyZ"){ e.preventDefault(); act(false); }
+  });
+  let bannerEl = null;
+  function banner(text){
+    if (!bannerEl){ bannerEl = document.createElement("div"); bannerEl.className = "mark-banner"; bannerEl.setAttribute("role","status"); document.body.appendChild(bannerEl); }
+    bannerEl.textContent = text;
+  }
+  // localhost: метки хранит локальный сервер страницы
+  if (location.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+    coll = { doc: id => ({
+      set: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:true})}).then(r => { if (!r.ok) throw new Error(); }),
+      delete: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:false})}).then(r => { if (!r.ok) throw new Error(); }),
+    }) };
+    fetch("/api/state").then(r => r.json()).then(d => {
+      document.querySelectorAll("[data-chg]").forEach(b => b.classList.toggle("read", !!d.marks[b.getAttribute("data-chg")]));
+    }).catch(() => banner("Метки не загрузились — сервер страницы недоступен"));
+    ready = true;
+    return;
+  }
+  (async function init(){
+    let db = null;
+    try { db = (window.claude && window.claude.use) ? await window.claude.use("db") : null; } catch (_) { db = null; }
+    if (db){
+      try {
+        coll = db.collection("accepted");
+        coll.onSnapshot(snap => {
+          const on = new Set();
+          snap.docs.forEach(d => { const v = d.data(); if (v && v.read) on.add(d.id); });
+          document.querySelectorAll("[data-chg]").forEach(b => { const id = b.getAttribute("data-chg"); b.classList.toggle("read", on.has(id)); });
+        }, () => banner("Метки не загрузились — хранилище недоступно"));
+      } catch (_) { coll = null; }
+    }
+    ready = true;
+    if (!coll) banner("Метки «прочитал» не сохраняются — хранилище недоступно");
+    while (queue.length){ const [ids, on] = queue.shift(); mark(ids, on); }
+  })();
+})();
+</script>
