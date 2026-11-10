@@ -45,7 +45,9 @@ const auth = (token: string) => ({
 /** Одно сведение: коммит всего клона, затем общая сеть; нет клона — клон. Идёт слияние — его сводит сессия, клон не трогаем: git add завершил бы слияние с метками. token — запрос к github. */
 export async function syncRepo(git: Git, repo: string, clone: string, machine: string, token: () => Promise<string>, note: (why: string) => void): Promise<RepoState> {
   const run = async (op: string, cwd: string, args: string[], env: Record<string, string> = {}) => {
-    const r = await git([...NEVER_ASK, ...args], { cwd, env: { GIT_TERMINAL_PROMPT: "0", ...env } });
+    // коммит сведения и коммит слияния подписывает машина: на машине без имени и почты git коммит иначе не проходит
+    const who = { GIT_AUTHOR_NAME: machine, GIT_AUTHOR_EMAIL: `${machine}@switchboard`, GIT_COMMITTER_NAME: machine, GIT_COMMITTER_EMAIL: `${machine}@switchboard` };
+    const r = await git([...NEVER_ASK, ...args], { cwd, env: { GIT_TERMINAL_PROMPT: "0", ...who, ...env } });
     if (r.code !== 0 && op) throw new Stuck(op, r.out.trim());
     return r;
   };

@@ -313,6 +313,8 @@ describe("план v2: сведение кусочков", () => {
     expect(calls.map((c) => c.args[0])).toEqual(["add", "diff", "commit", "rev-parse", "pull", "rev-parse", "push"]);
     expect(calls.find((c) => c.args[0] === "commit")!.args.join(" ")).toContain("сведение: laptop");
     expect(JSON.stringify(calls.map((c) => c.args))).not.toContain("секрет-токен");
+    // факт прода: на машине без имени и почты git коммит падал «Author identity unknown» — автора ставит сведение
+    for (const op of ["commit", "pull"]) expect(calls.find((c) => c.args[0] === op)!.env).toMatchObject({ GIT_AUTHOR_NAME: "laptop", GIT_COMMITTER_EMAIL: "laptop@switchboard" });
     expect(JSON.stringify(calls.find((c) => c.args[0] === "push")!.env)).toContain(Buffer.from("x-access-token:секрет-токен").toString("base64"));
   });
 
