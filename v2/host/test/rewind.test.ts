@@ -117,6 +117,21 @@ describe("откат разговора", () => {
     expect(st.sdk.last(CS)!.options).toMatchObject({ resumeSessionAt: "a2" });
   });
 
+  it("сообщение, ждавшее хода, уходит вместе с разговором: новому процессу не достаётся, зрителю — отменено", async () => {
+    st = await stand({ modules: [chat()] });
+    const { proc, s } = await st.open("site");
+    withTalk(st, SIX);
+    await st.request("session.watch", { to: CS }, PULT);
+    proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
+    await until(() => s.state === "busy", 5000, "ход");
+    const sent = (await st.request("message", { to: CS, text: "а ещё вот это" }, PULT)).result as { uuid: string; queued: boolean };
+    expect(sent.queued).toBe(true);
+    expect((await st.request("session.rewind", { to: CS, upto: "h3" }, PULT)).ok).toBe(true);
+    await until(() => events(st!).find((e) => e.type === "message.status" && e.uuid === sent.uuid && e.status === "cancelled"), 5000, "отмена в ленте");
+    await tick(50);
+    expect(st.proc(CS).inputs.some((i) => i.message.content === "а ещё вот это")).toBe(false);
+  });
+
   it("без сообщения — очистка: в сессию ушёл ввод /clear; разговор сессии — новый; в ленте «Разговор очищен»", async () => {
     st = await stand({ modules: [chat()] });
     const { proc, s } = await st.open("site");

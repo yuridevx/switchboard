@@ -417,6 +417,8 @@ export class Session {
     const run = this.run;
     this.rec.upto = at;
     this.k.save();
+    // ждавшие сообщения были к разговору, которого больше нет
+    this.inbox.length = 0;
     if (run) await this.shut(run, isBusy(this.state));
     await this.launch("resume");
   }

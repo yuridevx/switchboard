@@ -362,6 +362,8 @@ export function make(): Module {
           if (typeof msg.after === "string") {
             merge(s, { ends: [...(part(s).ends ?? []), { after: msg.after, event: mark }].slice(-ENDS_MAX) });
             lastUuid.set(cs, msg.after);
+            // сообщения, ждавшие хода, ушли вместе с разговором: зритель видит их отменёнными
+            for (const q of [...(queued.get(cs) ?? [])]) status(cs, q.uuid, "cancelled");
           } else {
             // разговор новый: прежние итоги ходов не про него; след очистки встаёт первым
             merge(s, { ends: [{ after: "", event: mark }], title: undefined });
