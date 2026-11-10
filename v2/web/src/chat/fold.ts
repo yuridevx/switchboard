@@ -1,5 +1,6 @@
 // Свёртка разговора: сообщения SDK по порядку → строки ленты, карточки инструментов, задачи и состояние хода. Чистая функция: живое и история идут одним шагом; шаг на вид записи — своя функция.
 import { duration, hhmm, LIMIT_NAMES, plural } from "../lib/time.ts";
+import { askOutcome } from "../session/answers.ts";
 import { API_ERRORS, FALLBACK_WHY, kilo, modelName, REFUSAL_AREAS, RESULT_ERRORS, TASK_END } from "./words.ts";
 
 export type Msg = Record<string, any>;
@@ -445,6 +446,11 @@ const STEP: Record<string, (v: View, m: Msg) => void> = {
     if (state === "queued" && before?.k === "res" && before.synthetic) v.rows.splice(at - 1, 1);
   },
   /** Свои строки страницы: сообщение сессии владельцу и смена аккаунта. */
+  // итог вопроса: кто ответил и чем; ход снял вопрос — «вопрос снят»
+  "ask.answered": (v, m) => {
+    const o = askOutcome(m);
+    push(v, { k: "line", icon: "message-circle-question", text: o.text, ...(o.dim ? { dim: o.dim } : {}) });
+  },
   owner: (v, m) => push(v, { k: "in", via: "owner", from: m.from, ...(m.tag ? { tag: m.tag } : {}), text: m.text, at: timeOf(m) }),
   account: (v, m) => push(v, { k: "sys", tone: "swap", icon: "arrow-left-right", text: `аккаунт: ${m.from} → ${m.to}` }),
 };

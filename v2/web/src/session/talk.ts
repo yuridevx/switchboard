@@ -53,8 +53,8 @@ export type Talk = {
   view: View; events: SdkEvent[]; loading: boolean; error: unknown; more: boolean; loadMore(): void;
   /** отправить: сообщение сразу в ленте; отказ — оно остаётся с пометкой «не ушло» */
   send(text: string, files?: FileOut[], priority?: Priority): Promise<boolean>;
-  /** снять своё сообщение с очереди сессии */
-  cancel(id: string): Promise<void>;
+  /** снять своё сообщение с очереди сессии; снято — его текст, чтобы вернуть в поле ввода */
+  cancel(id: string): Promise<string | null>;
   /** отправить ещё раз то, что не ушло */
   resend(id: string): void;
   /** убрать из ленты то, что не ушло */
@@ -76,6 +76,8 @@ export function useTalk(callsign: string): Talk {
   const seq = useRef<number | null>(null);
   /** что отправляли: для повтора */
   const sent = useRef(new Map<string, { text: string; files?: FileOut[]; priority?: Priority }>());
+  const eventsRef = useRef<SdkEvent[]>(events);
+  eventsRef.current = events;
   const online = useFleet((f) => f.machines[machineOfCall(callsign)]?.online !== false);
   const [epoch, setEpoch] = useState(0);
 
@@ -170,10 +172,13 @@ export function useTalk(callsign: string): Talk {
   const cancel = useCallback(async (id: string) => {
     try {
       const r = await api.call(messageCancel, { to: callsign, uuid: id });
-      if (r.cancelled) setEvents((e) => setState(e, id, "cancelled"));
-      else notifications.show({ message: "Сообщение уже ушло сессии", color: "orange" });
+      if (!r.cancelled) return notifications.show({ message: "Сообщение уже ушло сессии", color: "orange" }), null;
+      setEvents((e) => setState(e, id, "cancelled"));
+      const was = eventsRef.current.find((e) => e.uuid === id);
+      return (was && userText(was)) || null;
     } catch (err) {
       notifications.show({ title: "Не получилось", message: sayError(err), color: "red" });
+      return null;
     }
   }, [callsign]);
 

@@ -129,7 +129,7 @@ export class FleetObject extends DurableObject<Env> {
         return { result: { passes: this.passRows(rows) } };
       }
       case "fleet.list":
-        return { result: this.fleetList(who!, i.machine) };
+        return { result: this.fleetList(who!, i.machine, i.project, i.state) };
       case "revoke":
         return this.revoke(who!, i.kid);
       case "whoami":
@@ -168,12 +168,13 @@ export class FleetObject extends DurableObject<Env> {
   }
 
   /** Картина одним ответом: машины и сессии, до которых достаёт спросивший, и люди на связи. */
-  private fleetList(who: Who, machine?: string): { machines: MachineRow[]; sessions: SessionRow[]; people: Array<{ person: string; name?: string; devices: string[] }> } {
+  private fleetList(who: Who, machine?: string, project?: string, state?: string): { machines: MachineRow[]; sessions: SessionRow[]; people: Array<{ person: string; name?: string; devices: string[] }> } {
     const reach = this.reach(who.person);
     if (machine && !reach.has(machine)) throw new Refusal("forbidden", "до машины " + machine + " вы не достаёте");
     const seen = (m: string) => (machine ? m === machine : reach.has(m));
     const machines = this.machines().filter((m) => seen(m.name));
-    const sessions = this.q<{ machine: string; row: string }>("SELECT machine, row FROM sessions").filter((s) => seen(s.machine)).map((s) => JSON.parse(s.row) as SessionRow);
+    const sessions = this.q<{ machine: string; row: string }>("SELECT machine, row FROM sessions").filter((s) => seen(s.machine)).map((s) => JSON.parse(s.row) as SessionRow)
+      .filter((s) => (!project || s.spec?.project === project) && (!state || s.state === state));
     // люди на связи: сам спросивший, владельцы видимых машин и те, с кем общий проект; у админа — все
     const near = new Set<string>([
       who.person, ...machines.map((m) => m.owner),

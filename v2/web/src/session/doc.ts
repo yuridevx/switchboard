@@ -49,6 +49,11 @@ export function effectiveModel(spec: { model?: string }, options: ModelOption[],
   return found ?? (id ? { value: id, label: id } : (options[0] ?? { value: "", label: "по умолчанию" }));
 }
 
+/** Модели для аккаунта сессии: у ключа флота модель одна — та, что записана у ключа; чужую провайдер ключа не примет. У входа Claude — список SDK. */
+export function modelsFor(account: { kind: string; model?: string } | undefined, sdk: ModelOption[]): ModelOption[] {
+  return account?.kind === "key" && account.model ? [{ value: account.model, label: account.model }] : sdk;
+}
+
 export function useModels(s: SessionRow, live: boolean): ModelOption[] {
   const q = useCall(sessionCall, live ? { to: s.callsign, method: "models" } : null);
   return modelOptions(q.data);

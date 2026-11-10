@@ -3,6 +3,7 @@ import {
   type Account, type ArchPoint, type ArchSession, type Ask, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type Link, type MachineRow,
   type ObsRow, type PassRow, type PersonRow, type Piece, type Project, type Reply, type SessionRow, type Span, type Transport, fail, machineOf, newId, ok, Refusal,
 } from "@sb/protocol";
+import { iter2Handlers } from "./iter2.ts";
 import { screenHandlers } from "./screens.ts";
 import { done, type Ev, liveSteps, peer, reply, researchTurn, say, shortTurn, siteTurn, text, uid } from "./convo.ts";
 
@@ -40,7 +41,8 @@ export function createMock(o: MockOptions = {}) {
 
   /* ===== Сессии ===== */
   const M = "claude-fable-5-2";
-  const ask = (a: Omit<Ask, "id" | "at">, minAgo: number): Ask => ({ id: uid("q"), at: T - minAgo * MIN, ...a });
+  // вопрос адресован тому, кто дал задачу; видели его те, кто смотрел сессию
+  const ask = (a: Omit<Ask, "id" | "at">, minAgo: number): Ask => ({ id: uid("q"), at: T - minAgo * MIN, to: ME, seen: [MY_ADDR, "phone" + ME], ...a });
   const row = (callsign: string, state: SessionRow["state"], project: string | undefined, r: Partial<SessionRow> & { cwd?: string; model?: string; pieces?: string[]; mode?: SessionRow["spec"]["mode"] } = {}): SessionRow => {
     const { cwd, model, pieces, mode, ...rest } = r;
     const name = callsign.slice(0, callsign.indexOf("@"));
@@ -65,8 +67,8 @@ export function createMock(o: MockOptions = {}) {
   add(row("api@server", "waiting", "infra", { title: "Предел запросов на входе", mode: "plan", last: T - 22 * MIN, pieces: ["base", "ops"],
     ask: ask({ kind: "plan", title: "План", text: "## Предел запросов на входе\n\n1. Счётчик на адрес в памяти процесса, окно 10 секунд.\n2. Отказ `429` со словом `too_many` и временем сброса.\n3. Тесты: 3 сценария — ровно на пределе, сверх предела, после сброса.\n\nФайлы: `src/entrance.ts`, `src/limit.ts`, `test/limit.test.ts`.", tool: "ExitPlanMode", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 22) }));
   add(row("ingest@server", "busy", "infra", { title: "Разбор ночной выгрузки", doing: "Выполняет node scripts/ingest.mjs", last: T - 1 * MIN, context: 0.67, pieces: ["base", "ops"] }));
-  add(row("nightcheck@server", "idle", "infra", { title: "Ночная проверка флота", incident: { kind: "disk", key: "/var" }, last: T - 7 * HOUR, by: "~yuri@example.com", pieces: ["base", "ops"] }));
-  add(row("migrate@server", "stopped", "infra", { title: "Перенос журналов в архив", last: T - 2 * DAY, pieces: ["base"] }));
+  add(row("nightcheck@server", "idle", "infra", { title: "Ночная проверка флота", wait: T + 95 * MIN, incident: { kind: "disk", key: "/var" }, last: T - 7 * HOUR, by: "~yuri@example.com", pieces: ["base", "ops"] }));
+  add(row("migrate@server", "stopped", "infra", { title: "Перенос журналов в архив", archiveError: "архив не ответил: store_failed", last: T - 2 * DAY, pieces: ["base"] }));
   add(row("landing@anya-pc", "busy", "site", { title: "Новый первый экран", doing: "Собирает снимки на 390 и 1440", by: ANYA, last: T - 2 * MIN, account: "anya@example.com", pieces: ["base", "web"] }));
   add(row("design@anya-pc", "idle", "site", { title: "Палитра и сетка", by: ANYA, unread: [ME, ANYA], result: "Тёмный вариант готов: фон #0F1413, контраст 11,4 : 1. Оба варианта лежат рядом, выберите один.", last: T - 41 * MIN, account: "anya@example.com", pieces: ["base", "web"] }));
   add(row("forms@anya-pc", "waiting", "site", { title: "Форма заявки", by: ANYA, last: T - 9 * MIN, account: "anya@example.com", pieces: ["base", "web"],
@@ -505,8 +507,8 @@ export function createMock(o: MockOptions = {}) {
       const { c, s } = sess(f);
       if (!s.ask || s.ask.id !== f.ask) throw new Refusal("already_answered", "на этот вопрос уже ответили");
       const a = f.answer as any;
-      const said = typeof a === "string" ? a : a?.answers ? Object.values(a.answers).join("; ") : a?.action ? `${a.action}${a.message ? `: ${a.message}` : ""}` : JSON.stringify(a);
-      emit(c, [say(`Ответ: ${said}`, now(), { isMeta: false })]);
+      // итог вопроса — событием ленты: кто ответил и чем
+      emit(c, [{ type: "ask.answered", uuid: uid("aa"), ask: s.ask.id, kind: s.ask.kind, by: typeof f.from === "string" ? f.from : MY_ADDR, answer: a, ...(f.via === "push" ? { via: "push" } : {}), at: now() }]);
       if (a === "deny" || a?.action === "deny" || a?.action === "decline" || a?.action === "cancel") setRow(c, { state: "idle", ask: null, unread: [] });
       else {
         startLive(c, s.title ?? "задача");
@@ -720,7 +722,10 @@ export function createMock(o: MockOptions = {}) {
   };
 
   // запросы экранов (пропуска, аккаунты, профили, архив, правила, наблюдение) — в screens.ts: ложатся поверх прежних
-  Object.assign(H, screenHandlers({ now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, pieces, archive, incidents, prefs, ledger, obs, archPoints, journal, talk, talks, need, mach, sess, delta, setRow, row }));
+  const screenCtx = { now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, pieces, archive, incidents, prefs, ledger, obs, archPoints, journal, talk, talks, need, mach, sess, delta, setRow, row };
+  Object.assign(H, screenHandlers(screenCtx));
+  // запросы второй итерации экранов — поверх: iter2.ts
+  Object.assign(H, iter2Handlers(screenCtx, { ...H }));
 
   const SPANS: Record<string, string[]> ={ session: ["services", "platform", "host"], machine: ["services", "platform", "host"], fleet: ["services", "platform"] };
   const call = async (f: Frame): Promise<Reply> => {

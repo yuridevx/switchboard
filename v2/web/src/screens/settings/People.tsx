@@ -1,6 +1,6 @@
 // «Настройки → Люди и проекты»: кто в каких проектах, до каких машин достаёт, устройства человека; пригласить, назвать, удалить.
 import { invite, peopleList, peopleRemove, peopleSet, projectSet, type PersonRow } from "@sb/protocol";
-import { Badge, Button, Checkbox, Group, Menu, Modal, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
+import { Badge, Button, Checkbox, Group, Menu, Modal, SegmentedControl, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { act } from "../../api.ts";
@@ -10,6 +10,10 @@ import { useFleet } from "../../store/fleet.ts";
 import { InviteLink } from "./Invite.tsx";
 
 const deviceName = (addr: string) => (addr.startsWith("@") ? addr.slice(1) : addr.split("~")[0]);
+/** Приглашение из строки человека: его устройство (имя~почта) или его машина (@имя с владельцем). */
+export function inviteFor(person: string, kind: "device" | "machine", name: string): { addr: string; owner?: string } {
+  return kind === "machine" ? { addr: "@" + name, owner: person } : { addr: name + person };
+}
 /** До каких машин человек достаёт: свои и машины тех, с кем у него общий проект; админ — до всех. */
 export function reachOf(p: PersonRow, everyone: PersonRow[], machines: Array<{ name: string; owner: string }>): string[] {
   return machines.filter((m) => p.admin || m.owner === p.person || everyone.some((o) => o.person === m.owner && o.projects.some((x) => p.projects.includes(x)))).map((m) => m.name);
@@ -26,6 +30,7 @@ export function People() {
   const [project, setProject] = useState("");
   const [made, setMade] = useState("");
   const [name, setName] = useState<{ person: string; name: string } | null>(null);
+  const [more, setMore] = useState<{ person: string; kind: "device" | "machine"; name: string } | null>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ["people.list"] });
   if (list.error) return <Failed error={list.error} retry={list.refetch} />;
   const projects = list.data?.projects ?? [];
@@ -70,6 +75,7 @@ export function People() {
                       <Menu.Target><Button size="compact-xs" variant="subtle" aria-label={`Действия: ${p.name ?? personWord(p.person)}`}>Ещё</Button></Menu.Target>
                       <Menu.Dropdown>
                         <Menu.Item onClick={() => setName({ person: p.person, name: p.name ?? "" })}>Назвать…</Menu.Item>
+                        <Menu.Item onClick={() => setMore({ person: p.person, kind: "device", name: "phone" })}>Пригласить устройство или машину…</Menu.Item>
                         {p.person !== me && <Menu.Item color="red" onClick={() => confirmDanger({ title: `Удалить ${p.name ?? personWord(p.person)} из флота?`, body: "Его пропуска будут отозваны, соединения закрыты. Машины, которыми он владеет, останутся во флоте.", confirm: "Удалить", onConfirm: async () => (await act(peopleRemove, { person: p.person }, "Человек удалён из флота")) && refresh() })}>Удалить из флота…</Menu.Item>}
                       </Menu.Dropdown>
                     </Menu>
@@ -90,6 +96,15 @@ export function People() {
         </Group>
       )}
       <Modal opened={!!made} onClose={() => setMade("")} title="Приглашение" size="lg"><InviteLink invite={made} /></Modal>
+      <Modal opened={!!more} onClose={() => setMore(null)} title={`Приглашение для ${more ? personWord(more.person) : ""}`}>
+        {more && (
+          <Stack gap="sm">
+            <SegmentedControl value={more.kind} onChange={(v) => setMore({ ...more, kind: v as "device" | "machine", name: v === "machine" ? "" : "phone" })} data={[{ value: "device", label: "Устройство" }, { value: "machine", label: "Машина" }]} aria-label="Что приглашаем" />
+            <TextInput label={more.kind === "machine" ? "Имя машины" : "Имя устройства"} className="mono" value={more.name} onChange={(e) => setMore({ ...more, name: e.currentTarget.value.toLowerCase() })} autoFocus />
+            <Button disabled={!/^[a-z0-9][a-z0-9_-]*$/.test(more.name)} onClick={async () => { const r = await act(invite, inviteFor(more.person, more.kind, more.name)); if (r) { await refresh(); setMade(r.invite); setMore(null); } }}>Выдать приглашение</Button>
+          </Stack>
+        )}
+      </Modal>
       <Modal opened={!!name} onClose={() => setName(null)} title={`Имя для ${name ? personWord(name.person) : ""}`}>
         {name && (
           <Stack gap="sm">

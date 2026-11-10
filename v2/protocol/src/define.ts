@@ -14,6 +14,8 @@ export interface RequestDef<I = unknown, O = unknown> {
   admin?: boolean;
   /** только машина (Host или Keeper своим пропуском) */
   machineOnly?: boolean;
+  /** только владелец машины адресата или админ флота */
+  ownerOnly?: boolean;
   /** без пропуска (приём приглашения) */
   open?: boolean;
   /** описание для модели: запрос с ним — инструмент сервера MCP */
@@ -42,7 +44,7 @@ function add<D extends AnyDef>(d: D): D {
 
 export function request<I, O>(
   name: string,
-  d: { owner: string; target: Target; admin?: boolean; machineOnly?: boolean; open?: boolean; tool?: string; input: z.ZodType<I>; output: z.ZodType<O> },
+  d: { owner: string; target: Target; admin?: boolean; machineOnly?: boolean; ownerOnly?: boolean; open?: boolean; tool?: string; input: z.ZodType<I>; output: z.ZodType<O> },
 ): RequestDef<I, O> {
   return add({ kind: "request", name, ...d });
 }

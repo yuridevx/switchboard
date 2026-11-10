@@ -1,5 +1,5 @@
 // «Вам»: что ждёт человека. Вопросы отвечаются прямо в строке; законченное — итог и быстрый ответ; сбои — с тем, что на них стояло.
-import { incidentList, message, sessionRead, sessionStart, type SessionRow } from "@sb/protocol";
+import { incidentList, message, peopleList, sessionRead, sessionStart, type SessionRow } from "@sb/protocol";
 import { ActionIcon, Badge, Button, Group, TextInput, Tooltip } from "@mantine/core";
 import { useHotkeys } from "@mantine/hooks";
 import { IconCheck, IconSend } from "@tabler/icons-react";
@@ -7,10 +7,12 @@ import { useQueries } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { act, api } from "../api.ts";
-import { Lamp, later, usePending, useWide } from "../common.tsx";
-import { ago } from "../lib/time.ts";
+import { Lamp, later, useCall, useLabels, usePending, useWide } from "../common.tsx";
+import { day, hhmm, ago } from "../lib/time.ts";
+import { projectOf } from "../lib/work.ts";
 import { AskCard } from "../session/Ask.tsx";
-import { Conversation } from "../session/Conversation.tsx";
+import { setLocal } from "../lib/local.ts";
+import { Conversation, pairKey, type Side } from "../session/Conversation.tsx";
 import { inboxOf, type InboxItem, machineOfCall, useFleet } from "../store/fleet.ts";
 
 function QuickReply({ callsign }: { callsign: string }) {
@@ -32,8 +34,9 @@ function QuickReply({ callsign }: { callsign: string }) {
   );
 }
 
-function Item({ it, s, selected, quiet, onPick }: { it: InboxItem; s?: SessionRow; selected: boolean; quiet: boolean; onPick: () => void }) {
+function Item({ it, s, selected, quiet, project, onPick }: { it: InboxItem; s?: SessionRow; selected: boolean; quiet: boolean; /** имя проекта сессии */ project?: string; onPick: () => void }) {
   const sessions = useFleet((f) => f.sessions);
+  const labels = useLabels();
   const go = useNavigate();
   if (it.kind === "machine") {
     const stood = Object.values(sessions).filter((x) => machineOfCall(x.callsign) === it.machine);
@@ -54,10 +57,11 @@ function Item({ it, s, selected, quiet, onPick }: { it: InboxItem; s?: SessionRo
     <div className={`row${selected ? " sel" : ""}`} role="button" tabIndex={0} data-call={s.callsign} onClick={onPick} onKeyDown={(e) => e.key === "Enter" && onPick()}>
       <Lamp state={s.state} />
       <div style={{ minWidth: 0 }}>
-        <div className="t trunc">{s.title ?? s.spec.name}</div>
-        <div className="sub trunc mono">{s.callsign}</div>
+        <div className="t trunc">{labels[s.callsign] ?? s.title ?? s.spec.name}</div>
+        <div className="sub trunc"><span className="mono">{s.callsign}</span>{project ? ` · ${project}` : ""}{it.open ? ` · ведёт ${labels[it.open] ?? it.open.slice(0, it.open.indexOf("@"))}` : ""}</div>
         {it.kind === "ask" && s.ask && <AskCard callsign={s.callsign} ask={s.ask} inline quiet={quiet} sessionTitle={s.title} onOpen={onPick} />}
         {it.kind === "done" && <><div className="sub clamp2" style={{ marginTop: 3, color: "var(--mantine-color-text)" }}>{s.result ?? "Ход закончен"}</div>{!quiet && <QuickReply callsign={s.callsign} />}</>}
+        {it.kind === "wait" && <div className="sub clamp2" style={{ marginTop: 3, color: "var(--st-waiting)" }}>Ждёт сброса лимита: продолжит {day(s.wait!)} в {hhmm(s.wait!)}</div>}
         {it.kind === "failed" && <><div className="sub clamp2" style={{ marginTop: 3, color: "var(--st-failed)" }}>{s.error ?? "сбой"}</div><Button mt={6} size="compact-xs" variant="default" onClick={(e) => (e.stopPropagation(), void act(sessionStart, { to: s.callsign }))}>Запустить заново</Button></>}
       </div>
       <span className="when">{ago(it.at)}</span>
@@ -81,7 +85,19 @@ export function Inbox() {
   const machines = Object.values(picture.machines).filter((m) => m.online).map((m) => m.name);
   const inc = useQueries({ queries: machines.map((m) => ({ queryKey: ["incident.list", m], queryFn: () => api.call(incidentList, { to: "@" + m }), retry: false })) });
   const incidents = inc.flatMap((q, i) => (q.data?.incidents ?? []).filter((x) => x.state !== "done").map((x) => ({ ...x, machine: machines[i] })));
-  const order = [...inbox.asks, ...done, ...inbox.fails].filter((i) => i.callsign).map((i) => i.callsign!);
+  // ведомый открывается через своего ведущего: строка выбрана, когда открыт её разговор или разговор её ведущего
+  // на широком экране — пара рядом; на телефоне — сам ведомый
+  const target = (i: InboxItem) => (wide && i.open ? i.open : i.callsign!);
+  const pick = (i: InboxItem) => {
+    if (wide && i.open) setLocal<Side>(pairKey(i.open), "both");
+    go(`/inbox/${target(i)}`);
+  };
+  const people = useCall(peopleList, {});
+  const projectName = (s?: SessionRow) => {
+    const id = s ? projectOf(picture, s) : "";
+    return id ? (people.data?.projects.find((p) => p.id === id)?.name ?? id) : undefined;
+  };
+  const order = [...new Set([...inbox.asks, ...done, ...inbox.fails].filter((i) => i.callsign).map(target))];
   const move = (d: number) => {
     const at = callsign ? order.indexOf(callsign) : -1;
     const next = order[Math.max(0, Math.min(order.length - 1, at + d))];
@@ -90,7 +106,7 @@ export function Inbox() {
   useHotkeys([["j", () => move(1)], ["k", () => move(-1)], ["e", () => callsign && api.call(sessionRead, { to: callsign }).catch(() => {})]]);
 
   // на широком экране при входе открыт первый вопрос; итоги сами не открываются — открытие помечает их прочитанными
-  const first = inbox.asks[0]?.callsign;
+  const first = inbox.asks[0] && target(inbox.asks[0]);
   const opened = useRef(false);
   useEffect(() => {
     if (opened.current || !picture.rev) return;
@@ -102,7 +118,7 @@ export function Inbox() {
   const group = (title: string, items: InboxItem[]) => items.length > 0 && (
     <>
       <div className="grp">{title}</div>
-      {items.map((it) => <Item key={it.key} it={it} s={it.callsign ? picture.sessions[it.callsign] : undefined} selected={it.callsign === callsign} quiet={wide && it.callsign === callsign} onPick={() => go(`/inbox/${it.callsign}`)} />)}
+      {items.map((it) => <Item key={it.key} it={it} s={it.callsign ? picture.sessions[it.callsign] : undefined} project={projectName(it.callsign ? picture.sessions[it.callsign] : undefined)} selected={!!it.callsign && (it.callsign === callsign || it.open === callsign)} quiet={wide && (it.callsign === callsign || it.open === callsign)} onPick={() => pick(it)} />)}
     </>
   );
   return (

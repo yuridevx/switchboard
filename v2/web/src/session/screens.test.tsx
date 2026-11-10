@@ -80,7 +80,7 @@ describe("вопрос сессии", () => {
 
 describe("ввод", () => {
   const session = (): SessionRow => mock.state.sessions["docs@laptop"];
-  const fake = (): Talk => ({ view: {} as never, events: [], loading: false, error: null, more: false, loadMore() {}, send: vi.fn(async () => true), cancel: vi.fn(async () => {}), resend() {}, drop() {}, asides: [], aside: vi.fn(), dropAside() {} });
+  const fake = (): Talk => ({ view: {} as never, events: [], loading: false, error: null, more: false, loadMore() {}, send: vi.fn(async () => true), cancel: vi.fn(async () => null), resend() {}, drop() {}, asides: [], aside: vi.fn(), dropAside() {} });
   it("«/» показывает команды сессии из списка SDK; черновик переживает уход; Enter отправляет; «/btw» спрашивает сбоку", async () => {
     const talk = fake();
     const { unmount } = page(<Composer s={session()} talk={talk} />);

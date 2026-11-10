@@ -55,3 +55,15 @@
 
 /* подпись поля с моноширинным значением остаётся обычным шрифтом */
 .mono > .mantine-InputWrapper-label { font-family: var(--mantine-font-family); }
+
+.linklike { border: 0; background: none; padding: 0; cursor: pointer; color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; font: inherit; font-weight: 600; }
+
+.line.marked { background: var(--st-waiting-weak); border-radius: 6px; padding-left: 6px; padding-right: 6px; }
+.warnmark { border: 0; background: none; padding: 0 2px; cursor: pointer; color: var(--st-waiting); font-size: 14px; line-height: 1; }
+
+.diff .del { background: var(--st-failed-weak); text-decoration: line-through; }
+.diff .add { background: var(--st-idle-weak); }
+.diff > div { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.missed { all: unset; cursor: pointer; display: block; width: 100%; box-sizing: border-box; padding: 4px 6px; border-radius: 6px; min-width: 0; }
+.missed:hover, .missed:focus-visible { background: var(--surface-2); }

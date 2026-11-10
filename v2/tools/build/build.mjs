@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { digest, hostBundle } from "./digest.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(path.join(root, "package.json"));
@@ -22,15 +23,9 @@ const esbuild = require("esbuild");
 const stage = path.join(out, "host");
 fs.mkdirSync(path.join(stage, "src"), { recursive: true });
 await esbuild.build({
-  entryPoints: [path.join(root, "host/src/main.ts")],
+  ...hostBundle(root),
   outfile: path.join(stage, "src/main.ts"),
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  target: "node24",
-  external: ["@anthropic-ai/claude-agent-sdk"],
   banner: { js: "// Host Switchboard v2, сборка " + build + ". Собранный файл: правки — в исходниках v2/host." },
-  logLevel: "warning",
 });
 const hostPkg = JSON.parse(fs.readFileSync(path.join(root, "host/package.json"), "utf8"));
 fs.writeFileSync(path.join(stage, "package.json"), JSON.stringify({ name: "sb-host", version: "0.0." + build, private: true, type: "module", dependencies: { "@anthropic-ai/claude-agent-sdk": hostPkg.dependencies["@anthropic-ai/claude-agent-sdk"] } }, null, 2) + "\n");
@@ -40,8 +35,8 @@ execFileSync(process.platform === "win32" ? path.join(process.env.SystemRoot ?? 
 fs.rmSync(stage, { recursive: true, force: true });
 
 /* Keeper */
-for (const [goos, name] of [["windows", "keeper-windows-amd64.exe"], ["linux", "keeper-linux-amd64"]]) {
-  const r = spawnSync("go", ["build", "-trimpath", "-ldflags", `-s -w -X main.build=${build}`, "-o", path.join(out, name), "."], { cwd: path.join(root, "keeper"), env: { ...process.env, GOOS: goos, GOARCH: "amd64", CGO_ENABLED: "0" }, stdio: "pipe" });
+for (const [goos, goarch, name] of [["windows", "amd64", "keeper-windows-amd64.exe"], ["linux", "amd64", "keeper-linux-amd64"], ["darwin", "arm64", "keeper-darwin-arm64"], ["darwin", "amd64", "keeper-darwin-amd64"]]) {
+  const r = spawnSync("go", ["build", "-trimpath", "-ldflags", `-s -w -X main.build=${build}`, "-o", path.join(out, name), "."], { cwd: path.join(root, "keeper"), env: { ...process.env, GOOS: goos, GOARCH: goarch, CGO_ENABLED: "0" }, stdio: "pipe" });
   if (r.status !== 0) throw new Error(`keeper ${goos} не собран: ${r.stderr}`);
 }
 
@@ -61,7 +56,7 @@ if (up > 0) {
   try {
     commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root }).toString().trim();
   } catch {}
-  const res = await fetch(env.SB2_BASE + "/call", { method: "POST", headers: { authorization: "Bearer " + key, "content-type": "application/json" }, body: JSON.stringify({ type: "builds.upload", id: "b" + build, build, commit, files }) });
+  const res = await fetch(env.SB2_BASE + "/call", { method: "POST", headers: { authorization: "Bearer " + key, "content-type": "application/json" }, body: JSON.stringify({ type: "builds.upload", id: "b" + build, build, commit, digest: await digest(root), files }) });
   const reply = await res.json();
   if (!reply.ok) throw new Error("builds.upload: " + reply.error + " " + (reply.why ?? ""));
   for (const f of files) {

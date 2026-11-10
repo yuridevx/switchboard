@@ -126,7 +126,7 @@ export function make(): Module {
   const merge = (s: SessionApi, p: Part) => s.store<Part>().update((cur) => ({ ...cur, ...p }));
   /** Кто дал задачу: последний писавший, иначе открывший. */
   const asker = (s: SessionApi) => part(s).asker ?? s.info.by;
-  const ask = questions(() => host, asker);
+  const ask = questions(() => host, asker, { viewers: (cs) => [...(viewers.get(cs) ?? [])], push: (cs, e) => push(cs, e) });
   const session = (to: string) => host.session(to)!;
 
   function flush(cs: string) {

@@ -204,6 +204,15 @@ export function coreModule(k: Kernel): Module {
         return { cancelled: (await sdk(s, "cancelAsyncMessage", uuid)) !== false };
       }
       if (method === "usage") return sdk(s, USAGE, { skipBehaviors: true });
+      if (method === "mcpStatus") {
+        // у сервера флота в настройках лежит пропуск машины: заголовки и окружение серверов наружу не уходят
+        const servers = (await sdk(s, "mcpServerStatus")) as Array<{ config?: Record<string, unknown> }> | undefined;
+        return (servers ?? []).map((m) => {
+          if (!m.config) return m;
+          const { headers: _headers, env: _env, ...config } = m.config;
+          return { ...m, config };
+        });
+      }
       return sdk(s, SDK[method]!, ...list);
     },
   };

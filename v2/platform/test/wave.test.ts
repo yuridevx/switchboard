@@ -187,3 +187,18 @@ describe("вход внешнего клиента по OAuth", () => {
     expect(await consent(fleet, laptop, good)).toMatchObject({ ok: false, error: "forbidden" });
   });
 });
+
+describe("картина для модели: фильтры", () => {
+  it("fleet.list отбирает сессии по проекту и по состоянию", async () => {
+    const t = await trio();
+    const hl = await host(t.fleet, "laptop", t.laptop);
+    hl.send({ type: "machine.hello", build: 1, sessions: [{ ...row("site@laptop"), state: "busy", spec: { name: "site", cwd: "~/p", project: "site" } }, { ...row("docs@laptop"), state: "idle" }] });
+    const py = await page(t.fleet, t.yuri);
+    await py.next((f) => (f.type === "roster" || f.type === "roster.delta") && JSON.stringify(f).includes("docs@laptop"));
+    const list = async (f: Record<string, unknown>) => ((await ask(t.fleet, t.yuri, { type: "fleet.list", ...f })).result as { sessions: SessionRow[] }).sessions.map((s) => s.callsign);
+    expect((await list({})).sort()).toEqual(["docs@laptop", "site@laptop"]);
+    expect(await list({ state: "busy" })).toEqual(["site@laptop"]);
+    expect(await list({ project: "site" })).toEqual(["site@laptop"]);
+    expect(await list({ project: "site", state: "idle" })).toEqual([]);
+  });
+});

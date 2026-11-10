@@ -1,3 +1,4 @@
+import { gunzipSync, gzipSync } from "node:zlib";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { mkdtempSync } from "node:fs";
@@ -263,11 +264,13 @@ describe("points", () => {
     expect(puts[1].commit).toBe(true);
     expect(store.seen).toHaveLength(1);
     expect(store.seen[0]).toMatchObject({ method: "PUT", url: `/b/${puts[0].files[0].blocks[0]}` });
-    expect(store.seen[0]!.body.toString("utf8")).toBe(text);
+    // блок уходит в хранилище сжатым и распаковывается в то же содержимое
+    expect(store.seen[0]!.body.subarray(0, 2)).toEqual(Buffer.from([0x1f, 0x8b]));
+    expect(gunzipSync(store.seen[0]!.body).toString("utf8")).toBe(text);
 
     // подъём копией: файлы точки — по ссылкам, сессия открыта от разговора точки
     const hash = puts[0].files[0].blocks[0] as string;
-    const blocksServer = await server(() => ({ body: Buffer.from(text) }));
+    const blocksServer = await server(() => ({ body: gzipSync(Buffer.from(text)) }));
     st.services.handlers["points.get"] = () => ({
       session: { sid: "sid-old", machine: "server", callsign: "docs@server", cwd: st!.dir, points: 1, last: 1 },
       point: { point: "p1", at: 1 },

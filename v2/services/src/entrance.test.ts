@@ -114,3 +114,26 @@ describe("вход служб", () => {
     expect(await (await s.http("/health")).json()).toMatchObject({ ok: true, part: "services" });
   });
 });
+
+describe("вход: только владелец машины", () => {
+  it("перезапуск Host: владелец и админ — доставлено Keeper; достающий до машины, но не владелец — forbidden", async () => {
+    const s = stand();
+    // Аня достаёт до laptop (общий проект с Юрой), но владелец — Юра
+    expect(await s.ask("host.restart", { to: ".keeper@laptop" }, "kanya1")).toMatchObject({ ok: false, error: "forbidden" });
+    expect(s.seen.delivered).toHaveLength(0);
+    expect((await s.ask("host.restart", { to: ".keeper@laptop" }, "kyura1")).ok).toBe(true);
+    expect(s.seen.delivered.at(-1)).toMatchObject({ type: "host.restart", to: ".keeper@laptop" });
+    // своя машина — можно и не админу
+    expect((await s.ask("host.restart", { to: ".keeper@oleg-mac" }, "koleg1")).ok).toBe(true);
+  });
+});
+
+describe("вход: сообщение человеку", () => {
+  it("message на адрес человека или устройства — отказ not_session с подсказкой про reach.send", async () => {
+    const s = stand();
+    const r = await s.ask("message", { to: "~anya@example.com", text: "привет" });
+    expect(r).toMatchObject({ ok: false, error: "not_session" });
+    expect(r.why).toContain("reach.send");
+    expect(await s.ask("message", { to: "phone~anya@example.com", text: "привет" })).toMatchObject({ ok: false, error: "not_session" });
+  });
+});

@@ -14,6 +14,7 @@ import { projectOf } from "../lib/work.ts";
 import { inboxOf, machineOfCall, useFleet } from "../store/fleet.ts";
 import { linkWord, openPage, useLink } from "./link.ts";
 import { NewSession } from "./NewSession.tsx";
+import { Missed } from "./Missed.tsx";
 import { PushBar } from "./PushBar.tsx";
 
 const NAV = [
@@ -95,8 +96,8 @@ export function Shell() {
       return {
         id: "s:" + s.callsign, label: labels[s.callsign] ?? s.title ?? s.spec.name,
         description: `${s.callsign} · ${picture.machines[machineOfCall(s.callsign)]?.online === false ? "нет связи, последнее известное" : STATE_WORD[s.state]} · ${s.spec.cwd}${project ? ` · ${project}` : ""}`,
-        // находится и по папке, и по проекту
-        keywords: [s.spec.cwd, project ?? "", s.spec.name],
+        // находится по папке, проекту и по обращению, которое сессия разбирает (вид и ключ инцидента)
+        keywords: [s.spec.cwd, project ?? "", s.spec.name, ...(s.incident ? [s.incident.kind, s.incident.key, "инцидент"] : [])],
         onClick: () => go(`/work/${s.callsign}`),
       };
     }),
@@ -132,6 +133,7 @@ export function Shell() {
       <main className="main">
         {picture.link !== "open" && picture.rev > 0 && <OfflineBar />}
         {picture.link === "open" && <PushBar />}
+        {picture.link === "open" && <Missed />}
         <Boundary name={NAV.find(([to]) => to === section)?.[1] ?? "Экран"} key={loc.pathname.split("/")[1]}><Outlet /></Boundary>
       </main>
       <nav className="tabbar" aria-label="Разделы">

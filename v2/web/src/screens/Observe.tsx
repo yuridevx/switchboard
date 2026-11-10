@@ -154,6 +154,17 @@ function Ledger() {
 }
 
 type JLine = OutputOf<typeof machineJournal>["lines"][number];
+
+/** Строка журнала машины словами: у запроса — имя, от кого, время и исход; у остального — событие, сессия и причина. */
+export function journalWord(l: { msg: string; [field: string]: unknown }): string {
+  const s = (k: string) => (typeof l[k] === "string" || typeof l[k] === "number" ? String(l[k]) : "");
+  if (l.msg === "request" && s("type")) {
+    const out = l.ok === false ? ` · отказ ${sayWord(s("word"))}${s("why") ? `: ${s("why")}` : ""}` : "";
+    return `запрос ${s("type")}${s("from") ? ` от ${s("from")}` : ""}${s("ms") ? ` · ${s("ms")} мс` : ""}${out}`;
+  }
+  const bits = [s("callsign"), s("type") && l.msg !== "request" ? s("type") : "", s("build") ? `сборка ${s("build")}` : "", s("word"), s("why")].filter(Boolean);
+  return bits.length ? `${l.msg} · ${bits.join(" · ")}` : l.msg;
+}
 const KINDS = [{ value: "stop", label: "остановки и сбои" }, { value: "refuse", label: "отказы запросам" }, { value: "note", label: "остальное" }];
 
 function MachineLog() {
@@ -198,7 +209,7 @@ function MachineLog() {
       {j.error ? <Failed error={j.error} retry={j.refetch} /> : (
         <div className="table-wrap" style={{ padding: "8px 12px" }}>
           {lines.map((l, i) => (
-            <Text key={i} size="xs" className="mono" c={l.level === "error" ? "red" : l.level === "warn" ? "orange" : undefined} style={{ overflowWrap: "anywhere", padding: "2px 0" }}>{hhmm(l.t)} {partWord(l.part)} · {l.msg}</Text>
+            <Text key={i} size="xs" className="mono" c={l.level === "error" ? "red" : l.level === "warn" ? "orange" : undefined} style={{ overflowWrap: "anywhere", padding: "2px 0" }}>{hhmm(l.t)} {partWord(l.part)} · {journalWord(l)}</Text>
           ))}
           {j.data && !lines.length && <Text size="sm" className="muted">Строк нет</Text>}
         </div>

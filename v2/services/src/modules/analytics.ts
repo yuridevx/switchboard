@@ -1,6 +1,7 @@
 // Аналитика — ClickHouse в стороне: вызовы модели и расход. Главной копии в нём нет: строки получены из блоков архива и доливаются заново.
 // Его отказ ломает только отчёты: точки, подъём и поиск от него не зависят.
 import { canReach, errFields, Refusal } from "@sb/protocol";
+import { outbound } from "../env.ts";
 import type { Ctx, Deps, Env, Module, PointNote } from "../env.ts";
 import { log } from "../entrance.ts";
 import { callsOf, conversation, costOf, pointsSince, prices } from "./archive.ts";
@@ -36,7 +37,7 @@ async function ch(env: Env, f: typeof fetch, query: string, body?: string, param
 
 /** Одна точка — в ClickHouse. Повторная подача строк не прибавляет: ключ строки — флот, машина, сессия и номер вызова. */
 async function feed(env: Env, deps: Deps, n: PointNote): Promise<number> {
-  const f = deps.fetch ?? fetch;
+  const f = deps.fetch ?? outbound;
   const { session, lines } = await conversation(env, n.fleet, n.machine, n.sid, n.point);
   const calls = callsOf(lines);
   if (!calls.length) return 0;
@@ -69,7 +70,7 @@ export async function consume(batch: MessageBatch<PointNote>, env: Env, deps: De
       log.error("аналитика не приняла точку", { module: NAME, fleet: m.body.fleet, machine: m.body.machine, ...errFields(e) });
       const text = e instanceof Error ? e.message : String(e);
       await record(env, m.body.fleet, { what: "analytics.failed", who: ".analytics", machine: m.body.machine, text, data: { sid: m.body.sid, point: m.body.point } });
-      await partFailed(env, m.body.fleet, { platform: deps.platform ?? env.PLATFORM, fetch: deps.fetch ?? fetch, log }, { what: "analytics.failed", who: ".analytics", machine: m.body.machine, text }).catch((x) =>
+      await partFailed(env, m.body.fleet, { platform: deps.platform ?? env.PLATFORM, fetch: deps.fetch ?? outbound, log }, { what: "analytics.failed", who: ".analytics", machine: m.body.machine, text }).catch((x) =>
         log.error("оповещение о сбое аналитики не ушло", { module: NAME, fleet: m.body.fleet, ...errFields(x) }),
       );
       m.ack();

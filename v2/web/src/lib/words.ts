@@ -3,7 +3,7 @@
 export const SAY: Record<string, string> = {
   // вход и связь
   offline: "Машина не на связи", forbidden: "Нет права", timeout: "Нет ответа", bad_input: "Ввод не подходит", bad_frame: "Запрос не разобран", too_large: "Слишком большое сообщение",
-  unknown_request: "Здесь это не обслуживается", module_failed: "Ошибка в модуле", not_found: "Не найдено", shutting_down: "Часть останавливается", proto: "Приложение устарело",
+  unknown_request: "Здесь это не обслуживается", module_failed: "Ошибка в модуле", not_found: "Не найдено", not_session: "Адресат — не сессия", shutting_down: "Часть останавливается", proto: "Приложение устарело",
   replaced: "Соединение заменено другим", hello_timeout: "Соединение не представилось", access: "Доступ изменился", error: "Ошибка", server_error: "Ошибка сервера",
   // пропуска, люди, вход внешних клиентов
   bad_key: "Пропуск не принят", revoked: "Пропуск отозван", bad_invite: "Приглашение не принято", exists: "Такой человек уже во флоте", name_taken: "Имя занято",

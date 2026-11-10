@@ -7,7 +7,7 @@ import { Link } from "react-router";
 import { act, api, sayError } from "../api.ts";
 import { CONTEXT_PARTS, STATUS_LABELS } from "../chat/words.ts";
 import type { View } from "../chat/fold.ts";
-import { accountWord, confirmDanger, Failed, personWord, useCall, useWide } from "../common.tsx";
+import { accountWord, confirmDanger, Failed, Lamp, personWord, STATE_WORD, useCall, useWide } from "../common.tsx";
 import { ago, count, day, duration, hhmm, kilo, LIMIT_NAMES, nTurns } from "../lib/time.ts";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { DocFields } from "./Conversation.tsx";
@@ -24,7 +24,33 @@ function Field({ label, value, onSave, disabled, mono, placeholder, note }: { la
   return <TextInput label={<>{label} {note}</>} className={mono ? "mono" : undefined} disabled={disabled} placeholder={placeholder} value={v} onChange={(e) => setV(e.currentTarget.value)} onBlur={save} onKeyDown={(e) => (e.key === "Enter" ? save() : e.key === "Escape" ? setV(value) : undefined)} />;
 }
 
-function Overview({ s }: { s: SessionRow }) {
+/** Пара в «Обзоре»: общие ряды, две колонки — ведущий и ведомый. */
+export function pairRows(lead: SessionRow, wing: SessionRow): Array<[string, string, string]> {
+  const row = (label: string, of: (s: SessionRow) => string): [string, string, string] => [label, of(lead), of(wing)];
+  return [
+    row("Состояние", (s) => (s.compacting ? "сжимает контекст" : (s.doing ?? STATE_WORD[s.state]))),
+    row("Модель", (s) => s.spec.model ?? "по умолчанию"),
+    row("Аккаунт", (s) => s.account ?? accountWord(s.spec.account)),
+    row("Кусочки", (s) => (s.spec.pieces ?? []).join(", ") || "нет"),
+    row("Папка", (s) => s.spec.cwd),
+    row("Открыта", (s) => ago(s.since)),
+  ];
+}
+
+function PairInfo({ s, other }: { s: SessionRow; other: SessionRow }) {
+  const labels = useLabels();
+  const lead = s.spec.wing ? s : other, wing = lead === s ? other : s;
+  const head = (x: SessionRow) => (x === s ? <span className="mono">{labels.name(x.callsign)}</span> : <Link className="mono" to={`/work/${x.callsign}`}>{labels.name(x.callsign)}</Link>);
+  return (
+    <dl className="pairkv" aria-label="Пара">
+      <dt /><dd className="head">ведущий</dd><dd className="head">▸ ведомый</dd>
+      <dt /><dd><Lamp state={lead.state} /> {head(lead)}</dd><dd><Lamp state={wing.state} /> {head(wing)}</dd>
+      {pairRows(lead, wing).map(([label, a, b]) => <span key={label} style={{ display: "contents" }}><dt>{label}</dt><dd>{a}</dd><dd>{b}</dd></span>)}
+    </dl>
+  );
+}
+
+function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
   const machine = machineOfCall(s.callsign);
   const people = useCall(peopleList, {});
   const off = useFleet((f) => f.machines[machine]?.online === false);
@@ -47,6 +73,7 @@ function Overview({ s }: { s: SessionRow }) {
       <Switch label="Сохранять точки в архив" disabled={off} checked={!!s.spec.backup} onChange={(e) => patchDoc(s, { backup: e.currentTarget.checked })} />
       <Switch label={<>Открыть в приложении Claude <AfterTurn on={later.includes("remote")} /></>} disabled={off} checked={!!s.spec.remote} onChange={(e) => patchDoc(s, { remote: e.currentTarget.checked })} />
       {s.remoteUrl && <Text size="sm" component="a" href={s.remoteUrl} target="_blank" rel="noreferrer" style={{ overflowWrap: "anywhere" }}>{s.remoteUrl}</Text>}
+      {other && <PairInfo s={s} other={other} />}
       {s.spec.wing ? (
         <Group justify="space-between" wrap="nowrap">
           <Text size="sm">Ведомый <Link className="mono" to={`/work/${s.spec.wing}`}>{labels.name(s.spec.wing)}</Link></Text>
@@ -55,12 +82,13 @@ function Overview({ s }: { s: SessionRow }) {
       ) : !s.lead && <Button size="xs" variant="default" w="fit-content" disabled={off} onClick={() => patchDoc(s, {}, { pair: true })}>Открыть ведомого</Button>}
       <dl className="kv">
         <dt>Открыл</dt><dd className="mono">{personWord(s.by)}</dd>
-        <dt>Открыта</dt><dd>{ago(s.since)}</dd>
+        {!other && <><dt>Открыта</dt><dd>{ago(s.since)}</dd></>}
         {s.spec.parent && <><dt>Задачу дала</dt><dd><Link className="mono" to={`/work/${s.spec.parent}`}>{labels.name(s.spec.parent)}</Link></dd></>}
         {s.lead && <><dt>Ведущий</dt><dd><Link className="mono" to={`/work/${s.lead}`}>{labels.name(s.lead)}</Link></dd></>}
         {s.incident && <><dt>Разбирает</dt><dd>{s.incident.kind} · <span className="mono">{s.incident.key}</span></dd></>}
-        <dt>Кусочки</dt><dd>{(s.spec.pieces ?? []).join(", ") || "нет"}</dd>
-        <dt>Аккаунт</dt><dd>{s.account ?? accountWord(s.spec.account)}{mine?.plan ? ` · ${mine.plan}` : ""}</dd>
+        {/* у пары кусочки, аккаунт и срок стоят в её двух колонках выше */}
+        {!other && <><dt>Кусочки</dt><dd>{(s.spec.pieces ?? []).join(", ") || "нет"}</dd></>}
+        {!other ? <><dt>Аккаунт</dt><dd>{s.account ?? accountWord(s.spec.account)}{mine?.plan ? ` · ${mine.plan}` : ""}</dd></> : mine?.plan ? <><dt>План</dt><dd>{mine.plan}</dd></> : null}
         {(mine?.limits ?? []).map((l) => <span key={l.name} style={{ display: "contents" }}><dt>{LIMIT_NAMES[l.name] ?? l.name}</dt><dd style={l.used >= 0.9 ? { color: "var(--st-failed)" } : l.used >= 0.7 ? { color: "var(--st-waiting)" } : undefined}>{Math.round(l.used * 100)}%{l.resets ? ` · сброс ${day(l.resets)}, ${hhmm(l.resets)}` : ""}</dd></span>)}
       </dl>
       {auto && !off && <Button size="xs" variant="default" w="fit-content" onClick={async () => (await act(slotSwap, { to: "@" + machine }, "Аккаунт очереди сменён")) && qc.invalidateQueries({ queryKey: ["account.list"] })}>Сменить аккаунт сейчас</Button>}
@@ -218,9 +246,27 @@ function Points({ s }: { s: SessionRow }) {
 const PAGE = 60;
 type Line = { t: number; part: string; level: string; msg: string };
 
-function Journal({ s }: { s: SessionRow }) {
+/** Журнал: фильтры общие; у пары — две колонки, ведущий и ведомый. */
+function Journal({ s, other }: { s: SessionRow; other?: SessionRow }) {
   const [level, setLevel] = useState("all");
   const [kind, setKind] = useState("all");
+  const labels = useLabels();
+  const lead = other && !s.spec.wing ? other : s, wing = other ? (lead === s ? other : s) : undefined;
+  return (
+    <Stack gap={6} p="md">
+      <SegmentedControl size="xs" value={level} onChange={setLevel} data={[{ value: "all", label: "Все" }, { value: "warn", label: "Предупреждения" }, { value: "error", label: "Ошибки" }]} />
+      <SegmentedControl size="xs" value={kind} onChange={setKind} data={[{ value: "all", label: "Любые" }, { value: "stop", label: "Остановки" }, { value: "refuse", label: "Отказы" }]} />
+      {wing ? (
+        <div className="pairlog">
+          <div><Text size="xs" fw={600} className="mono trunc">{labels.name(lead.callsign)}</Text><JournalLines key={lead.callsign} s={lead} level={level} kind={kind} /></div>
+          <div><Text size="xs" fw={600} className="mono trunc">▸ {labels.name(wing.callsign)}</Text><JournalLines key={wing.callsign} s={wing} level={level} kind={kind} /></div>
+        </div>
+      ) : <JournalLines key={s.callsign} s={s} level={level} kind={kind} />}
+    </Stack>
+  );
+}
+
+function JournalLines({ s, level, kind }: { s: SessionRow; level: string; kind: string }) {
   const [lines, setLines] = useState<Line[]>([]);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -235,19 +281,17 @@ function Journal({ s }: { s: SessionRow }) {
     void load();
   }, [s.callsign, level, kind]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <Stack gap={6} p="md">
-      <SegmentedControl size="xs" value={level} onChange={setLevel} data={[{ value: "all", label: "Все" }, { value: "warn", label: "Предупреждения" }, { value: "error", label: "Ошибки" }]} />
-      <SegmentedControl size="xs" value={kind} onChange={setKind} data={[{ value: "all", label: "Любые" }, { value: "stop", label: "Остановки" }, { value: "refuse", label: "Отказы" }]} />
+    <>
       {error ? <Failed error={error} retry={() => load()} /> : !loading && !lines.length ? <Text size="sm" className="muted">Строк об этой сессии нет</Text> : null}
       {lines.map((l, i) => (
         <Text key={i} size="xs" className="mono" c={l.level === "error" ? "red" : l.level === "warn" ? "orange" : undefined} style={{ overflowWrap: "anywhere" }}>{hhmm(l.t)} {l.part} · {l.msg}</Text>
       ))}
       {more && <Button size="xs" variant="subtle" w="fit-content" onClick={() => load(lines.at(-1)?.t)}>Раньше</Button>}
-    </Stack>
+    </>
   );
 }
 
-export function Inspector({ s, view, tab, onTab }: { s: SessionRow; view?: View; tab?: string; onTab?: (t: string) => void }) {
+export function Inspector({ s, other, view, tab, onTab }: { s: SessionRow; /** вторая сторона пары */ other?: SessionRow; view?: View; tab?: string; onTab?: (t: string) => void }) {
   const [own, setOwn] = useState("doc");
   const value = tab ?? own;
   return (
@@ -260,11 +304,11 @@ export function Inspector({ s, view, tab, onTab }: { s: SessionRow; view?: View;
         <Tabs.Tab px={10} value="log">Журнал</Tabs.Tab>
       </Tabs.List>
       <div className="scroll">
-        <Tabs.Panel value="doc"><Overview key={s.callsign} s={s} /></Tabs.Panel>
+        <Tabs.Panel value="doc"><Overview key={s.callsign} s={s} other={other} /></Tabs.Panel>
         <Tabs.Panel value="ctx"><Context s={s} /></Tabs.Panel>
         <Tabs.Panel value="files"><Files s={s} view={view} /></Tabs.Panel>
         <Tabs.Panel value="points"><Points s={s} /></Tabs.Panel>
-        <Tabs.Panel value="log"><Journal key={s.callsign} s={s} /></Tabs.Panel>
+        <Tabs.Panel value="log"><Journal key={s.callsign} s={s} other={other} /></Tabs.Panel>
       </div>
     </Tabs>
   );

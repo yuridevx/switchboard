@@ -5,7 +5,7 @@ import { byUrgency, isMine, machineOfCall, type Picture } from "../store/fleet.t
 export const STATE_GROUPS: Array<[string, string, SessionRow["state"][]]> = [["wait", "Ждут вас", ["waiting", "failed"]], ["run", "Работают", ["busy", "starting"]], ["idle", "Свободны", ["idle"]], ["down", "Стоят", ["stopped", "stopping"]]];
 
 /** Фильтр списка. Встроенные — «Мои» и «Все»; свои человек собирает сам, они лежат в его настройках. */
-export type Filter = { id: string; name: string; who: "mine" | "all"; states?: string[]; projects?: string[]; machines?: string[] };
+export type Filter = { id: string; name: string; who: "mine" | "all"; states?: string[]; projects?: string[]; machines?: string[]; /** кусочки профиля: подходит сессия с любым из названных */ pieces?: string[] };
 export const BUILTIN: Filter[] = [{ id: "mine", name: "Мои", who: "mine" }, { id: "all", name: "Все", who: "all" }];
 export const NO_PROJECT = "";
 
@@ -24,6 +24,7 @@ export function matches(p: Picture, s: SessionRow, f: Filter, pins: string[]): b
   if (f.states?.length && !STATE_GROUPS.some(([id, , st]) => f.states!.includes(id) && st.includes(s.state))) return false;
   if (f.projects?.length && !f.projects.includes(projectOf(p, s))) return false;
   if (f.machines?.length && !f.machines.includes(machineOfCall(s.callsign))) return false;
+  if (f.pieces?.length && !f.pieces.some((x) => s.spec.pieces?.includes(x))) return false;
   return true;
 }
 
@@ -68,4 +69,56 @@ export function dropTarget(rects: Array<{ id: string; group: string; top: number
   const rows = rects.filter((r) => r.group === g.group);
   for (const r of rows) if (y < (r.top + r.bottom) / 2) return { before: r.id, group: g.group, lineY: r.top };
   return { before: null, group: g.group, lineY: rows.length ? rows.at(-1)!.bottom : g.bottom };
+}
+
+/** Строка дерева списка: сессия, её глубина под родителем и ведомый, если она ведёт пару. */
+export type TreeRow = { s: SessionRow; depth: number; wing?: SessionRow };
+
+/** Кто дал сессии задачу: родитель из документа или сессия, которая её открыла. */
+export const parentOf = (p: Picture, s: SessionRow): string | undefined => {
+  const up = s.spec.parent ?? (p.sessions[s.by] ? s.by : undefined);
+  return up && up !== s.callsign ? up : undefined;
+};
+
+/** Дерево списка: ведомый своей строкой не стоит — он виден в строке ведущего; дочерние идут под родителем с отступом. nested false — без отступов, пары всё равно одной строкой. */
+export function treeOf(p: Picture, rows: SessionRow[], nested = true): TreeRow[] {
+  const here = new Set(rows.map((s) => s.callsign));
+  const hidden = (s: SessionRow) => !!s.lead && here.has(s.lead);
+  const up = (s: SessionRow) => {
+    const u = parentOf(p, s);
+    return u && here.has(u) ? u : undefined;
+  };
+  const out: TreeRow[] = [];
+  const seen = new Set<string>();
+  const put = (s: SessionRow, depth: number) => {
+    if (seen.has(s.callsign)) return;
+    seen.add(s.callsign);
+    const wing = s.spec.wing ? p.sessions[s.spec.wing] : undefined;
+    out.push({ s, depth, ...(wing ? { wing } : {}) });
+    if (nested) for (const c of rows) if (!hidden(c) && up(c) === s.callsign) put(c, depth + 1);
+  };
+  for (const s of rows) if (!hidden(s) && !(nested && up(s))) put(s, 0);
+  // круг «кто кого открыл» не теряет строк
+  for (const s of rows) if (!hidden(s)) put(s, 0);
+  return out;
+}
+
+/** Почему сессия в «Моих»: открыл я, открыла моя сессия или я её закрепил. Чужая и не закреплённая — пусто. */
+export function whyMine(p: Picture, s: SessionRow, pins: string[]): string {
+  const me = p.you;
+  if (!me) return "";
+  if (s.by === me.addr || s.by === me.person || s.by.endsWith(me.person)) return "вы открыли";
+  const parent = p.sessions[s.by];
+  if (parent && isMine(p, parent)) return `открыла ваша сессия ${parent.callsign}`;
+  return pins.includes(s.callsign) ? "вы закрепили" : "";
+}
+
+/** Группы по машинам: тот же список, другой разрез. */
+export function groupsByMachine(rows: SessionRow[], name: (machine: string) => string = (m) => m): Array<{ project: string; name: string; rows: SessionRow[] }> {
+  const by = new Map<string, SessionRow[]>();
+  for (const s of rows) {
+    const m = machineOfCall(s.callsign);
+    (by.get(m) ?? (by.set(m, []), by.get(m)!)).push(s);
+  }
+  return [...by].map(([m, list]) => ({ project: "@" + m, name: name(m), rows: list })).sort((a, b) => a.name.localeCompare(b.name, "ru"));
 }

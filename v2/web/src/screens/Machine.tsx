@@ -6,10 +6,11 @@ import { IconArrowLeft } from "@tabler/icons-react";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { partWord, personWord, SessionLine, useCall, useMachineName, useUi } from "../common.tsx";
-import { ago, day, hhmm } from "../lib/time.ts";
+import { ago, day, hhmm, nSessions } from "../lib/time.ts";
 import { byUrgency, machineOfCall, useFleet } from "../store/fleet.ts";
 import { Fire } from "./archive/Fire.tsx";
-import { HOST_WORD } from "./fleet/Machines.tsx";
+import { fireCount, HOST_WORD } from "./fleet/Machines.tsx";
+import { journalWord } from "./Observe.tsx";
 
 export function Machine() {
   const { name = "" } = useParams();
@@ -26,6 +27,7 @@ export function Machine() {
   if (!m) return <div className="hole">Такой машины нет: <span className="mono">&nbsp;{name}</span></div>;
   const here = Object.values(sessions).filter((s) => machineOfCall(s.callsign) === name).sort(byUrgency);
   const k = keeper.data;
+  const burning = fireCount(m, here);
   return (
     <div className="scroll">
       <div className="page">
@@ -37,6 +39,7 @@ export function Machine() {
           <Text c={m.online ? undefined : "red"}>{m.online ? `на связи ${ago(m.since) === "сейчас" ? "только что" : ago(m.since)}` : `без связи с ${day(m.since)}, ${hhmm(m.since)}`}</Text>
           <div style={{ flex: 1 }} />
           {m.online && <Button size="xs" onClick={() => ui.set({ newOpen: true, newPreset: { machine: m.name } })}>Новая сессия</Button>}
+          {burning > 0 && <Badge color="red" variant="light">пожар: {nSessions(burning)} ждут на точках архива</Badge>}
           {!m.online && here.length > 0 && others && <Button size="xs" color="red" variant="light" onClick={() => setFire(true)}>Поднять её сессии на другой машине</Button>}
         </Group>
         <div className="cards" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", alignItems: "start" }}>
@@ -46,9 +49,13 @@ export function Machine() {
               <dt>Владелец</dt><dd>{personWord(m.owner)}</dd>
               <dt>Host</dt><dd>{m.online && k ? `сборка ${k.host.build} · ${HOST_WORD[k.host.state] ?? k.host.state}${k.host.why ? `: ${k.host.why}` : ""}${k.host.since ? ` · с ${hhmm(k.host.since)}` : ""}` : `сборка ${m.build ?? "—"}`}</dd>
               <dt>Keeper</dt><dd>{!m.online ? (m.keeper === false ? "не на связи" : "—") : k ? `сборка ${k.build}` : keeper.error ? "не отвечает" : "…"}</dd>
+              {m.online && k?.host.pid !== undefined && <><dt>Процесс Host</dt><dd className="mono">pid {k.host.pid}</dd></>}
+              {m.online && k?.pid !== undefined && <><dt>Процесс Keeper</dt><dd className="mono">pid {k.pid}</dd></>}
+              {m.online && k?.plan !== undefined && <><dt>План</dt><dd>сборка {k.plan}{k.plan !== k.host.build ? " — ещё не исполнен" : ""}</dd></>}
               <dt>Система</dt><dd>{k?.os ?? m.os ?? "—"}</dd>
               {m.sdk && <><dt>SDK</dt><dd className="mono">{m.sdk}</dd></>}
             </dl>
+            <Button size="compact-xs" variant="subtle" w="fit-content" onClick={() => go("/fleet/releases")}>План в «Выпусках»</Button>
           </div>
           <div className="card" style={{ padding: "14px 0 6px" }}>
             <Text fw={600} px={14}>{m.online ? "Сессии" : "Что на ней стояло"}</Text>
@@ -72,7 +79,7 @@ export function Machine() {
               <Group justify="space-between"><Text fw={600}>Журнал машины</Text><Button size="compact-xs" variant="subtle" onClick={() => go(`/observe/machine?m=${m.name}`)}>Весь журнал</Button></Group>
               <div>
                 {(journal.data?.lines ?? []).map((l, i) => (
-                  <Text key={i} size="xs" className="mono" c={l.level === "error" ? "red" : l.level === "warn" ? "orange" : undefined} style={{ overflowWrap: "anywhere", padding: "2px 0" }}>{hhmm(l.t)} {partWord(l.part)} · {l.msg}</Text>
+                  <Text key={i} size="xs" className="mono" c={l.level === "error" ? "red" : l.level === "warn" ? "orange" : undefined} style={{ overflowWrap: "anywhere", padding: "2px 0" }}>{hhmm(l.t)} {partWord(l.part)} · {journalWord(l)}</Text>
                 ))}
               </div>
             </div>

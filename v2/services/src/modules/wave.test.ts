@@ -5,6 +5,7 @@ import { type ArchPoint, type ArchSession, type KeyRow, type LedgerEvent, type M
 import type { Env, PointNote } from "../env.ts";
 import { consume } from "./analytics.ts";
 import { blockKey, costOf, expiries } from "./archive.ts";
+import { gzip } from "../r2.ts";
 import { b64u } from "./webpush.ts";
 import { type Stand, stand } from "../../test/stand.ts";
 
@@ -163,7 +164,7 @@ async function save(s: Stand, p: Put, as = "klaptop") {
     ...(p.words ? { text: [{ uuid: `${p.sid}-${p.point}-w`, role: "user", text: p.words }] } : {}),
   };
   const first = (await s.ask("points.put", put, as)).result as { upload: Record<string, string>; done: boolean };
-  for (const [i, h] of hashes.entries()) if (first.upload[h]) await s.env.FILES.put(blockKey(s.fleet, machine, h), parts[i]!);
+  for (const [i, h] of hashes.entries()) if (first.upload[h]) await s.env.FILES.put(blockKey(s.fleet, machine, h), await gzip(parts[i]!));
   if (!first.done) expect(await s.ask("points.put", { ...put, commit: true }, as)).toMatchObject({ result: { done: true } });
   return { hashes, machine };
 }

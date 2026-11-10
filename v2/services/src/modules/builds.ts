@@ -10,6 +10,8 @@ const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS fleet (one INTEGER PRIMARY KEY CHECK (one = 1), stable INTEGER, pins TEXT NOT NULL)",
   "INSERT OR IGNORE INTO fleet (one, stable, pins) VALUES (1, NULL, '{}')",
   "CREATE TABLE IF NOT EXISTS builds (build INTEGER PRIMARY KEY, at INTEGER, sha TEXT, note TEXT, files TEXT NOT NULL)",
+  // отпечаток кода сборки: сверка «в дереве то же, что загружено»
+  "CREATE TABLE IF NOT EXISTS digests (build INTEGER PRIMARY KEY, digest TEXT NOT NULL)",
 ];
 const db = (env: Env, fleet: string) => records(env, fleet, NAME, SCHEMA);
 
@@ -29,15 +31,17 @@ export const builds: Module = {
   name: NAME,
   handlers: {
     async "builds.list"(_i, ctx) {
-      const [row, rows] = await Promise.all([fleetRow(ctx), db(ctx.env, ctx.fleet).all<Stored>("SELECT * FROM builds ORDER BY build DESC LIMIT 100")]);
+      const [row, rows, sums] = await Promise.all([fleetRow(ctx), db(ctx.env, ctx.fleet).all<Stored>("SELECT * FROM builds ORDER BY build DESC LIMIT 100"), db(ctx.env, ctx.fleet).all<{ build: number; digest: string }>("SELECT build, digest FROM digests")]);
+      const digest = new Map(sums.map((d) => [d.build, d.digest]));
       return {
         stable: row.stable,
         pins: JSON.parse(row.pins),
-        builds: rows.map((b) => ({ build: b.build, at: b.at, ...(b.sha ? { commit: b.sha } : {}), ...(b.note ? { note: b.note } : {}), files: (JSON.parse(b.files) as File[]).map((f) => f.name) })),
+        builds: rows.map((b) => ({ build: b.build, at: b.at, ...(b.sha ? { commit: b.sha } : {}), ...(b.note ? { note: b.note } : {}), ...(digest.has(b.build) ? { digest: digest.get(b.build)! } : {}), files: (JSON.parse(b.files) as File[]).map((f) => f.name) })),
       };
     },
 
-    async "builds.upload"(i: { build: number; commit?: string; note?: string; files: File[] }, ctx) {
+    async "builds.upload"(i: { build: number; commit?: string; note?: string; digest?: string; files: File[] }, ctx) {
+      if (i.digest) await db(ctx.env, ctx.fleet).run("INSERT OR REPLACE INTO digests (build, digest) VALUES (?, ?)", i.build, i.digest);
       await db(ctx.env, ctx.fleet).run("INSERT OR REPLACE INTO builds (build, at, sha, note, files) VALUES (?, ?, ?, ?, ?)", i.build, Date.now(), i.commit ?? null, i.note ?? null, JSON.stringify(i.files));
       const links: Record<string, string> = {};
       for (const f of i.files) links[f.name] = await link(ctx.env, "PUT", fileKey(ctx.fleet, i.build, f.name));
@@ -57,6 +61,21 @@ export const builds: Module = {
       const told = await ctx.platform.broadcast(ctx.fleet, { type: "plan.changed", trace: ctx.trace }, "keeper");
       await record(ctx.env, ctx.fleet, { what: "builds.deploy", who: ctx.who.addr, machine: i.machine, text: i.build === null ? "закрепление снято" : `сборка ${i.build}`, data: { build: i.build, told }, trace: ctx.trace });
       return {};
+    },
+
+    async "builds.keeper"(i: { os: string; arch?: string }, ctx) {
+      const row = await fleetRow(ctx);
+      if (row.stable == null) throw new Refusal("not_found", "флоту не назначена сборка");
+      const b = await db(ctx.env, ctx.fleet).first<Stored>("SELECT * FROM builds WHERE build = ?", row.stable);
+      const name = keeperFile(i.os, i.arch);
+      const f = (JSON.parse(b?.files ?? "[]") as File[]).find((x) => x.name === name);
+      if (!f) throw new Refusal("not_found", `в сборке ${row.stable} нет файла ${name}`);
+      const url = await link(ctx.env, "GET", fileKey(ctx.fleet, row.stable, name));
+      // приглашение идёт первой строкой ввода: в команде его нет
+      const command = i.os === "windows"
+        ? `curl.exe -L -o keeper.exe "${url}"; .\keeper.exe install --base ${ctx.origin} --logon`
+        : `curl -L -o keeper "${url}" && chmod +x keeper && ./keeper install --base ${ctx.origin}`;
+      return { build: row.stable, file: name, url, sha256: f.sha256, command };
     },
 
     async "builds.plan"(i: { os: string; arch?: string }, ctx) {

@@ -151,6 +151,28 @@ func TestSecondCrashFailsAndKeeperAnswers(t *testing.T) {
 	waitFor(t, "другая сборка работает", running(k, 2))
 }
 
+// Перезапуск Host по запросу: та же сборка, новый процесс; упавший Host поднимается тем же запросом; в состоянии — pid Host и сборка плана.
+func TestHostRestartOnRequest(t *testing.T) {
+	s := newStand(t)
+	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
+	k := s.start()
+	waitFor(t, "Host работает", running(k, 1))
+	st := s.f.ask(map[string]any{"type": "keeper.state", "id": "q0"})["result"].(map[string]any)
+	pid := st["host"].(map[string]any)["pid"]
+	if pid == nil || pid == float64(0) || st["plan"] != float64(1) {
+		t.Fatalf("в состоянии нет pid Host или сборки плана: %v", st)
+	}
+	if r := s.f.ask(map[string]any{"type": "host.restart", "id": "q1"}); r["ok"] != true {
+		t.Fatalf("ответ: %v", r)
+	}
+	waitFor(t, "Host запущен заново", func() bool { return running(k, 1)() && count(s.home, "host_start") == 2 && has(s.home, "host_restart") })
+	st = s.f.ask(map[string]any{"type": "keeper.state", "id": "q2"})["result"].(map[string]any)
+	if st["host"].(map[string]any)["pid"] == pid {
+		t.Fatal("процесс Host тот же после перезапуска")
+	}
+	waitFor(t, "host.restarted в журнале флота", func() bool { return s.f.ledgerHas("host.restarted", "перезапущен") })
+}
+
 // Незнакомый запрос — отказ словом.
 func TestUnknownRequestRefused(t *testing.T) {
 	s := newStand(t)

@@ -4,7 +4,7 @@ import { accountList, machineDirs, peopleList, profileList, sessionOpen, type Ma
 import { Button, Chip, Collapse, Group, Modal, Select, Stack, Switch, Text, Textarea, TextInput } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { act } from "../api.ts";
+import { act, sayError } from "../api.ts";
 import { EFFORTS, MODELS, MODES, useCall, useMyPrefs, useUi } from "../common.tsx";
 import { useFleet } from "../store/fleet.ts";
 
@@ -38,6 +38,17 @@ export function splitPath(cwd: string): { parent: string; leaf: string } {
   return at < 0 ? { parent: "", leaf: cwd } : { parent: cwd.slice(0, at) || cwd.slice(0, at + 1), leaf: cwd.slice(at + 1) };
 }
 
+/** Tab в поле папки: набранное начало дополняется до подпапки, если она одна; иначе — до общего начала подходящих. Нечего дополнять — null. */
+export function tabInto(parent: string, leaf: string, dirs: string[]): string | null {
+  const fit = dirs.filter((d) => d.toLowerCase().startsWith(leaf.toLowerCase()));
+  if (!fit.length || (fit.length === 1 && fit[0] === leaf)) return null;
+  let common = fit[0]!;
+  for (const d of fit) while (!d.toLowerCase().startsWith(common.toLowerCase())) common = common.slice(0, -1);
+  if (common.length <= leaf.length && fit.length > 1) return null;
+  const sep = /\\/.test(parent) && !parent.includes("/") ? "\\" : "/";
+  return `${parent}${/[\\/]$/.test(parent) ? "" : sep}${fit.length === 1 ? fit[0] + sep : common}`;
+}
+
 function Form({ onClose }: { onClose: () => void }) {
   const go = useNavigate();
   const preset = useUi((u) => u.newPreset) as ({ machine?: string; cwd?: string; project?: string } | null);
@@ -59,6 +70,8 @@ function Form({ onClose }: { onClose: () => void }) {
   const [mode, setMode] = useState("all");
   const [account, setAccount] = useState("auto");
   const [fast, setFast] = useState(false);
+  const [thinking, setThinking] = useState(false);
+  const [style, setStyle] = useState("");
   const [backup, setBackup] = useState(true);
   const [pair, setPair] = useState(false);
   const [resume, setResume] = useState("");
@@ -85,7 +98,7 @@ function Form({ onClose }: { onClose: () => void }) {
     setBusy(true);
     const r = await act(sessionOpen, {
       to: "@" + machine,
-      spec: { name: finalName, cwd, ...(model ? { model } : {}), ...(effort ? { effort: effort as never } : {}), mode: mode as never, account, pieces: picked, backup, ...(fast ? { fast: true } : {}), ...(project ? { project } : {}) },
+      spec: { name: finalName, cwd, ...(model ? { model } : {}), ...(effort ? { effort: effort as never } : {}), mode: mode as never, account, pieces: picked, backup, ...(fast ? { fast: true } : {}), ...(thinking ? { thinking: true } : {}), ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
       ...(prompt.trim() ? { prompt: prompt.trim() } : {}), ...(missing ? { mkdir: true } : {}), ...(pair ? { pair: true } : {}), ...(resume.trim() ? { resume: resume.trim(), ...(fork ? { fork: true } : {}) } : {}),
     });
     setBusy(false);
@@ -111,9 +124,12 @@ function Form({ onClose }: { onClose: () => void }) {
         <Group gap={6}>{recent.map((d) => <Chip key={d} value={d} size="xs" variant="outline"><span className="mono">{d}</span></Chip>)}</Group>
       </Chip.Group>
       <Group gap="sm" align="end" wrap="nowrap">
-        <TextInput label="Папка" className="mono" style={{ flex: 2 }} value={cwd} onChange={(e) => setCwd(e.currentTarget.value)} />
+        <TextInput label="Папка" className="mono" style={{ flex: 2 }} value={cwd} onChange={(e) => setCwd(e.currentTarget.value)}
+          error={inside.error ? sayError(inside.error) : undefined}
+          onKeyDown={(e) => { const to = e.key === "Tab" && !e.shiftKey ? tabInto(parent, leaf, inside.data?.dirs ?? []) : null; if (to) (e.preventDefault(), setCwd(to)); }} />
         <TextInput label="Имя" className="mono" style={{ flex: 1 }} placeholder={finalName} value={name} onChange={(e) => setName(e.currentTarget.value.toLowerCase())} />
       </Group>
+      {parent && !leaf && inside.data && inside.data.path === parent && !inside.data.dirs.length && <Text size="xs" className="muted">В папке {parent} подпапок нет</Text>}
       {sub.length > 0 && (
         <Group gap={6} aria-label="Подпапки">
           {sub.map((d) => <Button key={d} size="compact-xs" variant="default" className="mono" onClick={() => setCwd(`${parent}${/[\\/]$/.test(parent) ? "" : "/"}${d}`)}>{d}</Button>)}
@@ -137,9 +153,11 @@ function Form({ onClose }: { onClose: () => void }) {
           <Select label="Проект" clearable data={(people.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={project} onChange={setProject} />
           <Group gap="lg">
             <Switch label="Быстрый режим" checked={fast} onChange={(e) => setFast(e.currentTarget.checked)} />
+            <Switch label="Всегда размышлять" checked={thinking} onChange={(e) => setThinking(e.currentTarget.checked)} />
             <Switch label="Сохранять точки в архив" checked={backup} onChange={(e) => setBackup(e.currentTarget.checked)} />
             <Switch label="С ведомым" checked={pair} onChange={(e) => setPair(e.currentTarget.checked)} />
           </Group>
+          <TextInput label="Стиль ответа" value={style} onChange={(e) => setStyle(e.currentTarget.value)} />
           <Group gap="sm" align="end" wrap="nowrap">
             <TextInput label="Продолжить разговор с диска машины" placeholder="номер разговора" className="mono" style={{ flex: 1 }} value={resume} onChange={(e) => setResume(e.currentTarget.value)} />
             <Switch label="Копией" disabled={!resume.trim()} checked={fork} onChange={(e) => setFork(e.currentTarget.checked)} />

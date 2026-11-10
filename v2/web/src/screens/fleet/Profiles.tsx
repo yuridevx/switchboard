@@ -1,12 +1,13 @@
 // «Флот → Профили»: кусочки на машине, репозитории и их клоны, сведение, просмотр набора по вкладкам.
-import { prefsGet, prefsSet, profileFile, profileList, profileSync, profileView, type OutputOf, type Piece, type RepoClone } from "@sb/protocol";
+import { prefsGet, prefsSet, profileFile, profileList, profileSync, profileView, sessionOpen, type OutputOf, type Piece, type RepoClone } from "@sb/protocol";
 import { ActionIcon, Badge, Button, Checkbox, Group, Loader, Modal, Select, Stack, Text, TextInput } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconSearch, IconTrash } from "@tabler/icons-react";
+import { IconArrowLeft, IconSearch, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import { act, api, sayError } from "../../api.ts";
-import { Failed, useCall } from "../../common.tsx";
+import { Failed, useCall, useWide } from "../../common.tsx";
 import { ago, bytesWord, nFiles } from "../../lib/time.ts";
 import { useFleet } from "../../store/fleet.ts";
 
@@ -27,6 +28,30 @@ export function summary(items: Item[]): Array<[string, number]> {
   for (const i of items) by.set(i.kind, (by.get(i.kind) ?? 0) + 1);
   return [...by].map(([k, n]) => [KIND_WORD[k] ?? k, n] as [string, number]).sort((a, b) => b[1] - a[1]);
 }
+/** Какие кусочки отмечены при входе: «base», если он есть и годен, иначе первый годный. Сохранённый выбор берётся, пока его кусочки есть на машине. */
+export function firstPick(pieces: Piece[], was: string[] = []): string[] {
+  const ok = pieces.filter((p) => p.ok).map((p) => p.id);
+  const kept = was.filter((id) => ok.includes(id));
+  if (kept.length) return kept;
+  return ok.includes("base") ? ["base"] : ok.slice(0, 1);
+}
+
+/** Мера индекса памяти: Claude читает из MEMORY.md первые 200 строк и 25 КБ — что сверх, в сессию не попадёт. */
+export const MEMORY_LINES = 200, MEMORY_BYTES = 25 * 1024;
+export function memoryMeasure(text: string): { lines: number; bytes: number; over: boolean; word: string } {
+  const lines = text ? text.replace(/\n$/, "").split("\n").length : 0;
+  const bytes = new TextEncoder().encode(text).length;
+  const over = lines > MEMORY_LINES || bytes > MEMORY_BYTES;
+  return { lines, bytes, over, word: `${lines} из ${MEMORY_LINES} строк · ${(bytes / 1024).toFixed(1).replace(".", ",")} из 25 КБ` };
+}
+
+/** Задача сессии, которая сводит остановившееся слияние клона. */
+export const mergeTask = (c: Pick<RepoClone, "repo" | "files" | "op">) =>
+  `В этой папке — клон репозитория кусочков ${c.repo}. Сведение с GitHub остановилось${c.op ? ` на шаге «${c.op}»` : ""}${c.files?.length ? `; конфликт в файлах: ${c.files.join(", ")}` : ""}. Разбери конфликт, сохрани смысл обеих сторон, заверши слияние и отправь результат (git push). В конце скажи одной строкой, что сделано.`;
+
+/** Подходит ли строка набора под поиск: по имени и описанию. */
+export const itemMatches = (i: { name: string; about?: string }, q: string) => !q.trim() || [i.name, i.about].some((x) => x?.toLowerCase().includes(q.trim().toLowerCase()));
+
 /** Подходит ли кусочек под поиск: по имени, описанию и репозиторию. */
 export const pieceMatches = (p: Piece, q: string) => !q.trim() || [p.id, p.title, p.about, p.repo].some((x) => x?.toLowerCase().includes(q.trim().toLowerCase()));
 
@@ -96,7 +121,15 @@ function Items({ items, open }: { items: Item[]; open: (i: Item) => void }) {
   );
 }
 
-function Viewer({ machine, picked, v }: { machine: string; picked: string[]; v: View }) {
+/** Мера индекса памяти набора: читает MEMORY.md кусочка и говорит, сколько из него попадёт в сессию. */
+function MemoryMeasure({ machine, piece, path }: { machine: string; piece: string; path: string }) {
+  const f = useCall(profileFile, { to: "@" + machine, piece, path });
+  if (!f.data) return null;
+  const m = memoryMeasure(f.data.text);
+  return <Text size="sm" c={m.over ? "orange" : undefined}><span className="mono">{piece}/{path}</span>: {m.word}{m.over ? " — что сверх, в сессию не попадёт" : ""}</Text>;
+}
+
+function Viewer({ machine, picked, v, q }: { machine: string; picked: string[]; v: View; q: string }) {
   const [tab, setTab] = useState("sum");
   const [file, setFile] = useState<{ piece: string; path: string } | null>(null);
   const kinds = VIEW_TABS.find(([id]) => id === tab)![2];
@@ -123,7 +156,8 @@ function Viewer({ machine, picked, v }: { machine: string; picked: string[]; v: 
           {p?.append ? <><Text size="sm" fw={600}>Добавка к промпту</Text><pre className="codebox">{p.append}</pre></> : <Text size="sm" className="muted">Добавки к промпту нет</Text>}
         </Stack>
       )}
-      {kinds.length > 0 && <Items items={v.items.filter((i) => kinds.includes(i.kind))} open={open} />}
+      {tab === "memory" && v.items.filter((i) => i.kind === "memory" && i.path && /(^|\/)MEMORY\.md$/.test(i.path)).map((i) => <MemoryMeasure key={i.piece + i.path} machine={machine} piece={i.piece} path={i.path!} />)}
+      {kinds.length > 0 && <Items items={v.items.filter((i) => kinds.includes(i.kind) && itemMatches(i, q))} open={open} />}
       {tab === "settings" && (
         <div>
           {Object.entries(v.settings ?? {}).map(([name, w]) => (
@@ -162,15 +196,30 @@ export function Profiles() {
   const qc = useQueryClient();
   const machines = useFleet((f) => f.machines);
   const online = Object.values(machines).filter((m) => m.online).map((m) => m.name);
+  const go = useNavigate();
+  const wide = useWide();
   const [machine, setMachine] = useState<string | null>(online[0] ?? null);
-  const [picked, setPicked] = useState<string[]>(["base"]);
+  // выбор появляется, когда пришёл список: набор из несуществующих кусочков Host не соберёт
+  const [picked, setPicked] = useState<string[] | null>(null);
+  /** на узком экране список и просмотр — поочерёдно */
+  const [viewing, setViewing] = useState(false);
   const [q, setQ] = useState("");
   const [repos, setRepos] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const list = useCall(profileList, machine ? { to: "@" + machine } : null);
-  const view = useCall(profileView, machine && picked.length ? { to: "@" + machine, pieces: picked } : null);
+  useEffect(() => { if (list.data) setPicked((was) => firstPick(list.data!.pieces, was ?? [])); }, [list.data]);
+  const chosen = picked ?? [];
+  const view = useCall(profileView, machine && chosen.length ? { to: "@" + machine, pieces: chosen } : null);
   if (list.error) return <Failed error={list.error} retry={list.refetch} />;
-  const pieces = (list.data?.pieces ?? []).filter((p) => pieceMatches(p, q));
+  // поиск идёт и по кусочкам, и по тому, что внутри набора: кусочек остаётся в списке, если в его наборе нашлось слово
+  const inside = new Set((view.data?.items ?? []).filter((i) => q.trim() && itemMatches(i, q)).map((i) => i.piece));
+  const pieces = (list.data?.pieces ?? []).filter((p) => pieceMatches(p, q) || inside.has(p.id));
+  /** Слияние клона остановилось на конфликте: открыть сессию в клоне с задачей свести. */
+  const mergeIn = async (c: RepoClone) => {
+    if (!machine || !c.dir) return;
+    const r = await act(sessionOpen, { to: "@" + machine, spec: { name: "merge-" + c.repo.split("/").pop()!.toLowerCase().replace(/[^a-z0-9_-]/g, "-"), cwd: c.dir }, prompt: mergeTask(c) });
+    if (r) go(`/work/${r.callsign}`);
+  };
   const clones = list.data?.repos ?? [];
   const bad = clones.filter((c) => c.state === "error" || c.state === "conflict");
   /** Свести клоны с GitHub сейчас: на одной машине или на всех машинах на связи. */
@@ -192,20 +241,22 @@ export function Profiles() {
         <Button size="xs" variant="default" loading={syncing} disabled={!machine} onClick={() => machine && void sync([machine])}>Свести сейчас</Button>
         {online.length > 1 && <Button size="xs" variant="subtle" loading={syncing} onClick={() => void sync(online)}>Свести везде</Button>}
       </Group>
-      {bad.length > 0 && <div className="ban bad">{bad.map((c) => <Text key={c.repo} size="sm"><span className="mono">{c.repo}</span>: {CLONE_WORD[c.state]}{c.op ? ` · ${c.op}` : ""}{c.error ? ` · ${c.error}` : ""}</Text>)}</div>}
+      {bad.length > 0 && <div className="ban bad">{bad.map((c) => <Group key={c.repo} gap="sm" wrap="wrap"><Text size="sm" style={{ minWidth: 0, overflowWrap: "anywhere" }}><span className="mono">{c.repo}</span>: {CLONE_WORD[c.state]}{c.op ? ` · ${c.op}` : ""}{c.error ? ` · ${c.error}` : ""}</Text>{c.state === "conflict" && c.dir && <Button size="compact-xs" variant="default" onClick={() => void mergeIn(c)}>Свести в сессии</Button>}</Group>)}</div>}
+      {!wide && viewing && <Button size="xs" variant="subtle" w="fit-content" leftSection={<IconArrowLeft size={14} />} onClick={() => setViewing(false)}>К списку</Button>}
       <div className="split">
-        <Stack gap="xs">
+        {(wide || !viewing) && <Stack gap="xs">
           {pieces.map((p) => (
             <div key={p.id} className={`card${p.ok ? "" : " off"}`} style={{ padding: 10 }}>
-              <Checkbox label={<Text fw={600}>{p.title ?? p.id}</Text>} disabled={!p.ok} checked={picked.includes(p.id)} onChange={(e) => setPicked((x) => (e.currentTarget.checked ? [...x, p.id] : x.filter((y) => y !== p.id)))} />
+              <Checkbox label={<Text fw={600}>{p.title ?? p.id}</Text>} disabled={!p.ok} checked={chosen.includes(p.id)} onChange={(e) => { const on = e.currentTarget.checked; setPicked((x) => (on ? [...(x ?? []), p.id] : (x ?? []).filter((y) => y !== p.id))); }} />
               {p.about && <Text size="sm">{p.about}</Text>}
               {!p.ok && <Text size="sm" c="red">{p.why}</Text>}
               <Text size="xs" className="mono muted trunc">{p.id} · {p.repo}{p.rev ? ` @ ${p.rev}` : ""}</Text>
             </div>
           ))}
           {list.data && !pieces.length && <Text size="sm" className="muted">{q ? `Ничего не нашлось по «${q}»` : "Кусочков нет: добавьте репозиторий"}</Text>}
-        </Stack>
-        {machine && view.data ? <Viewer machine={machine} picked={picked} v={view.data} /> : view.error ? <Failed error={view.error} retry={view.refetch} /> : <div className="card"><Text size="sm" className="muted">{picked.length ? "Собираю набор…" : "Отметьте кусочки слева"}</Text></div>}
+          {!wide && chosen.length > 0 && <Button size="xs" w="fit-content" onClick={() => setViewing(true)}>Что в наборе</Button>}
+        </Stack>}
+        {(wide || viewing) && (machine && view.data ? <Viewer machine={machine} picked={chosen} v={view.data} q={q} /> : view.error ? <Failed error={view.error} retry={view.refetch} /> : <div className="card"><Text size="sm" className="muted">{chosen.length ? "Собираю набор…" : list.data?.pieces.length ? "Отметьте кусочки слева" : "Кусочков на машине нет"}</Text></div>)}
       </div>
       <Modal opened={repos} onClose={() => setRepos(false)} title="Репозитории кусочков"><Repos machine={machine} clones={clones} onClose={() => setRepos(false)} /></Modal>
     </Stack>

@@ -1,6 +1,6 @@
 // Архив сессий: точки. Блоки файлов — в R2 под именем хэша содержимого, у каждой машины свои; реестр и текст сообщений с поиском по словам —
 // в записях на машину. Поиск опрашивает только машины, до которых человек достаёт.
-import { type ArchPoint, type ArchSession, canReach, errFields, machineOf, type ModelCall, Refusal, type SdkEvent } from "@sb/protocol";
+import { type ArchPoint, type ArchSession, canReach, errFields, machineOf, type ModelCall, Refusal, type SdkEvent, personOf } from "@sb/protocol";
 import type { Ctx, Env, Module } from "../env.ts";
 import { link, readBlocks } from "../r2.ts";
 import { type Op, records } from "../records.ts";
@@ -18,6 +18,8 @@ const SCHEMA = [
   "CREATE INDEX IF NOT EXISTS refs_point ON refs (sid, point)",
   // документ сессии на последней точке: с ним её поднимают
   "CREATE TABLE IF NOT EXISTS specs (sid TEXT PRIMARY KEY, spec TEXT NOT NULL)",
+  // от какой точки продолжена точка: ветки линии
+  "CREATE TABLE IF NOT EXISTS bases (sid TEXT, point TEXT, base TEXT NOT NULL, PRIMARY KEY (sid, point))",
 ];
 const db = (env: Env, fleet: string, machine: string) => records(env, fleet, NAME, SCHEMA, machine);
 
@@ -28,7 +30,8 @@ const HEADS_AT_ONCE = 50;
 const DELETE_AT_ONCE = 500;
 
 /** Блоки у каждой машины свои: уборка блока не зависит от архивов соседних машин. */
-export const blockKey = (fleet: string, machine: string, hash: string) => `blocks/${fleet}/${machine}/${hash}`;
+/** Блок лежит сжатым: это видно по имени, а не угадывается по содержимому. */
+export const blockKey = (fleet: string, machine: string, hash: string) => `blocks/${fleet}/${machine}/${hash}.gz`;
 
 type FileIn = { path: string; blocks: string[]; size: number };
 type SessionRow = { sid: string; callsign: string; title: string | null; model: string | null; cwd: string | null; project: string | null; last: number; points: number; bytes: number | null; tokens: number | null };
@@ -203,6 +206,33 @@ export function callsOf(lines: Record<string, unknown>[]): Call[] {
   return [...by.values()];
 }
 
+const textOf = (content: unknown): string =>
+  typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.map((b: { type?: string; text?: string; name?: string; input?: unknown; content?: unknown }) => (b?.type === "text" ? (b.text ?? "") : b?.type === "tool_use" ? `[вызов ${b.name}] ${JSON.stringify(b.input ?? {})}` : b?.type === "tool_result" ? `[итог] ${textOf(b.content)}` : "")).filter(Boolean).join("\n")
+      : "";
+
+/** Текст вызова модели: системный промпт (запись формы запроса, если claude её сохранил) и сообщения разговора до ответа — страница с конца. */
+export function callText(lines: Record<string, unknown>[], call: string, before: number | undefined, limit: number): { model: string; system: string; messages: { n: number; role: string; text: string }[]; more: boolean } | null {
+  const idOf = (l: Record<string, unknown>) => (l.message as { id?: string } | undefined)?.id ?? (l.requestId as string | undefined) ?? (l.uuid as string | undefined);
+  const at = lines.findIndex((l) => l.type === "assistant" && idOf(l) === call);
+  if (at < 0) return null;
+  const answer = lines[at]!;
+  // форма запроса: api-request по ссылке ответа → api-request-shape по её отпечатку
+  const req = lines.find((l) => l.type === "api-request" && l.id === answer.requestRef) as { shapeHash?: string } | undefined;
+  const shape = req ? (lines.find((l) => l.type === "api-request-shape" && l.shapeHash === req.shapeHash) as { shape?: { system?: unknown } } | undefined) : undefined;
+  const s = shape?.shape?.system;
+  const system = typeof s === "string" ? s : Array.isArray(s) ? s.map((x: { text?: string }) => x.text ?? "").join("\n\n") : "";
+  const said = lines.slice(0, at).flatMap((l) => {
+    if (l.type !== "user" && l.type !== "assistant") return [];
+    const text = textOf((l.message as { content?: unknown } | undefined)?.content);
+    return text ? [{ role: l.type as string, text }] : [];
+  }).map((m, n) => ({ n, ...m }));
+  const upto = before === undefined ? said : said.filter((m) => m.n < before);
+  return { model: (answer.message as { model?: string } | undefined)?.model ?? "", system, messages: upto.slice(-limit), more: upto.length > limit };
+}
+
 /** Таблица цен флота — общая настройка `prices`: модель (или начало её имени) → доллары за миллион токенов. */
 export type Prices = Record<string, { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }>;
 export const prices = (env: Env, fleet: string) => fleetPref<Prices>(env, fleet, "prices");
@@ -232,7 +262,7 @@ export const archive: Module = {
   name: NAME,
   handlers: {
     async "points.put"(i: {
-      sid: string; callsign: string; point: string; spec?: unknown; label?: string; title?: string; model?: string; cwd?: string; project?: string; git?: string; turns?: number; tokens?: number;
+      sid: string; callsign: string; point: string; base?: string; spec?: unknown; label?: string; title?: string; model?: string; cwd?: string; project?: string; git?: string; turns?: number; tokens?: number;
       files: FileIn[]; text?: { uuid: string; role: string; text: string }[]; commit?: boolean;
     }, ctx) {
       const machine = machineOf(ctx.who.addr)!;
@@ -257,6 +287,7 @@ export const archive: Module = {
         ],
         ["INSERT OR REPLACE INTO points (sid, point, at, label, turns, bytes, git, files) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", i.sid, i.point, now, i.label ?? null, i.turns ?? null, bytes, i.git ?? null, JSON.stringify(i.files)],
         ...(i.spec ? [["INSERT OR REPLACE INTO specs (sid, spec) VALUES (?, ?)", i.sid, JSON.stringify(i.spec)] as Op] : []),
+        ...(i.base ? [["INSERT OR REPLACE INTO bases (sid, point, base) VALUES (?, ?, ?)", i.sid, i.point, i.base] as Op] : []),
         ["DELETE FROM refs WHERE sid = ? AND point = ?", i.sid, i.point],
         ["UPDATE sessions SET points = (SELECT count(*) FROM points WHERE sid = ?1) WHERE sid = ?1", i.sid],
       ];
@@ -296,7 +327,8 @@ export const archive: Module = {
         })() : await find(ctx, i.sid);
         const pts = await db(ctx.env, ctx.fleet, machine).all<PointRow>("SELECT * FROM points WHERE sid = ? ORDER BY at DESC", i.sid);
         const until = expiries(pts);
-        return { sessions: [seen(row, machine)], points: pts.map((p) => point(p, until.get(p.point))), more: false };
+        const bases = new Map((await db(ctx.env, ctx.fleet, machine).all<{ point: string; base: string }>("SELECT point, base FROM bases WHERE sid = ?", i.sid)).map((b) => [b.point, b.base]));
+        return { sessions: [seen(row, machine)], points: pts.map((p) => ({ ...point(p, until.get(p.point)), ...(bases.has(p.point) ? { base: bases.get(p.point)! } : {}) })), more: false };
       }
       const words = i.q ? match(i.q) : "";
       const order = i.order === "tokens" ? "coalesce(tokens, 0) DESC, last DESC" : "last DESC";
@@ -318,8 +350,19 @@ export const archive: Module = {
       return { sessions: all.slice(0, limit), more: all.length > limit };
     },
 
-    async "points.get"(i: { sid: string; point?: string }, ctx) {
+    async "points.get"(i: { sid: string; point?: string; expect?: string; move?: boolean; by?: string }, ctx) {
       const { machine, row } = await find(ctx, i.sid);
+      if (i.expect !== undefined) {
+        const head = await pointOf(ctx.env, ctx.fleet, machine, i.sid);
+        if (head.point !== i.expect) throw new Refusal("changed", `в архиве уже точка ${head.point}, а не ${i.expect}`);
+      }
+      if (i.move) {
+        // перенос забирает сессию у её машины: это решает владелец той машины или админ. Машина называет человека, который начал перенос
+        const person = personOf(i.by ?? "") ?? ctx.who.person;
+        const [machines, admins] = await Promise.all([ctx.platform.machines(ctx.fleet), ctx.platform.admins(ctx.fleet)]);
+        const owner = machines.find((m) => m.name === machine)?.owner;
+        if (person !== owner && !admins.includes(person)) throw new Refusal("not_owner", `хозяин сессии — ${owner ?? "владелец машины " + machine}`);
+      }
       const p = await pointOf(ctx.env, ctx.fleet, machine, i.sid, i.point);
       const files = [];
       for (const f of JSON.parse(p.files) as FileIn[]) {
@@ -328,7 +371,8 @@ export const archive: Module = {
         files.push({ path: f.path, size: f.size, blocks });
       }
       const spec = await db(ctx.env, ctx.fleet, machine).first<{ spec: string }>("SELECT spec FROM specs WHERE sid = ?", i.sid);
-      return { session: { ...session(row, machine), ...(spec ? { spec: JSON.parse(spec.spec) } : {}) }, point: point(p), files };
+      const base = await db(ctx.env, ctx.fleet, machine).first<{ base: string }>("SELECT base FROM bases WHERE sid = ? AND point = ?", i.sid, p.point);
+      return { session: { ...session(row, machine), ...(spec ? { spec: JSON.parse(spec.spec) } : {}) }, point: { ...point(p), ...(base ? { base: base.base } : {}) }, files };
     },
 
     async "points.history"(i: { sid: string; point?: string; before?: string; limit?: number }, ctx) {
@@ -350,6 +394,14 @@ export const archive: Module = {
         return { call: c.call, at: c.at, model: c.model, ...t, ...(cost !== undefined ? { cost } : {}) };
       });
       return { point: p.point, calls };
+    },
+
+    async "points.call"(i: { sid: string; point?: string; call: string; before?: number; limit?: number }, ctx) {
+      const { machine } = await find(ctx, i.sid);
+      const { point: p, lines } = await conversation(ctx.env, ctx.fleet, machine, i.sid, i.point);
+      const text = callText(lines, i.call, i.before, Math.min(i.limit ?? 50, 200));
+      if (!text) throw new Refusal("not_found", `вызова ${i.call} в разговоре точки нет`);
+      return { point: p.point, call: i.call, ...text };
     },
 
     async "points.delete"(i: { sid: string; point?: string; expect?: string }, ctx) {

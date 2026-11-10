@@ -89,7 +89,8 @@ describe("картина флота", () => {
     const box = inboxOf(await snap());
     expect(box.asks.map((i) => i.callsign).sort()).toEqual(["api@server", "deploy@server", "forms@anya-pc", "site-tests@laptop"]);
     expect(box.done.map((i) => i.callsign).sort()).toEqual(["design@anya-pc", "docs@laptop"]);
-    expect(box.fails.map((i) => i.key).sort()).toEqual(["f:hotfix@laptop", "m:base2"]);
+    // в сбоях — и сессия, которая ждёт сброса лимита
+    expect(box.fails.map((i) => i.key).sort()).toEqual(["f:hotfix@laptop", "m:base2", "w:nightcheck@server"]);
   });
   it("моя сессия: открыл я или сессия, которую открыл я", async () => {
     const p = await snap();

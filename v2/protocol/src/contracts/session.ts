@@ -60,6 +60,10 @@ export const Ask = z.object({
   schema: z.unknown().optional(),
   url: z.string().optional(),
   at: z.number(),
+  /** кому вопрос адресован: тот, кто дал задачу (человек или сессия) */
+  to: z.string().optional(),
+  /** кто видел вопрос в момент, когда он задан: адресат и зрители сессии */
+  seen: z.array(z.string()).optional(),
 });
 export type Ask = z.infer<typeof Ask>;
 
@@ -94,6 +98,8 @@ export const SessionRow = z.object({
   remoteError: z.string().optional(),
   /** последняя точка в архив не удалась: причина */
   archiveError: z.string().optional(),
+  /** когда Host повторит неудавшуюся точку сам, мс; раньше — при конце хода */
+  archiveRetryAt: z.number().optional(),
   /** идёт сжатие контекста */
   compacting: z.boolean().optional(),
   /** очередь аккаунтов ждёт сброса лимита: когда он наступит, мс */
@@ -167,7 +173,7 @@ export const FileIn = z.object({ name: z.string(), mime: z.string(), base64: z.s
 
 export const message = request("message", {
   owner: "host-chat", target: "session",
-  tool: "Написать сессии флота: to — позывной вида site@laptop, text — сообщение. От сессии оно придёт адресату с пометкой отправителя.",
+  tool: "Написать сессии флота: to — позывной вида site@laptop, text — сообщение. От сессии оно придёт адресату с пометкой отправителя. Человеку (~почта) пишут инструментом reach_send.",
   /** priority: now — прервать ход и взять сейчас; next — после нынешнего шага (по умолчанию); later — после хода */
   input: z.object({ to: Callsign, text: z.string(), files: z.array(FileIn).optional(), priority: z.enum(["now", "next", "later"]).optional() }),
   /** queued — сессия занята, сообщение ждёт в очереди; uuid — его номер: по нему приходит статус в ленте и отмена */
@@ -225,6 +231,10 @@ export const answer = request("answer", {
   input: z.object({ to: Callsign, ask: z.string(), answer: z.unknown() }),
   output: Done,
 });
+
+/** Итог вопроса — событие ленты `ask.answered`: кто ответил и чем. answer — выбранные варианты, действие разрешения или «cancelled», если ход снял вопрос. */
+export const AskAnswered = z.object({ type: z.literal("ask.answered"), ask: z.string(), kind: Ask.shape.kind, by: z.string().optional(), answer: z.unknown().optional(), at: z.number() });
+export type AskAnswered = z.infer<typeof AskAnswered>;
 
 /** Лента: события пачкой тем, кто смотрит сессию. */
 export const sessionEvents = frame("session.events", {

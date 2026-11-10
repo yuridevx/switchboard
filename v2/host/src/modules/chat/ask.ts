@@ -16,7 +16,7 @@ const asText = (from: string, id: string, qs: Q[]): string =>
   qs.flatMap((q) => [`${q.question ?? ""}${q.multiSelect ? " (можно несколько — через запятую)" : ""}`, ...(q.options ?? []).map((o) => `· ${o.label}${o.description ? ` — ${o.description}` : ""}`)]).join("\n") +
   `\nОтветь инструментом answer: to — ${from}, ask — ${id}, answer — выбранный вариант.\n</fleet-question>`;
 
-export function questions(host: () => HostApi, asker: (s: SessionApi) => string | undefined) {
+export function questions(host: () => HostApi, asker: (s: SessionApi) => string | undefined, feed: { viewers(cs: string): string[]; push(cs: string, event: unknown): void } = { viewers: () => [], push() {} }) {
   const open = new Map<string, Map<string, Pending>>();
   const closed = new Map<string, Set<string>>();
   const of = (cs: string) => open.get(cs) ?? open.set(cs, new Map()).get(cs)!;
@@ -37,7 +37,11 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
   /** Задать вопрос и ждать первого ответа; сигнал отмены хода снимает его. */
   function put<T>(s: SessionApi, ask: Ask, signal: AbortSignal, answered: (answer: unknown, by: string) => T, cancelled: T, qs?: Q[]): Promise<T> {
     const cs = s.callsign;
-    host().log.info("ask", { callsign: cs, ask: ask.id, kind: ask.kind });
+    // кому вопрос и кто его видел, когда он задан
+    const to = asker(s);
+    if (to) ask.to = to;
+    ask.seen = [...new Set([...(to ? [to] : []), ...feed.viewers(cs)])];
+    host().log.info("ask", { callsign: cs, ask: ask.id, kind: ask.kind, to });
     return new Promise<T>((resolve) => {
       const close = () => {
         of(cs).delete(ask.id);
@@ -47,6 +51,7 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
       };
       const abort = () => {
         close();
+        feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, answer: "cancelled", at: Date.now() });
         resolve(cancelled);
       };
       signal.addEventListener("abort", abort);
@@ -55,6 +60,8 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
         settle(answer, by) {
           close();
           host().log.info("answered", { callsign: cs, ask: ask.id, from: by });
+          // итог вопроса — в ленту: кто ответил и чем
+          feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, by, answer, at: Date.now() });
           resolve(answered(answer, by));
         },
       });

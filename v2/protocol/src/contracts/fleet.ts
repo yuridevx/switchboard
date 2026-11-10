@@ -109,8 +109,8 @@ export type MachineRow = z.infer<typeof MachineRow>;
 /** Картина флота одним ответом — для модели и скриптов: машины и сессии, до которых достаёт спросивший, и люди на связи. */
 export const fleetList = request("fleet.list", {
   owner: "fleet", target: "fleet",
-  tool: "Картина флота: машины (на связи или нет, с какого времени), сессии с состоянием и документом и люди на связи — только то, до чего вы достаёте. machine — только эта машина.",
-  input: z.object({ machine: Name.optional() }),
+  tool: "Картина флота: машины (на связи или нет, с какого времени), сессии с состоянием и документом и люди на связи — только то, до чего вы достаёте. machine — только эта машина; project — сессии одного проекта доски; state — сессии в этом состоянии (idle, busy, waiting, stopped, failed).",
+  input: z.object({ machine: Name.optional(), project: z.string().optional(), state: z.string().optional() }),
   output: z.object({ machines: z.array(MachineRow), sessions: z.array(SessionRow), people: z.array(z.object({ person: Person, name: z.string().optional(), devices: z.array(z.string()) })) }),
 });
 

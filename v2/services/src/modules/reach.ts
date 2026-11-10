@@ -2,6 +2,7 @@
 // Один запрос «позвать человека»: служба сама спрашивает платформу, на связи ли он; на связи — не шлёт.
 // Бот Telegram у каждого флота свой: его токен лежит в записях флота, вебхук приходит на адрес этого флота — общей для флотов записи нет.
 import { CALL_MS, errFields, type Frame, type Logger, newId, Refusal, sha256hex } from "@sb/protocol";
+import { outbound } from "../env.ts";
 import type { Ctx, Deps, Env, Module, Platform } from "../env.ts";
 import { log } from "../entrance.ts";
 import { type Db, records } from "../records.ts";
@@ -187,7 +188,7 @@ async function senderOf(d: Db, platform: Platform, fleet: string, chat: number, 
 
 /** Вебхук Telegram флота: код привязки делает чат устройством человека; сообщение в теме сессии уходит сессии кадром message; кнопка вопроса — кадром answer. */
 export async function telegram(req: Request, env: Env, exec: ExecutionContext, deps: Deps): Promise<Response> {
-  const f = deps.fetch ?? fetch;
+  const f = deps.fetch ?? outbound;
   const platform: Platform = deps.platform ?? env.PLATFORM;
   const fleet = new URL(req.url).pathname.split("/")[2] ?? "";
   if (req.method !== "POST" || !FLEET.test(fleet)) return new Response(null, { status: 404 });

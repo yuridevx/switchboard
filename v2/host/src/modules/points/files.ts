@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { CALL_MS, Refusal } from "@sb/protocol";
 
 export const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
@@ -24,7 +25,14 @@ export async function download(files: PointFileLinks[]): Promise<Map<string, Buf
   for (const f of files) {
     const parts: Buffer[] = [];
     for (const b of f.blocks) {
-      const buf = Buffer.from(await (await storeFetch(b.url)).arrayBuffer());
+      // блок лежит в хранилище сжатым; имя — хэш несжатого содержимого
+      let buf: Buffer;
+      try {
+        buf = gunzipSync(Buffer.from(await (await storeFetch(b.url)).arrayBuffer()));
+      } catch (e) {
+        if (e instanceof Refusal) throw e;
+        throw new Refusal("bad_point", `${f.path}: блок ${b.hash.slice(0, 12)} не распаковался`);
+      }
       if (sha256(buf) !== b.hash) throw new Refusal("bad_point", `${f.path}: блок ${b.hash.slice(0, 12)} пришёл не тот`);
       parts.push(buf);
     }

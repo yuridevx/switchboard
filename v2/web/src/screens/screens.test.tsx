@@ -9,7 +9,7 @@ import {
 import { MantineProvider } from "@mantine/core";
 import { ModalsProvider } from "@mantine/modals";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,6 +43,7 @@ import { byWord } from "./settings/Passes.tsx";
 import { reachOf } from "./settings/People.tsx";
 import { newRule, ruleFlaw, ruleLine } from "./settings/Proxy.tsx";
 import { githubReturn } from "./settings/Rest.tsx";
+import { worker } from "./sw-harness.ts";
 import { Work } from "./Work.tsx";
 
 vi.hoisted(() => {
@@ -103,17 +104,6 @@ describe("уведомления", () => {
     expect(myPushDevices([d("1", "webpush")], "")).toEqual([]);
   });
 
-  /** сервис-воркер в поддельной среде: что показал, куда ответил */
-  function worker(kv: Record<string, string>) {
-    const shown: Array<{ title: string; o: any }> = [], calls: Array<{ url: string; init: any }> = [], on: Record<string, (e: any) => void> = {};
-    const idb = { open: () => { const r: any = {}; queueMicrotask(() => { r.result = { close() {}, transaction: () => ({ objectStore: () => ({ get: (k: string) => { const g: any = {}; queueMicrotask(() => { g.result = kv[k]; g.onsuccess(); }); return g; } }) }) }; r.onsuccess(); }); return r; } };
-    const self = { addEventListener: (t: string, fn: (e: any) => void) => (on[t] = fn), skipWaiting() {}, location: { origin: "https://fleet.example" }, clients: { claim: async () => {}, matchAll: async () => [], openWindow: async (u: string) => void calls.push({ url: "open:" + u, init: null }) }, registration: { showNotification: async (title: string, o: any) => void shown.push({ title, o }) } };
-    let reply: any = { ok: true };
-    const fetch = async (url: string, init: any) => (calls.push({ url, init }), { json: async () => reply });
-    new Function("self", "indexedDB", "fetch", fs.readFileSync(path.resolve(process.cwd(), "public/sw.js"), "utf8"))(self, idb, fetch);
-    const fire = async (t: string, e: any) => { let p: Promise<unknown> | undefined; on[t]!({ ...e, waitUntil: (x: Promise<unknown>) => (p = x) }); await p; };
-    return { shown, calls, fire, setReply: (r: any) => (reply = r) };
-  }
   const note = { title: "site@laptop спрашивает", text: "Какую ветку?", callsign: "site@laptop", kind: "ask", ask: "q-9", options: ["main", "release", "обе"] };
   it("пуш вопроса показан с вариантами кнопками (не больше двух); пуш без вопроса — без кнопок", async () => {
     const w = worker({});
@@ -554,15 +544,17 @@ describe("экраны в отрисовке", () => {
 
   it("«Работа»: проекты группами; свёрнутый проект помнит устройство и показывает лампы; фильтр «Все» добавляет чужие сессии", async () => {
     page(<Work />);
-    await waitFor(() => expect(screen.getByText("Сайт")).toBeTruthy());
-    expect(screen.queryByText("Новый первый экран")).toBeNull();
-    fireEvent.click(screen.getByText("Сайт"));
-    expect(screen.queryByText("Шапка сайта на узких экранах")).toBeNull();
+    // на широком экране вход открывает первую сессию рядом: смотрим сам список
+    const list = () => within(screen.getByLabelText("Работа"));
+    await waitFor(() => expect(list().getByText("Сайт")).toBeTruthy());
+    expect(list().queryByText("Новый первый экран")).toBeNull();
+    fireEvent.click(list().getByText("Сайт"));
+    expect(list().queryByText("Шапка сайта на узких экранах")).toBeNull();
     expect(getLocal<string[]>("work.closed", [])).toEqual(["site"]);
     expect(document.querySelectorAll(".grp .lamps .lamp").length).toBeGreaterThan(0);
     setLocal("work.filter", "all");
     setLocal("work.closed", []);
-    await waitFor(() => expect(screen.getByText("Новый первый экран")).toBeTruthy());
+    await waitFor(() => expect(list().getByText("Новый первый экран")).toBeTruthy());
     // чужая сессия подписана владельцем
     expect(screen.getAllByText("anya@example.com").length).toBeGreaterThan(0);
   });

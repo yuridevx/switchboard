@@ -1,13 +1,16 @@
 // «Настройки → Правила прокси»: правила замены текста запросов к модели. Форма правила — та, что читает прокси Host (ProxyRule);
 // проверка на тексте идёт запросом rules.test — движок на странице не повторяется.
-import { prefsGet, prefsSet, PROXY_RULES, ProxyRule, rulesTest, type OutputOf } from "@sb/protocol";
+import { pointsCalls, prefsGet, prefsSet, PROXY_RULES, ProxyRule, rulesTest, type OutputOf } from "@sb/protocol";
 import { ActionIcon, Badge, Button, Chip, Group, SegmentedControl, Select, Stack, Switch, TagsInput, Text, Textarea, TextInput } from "@mantine/core";
-import { IconArrowDown, IconArrowUp, IconTrash } from "@tabler/icons-react";
+import { IconArrowDown, IconArrowUp, IconGripVertical, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import { act } from "../../api.ts";
-import { confirmDanger, Failed, useCall } from "../../common.tsx";
-import { shift } from "../../lib/work.ts";
+import { confirmDanger, Failed, modelWord, useCall } from "../../common.tsx";
+import { useRowDrag } from "../../lib/drag.ts";
+import { day, hhmm } from "../../lib/time.ts";
+import { reorder, shift } from "../../lib/work.ts";
 import { useFleet } from "../../store/fleet.ts";
 
 type Rule = ProxyRule;
@@ -22,6 +25,30 @@ export function ruleLine(r: Rule): string {
   const what = r.action === "delete" ? `удаляет ${UNITS.find(([id]) => id === r.unit)?.[1]}` : `заменяет ${UNITS.find(([id]) => id === r.unit)?.[1]} на «${r.replacement ?? ""}»`;
   return `${r.kind === "regex" ? "выражение" : "текст"} «${r.pattern}» · ${where} · ${what}${r.models?.length ? ` · модели ${r.models.join(", ")}` : ""}`;
 }
+/** Разница построчно: что правила убрали и что поставили. Одинаковые строки идут как есть. */
+export function lineDiff(before: string, after: string): Array<{ kind: "same" | "del" | "add"; text: string }> {
+  const a = before.split("\n"), b = after.split("\n");
+  // длина общей подпоследовательности строк
+  const lcs = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) lcs[i]![j] = a[i] === b[j] ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
+  const out: Array<{ kind: "same" | "del" | "add"; text: string }> = [];
+  let i = 0, j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { out.push({ kind: "same", text: a[i]! }); i++; j++; }
+    else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) out.push({ kind: "del", text: a[i++]! });
+    else out.push({ kind: "add", text: b[j++]! });
+  }
+  while (i < a.length) out.push({ kind: "del", text: a[i++]! });
+  while (j < b.length) out.push({ kind: "add", text: b[j++]! });
+  return out;
+}
+
+/** Вызов модели из архива, открытый параметром call=<сессия>/<вызов>: его текст встаёт в проверку правил. */
+export function callRef(param: string | null): { sid: string; call: string } | null {
+  const at = param?.lastIndexOf("/") ?? -1;
+  return param && at > 0 && at < param.length - 1 ? { sid: param.slice(0, at), call: param.slice(at + 1) } : null;
+}
+
 /** Чего не хватает правилу, чтобы его записать; годное — пусто. */
 export function ruleFlaw(r: Rule): string {
   const p = ProxyRule.safeParse(r);
@@ -65,7 +92,27 @@ export function ProxyRules() {
   const [scope, setScope] = useState<Rule["scopes"][number]>("user");
   const [machine, setMachine] = useState<string | null>(online[0] ?? null);
   const [tested, setTested] = useState<Tested | null>(null);
+  const [model, setModel] = useState("");
   useEffect(() => { if (prefs.data && !rules) setRules((prefs.data.values[PROXY_RULES] as Rule[] | undefined) ?? []); }, [prefs.data, rules]);
+  // вызов модели из архива: его текст — в проверку
+  const [sp] = useSearchParams();
+  const ref = callRef(sp.get("call"));
+  const calls = useCall(pointsCalls, ref ? { sid: ref.sid, ...(sp.get("point") ? { point: sp.get("point")! } : {}) } : null);
+  const call = ref ? (calls.data?.calls.find((c) => c.call === ref.call) as (NonNullable<typeof calls.data>["calls"][number] & { text?: string; system?: string }) | undefined) : undefined;
+  useEffect(() => {
+    if (!call) return;
+    const text = call.text ?? call.system;
+    if (text) { setProbe(text); setScope(call.text ? "user" : "system"); }
+    setModel(call.model);
+    setTested(null);
+  }, [call?.call]);
+  const box = useRef<HTMLDivElement>(null);
+  const drag = useRowDrag({ box, enabled: admin, onDrop: ({ id, before }) => {
+    const order = reorder((rules ?? []).map((_, i) => String(i)), id, before);
+    setRules(order.map((i) => (rules ?? [])[Number(i)]!));
+    setOpen(null);
+    setTested(null);
+  } });
   if (prefs.error) return <Failed error={prefs.error} retry={prefs.refetch} />;
   const list = rules ?? [];
   const saved = JSON.stringify(prefs.data?.values[PROXY_RULES] ?? []) === JSON.stringify(list);
@@ -73,17 +120,19 @@ export function ProxyRules() {
   const flaws = list.map(ruleFlaw);
   const test = async () => {
     if (!machine) return;
-    const r = await act(rulesTest, { to: "@" + machine, text: probe, scope, rules: list });
+    const r = await act(rulesTest, { to: "@" + machine, text: probe, scope, ...(model ? { model } : {}), rules: list });
     if (r) setTested(r);
   };
   return (
     <Stack>
-      <div className="card">
+      <div className="card dragbox" ref={box} data-drop-group="rules">
+        {drag.line !== null && <div className="dragline" style={{ top: drag.line }} />}
         {list.map((r, i) => {
           const flaw = flaws[i] || tested?.flaws[r.name];
           return (
-            <div key={i} style={{ borderTop: i ? "1px solid var(--line)" : 0 }}>
+            <div key={i} style={{ borderTop: i ? "1px solid var(--line)" : 0, touchAction: "pan-y" }} className={drag.dragging === String(i) ? "dragging" : undefined} data-drag-id={String(i)} data-drag-group="rules" onPointerDown={open === i ? undefined : drag.onPointerDown(String(i))}>
               <div className="line" style={{ borderTop: 0 }}>
+                {admin && <IconGripVertical size={14} className="muted" style={{ flex: "none", cursor: "grab" }} aria-hidden />}
                 <Switch aria-label={`Правило «${r.name}» включено`} checked={r.on !== false} disabled={!admin} onChange={(e) => set(i, { on: e.currentTarget.checked })} />
                 <div className="grow">
                   <Group gap={6}><Text size="sm" fw={500}>{r.name}</Text>{flaw && <Badge color="red" variant="light">{flaw}</Badge>}{tested && !flaw && r.on !== false && <Badge variant="default">сработало: {tested.hits[r.name] ?? 0}</Badge>}</Group>
@@ -113,13 +162,23 @@ export function ProxyRules() {
       )}
       <div className="card">
         <Text fw={600}>Проверка на тексте</Text>
+        {ref && (calls.error ? <Failed error={calls.error} retry={calls.refetch} /> : call
+          ? <Text size="sm">Вызов модели из архива: {day(call.at)}, {hhmm(call.at)} · <span className="mono">{modelWord(call.model)}</span>{call.text ?? call.system ? "" : " — текста этого вызова в архиве нет, вставьте свой"}</Text>
+          : calls.data ? <Text size="sm" c="orange">Такого вызова в архиве нет</Text> : null)}
         <Textarea aria-label="Текст для проверки" autosize minRows={2} value={probe} onChange={(e) => (setProbe(e.currentTarget.value), setTested(null))} />
         <Group align="end" gap="sm">
           <Select label="Где этот текст" data={SCOPES.map(([value, label]) => ({ value, label }))} value={scope} onChange={(v) => v && (setScope(v as typeof scope), setTested(null))} allowDeselect={false} w={220} />
           <Select label="Проверить на машине" className="mono" data={online} value={machine} onChange={setMachine} allowDeselect={false} w={180} />
           <Button variant="default" disabled={!machine || !probe.trim()} onClick={() => void test()}>Проверить</Button>
         </Group>
-        {tested && <><Text size="sm" fw={500}>Модель увидит</Text><pre className="codebox">{tested.after}</pre></>}
+        {tested && (
+          <>
+            <Text size="sm" fw={500}>{tested.after === probe ? "Правила ничего не изменили" : "Модель увидит"}</Text>
+            <div className="codebox diff" role="group" aria-label="Что изменили правила">
+              {lineDiff(probe, tested.after).map((l, i) => <div key={i} className={l.kind}>{l.kind === "del" ? "− " : l.kind === "add" ? "+ " : "  "}{l.text || " "}</div>)}
+            </div>
+          </>
+        )}
       </div>
     </Stack>
   );

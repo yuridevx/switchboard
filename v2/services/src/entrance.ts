@@ -3,6 +3,7 @@ import {
   CALL_MS, canReach, contract, errFields, fail, type Frame, kindOf, logger, machineOf, MAX_FRAME, ok, parseFrame, parsePass, Refusal, type Reply, type RequestDef,
   stopwatch, type Who, within,
 } from "@sb/protocol";
+import { outbound } from "./env.ts";
 import type { Ctx, Deps, Env, Module } from "./env.ts";
 import { note } from "./modules/obs.ts";
 
@@ -66,16 +67,24 @@ export async function call(env: Env, exec: ExecutionContext, handlers: Handlers,
     }
     // from и to у запроса службы — поля ввода (период отчёта); отправителя кадра вход ставит сам
     const { type: _t, id: _i, trace: _r, ...fields } = f;
+    // сообщение человеку или устройству — не запрос сессии: подсказка вместо «ввод не по схеме»
+    if (def.name === "message" && (kindOf(fields.to) === "person" || kindOf(fields.to) === "device"))
+      throw new Refusal("not_session", `${String(fields.to)} — человек, а не сессия: человеку пишут запросом reach.send (инструмент reach_send) с to вида ~почта`);
     const parsed = def.input.safeParse(fields);
     if (!parsed.success) throw new Refusal("bad_input", parsed.error.issues.map((i) => `${i.path.join(".") || "ввод"}: ${i.message}`).join("; "));
     const input = parsed.data as Record<string, unknown>;
     to = def.target !== "service" && def.target !== "fleet" && typeof input.to === "string" ? input.to : undefined;
     if (who) allowed(def, who, input.to);
+    if (who && def.ownerOnly && !who.admin) {
+      const machine = machineOf(String(input.to));
+      const owner = (await within(platform.machines(fleet), CALL_MS, "платформа не назвала машины")).find((m) => m.name === machine)?.owner;
+      if (owner !== who.person) throw new Refusal("forbidden", `${def.name} — только владельцу машины ${machine} или админу флота`);
+    }
     if (def.target === "service") {
       const h = handlers.get(def.name);
       if (!h) throw new Refusal("unknown_request", `${def.name}: обработчика нет`);
       const ctx: Ctx = {
-        env, fleet, who: who!, trace, platform, origin: caller.origin, fetch: deps.fetch ?? fetch,
+        env, fleet, who: who!, trace, platform, origin: caller.origin, fetch: deps.fetch ?? outbound,
         log: log.with({ module: h.module, trace, fleet }),
         after: (work) => exec.waitUntil(work.catch((e) => log.error("работа после ответа упала", { module: h.module, trace, fleet, ...errFields(e) }))),
       };
@@ -101,7 +110,7 @@ export async function call(env: Env, exec: ExecutionContext, handlers: Handlers,
   else log.warn("отказ", line);
   if (fleet && !f.type.startsWith("obs."))
     exec.waitUntil(
-      note(env, fleet, { trace, at: Date.now(), type: f.type, from, to, ok: reply.ok, word: reply.error, why: reply.why, ms, spans: reply.spans }, { platform, fetch: deps.fetch ?? fetch, log }).catch((e) =>
+      note(env, fleet, { trace, at: Date.now(), type: f.type, from, to, ok: reply.ok, word: reply.error, why: reply.why, ms, spans: reply.spans }, { platform, fetch: deps.fetch ?? outbound, log }).catch((e) =>
         log.error("строка наблюдения не записалась", { trace, fleet, ...errFields(e) }),
       ),
     );

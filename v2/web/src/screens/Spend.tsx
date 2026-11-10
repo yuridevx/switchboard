@@ -50,7 +50,7 @@ export function Spend() {
         {down ? (
           <div className="card" role="status">
             <Text fw={600}>Аналитика недоступна</Text>
-            <Text size="sm">Хранилище расчётов не отвечает. Сессии, архив и поиск работают; пропущенное дольётся из архива.</Text>
+            <Text size="sm">{/не подключена/.test(daily.error instanceof CallError ? daily.error.why ?? "" : "") ? "Хранилище расчётов к флоту не подключено." : "Хранилище расчётов не отвечает."} Сессии, архив и поиск работают; пропущенное дольётся из архива.</Text>
             <Button size="xs" variant="default" w="fit-content" onClick={() => (daily.refetch(), cut.refetch())}>Повторить</Button>
           </div>
         ) : daily.error ? <Failed error={daily.error} retry={daily.refetch} /> : (

@@ -14,13 +14,24 @@ export async function link(env: Env, method: "PUT" | "GET", key: string): Promis
   return signed.url;
 }
 
+/** Блок лежит в хранилище сжатым (gzip): разговор — текст, на живом флоте он сжимается в 3,5 раза (замер 10 нояб.: 564 → 159 КБ). Имя блока — хэш несжатого содержимого. */
+export async function gzip(data: Uint8Array | string): Promise<Uint8Array> {
+  const body = new Response(typeof data === "string" ? new TextEncoder().encode(data) : data).body!;
+  return new Uint8Array(await new Response(body.pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+}
+export async function gunzip(data: ArrayBuffer | Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await new Response(new Response(data).body!.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+}
+
 /** Файл целиком из блоков по порядку. Блока нет — отказ. */
 export async function readBlocks(env: Env, keys: string[]): Promise<Uint8Array> {
   const parts: Uint8Array[] = [];
   for (const k of keys) {
     const o = await env.FILES.get(k);
     if (!o) throw new Refusal("blocks_missing", `блока ${k} нет в хранилище`);
-    parts.push(new Uint8Array(await o.arrayBuffer()));
+    parts.push(await gunzip(await o.arrayBuffer()).catch(() => {
+      throw new Refusal("bad_point", `блок ${k} в хранилище не распаковался`);
+    }));
   }
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let at = 0;

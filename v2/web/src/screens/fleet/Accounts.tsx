@@ -1,15 +1,15 @@
 // «Флот → Аккаунты»: аккаунты Claude одной строкой на все машины с лимитами; очередь выбора на каждой машине; ключи флота.
 import { accountCode, accountList, accountLogin, accountRemove, keyCheck, keysList, keysRemove, keysSet, slotSet, slotSwap, type Account, type KeyRow } from "@sb/protocol";
-import { ActionIcon, Badge, Button, CopyButton, Group, JsonInput, Menu, Modal, NumberInput, PasswordInput, Progress, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
+import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, JsonInput, Menu, Modal, NumberInput, PasswordInput, Progress, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconDots, IconGripVertical } from "@tabler/icons-react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { act, api } from "../../api.ts";
 import { confirmDanger, Failed, useCall, useMachineName } from "../../common.tsx";
-import { limitTone, limitWord, mergeAccounts, otherMail, queueOf, type Merged } from "../../lib/accounts.ts";
+import { accountKey, bulkOrder, diverge, limitTone, limitWord, machineOrder, mergeAccounts, otherMail, queueOf, type Merged } from "../../lib/accounts.ts";
 import { useRowDrag } from "../../lib/drag.ts";
-import { hhmm, LIMIT_NAMES, nSessions } from "../../lib/time.ts";
+import { ago, day, hhmm, LIMIT_NAMES, nSessions } from "../../lib/time.ts";
 import { reorder, shift } from "../../lib/work.ts";
 import { useFleet } from "../../store/fleet.ts";
 
@@ -50,14 +50,18 @@ function Login({ machine, expect, onDone }: { machine: string; expect?: string; 
   );
 }
 
-/** Строка аккаунта на все машины: лимиты и где он вошёл. */
-function MergedRow({ m }: { m: Merged }) {
+/** Строка аккаунта на все машины: лимиты и где он вошёл. Нажатие на имя подсвечивает его во всех очередях. */
+function MergedRow({ m, marked, onMark, picked, onPick }: { m: Merged; marked: boolean; onMark: () => void; picked: boolean; onPick: (on: boolean) => void }) {
   const nameOf = useMachineName();
+  const [why, setWhy] = useState(false);
+  const split = diverge(m);
   return (
-    <div className="line" style={{ alignItems: "start" }}>
+    <div className={`line${marked ? " marked" : ""}`} style={{ alignItems: "start" }}>
+      <Checkbox mt={2} aria-label={`Выбрать ${m.email ?? m.id}`} checked={picked} onChange={(e) => onPick(e.currentTarget.checked)} />
       <div className="grow">
         <Group gap={6} wrap="wrap">
-          <Text size="sm" fw={600} className="trunc">{m.email ?? m.id}</Text>
+          <button type="button" className="linklike trunc" style={{ fontSize: 14 }} aria-pressed={marked} onClick={onMark}>{m.email ?? m.id}</button>
+          {split.length > 0 && <button type="button" className="warnmark" aria-expanded={why} aria-label="Машины говорят разное" onClick={() => setWhy(!why)}>⚠</button>}
           {m.kind === "key" ? <Badge variant="default">ключ флота</Badge> : m.plan && <Text size="xs" className="muted">{m.plan}</Text>}
           {m.wait !== undefined && <Badge color="orange" variant="light">ждёт сброса до {hhmm(m.wait)}</Badge>}
           {m.sessions > 0 && <Text size="xs" className="muted">{nSessions(m.sessions)}</Text>}
@@ -66,9 +70,10 @@ function MergedRow({ m }: { m: Merged }) {
           <Group key={l.name} gap={8} wrap="nowrap" mt={3}>
             <Text size="xs" className="muted" w={84}>{LIMIT_NAMES[l.name] ?? l.name}</Text>
             <Progress value={l.used * 100} color={limitTone(l.used)} style={{ flex: 1 }} aria-label={`${LIMIT_NAMES[l.name] ?? l.name}: ${limitWord(l)}`} />
-            <Text size="xs" w={104} ta="right" c={limitTone(l.used) === "red" ? "red" : undefined}>{limitWord(l)}</Text>
+            <Text size="xs" ta="right" c={limitTone(l.used) === "red" ? "red" : undefined} style={{ flex: "none", whiteSpace: "nowrap", minWidth: 104 }}>{limitWord(l)}</Text>
           </Group>
         ))}
+        {why && split.map((w) => <Text key={w} size="xs" c="orange" className="mono" style={{ overflowWrap: "anywhere" }}>{w}</Text>)}
         <Group gap={4} mt={5}>
           {m.seats.map((s) => <Badge key={s.machine} variant={s.account.ok ? "default" : "light"} color={s.account.ok ? undefined : "red"} title={s.account.why}>{nameOf(s.machine)}{s.account.ok ? "" : " ⚠ " + (s.account.why ?? "вход не годен")}</Badge>)}
         </Group>
@@ -78,7 +83,7 @@ function MergedRow({ m }: { m: Merged }) {
 }
 
 /** Очередь выбора на машине: порядок перетаскиванием, смена сейчас, убрать из очереди и вернуть, вход. */
-function Queue({ machine, list, refresh }: { machine: string; list: Account[]; refresh: () => void }) {
+function Queue({ machine, list, refresh, marked }: { machine: string; list: Account[]; refresh: () => void; marked: string }) {
   const nameOf = useMachineName();
   const [login, setLogin] = useState<{ expect?: string } | null>(null);
   const [fresh, setFresh] = useState("");
@@ -92,13 +97,14 @@ function Queue({ machine, list, refresh }: { machine: string; list: Account[]; r
     if (r) { notifications.show({ message: `На ${nameOf(machine)} теперь ${r.account}`, color: "teal" }); refresh(); }
   };
   const row = (a: Account, inQueue: boolean) => (
-    <div key={a.id} className={`line${a.id === fresh ? " fresh" : ""}${drag.dragging === a.id ? " dragging" : ""}`} {...(inQueue ? { "data-drag-id": a.id, "data-drag-group": "q", onPointerDown: drag.onPointerDown(a.id) } : {})} style={{ touchAction: "pan-y" }}>
+    <div key={a.id} className={`line${a.id === fresh ? " fresh" : ""}${accountKey(a) === marked ? " marked" : ""}${drag.dragging === a.id ? " dragging" : ""}`} {...(inQueue ? { "data-drag-id": a.id, "data-drag-group": "q", onPointerDown: drag.onPointerDown(a.id) } : {})} style={{ touchAction: "pan-y" }}>
       {inQueue && <IconGripVertical size={14} className="muted" style={{ flex: "none", cursor: "grab" }} aria-hidden />}
       <div className="grow">
         <Group gap={6} wrap="wrap">
           {a.current && <span className="lamp idle" style={{ marginTop: 0 }} role="img" aria-label="стоит сейчас" />}
           <Text size="sm" fw={a.current ? 600 : 400} className="trunc">{a.email ?? a.id}</Text>
           {a.wait !== undefined && <Text size="xs" c="orange">ждёт сброса до {hhmm(a.wait)}</Text>}
+          {(a as { expires?: number }).expires !== undefined && <Text size="xs" className="muted">вход до {day((a as { expires?: number }).expires!)}</Text>}
           {!inQueue && <Text size="xs" className="muted">вне очереди</Text>}
         </Group>
         {!a.ok && <Text size="xs" c="red">{a.why}</Text>}
@@ -231,17 +237,36 @@ export function Accounts() {
   const failed = lists.find((q) => q.error);
   const merged = mergeAccounts(byMachine).filter((m) => m.kind === "claude");
   const refresh = () => void qc.invalidateQueries({ queryKey: ["account.list"] });
+  /** подсвеченный аккаунт: виден во всех очередях машин */
+  const [marked, setMarked] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
+  const gone = Object.values(machines).filter((m) => !m.online).sort((a, b) => a.name.localeCompare(b.name));
+  /** Очередь пачкой: выбранные аккаунты — из очереди на всех машинах или обратно в неё. */
+  const bulk = async (into: boolean) => {
+    const plan = bulkOrder(byMachine, picked, into);
+    for (const [machine, order] of Object.entries(plan)) if (!(await act(slotSet, { to: "@" + machine, order }))) break;
+    notifications.show({ message: Object.keys(plan).length ? `Очередь изменена на ${Object.keys(plan).join(", ")}` : "Очереди уже такие", color: "teal" });
+    setPicked([]);
+    refresh();
+  };
   return (
     <Stack>
       {failed?.error ? <Failed error={failed.error} retry={refresh} /> : null}
       <div className="card">
-        <Text fw={600}>Аккаунты Claude</Text>
-        {merged.map((m) => <MergedRow key={m.id} m={m} />)}
+        <Group justify="space-between" wrap="wrap">
+          <Text fw={600}>Аккаунты Claude</Text>
+          <Group gap={6} wrap="wrap">
+            {picked.length > 0 && <><Button size="compact-xs" variant="default" onClick={() => void bulk(false)}>Убрать из очередей</Button><Button size="compact-xs" variant="default" onClick={() => void bulk(true)}>Вернуть в очереди</Button></>}
+            <Button size="compact-xs" variant="subtle" onClick={refresh}>Опросить лимиты</Button>
+          </Group>
+        </Group>
+        {merged.map((m) => { const key = accountKey(m); return <MergedRow key={key} m={m} marked={marked === key} onMark={() => setMarked(marked === key ? "" : key)} picked={picked.includes(key)} onPick={(on) => setPicked(on ? [...picked, key] : picked.filter((x) => x !== key))} />; })}
         {!merged.length && <Text size="sm" className="muted">Входов нет. Войдите в аккаунт на машине ниже.</Text>}
       </div>
       <p className="sect">Очередь выбора на машинах</p>
       <div className="cards" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}>
-        {online.map((m) => <Queue key={m} machine={m} list={byMachine[m] ?? []} refresh={refresh} />)}
+        {machineOrder(byMachine).map((m) => <Queue key={m} machine={m} list={byMachine[m] ?? []} refresh={refresh} marked={marked} />)}
+        {gone.map((m) => <div key={m.name} className="card off"><Group justify="space-between" wrap="nowrap"><Text fw={600} className="trunc">{m.name}</Text><Text size="sm" c="red" style={{ whiteSpace: "nowrap" }}>ушла {ago(m.since)}</Text></Group><Text size="sm" className="muted">Очередь покажется, когда машина вернётся</Text></div>)}
       </div>
       <FleetKeys machines={online} />
     </Stack>

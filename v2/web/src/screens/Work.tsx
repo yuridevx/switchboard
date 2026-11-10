@@ -1,28 +1,35 @@
 // «Работа»: сессии по проектам. Свои фильтры, список или доска, закрепление, свой порядок; строка переносится в другой проект мышью и пальцем.
 import { peopleList, projectRemove, projectSet, sessionUpdate, type SessionRow } from "@sb/protocol";
-import { ActionIcon, Button, Chip, Group, Menu, Modal, MultiSelect, SegmentedControl, Stack, Text, TextInput, Tooltip } from "@mantine/core";
+import { ActionIcon, Button, Chip, Group, Menu, Modal, MultiSelect, Popover, SegmentedControl, Stack, Switch, Text, TextInput, Tooltip } from "@mantine/core";
 import { useHotkeys } from "@mantine/hooks";
-import { IconArrowDown, IconArrowUp, IconCheck, IconChevronDown, IconChevronRight, IconDots, IconFilter, IconPencil, IconPin, IconPinFilled, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconAdjustmentsHorizontal, IconArrowDown, IconArrowUp, IconCheck, IconChevronDown, IconChevronRight, IconDots, IconFilter, IconPencil, IconPin, IconPinFilled, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { act } from "../api.ts";
-import { confirmDanger, Lamp, personWord, SessionLine, useCall, useMyPrefs, useUi, useWide } from "../common.tsx";
+import { confirmDanger, Lamp, personWord, SessionLine, useCall, useMachineName, useMyPrefs, useUi, useWide } from "../common.tsx";
 import { useRowDrag } from "../lib/drag.ts";
-import { useLocal } from "../lib/local.ts";
+import { getLocal, useLocal } from "../lib/local.ts";
 import { ago } from "../lib/time.ts";
-import { BUILTIN, type Filter, groupsOf, NO_PROJECT, projectOf, reorder, rowsOf, shift, STATE_GROUPS } from "../lib/work.ts";
-import { Conversation } from "../session/Conversation.tsx";
+import { BUILTIN, type Filter, groupsByMachine, groupsOf, NO_PROJECT, projectOf, reorder, rowsOf, shift, STATE_GROUPS, treeOf, whyMine } from "../lib/work.ts";
+import { Conversation, pairKey, type Side } from "../session/Conversation.tsx";
 import { isMine, machineOfCall, useFleet } from "../store/fleet.ts";
 
 const askLine = (s: SessionRow) => (s.ask ? (s.ask.kind === "plan" ? "ждёт решения по плану" : s.ask.text) : s.wait ? `ждёт сброса лимита до ${new Date(s.wait).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : s.doing);
-const blank = (): Filter => ({ id: "f" + Date.now().toString(36), name: "", who: "all", states: [], projects: [], machines: [] });
+const blank = (): Filter => ({ id: "f" + Date.now().toString(36), name: "", who: "all", states: [], projects: [], machines: [], pieces: [] });
 
 /** Свои фильтры: создать, править, порядок, удалить. Лежат в настройках человека и видны на всех его устройствах. */
 function Filters({ filters, save, onClose }: { filters: Filter[]; save: (next: Filter[]) => void; onClose: () => void }) {
   const machines = useFleet((f) => f.machines);
+  const sessions = useFleet((f) => f.sessions);
   const projects = useCall(peopleList, {});
   const [edit, setEdit] = useState<Filter | null>(null);
+  // кусочки — те, что стоят у сессий флота: чаще встречающиеся раньше
+  const pieces = useMemo(() => {
+    const n = new Map<string, number>();
+    for (const s of Object.values(sessions)) for (const p of s.spec.pieces ?? []) n.set(p, (n.get(p) ?? 0) + 1);
+    return [...n].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+  }, [sessions]);
   if (edit) {
     const set = (p: Partial<Filter>) => setEdit({ ...edit, ...p });
     return (
@@ -32,8 +39,9 @@ function Filters({ filters, save, onClose }: { filters: Filter[]; save: (next: F
         <Chip.Group multiple value={edit.states ?? []} onChange={(states) => set({ states })}>
           <Group gap={6}>{STATE_GROUPS.map(([id, word]) => <Chip key={id} value={id} size="xs">{word}</Chip>)}</Group>
         </Chip.Group>
-        <MultiSelect label="Проекты" data={(projects.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={edit.projects ?? []} onChange={(v) => set({ projects: v })} clearable />
-        <MultiSelect label="Машины" data={Object.keys(machines)} value={edit.machines ?? []} onChange={(v) => set({ machines: v })} clearable />
+        <MultiSelect label="Проекты" searchable data={(projects.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={edit.projects ?? []} onChange={(v) => set({ projects: v })} clearable />
+        <MultiSelect label="Машины" searchable data={Object.keys(machines)} value={edit.machines ?? []} onChange={(v) => set({ machines: v })} clearable />
+        <MultiSelect label="Кусочки" searchable data={pieces} value={edit.pieces ?? []} onChange={(v) => set({ pieces: v })} clearable />
         <Group>
           <Button disabled={!edit.name.trim()} onClick={() => { save(filters.some((f) => f.id === edit.id) ? filters.map((f) => (f.id === edit.id ? edit : f)) : [...filters, edit]); setEdit(null); }}>Сохранить</Button>
           <Button variant="default" onClick={() => setEdit(null)}>Назад</Button>
@@ -70,6 +78,10 @@ export function Work() {
   const [view, setView] = useLocal<"list" | "board">("work.view", "list");
   const [filterId, setFilterId] = useLocal("work.filter", "mine");
   const [closed, setClosed] = useLocal<string[]>("work.closed", []);
+  // «Вид списка»: по чему группировать и ставить ли дочерние под родителем — помнит устройство
+  const [groupBy, setGroupBy] = useLocal<"project" | "machine">("work.group", "project");
+  const [nested, setNested] = useLocal("work.nested", true);
+  const machineName = useMachineName();
   const [editFilters, setEditFilters] = useState(false);
   const [rename, setRename] = useState<{ id: string; name: string } | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -83,11 +95,30 @@ export function Work() {
   const board = wide && !callsign && view === "board";
   const rows = useMemo(() => rowsOf(picture, filter, pins, order), [picture.sessions, picture.you, filter, pins.join(), order.join()]);
   const names = Object.fromEntries((people.data?.projects ?? []).map((p) => [p.id, p.name]));
-  const groups = useMemo(() => groupsOf(picture, rows, projectOrder, names), [rows, projectOrder.join(), people.data]);
-  const flat = groups.flatMap((g) => (closed.includes(g.project) ? [] : g.rows.map((s) => s.callsign)));
+  const groups = useMemo(() => (groupBy === "machine" ? groupsByMachine(rows, machineName) : groupsOf(picture, rows, projectOrder, names)), [rows, projectOrder.join(), people.data, groupBy]); // eslint-disable-line react-hooks/exhaustive-deps
+  // строки группы деревом: пара — одной строкой, дочерние — под родителем
+  const trees = useMemo(() => new Map(groups.map((g) => [g.project, treeOf(picture, g.rows, nested)])), [groups, nested]); // eslint-disable-line react-hooks/exhaustive-deps
+  const flat = groups.flatMap((g) => (closed.includes(g.project) ? [] : trees.get(g.project)!.map((r) => r.s.callsign)));
+  // пара открывается той стороной, которую человек смотрел последней
+  const open = (c: string) => {
+    const wing = picture.sessions[c]?.spec.wing;
+    go(`/work/${wing && picture.sessions[wing] && getLocal<Side>(pairKey(c), "lead") === "wing" ? wing : c}`);
+  };
+  // на широком экране вход на «Работу» открывает первую сессию списка
+  const entered = useRef(false);
+  useEffect(() => {
+    if (entered.current || !picture.rev) return;
+    entered.current = true;
+    // сама открывается только прочитанная: открытие снимает пометку «непрочитано», а итоги человек разбирает в «Вам»
+    const me = picture.you?.person ?? "";
+    const first = flat.find((c) => !picture.sessions[c]?.unread?.includes(me));
+    if (wide && !callsign && view === "list" && first) open(first);
+  }, [picture.rev]); // eslint-disable-line react-hooks/exhaustive-deps
   const move = (d: number) => {
-    const next = flat[Math.max(0, Math.min(flat.length - 1, (callsign ? flat.indexOf(callsign) : -1) + d))];
-    if (next) go(`/work/${next}`);
+    // открытый ведомый стоит в строке своего ведущего
+    const at = callsign ? flat.indexOf(picture.sessions[callsign]?.lead && !flat.includes(callsign) ? picture.sessions[callsign]!.lead! : callsign) : -1;
+    const next = flat[Math.max(0, Math.min(flat.length - 1, at + d))];
+    if (next) open(next);
   };
   useHotkeys([["j", () => move(1)], ["k", () => move(-1)]]);
   // открытая сессия видна в списке: прокрутка к её строке
@@ -124,7 +155,16 @@ export function Work() {
               <Menu.Item onClick={() => setEditFilters(true)}>Свои фильтры…</Menu.Item>
             </Menu.Dropdown>
           </Menu>
-          {wide && !callsign && <SegmentedControl size="xs" value={board ? "board" : "list"} onChange={(v) => setView(v as "list" | "board")} data={[{ value: "list", label: "Список" }, { value: "board", label: "Доска" }]} aria-label="Вид" />}
+          <Popover position="bottom-end" withinPortal>
+            <Popover.Target><Tooltip label="Вид списка"><ActionIcon variant="default" size="md" aria-label="Вид списка"><IconAdjustmentsHorizontal size={15} /></ActionIcon></Tooltip></Popover.Target>
+            <Popover.Dropdown>
+              <Stack gap="xs">
+                {wide && <SegmentedControl size="xs" fullWidth value={view} onChange={(v) => (setView(v as "list" | "board"), callsign && v === "board" && go("/work"))} data={[{ value: "list", label: "Список" }, { value: "board", label: "Доска" }]} aria-label="Вид" />}
+                <SegmentedControl size="xs" fullWidth value={groupBy} onChange={(v) => setGroupBy(v as "project" | "machine")} data={[{ value: "project", label: "По проектам" }, { value: "machine", label: "По машинам" }]} aria-label="Группы" />
+                <Switch size="xs" label="Дочерние под родителем" checked={nested} onChange={(e) => setNested(e.currentTarget.checked)} />
+              </Stack>
+            </Popover.Dropdown>
+          </Popover>
         </div>
         {board ? (
           <div className="board scroll">
@@ -150,7 +190,7 @@ export function Work() {
             {drag.line !== null && <div className="dragline" style={{ top: drag.line }} />}
             {groups.map((g, gi) => {
               const shut = closed.includes(g.project);
-              const real = g.project !== NO_PROJECT;
+              const real = g.project !== NO_PROJECT && groupBy === "project";
               return (
                 <div key={g.project} data-drop-group={g.project}>
                   <div className="grp">
@@ -160,7 +200,7 @@ export function Work() {
                     {/* свёрнутый проект показывает лампами, что в нём ждёт человека */}
                     {shut && <span className="lamps">{g.rows.filter((s) => s.state === "waiting" || s.state === "failed" || s.state === "busy").slice(0, 8).map((s) => <Lamp key={s.callsign} state={s.state} offline={offline(s)} />)}</span>}
                     <span className="grp-acts">
-                      <Tooltip label="Новая сессия в проекте"><ActionIcon size="xs" variant="subtle" aria-label={`Новая сессия в проекте ${g.name}`} onClick={() => ui.set({ newOpen: true, newPreset: real ? { project: g.project } : null })}><IconPlus size={13} /></ActionIcon></Tooltip>
+                      <Tooltip label={groupBy === "machine" ? "Новая сессия на машине" : "Новая сессия в проекте"}><ActionIcon size="xs" variant="subtle" aria-label={`Новая сессия: ${g.name}`} onClick={() => ui.set({ newOpen: true, newPreset: groupBy === "machine" ? { machine: g.project.slice(1) } : real ? { project: g.project } : null })}><IconPlus size={13} /></ActionIcon></Tooltip>
                       {real && (
                         <Menu withinPortal position="bottom-end">
                           <Menu.Target><ActionIcon size="xs" variant="subtle" aria-label={`Действия с проектом ${g.name}`}><IconDots size={13} /></ActionIcon></Menu.Target>
@@ -178,12 +218,12 @@ export function Work() {
                       )}
                     </span>
                   </div>
-                  {!shut && g.rows.map((s) => {
+                  {!shut && trees.get(g.project)!.map(({ s, depth, wing }) => {
                     const pinned = pins.includes(s.callsign);
                     const mine = isMine(picture, s);
                     return (
-                      <div key={s.callsign} className={`rowwrap${drag.dragging === s.callsign ? " dragging" : ""}`} data-drag-id={s.callsign} data-drag-group={g.project} onPointerDown={drag.onPointerDown(s.callsign)}>
-                        <SessionLine s={s} selected={s.callsign === callsign} onPick={() => go(`/work/${s.callsign}`)} sub={<>
+                      <div key={s.callsign} className={`rowwrap${drag.dragging === s.callsign ? " dragging" : ""}`} data-drag-id={s.callsign} data-drag-group={g.project} onPointerDown={groupBy === "project" ? drag.onPointerDown(s.callsign) : undefined}>
+                        <SessionLine s={s} depth={depth} wing={wing} why={whyMine(picture, s, pins)} selected={s.callsign === callsign || (!!wing && wing.callsign === callsign)} onPick={() => open(s.callsign)} sub={<>
                           {askLine(s) ? <> · {askLine(s)}</> : s.state === "failed" ? <> · {s.error ?? "сбой"}</> : null}
                           {!mine && <> <span className="chip">{personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</span></>}
                           {s.incident && <> <span className="chip warn">обращение: {s.incident.kind}</span></>}

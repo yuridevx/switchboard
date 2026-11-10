@@ -57,3 +57,6 @@ export interface Deps {
   platform?: Platform;
   fetch?: typeof fetch;
 }
+
+/** Исходящий запрос наружу. Сам fetch нельзя хранить полем объекта: рабочая среда отвергает вызов не от глобального объекта. */
+export const outbound: typeof fetch = (input, init) => fetch(input, init);

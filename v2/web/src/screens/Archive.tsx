@@ -6,15 +6,34 @@ import { useDebouncedValue } from "@mantine/hooks";
 import { IconArrowLeft, IconDots, IconSearch } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { create } from "zustand";
 import { act, api, isMock, keyStore } from "../api.ts";
 import { fold, type Msg } from "../chat/fold.ts";
 import { Failed, modelWord, useCall, useMachineName, useWide } from "../common.tsx";
-import { ago, byDay, bytesWord, day, hhmm, kilo, nCalls, nPoints, nTurns } from "../lib/time.ts";
+import { ago, byDay, bytesWord, day, hhmm, kilo, nCalls, nPoints, nSessions, nTurns } from "../lib/time.ts";
 import { Rows } from "../session/Feed.tsx";
 import { useFleet } from "../store/fleet.ts";
 import { DeleteTyped, Raise, RAISE_TITLE, type RaiseKind } from "./archive/Raise.tsx";
+import { fireCount } from "./fleet/Machines.tsx";
+
+/** Сводка архива: сколько сессий в нём, сколько из них идёт сейчас, сколько только в архиве, сколько живых сессий точек не сохраняет. */
+export function archiveSummary(archive: Array<Pick<ArchSession, "callsign" | "bytes" | "live">>, live: Array<{ callsign: string; spec: { backup?: boolean } }>) {
+  const running = new Set(live.map((s) => s.callsign));
+  const going = archive.filter((a) => a.live ?? running.has(a.callsign)).length;
+  return { total: archive.length, going, only: archive.length - going, bytes: archive.reduce((n, a) => n + (a.bytes ?? 0), 0), bare: live.filter((s) => !s.spec.backup).map((s) => s.callsign).sort() };
+}
+
+/** Ветки линии точек: точка с base, которая не стоит сразу за своей основой, — начало ветки; ответ — глубина отступа и основа. */
+export function branches(points: Array<{ point: string; base?: string }>): Record<string, { depth: number; from?: string }> {
+  const out: Record<string, { depth: number; from?: string }> = {};
+  points.forEach((p, i) => {
+    const prev = points[i - 1]?.point;
+    if (!p.base || p.base === prev) return void (out[p.point] = { depth: prev && out[prev] ? out[prev]!.depth : 0 });
+    out[p.point] = { depth: (out[p.base]?.depth ?? 0) + 1, from: p.base };
+  });
+  return out;
+}
 
 /** Запрос и фильтры архива живут, пока открыта страница: уход в другой раздел их не стирает. */
 type Ui = { q: string; machine: string | null; project: string | null; period: string; order: "last" | "tokens" };
@@ -88,6 +107,7 @@ export function cutByPoints<R extends { k: string }>(rows: R[], points: Array<{ 
 export const pullCommand = (fleet: string, device: string, sid: string, dir: string, point?: string) => `node tools/fleet/pull.ts ${fleet} ${device} ${sid} ${dir}${point ? ` ${point}` : ""}`;
 
 function Calls({ sid, point }: { sid: string; point?: string }) {
+  const go = useNavigate();
   const c = useCall(pointsCalls, { sid, ...(point ? { point } : {}) });
   if (c.isLoading) return <Loader size="sm" />;
   if (c.error) return <Failed error={c.error} retry={c.refetch} />;
@@ -98,7 +118,7 @@ function Calls({ sid, point }: { sid: string; point?: string }) {
       <Text size="sm" mb="xs">{nCalls(calls.length)}{cost ? ` · $${cost.toFixed(2).replace(".", ",")}` : ""}</Text>
       <div className="table-wrap" style={{ maxHeight: "60vh", overflowY: "auto" }}>
         <Table verticalSpacing={4} horizontalSpacing="sm" className="stack">
-          <Table.Thead><Table.Tr><Table.Th>Когда</Table.Th><Table.Th>Модель</Table.Th><Table.Th ta="right">Ввод</Table.Th><Table.Th ta="right">Вывод</Table.Th><Table.Th ta="right">Кэш</Table.Th><Table.Th ta="right">$</Table.Th></Table.Tr></Table.Thead>
+          <Table.Thead><Table.Tr><Table.Th>Когда</Table.Th><Table.Th>Модель</Table.Th><Table.Th ta="right">Ввод</Table.Th><Table.Th ta="right">Вывод</Table.Th><Table.Th ta="right">Кэш</Table.Th><Table.Th ta="right">$</Table.Th><Table.Th /></Table.Tr></Table.Thead>
           <Table.Tbody>
             {calls.map((x) => (
               <Table.Tr key={x.call}>
@@ -108,6 +128,7 @@ function Calls({ sid, point }: { sid: string; point?: string }) {
                 <Table.Td data-l="Вывод" ta="right">{kilo(x.output)}</Table.Td>
                 <Table.Td data-l="Кэш" ta="right">{kilo(x.cacheRead + x.cacheWrite)}</Table.Td>
                 <Table.Td data-l="$" ta="right">{x.cost !== undefined ? x.cost.toFixed(3).replace(".", ",") : "—"}</Table.Td>
+                <Table.Td ta="right"><Button size="compact-xs" variant="subtle" onClick={() => go(`/settings/proxy?call=${encodeURIComponent(sid)}/${encodeURIComponent(x.call)}${point ? `&point=${encodeURIComponent(point)}` : ""}`)}>Правила</Button></Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>
@@ -125,8 +146,14 @@ function Detail({ s, q, onBack }: { s: ArchSession; q: string; onBack: () => voi
   const live = useFleet((f) => f.sessions[s.callsign]);
   const nameOf = useMachineName();
   const points = useCall(pointsList, { sid: s.sid });
-  // точка с найденным словом — сразу выбрана
-  const [point, setPoint] = useState<string | undefined>((s as { hitPoint?: string }).hitPoint);
+  // выбранная точка живёт в адресе: ссылкой можно поделиться; точка с найденным словом выбрана сразу, пока человек не выбрал сам
+  const [sp, setSp] = useSearchParams();
+  const [chose, setChose] = useState(false);
+  const point = sp.get("point") ?? (chose ? undefined : (s as { hitPoint?: string }).hitPoint);
+  const setPoint = (p?: string) => {
+    setChose(true);
+    setSp((x) => { const n = new URLSearchParams(x); if (p) n.set("point", p); else n.delete("point"); return n; }, { replace: true });
+  };
   const [tab, setTab] = useState("talk");
   const [open, setOpen] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ kind: RaiseKind; point?: string } | { kind: "calls"; point?: string } | { kind: "pull"; point?: string } | { kind: "delete" } | null>(null);
@@ -163,10 +190,13 @@ function Detail({ s, q, onBack }: { s: ArchSession; q: string; onBack: () => voi
   const pointOf = (id?: string) => list.find((p) => p.point === id);
   const canDelete = !live && (you?.admin || !s.owner || s.owner === you?.person);
   const days = byDay([...list].reverse(), (p) => p.at);
+  const tree = branches(list as Array<ArchPoint & { base?: string }>);
   const pointRow = (p: ArchPoint) => {
     const isOpen = open === p.point;
+    const br = tree[p.point];
     return (
-      <div key={p.point}>
+      <div key={p.point} style={br?.depth ? { marginLeft: Math.min(br.depth, 3) * 14 } : undefined}>
+        {br?.from && <div className="muted" style={{ fontSize: 11.5, padding: "2px 8px 0 32px" }}>ветка от {pointOf(br.from)?.label ?? `точки ${hhmm(pointOf(br.from)?.at ?? 0)}`}</div>}
         <div className={`pt${selected === p.point ? " sel" : ""}`} role="button" tabIndex={0} aria-expanded={isOpen} onClick={() => (setPoint(p.point === last ? undefined : p.point), setOpen(isOpen ? null : p.point))} onKeyDown={(e) => e.key === "Enter" && (setPoint(p.point === last ? undefined : p.point), setOpen(isOpen ? null : p.point))}>
           <i />
           <span style={{ minWidth: 0 }}><span className="trunc" style={{ display: "block" }}>{p.label ?? nTurns(p.turns ?? 0)}</span><span className="muted" style={{ fontSize: 12 }}>{hhmm(p.at)}{p.label && p.turns ? ` · ${nTurns(p.turns)}` : ""}</span></span>
@@ -270,6 +300,10 @@ export function Archive() {
   const list = useCall(pointsList, { ...(term ? { q: term } : {}), ...(ui.machine ? { machine: ui.machine } : {}), ...(since ? { since } : {}), ...(ui.order !== "last" ? { order: ui.order } : {}) });
   const names = Object.fromEntries((projects.data?.projects ?? []).map((p) => [p.id, p.name]));
   const rows = (list.data?.sessions ?? []).filter((s) => !ui.project || s.project === ui.project);
+  const [bare, setBare] = useState(false);
+  const sum = archiveSummary(rows, Object.values(sessions));
+  // «пожар»: машины без связи, чьи сессии ждут на точках архива
+  const burning = Object.values(machines).map((m) => ({ m, n: fireCount(m, Object.values(sessions)) })).filter((x) => x.n > 0);
   const picked = rows.find((s) => s.sid === sid) ?? list.data?.sessions.find((s) => s.sid === sid);
   return (
     <div className={`panes${sid ? " has-detail" : " solo"}`}>
@@ -285,6 +319,19 @@ export function Archive() {
           </Group>
         </div>
         <div className="scroll">
+          {burning.map(({ m, n }) => (
+            <div key={m.name} className="ban bad" style={{ margin: "8px 12px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <Text size="sm" style={{ flex: "1 1 180px", minWidth: 0 }}><span className="mono">{m.name}</span> без связи с {day(m.since)}, {hhmm(m.since)} · {nSessions(n)} ждут на последних точках</Text>
+              <Button size="compact-xs" color="red" variant="light" onClick={() => go(`/machine/${m.name}`)}>Поднять на другой машине</Button>
+            </div>
+          ))}
+          {list.data && !term && rows.length > 0 && (
+            <div className="sub" style={{ padding: "8px 14px 2px" }}>
+              {nSessions(sum.total)} в архиве{sum.bytes ? ` · ${bytesWord(sum.bytes)}` : ""} · идёт {sum.going} · только в архиве {sum.only}
+              {sum.bare.length > 0 && <> · <button type="button" className="linklike" style={{ fontWeight: 400 }} aria-expanded={bare} onClick={() => setBare(!bare)}>без архива: {sum.bare.length}</button></>}
+              {bare && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingTop: 6 }}>{sum.bare.map((c) => <Badge key={c} variant="default" className="mono" component="button" type="button" style={{ cursor: "pointer" }} onClick={() => go(`/work/${c}`)}>{c}</Badge>)}</div>}
+            </div>
+          )}
           {list.error ? <Failed error={list.error} retry={list.refetch} /> : !rows.length && !list.isLoading ? <div className="hole" style={{ height: "50%" }}>{term ? `Ничего не нашлось по «${term}»` : "В архиве пусто"}</div> : null}
           {rows.map((s) => {
             const live = s.live ?? !!sessions[s.callsign];

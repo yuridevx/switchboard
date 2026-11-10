@@ -163,6 +163,8 @@ export const pointsRaise = request("points.raise", {
   input: z.object({
     to: MachineAddr, sid: z.string(), point: z.string().optional(), name: z.string().optional(), cwd: z.string().optional(), move: z.boolean().optional(),
     files: z.enum(["keep", "point"]).optional(), dryRun: z.boolean().optional(), account: z.string().optional(),
+    /** последняя точка, которую видел человек: в архиве уже другая — отказ changed */
+    expect: z.string().optional(),
   }),
   output: z.object({ callsign: Callsign.optional(), check: RaiseCheck.optional() }),
 });
@@ -258,7 +260,15 @@ export const machineJournal = request("machine.journal", {
 export const keeperState = request("keeper.state", {
   owner: "keeper", target: "keeper", tool: "Состояние Keeper машины: какая сборка Host стоит, работает ли он.",
   input: z.object({ to: KeeperAddr }),
-  output: z.object({ build: z.number(), host: z.object({ build: z.number(), state: z.enum(["running", "stopped", "failed", "updating"]), why: z.string().optional(), since: z.number().optional() }), os: z.string() }),
+  output: z.object({ build: z.number(), host: z.object({ build: z.number(), state: z.enum(["running", "stopped", "failed", "updating"]), why: z.string().optional(), since: z.number().optional(), pid: z.number().optional() }), os: z.string(),
+    /** сборка последнего исполненного плана и pid самого Keeper */
+    plan: z.number().optional(), pid: z.number().optional() }),
+});
+
+/** Перезапустить Host той же сборки: остановить и запустить; упавший — поднять. Сессии живут в держателях. Только владелец машины или админ. */
+export const hostRestart = request("host.restart", {
+  owner: "keeper", target: "keeper", ownerOnly: true, tool: "Перезапустить Host машины: to — keeper вида .keeper@laptop. Сессии не останавливаются.",
+  input: z.object({ to: KeeperAddr }), output: Done,
 });
 
 /** «Спроси план»: служба выпусков → Keeper, без данных. */

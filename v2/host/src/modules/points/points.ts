@@ -1,8 +1,9 @@
 // Точки сессий: файлы разговора и пакет git → блоки → архив (points.put двумя шагами, блоки по ссылкам) и подъём сессии из точки.
-// Блок — часть файла до 1 МиБ под именем SHA-256 своего содержимого; разговор режется по переводу строки. Тело блока идёт как есть.
+// Блок — часть файла до 1 МиБ под именем SHA-256 своего содержимого; разговор режется по переводу строки. Тело блока идёт в хранилище сжатым (gzip), имя — хэш несжатого.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
+import { gzipSync } from "node:zlib";
 import { machineOf, pointsGet, pointsPut, pointsSave, Refusal, sessionName, sessionRemove, sessionStart, type Spec } from "@sb/protocol";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
 import { clientPath, claudeDir, tildePath } from "../../core/paths.ts";
@@ -13,6 +14,8 @@ const BLOCK = 1 << 20;
 /** Конец хода — точка не чаще раза в 2 мин; ход идёт 10 мин — точка посреди хода. */
 const GAP_MS = 2 * 60_000;
 const LONG_MS = 10 * 60_000;
+/** Точка не удалась — Host повторит её сам через это время; раньше — при конце хода. */
+export const RETRY_MS = 10 * 60_000;
 const TITLE = 200;
 /** Сколько текста одного сообщения уходит в поиск. */
 const TEXT_MAX = 8_000;
@@ -22,7 +25,7 @@ type Blocks = Map<string, Buffer>;
 /** Сколько ждём конца хода после прерывания перед точкой. */
 const INTERRUPT_MS = 30_000;
 /** Раздел сессии: последнее сообщение, чей текст уже ушёл в поиск; последняя точка и отпечаток её файлов; причина сбоя последней точки. */
-type Mark = { indexed?: string; point?: string; digest?: string; error?: string };
+type Mark = { indexed?: string; point?: string; digest?: string; error?: string; /** когда Host сам повторит неудавшуюся точку */ retryAt?: number; /** от какой точки архива поднята: `сессия/точка` */ origin?: string };
 type SaveOpts = { label?: string; stop?: boolean; interrupt?: boolean; move?: boolean };
 
 /** Папка проекта рабочей папки: так её называет Claude Code. */
@@ -62,6 +65,8 @@ export function make(): Module {
   let down = false;
   const lastAt = new Map<string, number>();
   const turns = new Map<string, ReturnType<typeof setTimeout>>();
+  /** повтор неудавшейся точки */
+  const retries = new Map<string, ReturnType<typeof setTimeout>>();
   /** точки одной сессии идут по очереди */
   const queue = new Map<string, Promise<unknown>>();
   const markOf = (s: SessionApi) => s.store<Mark>();
@@ -124,12 +129,15 @@ export function make(): Module {
     const { text, last, ...summary } = await summaryOf(s);
     const point = `p${Date.now().toString(36)}`;
     const frame = {
-      sid: s.info.sessionId, callsign: s.callsign, point, spec: s.spec, ...(label ? { label } : {}), cwd: tildePath(s.info.cwd, homedir()), ...(s.spec.project ? { project: s.spec.project } : {}),
+      sid: s.info.sessionId, callsign: s.callsign, point, spec: s.spec,
+      // ветка линии: от прошлой точки этой сессии; первая точка поднятой копии — от точки, с которой подняли
+      ...(was?.point ? { base: was.point } : was?.origin ? { base: was.origin } : {}),
+      ...(label ? { label } : {}), cwd: tildePath(s.info.cwd, homedir()), ...(s.spec.project ? { project: s.spec.project } : {}),
       ...(git ? { git: JSON.stringify(git.summary) } : {}), ...summary, files, ...(text.length ? { text } : {}),
     };
     const first = await host.call(pointsPut, frame);
     if (!first.done) {
-      for (const [hash, url] of Object.entries(first.upload)) await storeFetch(url, { method: "PUT", body: new Uint8Array(blocks.get(hash)!) });
+      for (const [hash, url] of Object.entries(first.upload)) await storeFetch(url, { method: "PUT", body: new Uint8Array(gzipSync(blocks.get(hash)!)) });
       const second = await host.call(pointsPut, { ...frame, commit: true });
       if (!second.done) throw new Refusal("store_failed", `${s.callsign}: архив не записал точку — не хватает блоков: ${Object.keys(second.upload).length}`);
     }
@@ -137,10 +145,22 @@ export function make(): Module {
     return { point };
   }
 
-  /** Причина сбоя последней точки — в строку сессии; удалась — причины нет. */
+  /** Причина сбоя последней точки и час повтора — в строку сессии; удалась — их нет. Повтор — сам, через RETRY_MS; раньше — при конце хода. */
   function mark(s: SessionApi, error: string | undefined): void {
-    if (markOf(s).get()?.error === error) return;
-    markOf(s).update((m) => ({ ...m, error }));
+    clearTimeout(retries.get(s.callsign));
+    retries.delete(s.callsign);
+    const retryAt = error && s.spec.backup && !down ? Date.now() + RETRY_MS : undefined;
+    if (retryAt) {
+      const timer = setTimeout(() => {
+        retries.delete(s.callsign);
+        if (host.session(s.callsign)) auto(s);
+      }, RETRY_MS);
+      timer.unref();
+      retries.set(s.callsign, timer);
+    }
+    const was = markOf(s).get();
+    if (was?.error === error && !was?.retryAt === !retryAt) return;
+    markOf(s).update((m) => ({ ...m, error, retryAt }));
     if (host.session(s.callsign)) s.sync();
   }
 
@@ -209,8 +229,9 @@ export function make(): Module {
   /** Поднять сессию из точки: откат на месте, копия или перенос — один путь: проверка → блоки → папка и файлы → сессия.
    *  dryRun — только проверка папки. files: keep — файлы папки не трогаются, встаёт только разговор.
    *  Перенос: прежняя машина снимает свежую точку и останавливает сессию; поднялась здесь — убирает её у себя, не поднялась — запускает снова. */
-  async function raise({ sid, point, name, cwd, move, files: mode = "point", dryRun, account }: { sid: string; point?: string; name?: string; cwd?: string; move?: boolean; files?: "keep" | "point"; dryRun?: boolean; account?: string }, ctx: Ctx) {
-    let got = await host.call(pointsGet, { sid, ...(point ? { point } : {}) });
+  async function raise({ sid, point, name, cwd, move, files: mode = "point", dryRun, account, expect }: { sid: string; point?: string; name?: string; cwd?: string; move?: boolean; files?: "keep" | "point"; dryRun?: boolean; account?: string; expect?: string }, ctx: Ctx) {
+    // перенос решает хозяин сессии: архив сверяет человека, начавшего его; expect — в архиве та точка, которую человек видел
+    let got = await host.call(pointsGet, { sid, ...(point ? { point } : {}), ...(expect ? { expect } : {}), ...(move ? { move: true } : {}), by: ctx.from });
     const origin = got.session.callsign;
     const away = move && machineOf(origin) !== host.machine;
     let released = false;
@@ -266,6 +287,8 @@ export function make(): Module {
     const { wing: _wing, parent: _parent, ...kept } = got.session.spec ?? ({} as Partial<Spec>);
     const spec: Spec = { ...kept, name: name ?? sessionName(got.session.callsign) ?? basename(dir), cwd: tildePath(dir, homedir()), backup: true, ...(got.session.project ? { project: got.session.project } : {}), ...(account ? { account } : {}) };
     const s = await host.open(spec, { by: ctx.from, resume: sid, fork: !move });
+    // ветка линии: перенос продолжает точку своей же сессии, копия — точку чужой
+    markOf(s).update((m) => ({ ...m, ...(move ? { point: got.point.point } : { origin: `${sid}/${got.point.point}` }) }));
     ctx.log.info("raise", { callsign: s.callsign, sid, point: got.point.point, why: move ? "перенос" : "копия" });
     if (move && machineOf(got.session.callsign) !== host.machine) {
       // прежняя машина убирает сессию у себя; не на связи — отказ в журнале, сессию там уберёт человек
@@ -278,8 +301,8 @@ export function make(): Module {
     name: "host-points",
     spec: { backup() {} },
     row(s) {
-      const error = markOf(s).get()?.error;
-      return error ? { archiveError: error } : {};
+      const { error, retryAt } = markOf(s).get() ?? {};
+      return error ? { archiveError: error, ...(retryAt ? { archiveRetryAt: retryAt } : {}) } : {};
     },
     applied(s, keys) {
       if (keys.includes("backup")) auto(s);
@@ -298,6 +321,8 @@ export function make(): Module {
       },
       removed(cs) {
         endTurn(cs);
+        clearTimeout(retries.get(cs));
+        retries.delete(cs);
         lastAt.delete(cs);
         queue.delete(cs);
       },
@@ -311,7 +336,7 @@ export function make(): Module {
     },
     async stop() {
       down = true;
-      for (const timer of turns.values()) clearTimeout(timer);
+      for (const timer of [...turns.values(), ...retries.values()]) clearTimeout(timer);
       await Promise.allSettled(queue.values());
     },
   };

@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createApi, fleetList, httpTransport, obsHealth, pointsHistory, pointsList, pointsRaise, pointsSave, sessionUpdate } from "@sb/protocol";
+import { createApi, fleetList, httpTransport, obsHealth, pointsHistory, pointsList, pointsRaise, pointsSave, sessionRemove, sessionUpdate } from "@sb/protocol";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
 const env = Object.fromEntries(fs.readFileSync(path.join(dir, "v2-fleet.env"), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
@@ -81,6 +81,8 @@ if (source && target) {
   });
   await step("копия поднята на другой машине", async () => {
     const r = await api.call(pointsRaise, { to: "@" + target, sid, name: "raised" + Date.now().toString(36).slice(-4), cwd: target === "wsl" ? "/tmp/sb2-raised" : undefined });
+    // копия своя, проверочная: убрать за собой
+    if (r.callsign) await api.call(sessionRemove, { to: r.callsign }).catch(() => {});
     return String(r.callsign);
   });
 }

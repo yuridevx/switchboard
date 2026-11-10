@@ -9,8 +9,9 @@ import { createContext, lazy, memo, Suspense, useContext, useEffect, useState, t
 import type { Item } from "../chat/focus.ts";
 import { todoProgress, type MeState, type Part, type Row, type Task, type Todo, type Tool, type View } from "../chat/fold.ts";
 import { agentSteps, deniedWhy, editStat, isAgent, isDenied, isShell, startedInBackground, toolLook, toolState } from "../chat/tools.ts";
-import { nActions, plural } from "../lib/time.ts";
-import { HtmlFrame, looksHtml } from "./html.tsx";
+import { kilo, nActions, plural } from "../lib/time.ts";
+import { diffLines } from "./diff.ts";
+import { HtmlFrame, openPicture, previewKind, SvgView } from "./html.tsx";
 import "./session.css";
 
 const Markdown = lazy(() => import("./Markdown.tsx"));
@@ -50,7 +51,23 @@ const Icon = ({ name, size = 15 }: { name?: string; size?: number }) => {
   return <I size={size} stroke={1.7} style={{ flex: "none" }} />;
 };
 
-const Pics = ({ pics }: { pics: string[] }) => <>{pics.map((p, i) => <img key={i} className="pic" src={p} alt="" />)}</>;
+/** Картинки сообщения: по нажатию — целиком в новой вкладке. */
+export const Pics = ({ pics }: { pics: string[] }) => <>{pics.map((p, i) => <button key={i} type="button" className="picbtn" aria-label="Открыть картинку в новой вкладке" onClick={() => openPicture(p)}><img className="pic" src={p} alt="" /></button>)}</>;
+
+const mark = (k: string) => (k === "old" ? "− " : k === "new" ? "+ " : "  ");
+
+/** Правка: было и стало одной лентой; общие куски свёрнуты до числа строк, нажатие раскрывает правку целиком. */
+export function Diff({ before, after }: { before: string; after: string }) {
+  const [whole, setWhole] = useState(false);
+  const lines = diffLines(before, after, whole ? Number.MAX_SAFE_INTEGER : 2);
+  return (
+    <pre className="diff">
+      {lines.map((l, i) => l.k === "fold"
+        ? <button key={i} type="button" className="dl fold" onClick={() => setWhole(true)}>… {l.n} {plural(l.n, "строка", "строки", "строк")} без изменений</button>
+        : <span key={i} className={`dl ${l.k}`}>{mark(l.k)}{l.text}{"\n"}</span>)}
+    </pre>
+  );
+}
 
 /** Длинный текст свёрнут до первых строк. */
 const LONG = 900;
@@ -82,11 +99,12 @@ function ToolBody({ tool, view }: { tool: Tool; view: View }) {
   if (look.body === "command") body = <><pre>{String(input.command ?? "")}</pre>{out && <pre>{out}</pre>}</>;
   else if (look.body === "diff") {
     const text = String(input.new_string ?? input.content ?? "");
-    const page = tool.name === "Write" && looksHtml(/\.html?$/i.test(String(input.file_path ?? "")) ? "html" : "", text);
+    const path = String(input.file_path ?? "");
+    const page = tool.name === "Write" ? previewKind(/\.html?$/i.test(path) ? "html" : /\.svg$/i.test(path) ? "svg" : "", text) : null;
     body = (
       <>
         {page && <button type="button" className="linkbtn" aria-pressed={html} onClick={() => setHtml((v) => !v)}>{html ? "Код" : "Просмотр"}</button>}
-        {html ? <HtmlFrame html={text} title={String(input.file_path ?? "")} /> : <>{input.old_string != null && <pre className="diff-old">{String(input.old_string)}</pre>}<pre className="diff-new">{text}</pre></>}
+        {html && page === "svg" ? <SvgView code={text} title={path} /> : html ? <HtmlFrame html={text} title={path} /> : input.old_string != null ? <Diff before={String(input.old_string)} after={text} /> : <pre className="diff-new">{text}</pre>}
       </>
     );
   } else if (look.body === "read") body = out ? <Md text={"```" + (/\.(\w+)$/.exec(String(input.file_path ?? ""))?.[1] ?? "") + "\n" + out.replace(/^\s*\d+[→\t]/gm, "") + "\n```"} /> : null;
@@ -98,11 +116,22 @@ function ToolBody({ tool, view }: { tool: Tool; view: View }) {
   return <>{isDenied(tool) && look.body !== "ask" && <Text size="sm" fw={600}>Отклонено{deniedWhy(tool) ? `: ${deniedWhy(tool)}` : ""}</Text>}{body}<Pics pics={pics} /></>;
 }
 
-export function TodoList({ todos }: { todos: Todo[] }) {
+/** Список дел. В доке над вводом он свёрнут до «N из M» и текущего дела и раскрывается списком. */
+export function TodoList({ todos, fold }: { todos: Todo[]; fold?: boolean }) {
   const p = todoProgress(todos);
+  const [open, setOpen] = useState(!fold);
+  const now = todos.find((t) => t.status === "in_progress") ?? todos.find((t) => t.status !== "completed");
+  if (fold && !open) {
+    return (
+      <button type="button" className="todos folded" aria-expanded={false} aria-label="Список дел" onClick={() => setOpen(true)}>
+        <span className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{p.done} из {p.of}</span>
+        {now && <span className="trunc" style={{ fontWeight: 600 }}>▸ {now.activeForm ?? now.content}</span>}
+      </button>
+    );
+  }
   return (
     <div className="todos">
-      <span className="muted" style={{ fontSize: 12 }}>{p.done} из {p.of}</span>
+      {fold ? <button type="button" className="linkbtn" aria-expanded onClick={() => setOpen(false)} style={{ alignSelf: "flex-start", fontSize: 12 }}>{p.done} из {p.of} · свернуть</button> : <span className="muted" style={{ fontSize: 12 }}>{p.done} из {p.of}</span>}
       {todos.map((t, i) => (
         <span key={i} className={t.status === "completed" ? "done" : ""} style={t.status === "in_progress" ? { fontWeight: 600 } : undefined}>
           {t.status === "completed" ? "✓ " : t.status === "in_progress" ? "▸ " : "○ "}{t.status === "in_progress" ? (t.activeForm ?? t.content) : t.content}
@@ -149,7 +178,7 @@ function ToolLine({ tool, view }: { tool: Tool; view: View }) {
           {!running && STATE_WORD[state] && <span className="muted">{STATE_WORD[state]}</span>}
           {bg && state !== "bg" && <span className="muted">в фоне</span>}
         </button>
-        {running && env.canAct && (isShell(tool) || isAgent(tool)) && (
+        {running && !bg && env.canAct && (isShell(tool) || isAgent(tool)) && (
           <span className="toolacts">
             <button type="button" className="linkbtn" onClick={() => env.act?.("tasks", [tool.id])}>В фон</button>
             {task && <button type="button" className="linkbtn" onClick={() => env.act?.("taskStop", [task.id])}>Стоп</button>}
@@ -266,7 +295,11 @@ const RowView = memo(function RowView({ r, view }: { r: Item; view: View }) {
       return <div className="sysline"><Icon name={r.icon} size={14} /><span>{r.text}{"dim" in r && r.dim}</span></div>;
     case "task": {
       const t = view.tasks[r.id];
-      return t ? <div className="sysline"><IconRobot size={14} /><span>{t.desc}{t.summary ? ` — ${t.summary}` : ""}{t.steps ? ` · ${t.steps} ${plural(t.steps, "шаг", "шага", "шагов")}` : ""}</span></div> : null;
+      return t ? (
+        <div className="sysline"><IconRobot size={14} /><span>{t.desc}{t.summary ? ` — ${t.summary}` : ""}{t.steps ? ` · ${t.steps} ${plural(t.steps, "шаг", "шага", "шагов")}` : ""}</span>
+          {!t.end && env.canAct && <button type="button" className="linkbtn" onClick={() => env.act?.("taskStop", [t.id])}>Стоп</button>}
+        </div>
+      ) : null;
     }
     case "ban":
       return (
@@ -314,6 +347,7 @@ export function Rows({ rows, view }: { rows: Item[]; view: View }) {
 /** Хвост ленты: что сессия делает прямо сейчас, пока в записи этого ещё нет. */
 export function Tail({ view, compacting }: { view: View; compacting?: boolean }) {
   if (compacting || view.compacting) return <div className="sysline"><IconArchive size={14} /> Сжимаю контекст…</div>;
-  if (view.thinking !== null) return <div className="sysline"><IconBrain size={14} /> Размышляет…</div>;
+  // пока модель думает, SDK называет оценку числа токенов размышления
+  if (view.thinking !== null) return <div className="sysline"><IconBrain size={14} /> Размышляет…{view.thinking > 0 && <span className="muted"> {kilo(view.thinking)} токенов</span>}</div>;
   return null;
 }

@@ -215,3 +215,9 @@ button.stat { cursor: pointer; }
   .stat span { font-size: 10.5px; line-height: 1.25; }
   .cards { grid-template-columns: minmax(0, 1fr) !important; }
 }
+
+/* знаки строки сессии: «?» — ждёт ответа, точка — есть новое; пара одной строкой */
+.row .when .qmark { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-right: 6px; border-radius: 50%; background: var(--st-waiting); color: var(--surface); font-size: 11px; font-weight: 700; vertical-align: -2px; }
+.row .when .newdot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--st-busy); vertical-align: 1px; }
+.row .pairmate { font-weight: 400; }
+.row .pairmate .lamp { display: inline-block; vertical-align: 1px; margin: 0 2px; }

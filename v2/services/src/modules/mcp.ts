@@ -27,6 +27,23 @@ export const tools = () => contract.tools().map((d) => ({ name: toolName(d.name)
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
+const IMAGES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+
+/** Ответ инструмента для модели: текст — результат запроса; картинки среди файлов результата (скрипт положил их в $SB_OUT) идут блоками изображения, а не строкой base64. */
+export function toolContent(result: unknown): Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> {
+  const files = (result as { files?: unknown } | null)?.files;
+  if (!Array.isArray(files)) return [{ type: "text", text: JSON.stringify(result ?? {}) }];
+  const images: { type: "image"; data: string; mimeType: string }[] = [];
+  const rest = (files as Array<{ name?: string; base64?: string }>).map((f) => {
+    const mime = IMAGES[String(f.name ?? "").split(".").pop()!.toLowerCase()];
+    if (!mime || typeof f.base64 !== "string") return f;
+    images.push({ type: "image", data: f.base64, mimeType: mime });
+    const { base64: _b, ...named } = f;
+    return { ...named, shown: true };
+  });
+  return [{ type: "text", text: JSON.stringify({ ...(result as object), files: rest }) }, ...images];
+}
+
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...CORS, ...headers } });
 const rpcError = (id: Rpc["id"], code: number, message: string) => ({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
 
@@ -83,7 +100,7 @@ export async function mcp(req: Request, env: Env, exec: ExecutionContext, handle
         const f: Frame = { ...(args && typeof args === "object" ? (args as Record<string, unknown>) : {}), type: def.name, id: newId("r"), trace: newId("t") };
         const r = await call(env, exec, handlers, deps, f, { key, as, origin });
         if (!r.ok && r.error === "bad_key") throw new Unauthorized(r.why ?? "bad_key");
-        if (r.ok) return { jsonrpc: "2.0", id: m.id, result: { content: [{ type: "text", text: JSON.stringify(r.result ?? {}) }], isError: false } };
+        if (r.ok) return { jsonrpc: "2.0", id: m.id, result: { content: toolContent(r.result), isError: false } };
         return { jsonrpc: "2.0", id: m.id, result: { content: [{ type: "text", text: `${r.error}${r.why ? `: ${r.why}` : ""} (trace ${r.trace})` }], isError: true } };
       }
       default:

@@ -24,9 +24,9 @@ export function Passes() {
   if (list.error) return <Failed error={list.error} retry={list.refetch} />;
   const all = list.data?.passes ?? [];
   const drop = (p: PassRow) => confirmDanger({
-    title: p.wait ? `Отозвать приглашение ${nameOf(p)}?` : p.addr.startsWith("@") ? `Отозвать пропуск машины ${nameOf(p)}?` : `Отозвать пропуск «${nameOf(p)}» — ${personWord(p.person)}?`,
-    body: p.wait ? "Ссылка перестанет приниматься." : p.addr.startsWith("@") ? "Машина уйдёт из флота: её Host и Keeper отключатся, сессии пропадут из картины. Вернуть — новым приглашением и установкой." : "Устройство сразу потеряет доступ, его соединения закроются. Вернуть — новой ссылкой.",
-    confirm: "Отозвать", onConfirm: async () => (await act(revoke, { kid: p.kid }, `Отозвано: ${nameOf(p)}`)) && refresh(),
+    title: p.addr === me?.addr ? "Отозвать пропуск этого устройства?" : p.wait ? `Отозвать приглашение ${nameOf(p)}?` : p.addr.startsWith("@") ? `Отозвать пропуск машины ${nameOf(p)}?` : `Отозвать пропуск «${nameOf(p)}» — ${personWord(p.person)}?`,
+    body: p.addr === me?.addr ? "Эта страница сразу выйдет из флота. Вернуться можно только новым приглашением с другого устройства." : p.wait ? "Ссылка перестанет приниматься." :p.addr.startsWith("@") ? "Машина уйдёт из флота: её Host и Keeper отключатся, сессии пропадут из картины. Вернуть — новым приглашением и установкой." : "Устройство сразу потеряет доступ, его соединения закроются. Вернуть — новой ссылкой.",
+    confirm: p.addr === me?.addr ? "Отозвать это устройство" : "Отозвать", onConfirm: async () => (await act(revoke, { kid: p.kid }, `Отозвано: ${nameOf(p)}`)) && refresh(),
   });
   const group = (title: string, rows: PassRow[]) => rows.length > 0 && (
     <div>
@@ -43,7 +43,7 @@ export function Passes() {
                 <Table.Td data-l="Пригласил" className="muted">{byWord(p.by)}</Table.Td>
                 <Table.Td data-l="Последний раз" className="muted">{p.wait ? "приглашение не принято" : p.online ? "на связи" : p.seen ? ago(p.seen) : "—"}</Table.Td>
                 <Table.Td data-l="Номер" className="mono muted">{p.kid}</Table.Td>
-                <Table.Td ta="right"><Button size="compact-xs" variant="subtle" color="red" disabled={p.addr === me?.addr} onClick={() => drop(p)}>Отозвать</Button></Table.Td>
+                <Table.Td ta="right"><Button size="compact-xs" variant="subtle" color="red" onClick={() => drop(p)}>Отозвать</Button></Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>

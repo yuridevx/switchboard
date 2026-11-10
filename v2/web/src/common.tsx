@@ -57,20 +57,27 @@ export const ownerWord = (s: SessionRow, me: string): string => {
   return owner && owner !== me ? ` · ${owner.slice(1).split("@")[0]}` : "";
 };
 
-/** Строка сессии в списке: лампа, заголовок, позывной и чем занята, время. */
-export function SessionLine({ s, selected, onPick, sub }: { s: SessionRow; selected?: boolean; onPick: () => void; sub?: ReactNode }) {
+/** Знак строки: «?» — сессия ждёт ответа человека; точка — у человека есть непрочитанное. */
+export const rowMark = (s: SessionRow, me: string): "ask" | "new" | null => (s.ask ? "ask" : s.unread?.includes(me) ? "new" : null);
+
+/** Строка сессии в списке: лампа, заголовок, позывной и чем занята, время. Пара — одной строкой: «ведущий ▸ ведомый»; дочерняя — с отступом под родителем. */
+export function SessionLine({ s, selected, onPick, sub, depth = 0, wing, why }: { s: SessionRow; selected?: boolean; onPick: () => void; sub?: ReactNode; /** глубина под родителем */ depth?: number; /** ведомый пары: стоит в строке ведущего */ wing?: SessionRow; /** почему сессия в «Моих» */ why?: string }) {
   const me = useFleet((f) => f.you?.person ?? "");
   const offline = useFleet((f) => f.machines[machineOfCall(s.callsign)]?.online === false);
-  const unread = s.unread?.includes(me);
-  const label = useLabels()[s.callsign];
+  const mark = rowMark(s, me) ?? (wing ? rowMark(wing, me) : null);
+  const labels = useLabels();
+  const label = labels[s.callsign];
   return (
-    <div className={`row${selected ? " sel" : ""}${unread ? " unread" : ""}`} role="button" tabIndex={0} data-call={s.callsign} onClick={onPick} onKeyDown={(e) => e.key === "Enter" && onPick()}>
+    <div className={`row${selected ? " sel" : ""}${mark === "new" ? " unread" : ""}`} role="button" tabIndex={0} data-call={s.callsign} title={why || undefined} style={depth ? { paddingLeft: 14 + Math.min(depth, 4) * 18 } : undefined} onClick={onPick} onKeyDown={(e) => e.key === "Enter" && onPick()}>
       <Lamp state={s.state} offline={offline} />
       <div style={{ minWidth: 0 }}>
-        <div className="t trunc">{label ?? s.title ?? s.spec.name}</div>
-        <div className="sub trunc"><span className="mono">{s.callsign}</span>{treeWord(s)}{ownerWord(s, me)}{offline ? " · нет связи" : sub ?? (s.doing ? ` · ${s.doing}` : s.state === "failed" ? ` · ${s.error ?? "сбой"}` : "")}</div>
+        <div className="t trunc">
+          {label ?? s.title ?? s.spec.name}
+          {wing && <span className="pairmate"> ▸ <Lamp state={wing.state} offline={offline} /> {labels[wing.callsign] ?? wing.title ?? wing.spec.name}</span>}
+        </div>
+        <div className="sub trunc"><span className="mono">{s.callsign}</span>{wing ? "" : treeWord(s)}{ownerWord(s, me)}{offline ? " · нет связи" : sub ?? (s.doing ? ` · ${s.doing}` : s.state === "failed" ? ` · ${s.error ?? "сбой"}` : "")}{s.archiveError && !offline ? " · точка не сохранилась" : ""}</div>
       </div>
-      <span className="when">{ago(s.last ?? s.since)}</span>
+      <span className="when">{mark === "ask" ? <span className="qmark" role="img" aria-label="ждёт ответа">?</span> : mark === "new" ? <span className="newdot" role="img" aria-label="есть новое" /> : null}{ago(s.last ?? s.since)}</span>
     </div>
   );
 }

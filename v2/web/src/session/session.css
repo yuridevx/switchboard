@@ -62,3 +62,40 @@
 .composer-opts { display: flex; gap: 16px; margin: 6px 0 0 44px; font-size: 12.5px; }
 .composer-opts .linkbtn { color: var(--muted); text-decoration: none; }
 .composer-opts .linkbtn:hover { color: var(--mantine-color-text); text-decoration: underline; }
+
+/* картинка ленты — кнопка: нажатие открывает её целиком */
+.picbtn { all: unset; display: block; cursor: zoom-in; max-width: 100%; }
+.picbtn:focus-visible { outline: 2px solid var(--st-busy); outline-offset: 2px; border-radius: 6px; }
+.svgview { display: block; max-width: 100%; max-height: 420px; background: #fff; border-radius: 6px; margin: 6px 10px 10px; }
+.htmlframe.gone { height: auto; background: var(--surface); display: flex; gap: 12px; align-items: center; padding: 10px 12px; font-size: 13px; color: var(--muted); }
+/* правка одной лентой: общие куски свёрнуты */
+.tool-body pre.diff { padding: 6px 0; }
+.diff .dl { display: block; padding: 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff .dl.old { background: var(--st-failed-weak); }
+.diff .dl.new { background: var(--st-idle-weak); }
+.diff button.dl.fold { all: unset; display: block; width: 100%; box-sizing: border-box; padding: 2px 10px; cursor: pointer; color: var(--muted); font-size: 12px; }
+.diff button.dl.fold:hover, .diff button.dl.fold:focus-visible { color: var(--mantine-color-text); text-decoration: underline; }
+/* список дел в доке: свёрнут до текущего дела */
+button.todos.folded { all: unset; box-sizing: border-box; width: 100%; display: flex; flex-direction: row; gap: 10px; align-items: baseline; cursor: pointer; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 13px; background: var(--surface); min-width: 0; }
+button.todos.folded:focus-visible { outline: 2px solid var(--st-busy); outline-offset: 1px; }
+/* превью вложений до отправки */
+.attach { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.attach .att { position: relative; display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 3px 26px 3px 6px; font-size: 12.5px; background: var(--surface); max-width: 100%; min-width: 0; }
+.attach .att img { width: 44px; height: 44px; object-fit: cover; border-radius: 5px; display: block; }
+.attach .att .x { all: unset; position: absolute; right: 5px; top: 50%; transform: translateY(-50%); cursor: pointer; display: flex; color: var(--muted); }
+.attach .att .x:focus-visible { outline: 2px solid var(--st-busy); border-radius: 4px; }
+/* строка «вопрос видят» */
+.ask-seen { font-size: 12px; color: var(--muted); }
+/* пара в инспекторе: общие ряды, две колонки */
+.pairkv { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: 3px 10px; font-size: 12.5px; margin: 0; }
+.pairkv dt { color: var(--muted); }
+.pairkv dd { margin: 0; overflow-wrap: anywhere; min-width: 0; }
+.pairkv .head { font-weight: 600; }
+.pairlog { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 10px; }
+.pairlog > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+/* имя сессии — кнопка: нажатие открывает правку имени */
+.namebtn { all: unset; cursor: pointer; font-weight: 600; max-width: 100%; display: block; }
+.namebtn:hover { text-decoration: underline; }
+.namebtn:focus-visible { outline: 2px solid var(--st-busy); outline-offset: 2px; border-radius: 4px; }
+.namebtn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+.tool > .muted { white-space: nowrap; }

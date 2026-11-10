@@ -4,7 +4,8 @@ import { SdkEvent, Spec } from "./session.ts";
 
 /* ===== Выпуски (builds) ===== */
 
-export const Build = z.object({ build: z.number(), at: z.number(), commit: z.string().optional(), note: z.string().optional(), files: z.array(z.string()) });
+/** digest — отпечаток кода, из которого сборка собрана: по нему сверяют «в дереве то же, что загружено». */
+export const Build = z.object({ build: z.number(), at: z.number(), commit: z.string().optional(), note: z.string().optional(), digest: z.string().optional(), files: z.array(z.string()) });
 export const buildsList = request("builds.list", {
   owner: "builds", target: "service", tool: "Сборки флота: какая стоит (stable) и какие машины закреплены на другой.",
   input: Empty,
@@ -13,7 +14,7 @@ export const buildsList = request("builds.list", {
 /** Ссылки для загрузки файлов сборки (CI). */
 export const buildsUpload = request("builds.upload", {
   owner: "builds", target: "service", admin: true,
-  input: z.object({ build: z.number(), commit: z.string().optional(), note: z.string().optional(), files: z.array(z.object({ name: z.string(), sha256: z.string(), size: z.number() })) }),
+  input: z.object({ build: z.number(), commit: z.string().optional(), note: z.string().optional(), digest: z.string().optional(), files: z.array(z.object({ name: z.string(), sha256: z.string(), size: z.number() })) }),
   output: z.object({ links: z.record(z.string(), z.string()) }),
 });
 export const buildsDeploy = request("builds.deploy", {
@@ -27,6 +28,13 @@ export const buildsPlan = request("builds.plan", {
   owner: "builds", target: "service", machineOnly: true,
   input: z.object({ os: z.enum(["windows", "linux", "darwin"]), arch: z.string().optional() }),
   output: z.object({ build: z.number(), host: PlanFile, keeper: PlanFile }).nullable(),
+});
+
+/** Файл Keeper стоящей сборки для человека, который ставит машину: ссылка на час и команда установки. */
+export const buildsKeeper = request("builds.keeper", {
+  owner: "builds", target: "service",
+  input: z.object({ os: z.enum(["windows", "linux", "darwin"]), arch: z.string().optional() }),
+  output: z.object({ build: z.number(), file: z.string(), url: z.string(), sha256: z.string(), command: z.string() }),
 });
 
 /* ===== Журнал флота (ledger) ===== */
@@ -63,6 +71,8 @@ export const ArchPoint = z.object({
   point: z.string(), at: z.number(), label: z.string().optional(), turns: z.number().optional(), bytes: z.number().optional(), git: z.string().optional(),
   /** до какого времени точка хранится; нет — без срока (последняя точка сессии) */
   until: z.number().optional(),
+  /** от какой точки продолжена: `точка` той же сессии или `сессия/точка` — у поднятой копии. Нет — первая точка новой сессии */
+  base: z.string().optional(),
 });
 export type ArchPoint = z.infer<typeof ArchPoint>;
 
@@ -70,7 +80,7 @@ export type ArchPoint = z.infer<typeof ArchPoint>;
 export const pointsPut = request("points.put", {
   owner: "archive", target: "service", machineOnly: true,
   input: z.object({
-    sid: z.string(), callsign: Callsign, point: z.string(), spec: Spec.optional(), label: z.string().optional(), title: z.string().optional(), model: z.string().optional(),
+    sid: z.string(), callsign: Callsign, point: z.string(), base: z.string().optional(), spec: Spec.optional(), label: z.string().optional(), title: z.string().optional(), model: z.string().optional(),
     cwd: z.string().optional(), project: z.string().optional(), git: z.string().optional(), turns: z.number().optional(), tokens: z.number().optional(),
     files: z.array(z.object({ path: z.string(), blocks: z.array(z.string()), size: z.number() })),
     /** текст новых сообщений для поиска: uuid, роль, текст */
@@ -88,7 +98,8 @@ export const pointsList = request("points.list", {
 });
 export const pointsGet = request("points.get", {
   owner: "archive", target: "service",
-  input: z.object({ sid: z.string(), point: z.string().optional() }),
+  /** expect — последняя точка, которую видел человек: в архиве уже другая — отказ changed. move и by — перенос от имени человека by: не владелец машины сессии и не админ — not_owner. */
+  input: z.object({ sid: z.string(), point: z.string().optional(), expect: z.string().optional(), move: z.boolean().optional(), by: z.string().optional() }),
   output: z.object({ session: ArchSession, point: ArchPoint, files: z.array(z.object({ path: z.string(), size: z.number(), blocks: z.array(z.object({ hash: z.string(), url: z.string() })) })) }),
 });
 export const pointsHistory = request("points.history", {
@@ -103,6 +114,12 @@ export const pointsCalls = request("points.calls", {
   owner: "archive", target: "service", tool: "Вызовы модели в разговоре сессии архива на точке (по умолчанию последней): модель, токены, стоимость.",
   input: z.object({ sid: z.string(), point: z.string().optional() }),
   output: z.object({ point: z.string(), calls: z.array(ModelCall) }),
+});
+/** Текст одного вызова модели: системный промпт и сообщения разговора до ответа — страницами с конца. Для проверки правил прокси на настоящем вызове. */
+export const pointsCall = request("points.call", {
+  owner: "archive", target: "service",
+  input: z.object({ sid: z.string(), point: z.string().optional(), call: z.string(), before: z.number().optional(), limit: z.number().optional() }),
+  output: z.object({ point: z.string(), call: z.string(), model: z.string(), system: z.string(), messages: z.array(z.object({ n: z.number(), role: z.string(), text: z.string() })), more: z.boolean() }),
 });
 /** Удаляет владелец машины и админ, иначе not_owner. expect — последняя точка, которую видел удаляющий: в архиве уже другая — отказ changed. */
 export const pointsDelete = request("points.delete", {
@@ -148,7 +165,7 @@ export const prefsGet = request("prefs.get", {
 });
 /** Запись одной настройки; patch — заплатка поверх прежнего значения-объекта (ключ со значением null убирается). */
 export const prefsSet = request("prefs.set", {
-  owner: "prefs", target: "service", tool: "Записать настройку: name — ключ, value — значение целиком или patch — заплатка объекта.",
+  owner: "prefs", target: "service", tool: "Записать настройку: name — ключ, value — значение целиком или patch — заплатка объекта. Имена сессий и машин для людей — scope fleet, name labels, patch { \"site@laptop\": \"Сайт\", \"@laptop\": \"Ноутбук\" } (null убирает имя).",
   input: z.object({ scope: Scope, name: z.string(), value: z.unknown().optional(), patch: z.record(z.string(), z.unknown()).optional() }), output: Done,
 });
 

@@ -196,6 +196,11 @@ func (k *Keeper) frame(ctx context.Context, c *websocket.Conn, b []byte) {
 		if f.ID != "" {
 			reply(map[string]any{"ok": true, "result": k.State()})
 		}
+	case "host.restart":
+		k.askRestart()
+		if f.ID != "" {
+			reply(map[string]any{"ok": true, "result": map[string]any{}})
+		}
 	case "reply", "":
 	default:
 		if f.ID != "" {

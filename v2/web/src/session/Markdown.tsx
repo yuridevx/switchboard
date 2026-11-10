@@ -1,23 +1,23 @@
 // Markdown ответа модели: отдельный кусок сборки, грузится при первом тексте.
-// Блок кода — с копированием; HTML — с просмотром в песочнице; ссылки открываются в новой вкладке.
+// Блок кода — с копированием; HTML — с просмотром в песочнице, SVG — картинкой; ссылки открываются в новой вкладке.
 import { CopyButton } from "@mantine/core";
 import { isValidElement, useState, type ReactNode } from "react";
-import { HtmlFrame, looksHtml, textOf } from "./html.tsx";
+import { HtmlFrame, previewKind, SvgView, textOf } from "./html.tsx";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
 function Code({ lang, code, children }: { lang: string; code: string; children: ReactNode }) {
-  const html = looksHtml(lang, code);
+  const kind = previewKind(lang, code);
   const [view, setView] = useState(false);
   return (
     <div className="codeblock">
       <div className="codebar">
         <span className="muted mono">{lang}</span>
-        {html && <button type="button" className="linkbtn" aria-pressed={view} onClick={() => setView((v) => !v)}>{view ? "Код" : "Просмотр"}</button>}
+        {kind && <button type="button" className="linkbtn" aria-pressed={view} onClick={() => setView((v) => !v)}>{view ? "Код" : "Просмотр"}</button>}
         <CopyButton value={code}>{({ copied, copy }) => <button type="button" className="linkbtn" onClick={copy}>{copied ? "Скопировано" : "Копировать"}</button>}</CopyButton>
       </div>
-      {view ? <HtmlFrame html={code} /> : <pre>{children}</pre>}
+      {view && kind === "svg" ? <SvgView code={code} /> : view ? <HtmlFrame html={code} /> : <pre>{children}</pre>}
     </div>
   );
 }

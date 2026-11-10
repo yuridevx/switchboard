@@ -39,7 +39,11 @@ export const useFleet = create<Store>((set) => ({
 export const machineOfCall = (c: string) => c.slice(c.indexOf("@") + 1);
 export const nameOfCall = (c: string) => c.slice(0, c.indexOf("@"));
 
-export type InboxItem = { kind: "ask" | "done" | "failed" | "machine"; key: string; callsign?: string; machine?: string; at: number };
+export type InboxItem = {
+  kind: "ask" | "done" | "failed" | "machine" | "wait"; key: string; callsign?: string; machine?: string; at: number;
+  /** чей разговор открыть: у ведомого пары — разговор ведущего, ведомый виден рядом */
+  open?: string;
+};
 
 /** «Вам»: что ждёт этого человека. Порядок: вопросы, законченное, сбои; внутри — свежее выше. */
 export function inboxOf(p: Picture): { asks: InboxItem[]; done: InboxItem[]; fails: InboxItem[] } {
@@ -47,11 +51,15 @@ export function inboxOf(p: Picture): { asks: InboxItem[]; done: InboxItem[]; fai
   const rows = Object.values(p.sessions);
   const online = (c: string) => p.machines[machineOfCall(c)]?.online !== false;
   const by = (a: InboxItem, b: InboxItem) => b.at - a.at;
+  // ведомый открывается через своего ведущего
+  const via = (s: SessionRow) => (s.lead && p.sessions[s.lead] ? { open: s.lead } : {});
   return {
-    asks: rows.filter((s) => s.ask && online(s.callsign)).map((s) => ({ kind: "ask" as const, key: "a:" + s.callsign, callsign: s.callsign, at: s.ask!.at })).sort(by),
-    done: rows.filter((s) => !s.ask && s.state !== "failed" && s.unread?.includes(me)).map((s) => ({ kind: "done" as const, key: "d:" + s.callsign, callsign: s.callsign, at: s.last ?? s.since })).sort(by),
+    asks: rows.filter((s) => s.ask && online(s.callsign)).map((s) => ({ kind: "ask" as const, key: "a:" + s.callsign, callsign: s.callsign, at: s.ask!.at, ...via(s) })).sort(by),
+    done: rows.filter((s) => !s.ask && s.state !== "failed" && s.unread?.includes(me)).map((s) => ({ kind: "done" as const, key: "d:" + s.callsign, callsign: s.callsign, at: s.last ?? s.since, ...via(s) })).sort(by),
     fails: [
-      ...rows.filter((s) => s.state === "failed").map((s) => ({ kind: "failed" as const, key: "f:" + s.callsign, callsign: s.callsign, at: s.last ?? s.since })),
+      ...rows.filter((s) => s.state === "failed").map((s) => ({ kind: "failed" as const, key: "f:" + s.callsign, callsign: s.callsign, at: s.last ?? s.since, ...via(s) })),
+      // очередь аккаунтов исчерпала лимит: сессия стоит до сброса
+      ...rows.filter((s) => s.wait && s.state !== "failed" && online(s.callsign) && isMine(p, s)).map((s) => ({ kind: "wait" as const, key: "w:" + s.callsign, callsign: s.callsign, at: s.last ?? s.since, ...via(s) })),
       ...Object.values(p.machines).filter((m) => !m.online).map((m) => ({ kind: "machine" as const, key: "m:" + m.name, machine: m.name, at: m.since })),
     ].sort(by),
   };

@@ -87,6 +87,7 @@ type Keeper struct {
 	next    *plan // ждёт
 	host    host
 	stopped bool
+	restart bool // запрошен перезапуск Host той же сборки
 }
 
 func newKeeper(home string, o Options) (*Keeper, error) {
@@ -201,6 +202,7 @@ func (k *Keeper) actor() {
 			}
 			continue
 		}
+		k.restartAsked()
 		k.restartExited()
 		select {
 		case <-k.ctx.Done():
@@ -397,6 +399,43 @@ func (k *Keeper) restartExited() {
 	}
 }
 
+// askRestart — запрос host.restart: исполняет актор, чтобы не пересечься с планом.
+func (k *Keeper) askRestart() {
+	k.locked(func() { k.restart = true })
+	k.poke()
+}
+
+// restartAsked — перезапуск Host по запросу: остановить и запустить ту же сборку; упавший Host поднимается так же. Сессии живут в своих держателях.
+func (k *Keeper) restartAsked() {
+	k.mu.Lock()
+	asked, x := k.restart, k.host
+	k.restart = false
+	k.mu.Unlock()
+	if !asked || k.ctx.Err() != nil {
+		return
+	}
+	build := x.build
+	if build == 0 {
+		build = x.want
+	}
+	dir, err := k.installed(build)
+	if err != nil {
+		k.failHost(build, "перезапуск: "+err.Error())
+		return
+	}
+	if k.stopHost() != nil {
+		return
+	}
+	if err := k.startHost(build, dir, false); err != nil {
+		if k.ctx.Err() == nil {
+			k.failHost(build, "перезапуск: "+err.Error())
+		}
+		return
+	}
+	k.note("host_restart", "build", build)
+	k.ledger("host.restarted", fmt.Sprintf("Host %d перезапущен по запросу", build), map[string]any{"build": build})
+}
+
 // adopt — держатель Host на старте: подключиться; держатели сессий (owner host) Keeper не трогает.
 func (k *Keeper) adopt() {
 	file := filepath.Join(k.home, "procs", "host.json")
@@ -434,8 +473,12 @@ func (k *Keeper) State() map[string]any {
 		state = x.state
 	}
 	hs := map[string]any{"build": x.build, "state": state, "since": x.since.UnixMilli()}
+	if x.pid != 0 {
+		hs["pid"] = x.pid
+	}
 	if x.why != "" {
 		hs["why"] = x.why
 	}
-	return map[string]any{"build": buildNumber(), "host": hs, "os": osName()}
+	// plan — сборка последнего исполненного плана: расходится с host.build, пока новая сборка ставится или не встала
+	return map[string]any{"build": buildNumber(), "host": hs, "os": osName(), "plan": x.want, "pid": os.Getpid()}
 }

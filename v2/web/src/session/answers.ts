@@ -52,3 +52,36 @@ export const formReady = (fields: Field[], values: Record<string, unknown>): boo
 export function formAnswer(fields: Field[], values: Record<string, unknown>): { action: "accept"; content: Record<string, unknown> } {
   return { action: "accept", content: Object.fromEntries(fields.filter((f) => f.type === "boolean" || (values[f.key] !== "" && values[f.key] != null)).map((f) => [f.key, values[f.key]])) };
 }
+
+/** Как назвать того, кто видит вопрос или ответил: своё устройство — «вы», чужое — его имя, сессия — позывной. */
+const whoWord = (addr: string, me?: string): string => {
+  const tilde = addr.indexOf("~");
+  if (tilde < 0) return addr;
+  const device = addr.slice(0, tilde), person = addr.slice(tilde);
+  if (me && person === me) return device ? `вы (${device})` : "вы";
+  return device ? `${device} ${person.slice(1).split("@")[0]}` : person.slice(1).split("@")[0]!;
+};
+
+/** «Вопрос видят: …» — адресат вопроса и те, кто смотрел сессию, когда он задан; никого — пусто. */
+export function seenWord(ask: Pick<Ask, "to" | "seen">, me?: string): string {
+  const all = [...new Set([...(ask.to ? [ask.to] : []), ...(ask.seen ?? [])])];
+  // «вы» — первым и один раз, даже если устройств несколько
+  const mine = all.filter((a) => me && a.endsWith(me));
+  const others = all.filter((a) => !mine.includes(a)).map((a) => whoWord(a, me));
+  const names = [...(mine.length ? [mine.length > 1 ? `вы (${mine.map((a) => a.slice(0, a.indexOf("~"))).filter(Boolean).join(", ")})` : whoWord(mine[0]!, me)] : []), ...others];
+  return names.length ? `Вопрос видят: ${names.join(", ")}` : "";
+}
+
+/** Итог вопроса словами: кто ответил и чем. Событие ленты ask.answered. */
+export function askOutcome(e: { kind?: string; by?: string; answer?: unknown; via?: string }, me?: string): { text: string; dim: string } {
+  const a = e.answer as { answers?: Record<string, string>; action?: string; message?: string } | string | undefined;
+  if (a === "cancelled") return { text: "вопрос снят", dim: "" };
+  const words = ACTION_WORD[e.kind === "plan" ? "plan" : "permission"];
+  const said = typeof a === "string" ? a
+    : a?.answers ? Object.values(a.answers).filter(Boolean).join("; ")
+    : a?.action === "allow" || a?.action === "allow_always" || a?.action === "deny" ? (e.kind === "permission" || e.kind === "plan" ? words[a.action].toLowerCase() : a.action) + (a.message ? `: ${a.message}` : "")
+    : a?.action === "accept" ? (e.kind === "form" ? "форма заполнена" : "готово")
+    : a?.action === "decline" ? "отказ" : a?.action === "cancel" ? "закрыто" : "";
+  const who = e.by ? whoWord(e.by, me) : "";
+  return { text: `отвечено${said ? `: ${said}` : ""}`, dim: [who, e.via === "push" ? "из уведомления" : ""].filter(Boolean).map((x) => ` · ${x}`).join("") };
+}

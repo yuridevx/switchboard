@@ -9,7 +9,7 @@ import { MODES, useCall } from "../common.tsx";
 import { draft, type FileOut, type Priority, type Talk } from "./talk.ts";
 
 type Pick = { label: string; about?: string; insert: string };
-export type ComposerHandle = { setText(text: string): void; addFiles(files: File[]): void; focus(): void };
+export type ComposerHandle = { setText(text: string): void; /** вернуть текст в поле, не затирая набранное */ giveBack(text: string): void; addFiles(files: File[]): void; focus(): void };
 
 const PRIORITY: Array<[Priority, string, string]> = [["next", "следующим", "после нынешнего шага"], ["now", "сейчас", "прервёт ход"], ["later", "потом", "после конца хода"]];
 /** Команды самой страницы рядом с командами Claude. */
@@ -32,6 +32,27 @@ export function commandPicks(list: unknown, typed: string): Pick[] {
 /** Вопрос сбоку: «/btw текст» — текст вопроса; иначе null. */
 export const sideQuestion = (text: string): string | null => /^\/btw\s+(\S[\s\S]*)$/.exec(text.trim())?.[1] ?? null;
 
+/** Вложение до отправки: картинка — превью, остальное — имя; крестик убирает. */
+function Attached({ file, onDrop }: { file: File; onDrop(): void }) {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    if (!file.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    setSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  return (
+    <span className="att">
+      {src && <img src={src} alt={file.name} />}
+      <span className="trunc">{file.name}</span>
+      <button type="button" className="x" aria-label={`Убрать ${file.name}`} onClick={onDrop}><IconX size={13} /></button>
+    </span>
+  );
+}
+
+/** Текст, вернувшийся в поле ввода (отменённое сообщение из очереди): к набранному добавляется с новой строки. */
+export const returned = (typed: string, text: string): string => (typed.trim() ? `${typed.replace(/\s+$/, "")}\n${text}` : text);
+
 export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; hint?: string; autoFocus?: boolean }>(function Composer({ s, talk, hint, autoFocus }, handle) {
   const [text, setTextRaw] = useState(() => draft.get(s.callsign));
   const [files, setFiles] = useState<File[]>([]);
@@ -47,6 +68,7 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
 
   useImperativeHandle(handle, () => ({
     setText: (t) => (setText(t), ref.current?.focus()),
+    giveBack: (t) => (setText(returned(draft.get(s.callsign), t)), ref.current?.focus()),
     addFiles: (list) => setFiles((x) => [...x, ...list]),
     focus: () => ref.current?.focus(),
   }));
@@ -93,9 +115,9 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
       )}
       {hint && !text && !dead && <button type="button" className="hint trunc" title="Tab — взять подсказку" onClick={() => (setText(hint), ref.current?.focus())}>{hint}</button>}
       {files.length > 0 && (
-        <Group gap={6} mb={6} mt={hint && !text ? 6 : 0}>
-          {files.map((f, i) => <Badge key={i} variant="default" rightSection={<IconX size={12} style={{ cursor: "pointer" }} aria-label={`Убрать ${f.name}`} onClick={() => setFiles((l) => l.filter((_, j) => j !== i))} />}>{f.name}</Badge>)}
-        </Group>
+        <div className="attach" style={hint && !text ? { marginTop: 6 } : undefined}>
+          {files.map((f, i) => <Attached key={i} file={f} onDrop={() => setFiles((l) => l.filter((_, j) => j !== i))} />)}
+        </div>
       )}
       <Group gap={8} align="end" wrap="nowrap" mt={hint && !text && !files.length ? 6 : 0}>
         <FileButton multiple onChange={(l) => setFiles((x) => [...x, ...l])}>
@@ -123,6 +145,7 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
       </Group>
       {!dead && (
         <div className="composer-opts wide-only">
+          <button type="button" className="linkbtn" aria-label="Команды сессии" title="Команды сессии" onClick={() => (setText("/"), ref.current?.focus())}>/ команды</button>
           <Menu position="top-start" withinPortal>
             <Menu.Target><button type="button" className="linkbtn" aria-label="Режим разрешений">режим: {MODES.find(([m]) => m === (s.spec.mode ?? "all"))?.[1] ?? s.spec.mode}</button></Menu.Target>
             <Menu.Dropdown>{MODES.map(([m, w]) => <Menu.Item key={m} fw={m === (s.spec.mode ?? "all") ? 700 : undefined} onClick={() => act(sessionUpdate, { to: s.callsign, patch: { mode: m as never } })}>{w}</Menu.Item>)}</Menu.Dropdown>

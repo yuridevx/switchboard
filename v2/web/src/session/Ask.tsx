@@ -5,7 +5,8 @@ import { Button, Checkbox, Group, NumberInput, Select, Switch, Text, TextInput }
 import { useState } from "react";
 import { act } from "../api.ts";
 import { later, usePending } from "../common.tsx";
-import { ACTION_WORD, type Action, actionAnswer, answeredAll, formAnswer, formFields, formReady, questionAnswer, questionSaid, questionsOf } from "./answers.ts";
+import { useFleet } from "../store/fleet.ts";
+import { ACTION_WORD, type Action, actionAnswer, answeredAll, formAnswer, formFields, formReady, questionAnswer, questionSaid, questionsOf, seenWord } from "./answers.ts";
 import { Md } from "./Feed.tsx";
 
 const KIND: Record<Ask["kind"], string> = { question: "Вопрос", permission: "Разрешение", plan: "План", form: "Форма", url: "Ссылка" };
@@ -111,6 +112,8 @@ export function AskCard({ callsign, ask, inline, quiet, sessionTitle, onOpen }: 
   const [whole, setWhole] = useState(false);
   const key = "ask:" + ask.id;
   const sent = usePending((p) => p.items[key]);
+  const me = useFleet((f) => f.you?.person);
+  const seen = inline ? "" : seenWord(ask, me);
   const send: Send = (value, said) => later({ key, label: `${callsign}: отвечено «${said}»`, run: () => act(answer, { to: callsign, ask: ask.id, answer: value }) });
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   const qs = ask.kind === "question" ? questionsOf(ask) : [];
@@ -142,6 +145,7 @@ export function AskCard({ callsign, ask, inline, quiet, sessionTitle, onOpen }: 
             <Button size="xs" variant="subtle" onClick={() => send({ action: "cancel" }, "закрыто")}>Закрыть</Button>
           </Group>
         )}
+      {seen && <div className="ask-seen">{seen}</div>}
     </div>
   );
 }

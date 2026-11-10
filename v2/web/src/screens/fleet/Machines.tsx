@@ -1,28 +1,39 @@
 // «Флот → Машины»: карточки машин и приглашение новой машины с командой установки.
-import { invite, keeperState, type MachineRow } from "@sb/protocol";
+import { invite, keeperState, type MachineRow, type SessionRow } from "@sb/protocol";
 import { Badge, Button, CopyButton, Group, Modal, SegmentedControl, Stack, Text, TextInput } from "@mantine/core";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { act, fleetBase } from "../../api.ts";
 import { personWord, useCall, useMachineName, useUi } from "../../common.tsx";
-import { ago } from "../../lib/time.ts";
+import { buildsLink } from "../../lib/pending.ts";
+import { ago, nSessions } from "../../lib/time.ts";
 import { machineOfCall, useFleet } from "../../store/fleet.ts";
 
 export const HOST_WORD: Record<string, string> = { running: "работает", stopped: "остановлен", failed: "сбой", updating: "обновляется" };
 
-/** Команда установки Keeper: приглашение уходит в stdin, не в аргументы. */
-export function installCommand(os: "windows" | "linux", base: string, inviteText: string): string {
+/** Команда установки Keeper: приглашение уходит в stdin, не в аргументы. link — ссылка на файл Keeper сборки флота: тогда команда сама его скачивает. */
+export function installCommand(os: "windows" | "linux", base: string, inviteText: string, link?: { url: string; file: string }): string {
+  const file = link?.file ?? (os === "windows" ? "keeper-windows-amd64.exe" : "keeper-linux-amd64");
+  const get = link ? (os === "windows" ? `curl.exe -L -o ${file} "${link.url}"\n` : `curl -L -o ${file} '${link.url}'\n`) : "";
   return os === "windows"
-    ? `"${inviteText}" | .\\keeper-windows-amd64.exe install --base ${base} --logon`
-    : `chmod +x keeper-linux-amd64 && echo '${inviteText}' | ./keeper-linux-amd64 install --base ${base}`;
+    ? `${get}"${inviteText}" | .\\${file} install --base ${base} --logon`
+    : `${get}chmod +x ${file} && echo '${inviteText}' | ./${file} install --base ${base}`;
 }
+
+/** «Пожар»: сколько сессий машины без связи можно поднять на другой — тех, что сохраняли точки в архив. */
+export function fireCount(m: Pick<MachineRow, "name" | "online">, sessions: SessionRow[]): number {
+  return m.online ? 0 : sessions.filter((s) => machineOfCall(s.callsign) === m.name && s.spec.backup).length;
+}
+
 
 function AddMachine({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [made, setMade] = useState("");
   const [os, setOs] = useState<"windows" | "linux">("windows");
   const base = fleetBase || "https://fleet.example.com";
-  const cmd = installCommand(os, base, made);
+  // ссылка на файл Keeper сборки флота: есть — команда скачивает его сама, нет — файл кладут руками
+  const link = useCall(buildsLink, made ? { os } : null);
+  const cmd = installCommand(os, base, made, link.data);
   return (
     <Stack gap="sm">
       {!made ? (
@@ -33,7 +44,7 @@ function AddMachine({ onClose }: { onClose: () => void }) {
       ) : (
         <>
           <SegmentedControl value={os} onChange={(v) => setOs(v as "windows" | "linux")} data={[{ value: "windows", label: "Windows" }, { value: "linux", label: "Linux" }]} aria-label="Система машины" />
-          <Text size="sm">Положите файл Keeper из сборки флота на машину <span className="mono">{name}</span> и выполните рядом с ним. Приглашение действует сутки.</Text>
+          <Text size="sm">{link.data ? <>Выполните на машине <span className="mono">{name}</span>: команда скачает Keeper сборки {link.data.build} и поставит его.</> : <>Положите файл Keeper из сборки флота на машину <span className="mono">{name}</span> и выполните рядом с ним.</>} Приглашение действует сутки.</Text>
           <pre className="codebox">{cmd}</pre>
           <Group>
             <CopyButton value={cmd}>{({ copied, copy }) => <Button size="xs" variant="default" onClick={copy}>{copied ? "Скопировано" : "Скопировать команду"}</Button>}</CopyButton>
@@ -53,6 +64,7 @@ function MachineCard({ m }: { m: MachineRow }) {
   const keeper = useCall(keeperState, m.online ? { to: ".keeper@" + m.name } : null);
   const here = Object.values(sessions).filter((s) => machineOfCall(s.callsign) === m.name);
   const k = keeper.data;
+  const fire = fireCount(m, here);
   return (
     <div className={`card${m.online ? "" : " off"}`}>
       <Group justify="space-between" wrap="nowrap">
@@ -69,6 +81,7 @@ function MachineCard({ m }: { m: MachineRow }) {
         <dt>Keeper</dt><dd>{!m.online ? (m.keeper === false ? "не на связи" : "—") : k ? `сборка ${k.build}` : keeper.error ? "не отвечает" : "…"}</dd>
         <dt>Система</dt><dd>{m.os ?? "—"}</dd>
       </dl>
+      {fire > 0 && <Badge color="red" variant="light" w="fit-content">пожар: {nSessions(fire)} ждут на точках архива</Badge>}
       <Group gap={4}>{here.map((s) => <Badge key={s.callsign} variant="default" className="mono" component="button" type="button" style={{ cursor: "pointer" }} onClick={() => go(`/work/${s.callsign}`)}>{s.spec.name}</Badge>)}</Group>
       <Group gap={6} mt="auto">
         <Button size="compact-xs" variant="default" disabled={!m.online} onClick={() => ui.set({ newOpen: true, newPreset: { machine: m.name } })}>Новая сессия</Button>
