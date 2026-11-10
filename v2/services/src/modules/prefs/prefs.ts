@@ -1,7 +1,7 @@
 // Настройки: свои (область me) и общие записи флота (область fleet). Запись в общие — машины получают кадр «изменилось».
 import { Refusal } from "@sb/protocol";
-import type { Ctx, Env, Module } from "../env.ts";
-import { records } from "../records.ts";
+import type { Ctx, Env, Module } from "../../env.ts";
+import { records } from "../../records.ts";
 
 const NAME = "prefs";
 const SCHEMA = ["CREATE TABLE IF NOT EXISTS prefs (scope TEXT, name TEXT, value TEXT, PRIMARY KEY (scope, name))"];

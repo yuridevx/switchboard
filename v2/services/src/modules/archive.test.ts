@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { type ArchSession, type LedgerEvent, type SdkEvent, sha256hex } from "@sb/protocol";
 import type { PointNote } from "../env.ts";
-import { consume } from "./analytics.ts";
-import { blockKey } from "./archive.ts";
+import { consume } from "./analytics/analytics.ts";
+import { blockKey } from "./archive/archive.ts";
 import { gzip } from "../r2.ts";
 import { type Stand, stand } from "../../test/stand.ts";
 

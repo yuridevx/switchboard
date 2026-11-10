@@ -1,10 +1,10 @@
 // Архив сессий: точки. Блоки файлов — в R2 под именем хэша содержимого, у каждой машины свои; реестр и текст сообщений с поиском по словам —
 // в записях на машину. Поиск опрашивает только машины, до которых человек достаёт.
 import { type ArchPoint, type ArchSession, canReach, errFields, machineOf, type ModelCall, type Prices, Refusal, type SdkEvent, personOf } from "@sb/protocol";
-import type { Ctx, Env, Module } from "../env.ts";
-import { link, readBlocks } from "../r2.ts";
-import { type Op, records } from "../records.ts";
-import { fleetPref } from "./prefs.ts";
+import type { Ctx, Env, Module } from "../../env.ts";
+import { link, readBlocks } from "../../r2.ts";
+import { type Op, records } from "../../records.ts";
+import { fleetPref } from "../prefs/contract.ts";
 
 const NAME = "archive";
 const SCHEMA = [

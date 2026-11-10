@@ -1,9 +1,9 @@
 // Выпуски: сборки по номеру в R2 и строка флота — какая сборка стоит и какие машины закреплены на другой. Сам ничего не собирает: собирает CI.
 import { Refusal } from "@sb/protocol";
-import type { Ctx, Env, Module } from "../env.ts";
-import { link } from "../r2.ts";
-import { records } from "../records.ts";
-import { record } from "./ledger.ts";
+import type { Ctx, Env, Module } from "../../env.ts";
+import { link } from "../../r2.ts";
+import { records } from "../../records.ts";
+import { record } from "../ledger/contract.ts";
 
 const NAME = "builds";
 const SCHEMA = [

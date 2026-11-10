@@ -1,12 +1,12 @@
 // Аналитика — ClickHouse в стороне: вызовы модели и расход. Главной копии в нём нет: строки получены из блоков архива и доливаются заново.
 // Его отказ ломает только отчёты: точки, подъём и поиск от него не зависят.
 import { canReach, errFields, Refusal } from "@sb/protocol";
-import { outbound } from "../env.ts";
-import type { Ctx, Deps, Env, Module, PointNote } from "../env.ts";
-import { log } from "../entrance.ts";
-import { callsOf, conversation, costOf, pointsSince, prices } from "./archive.ts";
-import { record } from "./ledger.ts";
-import { partFailed } from "./obs.ts";
+import { outbound } from "../../env.ts";
+import type { Ctx, Deps, Env, Module, PointNote } from "../../env.ts";
+import { log } from "../../entrance.ts";
+import { callsOf, conversation, costOf, pointsSince, prices } from "../archive/contract.ts";
+import { record } from "../ledger/contract.ts";
+import { partFailed } from "../obs/contract.ts";
 
 const NAME = "analytics";
 const TABLE = "sb2_calls";

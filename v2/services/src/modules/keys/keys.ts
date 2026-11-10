@@ -1,7 +1,7 @@
 // Ключи флота: ключи API для сессий без входа Claude. Значение получает только машина.
 import { Refusal } from "@sb/protocol";
-import type { Ctx, Env, Module } from "../env.ts";
-import { records } from "../records.ts";
+import type { Ctx, Env, Module } from "../../env.ts";
+import { records } from "../../records.ts";
 
 const NAME = "keys";
 const SCHEMA = [

@@ -1,10 +1,10 @@
 // Наблюдение: одна строка на каждый запрос флота с исходом и временем по частям; ошибки страницы и Host; сводка здоровья;
 // оповещение админам о сбоях частей и о высокой доле отказов. Хранится 7 дней.
 import { errFields, type HostMetrics, type LedgerEvent, type Logger, machineOf, newId, type ObsRow, Refusal, type Who } from "@sb/protocol";
-import type { Env, Module, Platform } from "../env.ts";
-import { records } from "../records.ts";
-import { fleetPref } from "./prefs.ts";
-import { sendTo } from "./reach.ts";
+import type { Env, Module, Platform } from "../../env.ts";
+import { records } from "../../records.ts";
+import { fleetPref } from "../prefs/contract.ts";
+import { sendTo } from "../reach/contract.ts";
 
 const NAME = "obs";
 const KEEP_MS = 7 * 24 * 3600 * 1000;

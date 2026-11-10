@@ -3,10 +3,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type ArchPoint, type ArchSession, type KeyRow, type LedgerEvent, type ModelCall, type ObsRow, type SdkEvent, type SessionRow, sha256hex } from "@sb/protocol";
 import type { Env, PointNote } from "../env.ts";
-import { consume } from "./analytics.ts";
-import { blockKey, costOf, expiries } from "./archive.ts";
+import { consume } from "./analytics/analytics.ts";
+import { blockKey, costOf, expiries } from "./archive/archive.ts";
 import { gzip } from "../r2.ts";
-import { b64u } from "./webpush.ts";
+import { b64u } from "./reach/webpush.ts";
 import { type Stand, stand } from "../../test/stand.ts";
 
 const DAY = 86_400_000;

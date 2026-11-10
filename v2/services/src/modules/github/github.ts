@@ -1,8 +1,8 @@
 // GitHub: приложение флота и токен на один репозиторий на час — для кусочков профилей. Ключ приложения — только в записях модуля; токенов модуль не хранит.
 import { createSign } from "node:crypto";
 import { CALL_MS, Refusal } from "@sb/protocol";
-import type { Ctx, Env, Module } from "../env.ts";
-import { records } from "../records.ts";
+import type { Ctx, Env, Module } from "../../env.ts";
+import { records } from "../../records.ts";
 
 const NAME = "github";
 const SCHEMA = ["CREATE TABLE IF NOT EXISTS app (one INTEGER PRIMARY KEY CHECK (one = 1), id INTEGER, slug TEXT, owner TEXT, pem TEXT, at INTEGER, by TEXT)"];

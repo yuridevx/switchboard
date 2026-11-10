@@ -2,9 +2,9 @@
 // числа Host (ряд и сводка здоровья), оповещения о машине без связи и о сессии со сбоем.
 import { describe, expect, it } from "vitest";
 import { type ArchSession, type HostMetrics, type SessionRow, sha256hex } from "@sb/protocol";
-import { around, blockKey } from "./archive.ts";
+import { around, blockKey } from "./archive/archive.ts";
 import { gzip } from "../r2.ts";
-import { b64u } from "./webpush.ts";
+import { b64u } from "./reach/webpush.ts";
 import { type Stand, stand } from "../../test/stand.ts";
 
 /** Сохранить точку сессии от имени машины: один файл разговора одним блоком и текст для поиска. */
@@ -151,7 +151,7 @@ describe("наблюдение: оповещения о машине и сесс
     await s.ask("ledger.read", {}); // сверка картины — не чаще раза в минуту: первая уже была
     expect(pushes(s)).toBe(0);
     await s.ask("prefs.set", { scope: "fleet", name: "obs.alerts", value: { offline: 5 } });
-    const { watchFleet } = await import("./obs.ts");
+    const { watchFleet } = await import("./obs/obs.ts");
     const watch = { platform: s.platform, fetch: s.deps.fetch!, log: { info() {}, warn() {}, error() {}, with() { return this; } } as never };
     expect(await watchFleet(s.env, s.fleet, watch)).toBe(1);
     expect(pushes(s)).toBe(1);
@@ -170,7 +170,7 @@ describe("наблюдение: оповещения о машине и сесс
   it("сессия со сбоем — одно оповещение за этот сбой; сессия машины без связи и выключатель — молчат", async () => {
     const s = stand(undefined, { env: { VAPID_PRIVATE: await vapid() } });
     await subscribe(s, "kyura1");
-    const { watchFleet } = await import("./obs.ts");
+    const { watchFleet } = await import("./obs/obs.ts");
     const watch = { platform: s.platform, fetch: s.deps.fetch!, log: { info() {}, warn() {}, error() {}, with() { return this; } } as never };
     s.state.sessions = [failed("a@laptop"), failed("c@oleg-mac")];
     expect(await watchFleet(s.env, s.fleet, watch)).toBe(1);

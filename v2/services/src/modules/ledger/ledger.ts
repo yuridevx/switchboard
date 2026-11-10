@@ -1,8 +1,8 @@
 // Журнал флота: выкладки, входы, сбои частей.
 import { type LedgerEvent, newId, type Who } from "@sb/protocol";
-import type { Ctx, Env, Module } from "../env.ts";
-import { records } from "../records.ts";
-import { PART_FAILS, partFailed } from "./obs.ts";
+import type { Ctx, Env, Module } from "../../env.ts";
+import { records } from "../../records.ts";
+import { PART_FAILS, partFailed } from "../obs/contract.ts";
 
 const NAME = "ledger";
 const SCHEMA = [

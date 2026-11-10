@@ -5,7 +5,7 @@ import {
 } from "@sb/protocol";
 import { outbound } from "./env.ts";
 import type { Ctx, Deps, Env, Module } from "./env.ts";
-import { note } from "./modules/obs.ts";
+import { note } from "./modules/obs/contract.ts";
 
 export const log = logger("services");
 

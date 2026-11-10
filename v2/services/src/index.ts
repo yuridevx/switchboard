@@ -2,17 +2,8 @@
 // вебхук Telegram флота (/telegram/<флот>), файлы страницы; потребитель очереди аналитики.
 import type { Deps, Env, Module, PointNote } from "./env.ts";
 import { callHttp, handlersOf } from "./entrance.ts";
+import { analytics, consume, archive, builds, github, keys, ledger, mcp, obs, prefs, reach, telegram } from "./modules/index.ts";
 import { oauth } from "./oauth.ts";
-import { analytics, consume } from "./modules/analytics.ts";
-import { archive } from "./modules/archive.ts";
-import { builds } from "./modules/builds.ts";
-import { github } from "./modules/github.ts";
-import { keys } from "./modules/keys.ts";
-import { ledger } from "./modules/ledger.ts";
-import { mcp } from "./modules/mcp.ts";
-import { obs } from "./modules/obs.ts";
-import { prefs } from "./modules/prefs.ts";
-import { reach, telegram } from "./modules/reach.ts";
 
 export { Records } from "./records.ts";
 

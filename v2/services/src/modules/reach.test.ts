@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type DeviceRow, sha256hex } from "@sb/protocol";
-import { b64u, encrypt, unb64u } from "./webpush.ts";
+import { b64u, encrypt, unb64u } from "./reach/webpush.ts";
 import { type Stand, stand } from "../../test/stand.ts";
 
 /** Ключ VAPID флота — JWK строкой. */

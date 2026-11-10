@@ -55,7 +55,7 @@ describe("сервер MCP", () => {
 
 describe("сервер MCP: ответ инструмента", () => {
   it("картинка из файлов результата идёт блоком изображения, остальные файлы — в тексте как были", async () => {
-    const { toolContent } = await import("./mcp.ts");
+    const { toolContent } = await import("./mcp/mcp.ts");
     const run = { run: "r1", state: "done", files: [{ name: "plot.PNG", size: 4, base64: "AAAA" }, { name: "log.txt", size: 2, base64: "aGk=" }, { name: "big.png", size: 9_000_000 }] };
     const c = toolContent(run);
     expect(c).toHaveLength(2);

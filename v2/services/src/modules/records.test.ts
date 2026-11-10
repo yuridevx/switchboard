@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LedgerEvent, ObsRow } from "@sb/protocol";
-import { note } from "./obs.ts";
+import { note } from "./obs/obs.ts";
 import { stand } from "../../test/stand.ts";
 
 const values = async (s: ReturnType<typeof stand>, scope: string, as = "kyura1", prefix?: string) => ((await s.ask("prefs.get", { scope, ...(prefix ? { prefix } : {}) }, as)).result as { values: Record<string, unknown> }).values;

@@ -1,7 +1,7 @@
 // Архив, вторая итерация: ветки линии точек, сверка «в архиве уже другая точка», перенос только хозяином, текст вызова модели.
 import { describe, expect, it } from "vitest";
 import { sha256hex } from "@sb/protocol";
-import { blockKey, callText } from "./archive.ts";
+import { blockKey, callText } from "./archive/archive.ts";
 import { gzip } from "../r2.ts";
 import { type Stand, stand } from "../../test/stand.ts";
 
