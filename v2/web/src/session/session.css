@@ -59,7 +59,8 @@
 .rule span { overflow-wrap: anywhere; }
 .tree-mark { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
-.composer-opts { display: flex; gap: 16px; margin: 6px 0 0 44px; font-size: 12.5px; }
+.composer-opts { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; margin: 6px 0 0 44px; font-size: 12.5px; }
+@media (max-width: 860px) { .composer-opts { margin-left: 0; } }
 .composer-opts .linkbtn { color: var(--muted); text-decoration: none; }
 .composer-opts .linkbtn:hover { color: var(--mantine-color-text); text-decoration: underline; }
 
@@ -99,3 +100,17 @@ button.todos.folded:focus-visible { outline: 2px solid var(--st-busy); outline-o
 .namebtn:focus-visible { outline: 2px solid var(--st-busy); outline-offset: 2px; border-radius: 4px; }
 .namebtn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
 .tool > .muted { white-space: nowrap; }
+
+/* карточки ленты: подсказка ввода, ошибка, чип субагента, тон строк и баннеров, входящие */
+.toolhint { font-size: 12.5px; color: var(--muted); }
+.tool-body pre.tool-err { background: var(--st-failed-weak); }
+.toolchip { flex: none; font-size: 11.5px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+.sysline.tone-wait { color: var(--st-waiting); }
+.sysline.tone-swap { color: var(--st-busy); }
+.sysline.tone-bad { color: var(--st-failed); }
+.ban-title { display: flex; gap: 6px; align-items: center; }
+.peer { white-space: normal; }
+.peer-from { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+.peer-clamp { max-height: 9.5em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.think-body .md { white-space: normal; }
+.md sup a, .md .footnotes { font-size: 12px; }

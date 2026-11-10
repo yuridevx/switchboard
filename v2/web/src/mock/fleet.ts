@@ -675,6 +675,8 @@ export function createMock(o: MockOptions = {}) {
     "keys.remove": (f) => (keys.splice(keys.findIndex((k) => k.name === f.name), 1), {}),
     "github.app": () => ({ installed: true, name: "switchboard-fleet", url: "https://github.com/apps/switchboard-fleet", repos: ["example/sb-base", "example/sb-web", "example/sb-ops"] }),
     "github.setup": () => ({ installed: true }),
+    "analytics.state": () => (analyticsDown ? { on: true, ok: false, error: "ClickHouse не ответил за 10 с", machines: [] } : { on: true, ok: true, ms: 180, machines: [{ machine: "server", rows: 18_420, last: now() - 4 * 60_000, pending: 0 }, { machine: "laptop", rows: 9_310, last: now() - 3 * HOUR, pending: 2 }, { machine: "anya-pc", rows: 0, pending: 0 }] }),
+    "analytics.fill": () => ({ queued: 2 }),
     "analytics.query": (f) => {
       if (analyticsDown) throw new Refusal("analytics_unavailable", "ClickHouse не ответил за 10 с");
       const days = Math.max(1, Math.round((Date.parse(f.until) - Date.parse(f.since)) / DAY) + 1);

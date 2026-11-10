@@ -122,6 +122,7 @@ function clickhouse(s: Stand) {
       const r = JSON.parse(l);
       rows.set([r.fleet, r.machine, r.sid, r.call].join("|"), r);
     }
+    if (q.startsWith("SELECT machine")) return Response.json({ data: [...new Set([...rows.values()].map((r) => r.machine))].map((machine) => ({ machine, rows: String(rows.size), last: String(Math.max(...[...rows.values()].map((r) => Number(r.at) * 1000))) })) });
     if (q.startsWith("SELECT")) return Response.json({ data: [{ key: "2026-11-09", calls: "2", input: "200", output: "40", cacheRead: "10", cacheWrite: "14" }] });
     return new Response("");
   };
@@ -152,6 +153,19 @@ describe("аналитика в стороне", () => {
     ]);
     await consume(batch(note).b, s.env, s.deps);
     expect(rows.size).toBe(2);
+  });
+
+  it("состояние аналитики: не подключена — on:false; точка не долита — pending 1; долита — строки и pending 0; ClickHouse лёг — ok:false с причиной", async () => {
+    expect((await stand().ask("analytics.state", {})).result).toEqual({ on: false, ok: false, machines: [] });
+    const s = stand(undefined, { env: CH });
+    await save(s, "sid1", "выкладка");
+    clickhouse(s);
+    const state = async () => (await s.ask("analytics.state", {})).result as { ok: boolean; error?: string; machines: Array<{ machine: string; rows: number; pending: number; last?: number }> };
+    expect((await state()).machines.find((m) => m.machine === "laptop")).toEqual({ machine: "laptop", rows: 0, pending: 1 });
+    await consume(batch({ fleet: s.fleet, machine: "laptop", sid: "sid1", point: "p1" }).b, s.env, s.deps);
+    expect((await state()).machines.find((m) => m.machine === "laptop")).toMatchObject({ rows: 2 });
+    s.state.net = () => new Response("down", { status: 503 });
+    expect(await state()).toMatchObject({ ok: false, error: expect.stringContaining("503"), machines: [] });
   });
 
   it("ClickHouse не отвечает: очередь повторяет, после повторов — одна строка в журнале флота; точка, разговор и поиск целы", async () => {

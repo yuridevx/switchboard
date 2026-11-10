@@ -185,7 +185,7 @@ describe("новая сессия", () => {
     expect(pushPlace([a, b], b)).toEqual([b, a]);
     const sessions = { "site@laptop": row("site@laptop", "~/p/site", ["base", "web"], 5), "old@laptop": row("old@laptop", "~/p/site", ["base"], 2), "x@server": row("x@server", "~/p/site", ["ops"], 9) };
     expect(piecesFor(sessions, "laptop", "~/p/site")).toEqual(["base", "web"]);
-    expect(piecesFor(sessions, "laptop", "~/p/other")).toEqual(["base"]);
+    expect(piecesFor(sessions, "laptop", "~/p/other")).toEqual([]);
   });
 });
 

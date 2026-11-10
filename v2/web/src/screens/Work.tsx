@@ -1,6 +1,6 @@
 // «Работа»: сессии по проектам. Свои фильтры, список или доска, закрепление, свой порядок; строка переносится в другой проект мышью и пальцем.
 import { peopleList, projectRemove, projectSet, sessionUpdate, type SessionRow } from "@sb/protocol";
-import { ActionIcon, Button, Chip, Group, Menu, MultiSelect, SegmentedControl, Stack, Switch, Text, TextInput, Tooltip } from "@mantine/core";
+import { ActionIcon, Button, Chip, Group, Menu, MultiSelect, Popover, SegmentedControl, Stack, Switch, Text, TextInput, Tooltip } from "@mantine/core";
 import { Page } from "../shell/Page.tsx";
 import { useHotkeys } from "@mantine/hooks";
 import { IconAdjustmentsHorizontal, IconCheck, IconChevronDown, IconChevronRight, IconDots, IconFilter, IconPencil, IconPin, IconPinFilled, IconPlus, IconTrash } from "@tabler/icons-react";
@@ -72,7 +72,6 @@ function Filters({ filters, save, onClose }: { filters: Filter[]; save: (next: F
 export function Work() {
   const { callsign } = useParams();
   const go = useNavigate();
-  const [look, setLook] = useState(false);
   const wide = useWide();
   const qc = useQueryClient();
   const picture = useFleet();
@@ -162,9 +161,11 @@ export function Work() {
               <Menu.Item onClick={() => setEditFilters(true)}>Свои фильтры…</Menu.Item>
             </Menu.Dropdown>
           </Menu>
-          <Tooltip label="Вид списка"><ActionIcon variant="default" size="md" aria-label="Вид списка" onClick={() => setLook(true)}><IconAdjustmentsHorizontal size={15} /></ActionIcon></Tooltip>
-          <Page name="look" opened={look} onClose={() => setLook(false)} title="Вид списка">
-              <Stack gap="sm">
+          {/* настройка вида — окошко у кнопки: список под ним меняется сразу, и варианты сравниваются на глазах */}
+          <Popover position="bottom-end" withinPortal>
+            <Popover.Target><Tooltip label="Вид списка"><ActionIcon variant="default" size="md" aria-label="Вид списка"><IconAdjustmentsHorizontal size={15} /></ActionIcon></Tooltip></Popover.Target>
+            <Popover.Dropdown>
+              <Stack gap="xs">
                 {wide && <SegmentedControl size="xs" fullWidth value={view} onChange={(v) => (setView(v as "list" | "board"), callsign && v === "board" && go("/work"))} data={[{ value: "list", label: "Список" }, { value: "board", label: "Доска" }]} aria-label="Вид" />}
                 <SegmentedControl size="xs" fullWidth value={groupBy} onChange={(v) => setGroupBy(v as "project" | "machine")} data={[{ value: "project", label: "По проектам" }, { value: "machine", label: "По машинам" }]} aria-label="Группы" />
                 <Switch size="xs" label="Дочерние под родителем" checked={nested} onChange={(e) => setNested(e.currentTarget.checked)} />
@@ -172,8 +173,8 @@ export function Work() {
                 <Switch size="xs" label="Чем занята" checked={parts.doing} onChange={(e) => setParts({ ...parts, doing: e.currentTarget.checked })} />
                 <Switch size="xs" label="Время" checked={parts.when} onChange={(e) => setParts({ ...parts, when: e.currentTarget.checked })} />
               </Stack>
-              <Button mt="md" style={{ alignSelf: "flex-start" }} onClick={() => setLook(false)}>Готово</Button>
-          </Page>
+            </Popover.Dropdown>
+          </Popover>
         </div>
         {board ? (
           <div className="board scroll">

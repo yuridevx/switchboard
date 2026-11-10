@@ -103,6 +103,43 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
     await page.locator("nav.tabbar").getByText("Ещё").click();
     await at(/^#\/more/); await title("Ещё"); await shot("more");
   });
+  await step("новая сессия — один уровень, кусочки показывают свои поля", async () => {
+    await open("/new");
+    if (await page.getByRole("button", { name: /Скрыть настройки|Модель, аккаунт/ }).count()) throw new Error("настройки спрятаны");
+    await page.getByLabel("Размышлять перед ответом").waitFor();
+    await page.getByText("reviewer", { exact: true }).click();
+    await page.locator('[aria-label="Что ставят кусочки"]').getByText("claude-opus-5-5").waitFor({ timeout: 8000 });
+    await shot("new-flat");
+  });
+  await step("галочка проекта в «Людях» — без полосы «нет связи»", async () => {
+    await open("/settings/people");
+    const box = page.getByRole("checkbox").first();
+    await box.waitFor();
+    let bars = 0;
+    const watch = setInterval(async () => { bars += await page.getByText("Нет связи с флотом").count().catch(() => 0); }, 100);
+    await box.click(); await page.waitForTimeout(1500);
+    await box.click(); await page.waitForTimeout(1500);
+    clearInterval(watch);
+    if (bars) throw new Error("полоса «нет связи» показалась");
+  });
+  await step("ClickHouse — состояние в «Наблюдении»", async () => {
+    await open("/observe/analytics");
+    await page.getByText(/^отвечает · /).waitFor({ timeout: 10_000 });
+    await page.getByText("точек архива ждут долива").waitFor(); await shot("clickhouse");
+  });
+  if (session) await step("чипы документа — под полем ввода", async () => {
+    await open("/work/" + session);
+    await page.locator(".composer-opts").getByRole("button", { name: "Режим" }).waitFor({ timeout: 8000 });
+    if (await page.locator(".conv-head").getByRole("button", { name: "Модель" }).count()) throw new Error("чипы остались в шапке");
+    await shot("chips");
+  });
+  if (w > 860) await step("вид списка — окошко, список меняется сразу", async () => {
+    await open("/work");
+    await page.getByRole("button", { name: "Вид списка" }).click();
+    await page.getByLabel("Время").waitFor();
+    if (/do=look/.test(page.url())) throw new Error("вид списка открылся страницей");
+    await shot("look"); await page.getByRole("button", { name: "Вид списка" }).click(); await page.getByLabel("Время").waitFor({ state: "hidden", timeout: 5000 });
+  });
   await step("клавиши — страница", async () => { await open("/keys"); await title("Клавиши"); });
   await page.close();
 }

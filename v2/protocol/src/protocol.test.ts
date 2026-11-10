@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { socketLink } from "./client.ts";
 import { contract, createApi, fail, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, sessionOpen, Spec, z, type Transport } from "./index.ts";
 
 describe("protocol", () => {
@@ -56,5 +57,19 @@ describe("инструменты: одна таблица для страниц�
     expect(toolLine("Unknown", { x: "первое строковое" })).toBe("Unknown первое строковое");
     expect(toolLine("Bash", { command: "x".repeat(300) }, 40).length).toBe(40);
     expect(toolLook({ name: "Edit", input: { file_path: "a.ts" } })).toEqual({ word: "Правка", icon: "file-pen", body: "diff", open: true, sum: "a.ts" });
+  });
+  it("соединение закрыто словом access — переподключение сразу и без «нет связи»; обычный обрыв — closed", () => {
+    const made: Array<{ on: Record<string, (e: any) => void> }> = [];
+    class WS { on: Record<string, (e: any) => void> = {}; readyState = 1; constructor() { made.push(this); } send() {} close() {} addEventListener(t: string, fn: (e: any) => void) { this.on[t] = fn; } }
+    const states: string[] = [];
+    const link = socketLink({ url: "ws://x", hello: { type: "hello" }, onFrame: () => {}, onState: (st) => states.push(st), WebSocket: WS as never });
+    made[0]!.on.open!({});
+    made[0]!.on.close!({ reason: "access" });
+    expect(made.length).toBe(2);
+    expect(states).toEqual(["connecting", "open"]);
+    made[1]!.on.open!({});
+    made[1]!.on.close!({});
+    expect(states).toEqual(["connecting", "open", "open", "closed"]);
+    link.close();
   });
 });

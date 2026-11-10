@@ -2,15 +2,16 @@
 // Живой ответ идёт с кареткой, размышление сворачивается, своё сообщение показывает свой статус.
 import { CopyButton, Text } from "@mantine/core";
 import {
-  IconAlertTriangle, IconArchive, IconBook, IconBrain, IconChecklist, IconClipboardList, IconFile, IconFilePencil, IconFilePlus, IconFileText, IconFolderSearch, IconInfoCircle,
-  IconMessageQuestion, IconPlayerStop, IconRefresh, IconRobot, IconSearch, IconSparkles, IconTerminal2, IconTool, IconWorld,
+  IconAlertTriangle, IconAnchor, IconArchive, IconBell, IconBolt, IconBook, IconBrain, IconCalendarClock, IconChecklist, IconClipboardList, IconFile, IconFilePencil, IconFilePlus, IconFileText, IconFolderSearch,
+  IconGitBranch, IconInfoCircle, IconMessageQuestion, IconMessages, IconNotebook, IconPlayerStop, IconRadar, IconRefresh, IconRobot, IconRotate, IconSearch, IconShieldOff, IconSparkles, IconTerminal2, IconTool, IconWorld, IconX,
 } from "@tabler/icons-react";
 import { createContext, lazy, memo, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Item } from "../chat/focus.ts";
 import { todoProgress, type MeState, type Part, type Row, type Task, type Todo, type Tool, type View } from "../chat/fold.ts";
 import { agentSteps, deniedWhy, editStat, isAgent, isDenied, isShell, startedInBackground, toolLook, toolState } from "../chat/tools.ts";
 import { kilo, nActions, plural } from "../lib/time.ts";
-import { diffLines } from "./diff.ts";
+import { MODES } from "../common.tsx";
+import { diffLines, editsOf } from "./diff.ts";
 import { HtmlFrame, openPicture, previewKind, SvgView } from "./html.tsx";
 import "./session.css";
 
@@ -45,10 +46,12 @@ const ICONS: Record<string, typeof IconTool> = {
   terminal: IconTerminal2, "file-pen": IconFilePencil, "file-plus": IconFilePlus, "file-text": IconFileText, search: IconSearch, "folder-search": IconFolderSearch, globe: IconWorld,
   "list-checks": IconChecklist, bot: IconRobot, sparkles: IconSparkles, "message-circle-question": IconMessageQuestion, "clipboard-list": IconClipboardList, square: IconPlayerStop,
   "refresh-cw": IconRefresh, archive: IconArchive, info: IconInfoCircle, "book-open": IconBook,
+  "notebook-pen": IconNotebook, radar: IconRadar, "calendar-clock": IconCalendarClock, bell: IconBell, "git-branch": IconGitBranch, "shield-off": IconShieldOff, anchor: IconAnchor,
+  "triangle-alert": IconAlertTriangle, zap: IconBolt, "rotate-ccw": IconRotate, "messages-square": IconMessages, x: IconX,
 };
 const Icon = ({ name, size = 15 }: { name?: string; size?: number }) => {
   const I = (name && ICONS[name]) || IconTool;
-  return <I size={size} stroke={1.7} style={{ flex: "none" }} />;
+  return <I size={size} stroke={1.7} style={{ flex: "none" }} data-icon={name && ICONS[name] ? name : "tool"} />;
 };
 
 /** Картинки сообщения: по нажатию — целиком в новой вкладке. */
@@ -84,10 +87,14 @@ function Asked({ tool }: { tool: Tool }) {
   return (
     <>
       {qs.map((q, i) => <Text key={i} size="sm">{q.question}</Text>)}
-      {tool.result ? <Text size="sm" fw={600}>{isDenied(tool) ? `отклонено${deniedWhy(tool) ? `: ${deniedWhy(tool)}` : ""}` : `отвечено: ${said.replace(/^User has answered your questions:\s*/, "").slice(0, 400)}`}</Text> : <Text size="sm" className="muted">ждёт ответа</Text>}
+      {tool.result?.error && !isDenied(tool) ? null : tool.result ? <Text size="sm" fw={600}>{isDenied(tool) ? `отклонено${deniedWhy(tool) ? `: ${deniedWhy(tool)}` : ""}` : `отвечено: ${said.replace(/^User has answered your questions:\s*/, "").slice(0, 400)}`}</Text> : <Text size="sm" className="muted">ждёт ответа</Text>}
     </>
   );
 }
+
+/** Текст ошибки инструмента там, где тело показывает ввод, а не вывод; отказ человека — не ошибка. */
+const ErrorText = ({ tool }: { tool: Tool }) => (tool.result?.error && !isDenied(tool) ? <pre className="tool-err">{tool.result.text}</pre> : null);
+const Hint = ({ text }: { text: unknown }) => (text ? <div className="toolhint">{String(text)}</div> : null);
 
 function ToolBody({ tool, view }: { tool: Tool; view: View }) {
   const look = toolLook(tool);
@@ -96,23 +103,28 @@ function ToolBody({ tool, view }: { tool: Tool; view: View }) {
   const pics = tool.result?.pics ?? [];
   const [html, setHtml] = useState(false);
   let body: ReactNode;
-  if (look.body === "command") body = <><pre>{String(input.command ?? "")}</pre>{out && <pre>{out}</pre>}</>;
+  if (look.body === "command") body = <><Hint text={input.description} /><pre>{tool.name === "PowerShell" ? "PS>" : "$"} {String(input.command ?? "")}</pre>{out && <pre>{out}</pre>}</>;
   else if (look.body === "diff") {
-    const text = String(input.new_string ?? input.content ?? "");
+    const edits = editsOf(input);
+    const text = edits.length === 1 ? edits[0]!.after : "";
     const path = String(input.file_path ?? "");
     const page = tool.name === "Write" ? previewKind(/\.html?$/i.test(path) ? "html" : /\.svg$/i.test(path) ? "svg" : "", text) : null;
     body = (
       <>
+        {input.replace_all ? <Hint text="все вхождения" /> : null}
+        {input.cell_id ? <Hint text={`ячейка ${input.cell_id}`} /> : null}
         {page && <button type="button" className="linkbtn" aria-pressed={html} onClick={() => setHtml((v) => !v)}>{html ? "Код" : "Просмотр"}</button>}
-        {html && page === "svg" ? <SvgView code={text} title={path} /> : html ? <HtmlFrame html={text} title={path} /> : input.old_string != null ? <Diff before={String(input.old_string)} after={text} /> : <pre className="diff-new">{text}</pre>}
+        {html && page === "svg" ? <SvgView code={text} title={path} /> : html ? <HtmlFrame html={text} title={path} />
+          : edits.map((e, i) => (e.before != null ? <Diff key={i} before={e.before} after={e.after} /> : <pre key={i} className="diff-new">{e.after}</pre>))}
+        <ErrorText tool={tool} />
       </>
     );
   } else if (look.body === "read") body = out ? <Md text={"```" + (/\.(\w+)$/.exec(String(input.file_path ?? ""))?.[1] ?? "") + "\n" + out.replace(/^\s*\d+[→\t]/gm, "") + "\n```"} /> : null;
-  else if (look.body === "todos") body = <TodoList todos={(input.todos as Todo[]) ?? []} />;
+  else if (look.body === "todos") body = <><TodoList todos={(input.todos as Todo[]) ?? []} /><ErrorText tool={tool} /></>;
   else if (look.body === "agent") body = <>{input.prompt && <pre>{String(input.prompt)}</pre>}<Rows rows={tool.steps} view={view} />{out && <Md text={out} />}</>;
-  else if (look.body === "plan") body = <Md text={String(input.plan ?? "")} />;
-  else if (look.body === "ask") body = <Asked tool={tool} />;
-  else body = <>{look.body === "plain" && Object.keys(input).length > 0 && <pre>{JSON.stringify(input, null, 2)}</pre>}{out && <pre>{out}</pre>}</>;
+  else if (look.body === "plan") body = <><Md text={String(input.plan ?? "")} /><ErrorText tool={tool} /></>;
+  else if (look.body === "ask") body = <><Asked tool={tool} /><ErrorText tool={tool} /></>;
+  else body = <>{look.body === "output" && <Hint text={input.prompt} />}{look.body === "plain" && Object.keys(input).length > 0 && <pre>{JSON.stringify(input, null, 2)}</pre>}{out && <pre>{out}</pre>}</>;
   return <>{isDenied(tool) && look.body !== "ask" && <Text size="sm" fw={600}>Отклонено{deniedWhy(tool) ? `: ${deniedWhy(tool)}` : ""}</Text>}{body}<Pics pics={pics} /></>;
 }
 
@@ -152,14 +164,22 @@ function Running({ secs }: { secs?: number }) {
   return n >= 3 ? <span className="muted">идёт {n} с</span> : null;
 }
 
-const STATE_WORD: Record<string, string> = { denied: "отклонено", error: "ошибка", stopped: "остановлено", bg: "в фоне", wait: "ждёт вас" };
+const STATE_WORD: Record<string, string> = { denied: "отклонено", error: "ошибка", stopped: "остановлено", bg: "в фоне" };
+/** Чего ждёт вызов от человека: план — одобрения, остальное — разрешения. */
+const stateWord = (state: string, tool: Tool) => (state === "wait" ? (tool.name === "ExitPlanMode" ? "ждёт одобрения" : "ждёт разрешения") : STATE_WORD[state]);
 
 function ToolLine({ tool, view }: { tool: Tool; view: View }) {
   const env = useContext(Env);
   const look = toolLook(tool);
-  const [open, setOpen] = useState(false);
+  const [choice, setChoice] = useState<boolean | null>(null);
   const task: Task | undefined = tool.task ? view.tasks[tool.task] : undefined;
-  const state = toolState(tool, task, env.waiting === tool.id);
+  const waiting = env.waiting === tool.id;
+  const state = toolState(tool, task, waiting);
+  // сам раскрыт: правка, список дел, вопрос; субагент — пока идёт; план — пока его не показывает карточка вопроса. Выбор человека главнее
+  const usual = look.body === "agent" ? !(task?.bg ? task.final : tool.result) : look.body === "plan" ? !waiting : look.open;
+  const open = choice ?? usual;
+  const kind = isAgent(tool) && typeof tool.input?.subagent_type === "string" ? tool.input.subagent_type : "";
+  const now = isAgent(tool) && task && !task.end ? (task.summary ?? (task.last ? `сейчас: ${task.last}` : "")) : "";
   const stat = editStat(tool);
   const running = state === "running";
   const steps = isAgent(tool) ? agentSteps(tool, task) : 0;
@@ -167,15 +187,17 @@ function ToolLine({ tool, view }: { tool: Tool; view: View }) {
   return (
     <div>
       <div className="toolrow">
-        <button type="button" className="tool" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <button type="button" className="tool" aria-expanded={open} onClick={() => setChoice(!open)}>
           <span className={`st ${state}`} />
           <Icon name={look.icon} />
           <span className="w">{look.word}</span>
           <span className="trunc muted mono">{look.sum}</span>
           {stat && (stat.plus > 0 || stat.minus > 0) && <span className="stat-pm"><b className="plus">+{stat.plus}</b> <b className="minus">−{stat.minus}</b></span>}
+          {kind && <span className="toolchip">{kind}</span>}
           {steps > 0 && <span className="muted">{steps} {plural(steps, "шаг", "шага", "шагов")}</span>}
+          {now && <span className="muted trunc">{now}</span>}
           {running && <Running secs={tool.secs} />}
-          {!running && STATE_WORD[state] && <span className="muted">{STATE_WORD[state]}</span>}
+          {!running && stateWord(state, tool) && <span className="muted">{stateWord(state, tool)}</span>}
           {bg && state !== "bg" && <span className="muted">в фоне</span>}
         </button>
         {running && !bg && env.canAct && (isShell(tool) || isAgent(tool)) && (
@@ -206,13 +228,14 @@ function ToolStack({ ids, view }: { ids: string[]; view: View }) {
 /** Размышление: одной строкой, раскрывается; пока идёт — «Размышляет…». */
 function Think({ text, live }: { text: string; live?: boolean }) {
   const [open, setOpen] = useState(false);
-  if (!text.trim() && !live) return null;
+  // размышление без текста (модель его не отдала) — строкой без раскрытия
+  if (!text.trim() && !live) return <div className="sysline"><IconBrain size={14} /> Размышлял</div>;
   return (
     <div>
       <button type="button" className="sysline think" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <IconBrain size={14} /> <span className="trunc">{live ? "Размышляет…" : text.split("\n")[0]}</span>
       </button>
-      {open && <div className="think-body">{text}</div>}
+      {open && <div className="think-body"><Md text={text} /></div>}
     </div>
   );
 }
@@ -271,6 +294,26 @@ function Mine({ r }: { r: Extract<Row, { k: "me" }> }) {
 }
 
 const VIA: Record<string, string> = { session: "сессия", agent: "субагент", owner: "вам", service: "служба" };
+/** Режим разрешений отправителя словами страницы: SDK зовёт режимы по-своему. */
+const SDK_MODE: Record<string, string> = { bypassPermissions: "all", default: "ask", plan: "plan", acceptEdits: "edits", auto: "auto" };
+const modeWord = (tag: string) => MODES.find(([m]) => m === (SDK_MODE[tag] ?? tag))?.[1] ?? tag;
+
+/** Сообщение от сессии флота, субагента или службы: разметкой; длинное свёрнуто и сворачивается обратно. */
+function Incoming({ r }: { r: Extract<Row, { k: "in" }> }) {
+  const env = useContext(Env);
+  const [whole, setWhole] = useState(false);
+  const long = r.via !== "owner" && r.text.length > LONG;
+  return (
+    <div className={`peer via-${r.via}`}>
+      <Text size="xs" className="muted peer-from">
+        {r.via === "agent" ? <Icon name="bot" size={13} /> : r.via === "session" ? <Icon name="messages-square" size={13} /> : null}
+        <span><span className="mono">{r.from ? (env.name?.(r.from) ?? r.from) : VIA[r.via]}</span>{r.from && r.via !== "session" ? ` · ${VIA[r.via]}` : ""}{r.tag ? ` · ${modeWord(r.tag)}` : ""}{r.at ? ` · ${r.at}` : ""}</span>
+      </Text>
+      <div className={long && !whole ? "peer-clamp" : undefined}><Md text={r.text} /></div>
+      {long && <button type="button" className="linkbtn" aria-expanded={whole} onClick={() => setWhole((w) => !w)}>{whole ? "свернуть" : "показать всё"}</button>}
+    </div>
+  );
+}
 
 const RowView = memo(function RowView({ r, view }: { r: Item; view: View }) {
   const env = useContext(Env);
@@ -280,19 +323,14 @@ const RowView = memo(function RowView({ r, view }: { r: Item; view: View }) {
     case "me":
       return <Mine r={r} />;
     case "in":
-      return (
-        <div className={`peer via-${r.via}`}>
-          <Text size="xs" className="muted"><span className="mono">{r.from ? (env.name?.(r.from) ?? r.from) : VIA[r.via]}</span>{r.from && r.via !== "session" ? ` · ${VIA[r.via]}` : ""}{r.tag ? ` · ${r.tag}` : ""}{r.at ? ` · ${r.at}` : ""}</Text>
-          <Long text={r.text} />
-        </div>
-      );
+      return <Incoming r={r} />;
     case "reply":
       return <Reply parts={r.parts} view={view} />;
     case "cmd":
       return <div className="sysline"><IconTerminal2 size={14} /><span className="mono">{r.name} {r.args}</span>{r.out && <span className="trunc">— {r.out}</span>}</div>;
     case "sys":
     case "line":
-      return <div className="sysline"><Icon name={r.icon} size={14} /><span>{r.text}{"dim" in r && r.dim}</span></div>;
+      return <div className={`sysline${r.tone ? ` tone-${r.tone}` : ""}`}><Icon name={r.icon} size={14} /><span>{r.text}{"dim" in r && r.dim}</span></div>;
     case "task": {
       const t = view.tasks[r.id];
       return t ? (
@@ -303,8 +341,8 @@ const RowView = memo(function RowView({ r, view }: { r: Item; view: View }) {
     }
     case "ban":
       return (
-        <div className={`ban${r.tone === "bad" ? " bad" : ""}`}>
-          <Text fw={600} size="sm"><IconAlertTriangle size={14} style={{ verticalAlign: -2 }} /> {r.title}</Text>
+        <div className={`ban ${r.tone}`} {...(r.tone === "bad" ? { role: "alert" } : {})}>
+          <Text fw={600} size="sm" className="ban-title"><Icon name={r.icon ?? (r.tone === "bad" ? "triangle-alert" : "info")} size={14} /> {r.title}</Text>
           {r.body && <Text size="sm">{r.body}</Text>}
           {r.edit && env.edit && <button type="button" className="linkbtn" onClick={() => env.edit!(r.edit!)}>Изменить сообщение</button>}
         </div>
@@ -312,7 +350,7 @@ const RowView = memo(function RowView({ r, view }: { r: Item; view: View }) {
     case "res":
       return <div className="turn-end">{r.bits.join(" · ")}</div>;
     case "end":
-      return <div className="ban bad"><Text fw={600} size="sm">{r.text}</Text>{r.why && <Text size="sm">{r.why}</Text>}</div>;
+      return <div className="ban bad" role="alert"><Text fw={600} size="sm" className="ban-title"><Icon name="x" size={14} /> {r.text}</Text>{r.why && <Text size="sm">{r.why}</Text>}</div>;
     case "sum":
       return <Summary stats={r.stats} text={r.text} />;
   }
@@ -324,7 +362,7 @@ function Summary({ stats, text }: { stats: string; text: string }) {
   return (
     <div>
       <button type="button" className="sysline think" aria-expanded={open} onClick={() => setOpen((o) => !o)}><IconArchive size={14} /><span>{stats}</span></button>
-      {open && <div className="think-body">{text}</div>}
+      {open && <div className="think-body"><Md text={text} /></div>}
     </div>
   );
 }

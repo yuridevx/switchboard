@@ -63,9 +63,10 @@ export function socketLink(o: {
   const stopOn = o.stopOn ?? ["bad_key", "revoked", "forbidden", "proto", "replaced"];
   let ws: SocketLike | null = null, closed = false, tries = 0, timer: ReturnType<typeof setTimeout> | null = null;
   const queue: string[] = [];
-  const connect = () => {
+  // quiet — переподключение по слову access: флот сам закрыл соединение, чтобы отдать новую картину; обрывом это не считается
+  const connect = (quiet = false) => {
     if (closed) return;
-    o.onState?.("connecting");
+    if (!quiet) o.onState?.("connecting");
     const s = (ws = new WS(o.url));
     s.addEventListener("open", () => {
       tries = 0;
@@ -86,10 +87,11 @@ export function socketLink(o: {
         o.onState?.("stopped", e.reason);
         return;
       }
+      if (e.reason === "access") return connect(true);
       o.onState?.("closed");
       const pause = Math.min(30_000, 500 * 2 ** tries++) * (0.5 + Math.random());
       o.onPause?.(pause);
-      timer = setTimeout(connect, pause);
+      timer = setTimeout(() => connect(), pause);
     });
     s.addEventListener("error", () => {});
   };

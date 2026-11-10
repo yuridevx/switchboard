@@ -117,6 +117,26 @@ export const analytics: Module = {
       return { rows: [...rows.values()] };
     },
 
+    /** Состояние: один запрос в ClickHouse и счёт точек архива новее его последней строки по каждой машине. */
+    async "analytics.state"(_i: unknown, ctx: Ctx) {
+      if (!ctx.env.CH_URL) return { on: false, ok: false, machines: [] };
+      const started = Date.now();
+      let data: Array<{ machine: string; rows: string | number; last: string | number }>;
+      try {
+        const text = await ch(ctx.env, ctx.fetch, `SELECT machine, count() AS rows, toUnixTimestamp64Milli(max(at)) AS last FROM ${TABLE} FINAL WHERE fleet = {fleet:String} GROUP BY machine FORMAT JSON`, undefined, { fleet: ctx.fleet });
+        data = (JSON.parse(text) as { data: typeof data }).data;
+      } catch (e) {
+        return { on: true, ok: false, error: e instanceof Error ? e.message : String(e), machines: [] };
+      }
+      const ms = Date.now() - started;
+      const machines = await Promise.all(ctx.who.machines.map(async (machine) => {
+        const row = data.find((r) => r.machine === machine);
+        const last = Number(row?.last ?? 0);
+        return { machine, rows: Number(row?.rows ?? 0), ...(last ? { last } : {}), pending: (await pointsSince(ctx.env, ctx.fleet, machine, last + 1)).length };
+      }));
+      return { on: true, ok: true, ms, machines };
+    },
+
     /** Доливка: точки архива с этого момента — снова в очередь. */
     async "analytics.fill"(i: { since: number }, ctx: Ctx) {
       let queued = 0;

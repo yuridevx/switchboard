@@ -1,5 +1,13 @@
 // Разница правки по строкам: общие куски сворачиваются, вокруг изменений остаётся несколько строк.
 
+/** Правки из ввода инструмента: Edit — одна, MultiEdit — список, NotebookEdit и Write — новый текст целиком (before: null). */
+export function editsOf(input: Record<string, unknown>): Array<{ before: string | null; after: string }> {
+  if (Array.isArray(input.edits)) return (input.edits as Array<Record<string, unknown>>).map((e) => ({ before: String(e.old_string ?? ""), after: String(e.new_string ?? "") }));
+  if (typeof input.old_string === "string") return [{ before: input.old_string, after: String(input.new_string ?? "") }];
+  for (const key of ["new_string", "new_source", "content"]) if (typeof input[key] === "string") return [{ before: null, after: input[key] as string }];
+  return [];
+}
+
 export type DiffLine = { k: "same" | "old" | "new"; text: string } | { k: "fold"; n: number };
 
 const CELLS = 400_000;

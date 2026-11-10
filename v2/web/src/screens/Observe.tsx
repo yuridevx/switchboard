@@ -1,14 +1,16 @@
 // «Наблюдение»: здоровье флота, последние запросы с путём по частям, журнал флота и журнал машины.
-import { ledgerRead, machineJournal, obsHealth, obsRecent, obsStats, type LedgerEvent, type ObsRow, type OutputOf } from "@sb/protocol";
+import { analyticsFill, analyticsState, ledgerRead, machineJournal, obsHealth, obsRecent, obsStats, type LedgerEvent, type ObsRow, type OutputOf } from "@sb/protocol";
 import { BarChart } from "@mantine/charts";
-import { Badge, Button, Group, SegmentedControl, Select, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
+import { Badge, Button, Group, Loader, SegmentedControl, Select, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import { IconSearch } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { api, sayError, sayWord } from "../api.ts";
+import { act, api, sayError, sayWord } from "../api.ts";
 import { Failed, partWord, useCall, useMachineName, useWide } from "../common.tsx";
 import { hostLine, HostSeries, SERIES_PERIODS } from "../lib/metrics.tsx";
-import { byDay, day, duration, hhmm } from "../lib/time.ts";
+import { ago, byDay, day, duration, hhmm } from "../lib/time.ts";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { TabsPage } from "./Fleet.tsx";
 
@@ -303,12 +305,60 @@ function Health() {
   );
 }
 
+/** ClickHouse и синхронизация в него: отвечает ли, докуда долито по машинам, что не принято; админ доливает пропущенное. */
+export function Analytics() {
+  const qc = useQueryClient();
+  const nameOf = useMachineName();
+  const admin = useFleet((f) => !!f.you?.admin);
+  const st = useCall(analyticsState, {}, { refetch: 15_000 });
+  const failed = useCall(ledgerRead, { what: "analytics.failed", limit: 10 }, { refetch: 15_000 });
+  const d = st.data;
+  if (st.error) return <Failed error={st.error} retry={st.refetch} />;
+  if (!d) return <Loader size="sm" />;
+  const pending = d.machines.reduce((n, m) => n + m.pending, 0);
+  const first = Math.min(...d.machines.filter((m) => m.pending).map((m) => m.last ?? 0));
+  return (
+    <Stack gap="sm">
+      <div className="stats">
+        <div className="stat"><b style={d.ok ? undefined : { color: "var(--st-failed)" }}>{!d.on ? "не подключён" : d.ok ? `отвечает · ${ms(d.ms ?? 0)}` : "не отвечает"}</b><span>{d.error ?? "ClickHouse"}</span></div>
+        <div className="stat"><b>{d.machines.reduce((n, m) => n + m.rows, 0).toLocaleString("ru")}</b><span>строк вызовов модели</span></div>
+        <div className="stat"><b style={pending ? { color: "var(--st-waiting)" } : undefined}>{pending}</b><span>точек архива ждут долива</span></div>
+      </div>
+      {admin && d.ok && pending > 0 && <Button w="fit-content" variant="default" onClick={async () => { const r = await act(analyticsFill, { since: first }); if (r) { notifications.show({ message: `В очередь ушло точек: ${r.queued}` }); await qc.invalidateQueries({ queryKey: ["analytics.state"] }); } }}>Долить пропущенное</Button>}
+      {d.machines.length > 0 && (
+        <div className="table-wrap">
+          <Table verticalSpacing={6} horizontalSpacing="md" className="stack">
+            <Table.Thead><Table.Tr><Table.Th>Машина</Table.Th><Table.Th ta="right">Строк</Table.Th><Table.Th>Последний вызов в ClickHouse</Table.Th><Table.Th ta="right">Ждут долива</Table.Th></Table.Tr></Table.Thead>
+            <Table.Tbody>
+              {d.machines.map((m) => (
+                <Table.Tr key={m.machine}>
+                  <Table.Td>{nameOf(m.machine)}</Table.Td>
+                  <Table.Td ta="right" data-l="Строк">{m.rows.toLocaleString("ru")}</Table.Td>
+                  <Table.Td data-l="Последний вызов">{m.last ? `${day(m.last)} ${hhmm(m.last)} · ${ago(m.last)}` : "—"}</Table.Td>
+                  <Table.Td ta="right" data-l="Ждут долива" style={m.pending ? { color: "var(--st-waiting)" } : undefined}>{m.pending}</Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </div>
+      )}
+      {(failed.data?.events ?? []).length > 0 && (
+        <div className="card" style={{ gap: 2 }}>
+          <Text fw={600} size="sm">ClickHouse не принял</Text>
+          {failed.data!.events.map((e) => <div key={e.id} className="line" style={{ flexWrap: "wrap" }}><span className="muted">{day(e.at)} {hhmm(e.at)}</span><span className="mono">{e.machine}</span><span className="grow">{e.text}</span></div>)}
+        </div>
+      )}
+    </Stack>
+  );
+}
+
 export function Observe() {
   return (
     <TabsPage title="Наблюдение" base="/observe" tabs={[
       ["requests", "Запросы", () => <><Health /><Requests /></>],
       ["series", "Ряды", () => <Series />],
       ["ledger", "Журнал флота", () => <Ledger />],
+      ["analytics", "ClickHouse", () => <Analytics />],
       ["machine", "Журнал машины", () => <MachineLog />],
     ]} />
   );

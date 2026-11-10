@@ -1,11 +1,11 @@
 // Ввод в сессию: многострочный, вложения (кнопкой, из буфера, перетаскиванием), «/» команды, «@» файлы, «/btw» — вопрос сбоку.
 // Черновик живёт на каждую сессию. Пока сессия занята — сообщение встаёт в очередь с выбранной срочностью; «Прервать» — здесь же.
-import { sessionCall, sessionFiles, sessionUpdate, type SessionRow } from "@sb/protocol";
+import { sessionCall, sessionFiles, type SessionRow } from "@sb/protocol";
 import { ActionIcon, Badge, Button, FileButton, Group, Menu, Paper, Textarea, Tooltip } from "@mantine/core";
 import { IconArrowUp, IconPaperclip, IconPlayerStop, IconX } from "@tabler/icons-react";
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { act, api } from "../api.ts";
-import { MODES, useCall } from "../common.tsx";
+import { useCall } from "../common.tsx";
 import { draft, type FileOut, type Priority, type Talk } from "./talk.ts";
 
 type Pick = { label: string; about?: string; insert: string };
@@ -53,7 +53,7 @@ function Attached({ file, onDrop }: { file: File; onDrop(): void }) {
 /** Текст, вернувшийся в поле ввода (отменённое сообщение из очереди): к набранному добавляется с новой строки. */
 export const returned = (typed: string, text: string): string => (typed.trim() ? `${typed.replace(/\s+$/, "")}\n${text}` : text);
 
-export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; hint?: string; autoFocus?: boolean }>(function Composer({ s, talk, hint, autoFocus }, handle) {
+export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; hint?: string; autoFocus?: boolean; /** чипы документа сессии — в ряду под полем */ tools?: ReactNode }>(function Composer({ s, talk, hint, autoFocus, tools }, handle) {
   const [text, setTextRaw] = useState(() => draft.get(s.callsign));
   const [files, setFiles] = useState<File[]>([]);
   const [picks, setPicks] = useState<Pick[]>([]);
@@ -144,12 +144,9 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
         <ActionIcon size="lg" variant="filled" aria-label={busy ? "В очередь" : "Отправить"} disabled={dead || (!text.trim() && !files.length)} onClick={send}><IconArrowUp size={18} /></ActionIcon>
       </Group>
       {!dead && (
-        <div className="composer-opts wide-only">
+        <div className="composer-opts">
           <button type="button" className="linkbtn" aria-label="Команды сессии" title="Команды сессии" onClick={() => (setText("/"), ref.current?.focus())}>/ команды</button>
-          <Menu position="top-start" withinPortal>
-            <Menu.Target><button type="button" className="linkbtn" aria-label="Режим разрешений">режим: {MODES.find(([m]) => m === (s.spec.mode ?? "all"))?.[1] ?? s.spec.mode}</button></Menu.Target>
-            <Menu.Dropdown>{MODES.map(([m, w]) => <Menu.Item key={m} fw={m === (s.spec.mode ?? "all") ? 700 : undefined} onClick={() => act(sessionUpdate, { to: s.callsign, patch: { mode: m as never } })}>{w}</Menu.Item>)}</Menu.Dropdown>
-          </Menu>
+          {tools}
           {busy && (
             <Menu position="top-start" withinPortal>
               <Menu.Target><button type="button" className="linkbtn" aria-label="Когда взять сообщение">взять: {word}</button></Menu.Target>

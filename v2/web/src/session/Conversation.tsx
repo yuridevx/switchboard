@@ -23,7 +23,7 @@ import { type Talk, useMarkRead, useTalk } from "./talk.ts";
 const isLive = (s: SessionRow) => s.state !== "stopped" && s.state !== "failed";
 const AfterTurn = ({ on }: { on: boolean }) => (on ? <span className="after-turn">после хода</span> : null);
 
-/** Чип документа сессии: «что это · значение» и меню замены — один запрос session.update. */
+/** Чип документа сессии под полем ввода: «что это · значение» и меню замены — один запрос session.update. */
 function Chip({ label, value, word, options, later, onPick }: { label: string; value?: string; word?: string; options: ReadonlyArray<readonly [string, string]>; later?: boolean; onPick: (v: string) => void }) {
   return (
     <Menu position="bottom-start" withinPortal>
@@ -83,9 +83,9 @@ function Chips({ s, running }: { s: SessionRow; running?: string }) {
   const [parts] = useLocal<string[]>(HEAD_KEY, HEAD_DEFAULT);
   const machineName = useMachineName();
   const on = (p: string) => parts.includes(p);
-  if (!parts.length) return null;
   return (
-    <div className="chiprow h-chips wide-only">
+    <div className="chiprow dock-chips">
+      <Chip label="Режим" value={s.spec.mode ?? "all"} options={MODES} onPick={(mode) => patchDoc(s, { mode: mode as never })} />
       {on("machine") && <Badge variant="default" component={Link} to={`/machine/${machineOfCall(s.callsign)}`} style={{ cursor: "pointer" }}><span className="muted">машина</span> {machineName(machineOfCall(s.callsign))}</Badge>}
       {on("owner") && <Badge variant="default"><span className="muted">открыл</span> {personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</Badge>}
       {on("model") && <Chip label="Модель" value={d.model.value} word={d.model.label} options={d.models.map((m) => [m.value, m.label] as const)} later={d.later.includes("model")} onPick={(model) => patchDoc(s, { model })} />}
@@ -138,7 +138,6 @@ function save(name: string, text: string) {
 export type Side = "lead" | "wing" | "both";
 
 function Header({ s, talk, onBack, pair, side, onSide, onSheet, focus, onFocus }: { s: SessionRow; talk: Talk; onBack?: () => void; pair?: boolean; /** сессия в паре: какая сторона показана и как её сменить */ side?: Side; onSide?: (s: Side) => void; onSheet?: () => void; focus: boolean; onFocus(): void }) {
-  const [docOpen, setDocOpen] = useState(false);
   const machine = machineOfCall(s.callsign);
   const offline = useFleet((f) => f.machines[machine]?.online === false);
   const ui = useUi();
@@ -160,15 +159,8 @@ function Header({ s, talk, onBack, pair, side, onSide, onSheet, focus, onFocus }
         <NameButton s={s} shown={labels.of(s.callsign) ?? s.title ?? s.spec.name} />
         <div className="trunc muted" style={{ fontSize: 12.5 }}><span className="mono">{s.callsign}</span> · {offline ? `нет связи · было: ${now}` : now}{tree ? ` · ${tree}` : ""}</div>
       </div>
-      {!offline && !pair && <Chips s={s} running={talk.view.model} />}
       <Group gap={4} wrap="nowrap" className="h-acts">
         {down && !offline && <Button size="xs" leftSection={<IconPlayerPlay size={14} />} onClick={() => act(sessionStart, { to: s.callsign })}>Запустить</Button>}
-        {pair && !offline && (
-          <>
-            <Button size="compact-xs" variant="default" onClick={() => setDocOpen(true)}>Документ</Button>
-            <Page name="doc" opened={docOpen} onClose={() => setDocOpen(false)} title={`Документ ${s.callsign}`}><DocFields s={s} /><Button mt="md" style={{ alignSelf: "flex-start" }} onClick={() => setDocOpen(false)}>Готово</Button></Page>
-          </>
-        )}
         {onSide && side && <SegmentedControl size="xs" aria-label="Кого показать" value={side === "both" && !wide ? "lead" : side} onChange={(v) => onSide(v as Side)} data={[{ value: "lead", label: "ведущий" }, { value: "wing", label: "▸ ведомый" }, ...(wide ? [{ value: "both", label: "обе" }] : [])]} />}
         {onSheet && <Tooltip label="Инспектор (I)"><ActionIcon variant={wide && ui.inspector && !pair ? "light" : "subtle"} aria-label="Инспектор" onClick={() => (wide ? ui.set({ inspector: !ui.inspector }) : onSheet())}><IconLayoutSidebarRight size={17} /></ActionIcon></Tooltip>}
         <Menu position="bottom-end" withinPortal>
@@ -177,7 +169,7 @@ function Header({ s, talk, onBack, pair, side, onSide, onSheet, focus, onFocus }
             <Menu.Item onClick={() => prefs.save("pins", pinned ? pins.filter((p) => p !== s.callsign) : [...pins, s.callsign])}>{pinned ? "Открепить" : "Закрепить"}</Menu.Item>
             {wide && (
               <Menu.Sub>
-                <Menu.Sub.Target><Menu.Sub.Item>Шапка</Menu.Sub.Item></Menu.Sub.Target>
+                <Menu.Sub.Target><Menu.Sub.Item>Поля под вводом</Menu.Sub.Item></Menu.Sub.Target>
                 <Menu.Sub.Dropdown>
                   {HEAD_PARTS.map(([id, word]) => <Menu.Item key={id} closeMenuOnClick={false} leftSection={parts.includes(id) ? <IconCheck size={14} /> : <span style={{ width: 14, display: "inline-block" }} />} onClick={() => setParts(toggleHeadPart(parts, id))}>{word}</Menu.Item>)}
                   <Menu.Divider />
@@ -283,7 +275,7 @@ function FeedPane({ s, talk, focus, autoFocus, pair, onWhy }: { s: SessionRow; t
             {live && <Background callsign={s.callsign} view={talk.view} />}
             <Asides asides={talk.asides} drop={talk.dropAside} />
             {s.ask && <AskCard callsign={s.callsign} ask={s.ask} />}
-            <Composer ref={composer} s={s} talk={talk} hint={s.state === "idle" ? talk.view.hint : undefined} autoFocus={autoFocus} />
+            <Composer ref={composer} s={s} talk={talk} hint={s.state === "idle" ? talk.view.hint : undefined} autoFocus={autoFocus} tools={<Chips s={s} running={talk.view.model} />} />
           </div>
         </div>
       )}

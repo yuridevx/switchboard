@@ -225,6 +225,13 @@ export const analyticsQuery = request("analytics.query", {
   input: z.object({ by: z.enum(["day", "model", "machine", "session", "person", "project"]), since: z.string(), until: z.string(), machine: z.string().optional() }),
   output: z.object({ rows: z.array(z.object({ key: z.string(), calls: z.number(), input: z.number(), output: z.number(), cacheRead: z.number(), cacheWrite: z.number(), cost: z.number().optional() })) }),
 });
+/** Состояние аналитики. on — ClickHouse подключён; ok и ms — ответил ли и за сколько; по машинам: rows — строк, last — время последнего вызова в нём,
+ *  pending — сколько точек архива новее этого времени (ещё не долиты или в очереди). */
+export const analyticsState = request("analytics.state", {
+  owner: "analytics", target: "service", tool: "Состояние ClickHouse и синхронизации в него: отвечает ли, сколько строк и докуда долито по каждой машине, сколько точек архива ждут.",
+  input: Empty,
+  output: z.object({ on: z.boolean(), ok: z.boolean(), ms: z.number().optional(), error: z.string().optional(), machines: z.array(z.object({ machine: z.string(), rows: z.number(), last: z.number().optional(), pending: z.number() })) }),
+});
 export const analyticsFill = request("analytics.fill", { owner: "analytics", target: "service", admin: true, input: z.object({ since: z.number() }), output: z.object({ queued: z.number() }) });
 
 /* ===== Наблюдение (obs) ===== */

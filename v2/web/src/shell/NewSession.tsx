@@ -1,7 +1,7 @@
-// «Новая сессия»: одно поле и Enter — сессия пошла с разумными значениями; остальное раскрывается.
+// «Новая сессия»: одно поле и Enter — сессия пошла с разумными значениями; все поля — на одном уровне, ничего не спрятано.
 // Недавние места — пары «машина + папка»; папку можно создать; кусочки подхватываются от соседней сессии той же папки.
-import { accountList, machineDirs, peopleList, profileList, sessionOpen, type MachineRow, type SessionRow } from "@sb/protocol";
-import { Button, Chip, Collapse, Group, Select, Stack, Switch, Text, Textarea, TextInput } from "@mantine/core";
+import { accountList, machineDirs, peopleList, profileList, profileView, sessionOpen, type MachineRow, type SessionRow } from "@sb/protocol";
+import { Badge, Button, Chip, Group, Select, SimpleGrid, Stack, Switch, Text, Textarea, TextInput } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { act, sayError } from "../api.ts";
@@ -27,11 +27,14 @@ export type Place = { machine: string; cwd: string };
 /** Недавние места: новое — в начало, без повторов, не больше восьми. */
 export const pushPlace = (list: Place[], p: Place): Place[] => [p, ...list.filter((x) => x.machine !== p.machine || x.cwd !== p.cwd)].slice(0, 8);
 
-/** Кусочки для новой сессии: как у соседней сессии той же папки на той же машине; соседа нет — основа. */
+/** Кусочки для новой сессии: как у соседней сессии той же папки на той же машине; соседа нет — без кусочков. */
 export function piecesFor(sessions: Record<string, SessionRow>, machine: string, cwd: string): string[] {
   const mate = Object.values(sessions).filter((s) => s.callsign.endsWith("@" + machine) && s.spec.cwd === cwd && s.spec.pieces?.length).sort((a, b) => (b.last ?? b.since) - (a.last ?? a.since))[0];
-  return mate?.spec.pieces ?? ["base"];
+  return mate?.spec.pieces ?? [];
 }
+
+/** Что набор кусочков ставит сам: слова для полей формы. */
+export const GIVEN: Record<string, string> = { model: "модель", effortLevel: "усилие", fastMode: "быстрый режим", alwaysThinkingEnabled: "размышления", outputStyle: "стиль" };
 
 /** Кусочки в выборе: чаще стоящие у сессий флота — раньше; при равенстве — как отдала машина. */
 export function byUse<P extends { id: string }>(pieces: P[], sessions: Record<string, SessionRow>): P[] {
@@ -57,7 +60,7 @@ export function tabInto(parent: string, leaf: string, dirs: string[]): string | 
   return `${parent}${/[\\/]$/.test(parent) ? "" : sep}${fit.length === 1 ? fit[0] + sep : common}`;
 }
 
-function Form() {
+export function NewForm() {
   const go = useNavigate();
   // с какой машины или проекта пришли — в адресе страницы
   const [at] = useSearchParams();
@@ -73,14 +76,13 @@ function Form() {
   const [cwd, setCwdRaw] = useState(preset?.cwd ?? (!preset?.machine && firstPlace ? firstPlace.cwd : ""));
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [more, setMore] = useState(false);
   const [pieces, setPieces] = useState<string[] | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [effort, setEffort] = useState<string | null>(null);
   const [mode, setMode] = useState("all");
   const [account, setAccount] = useState("auto");
   const [fast, setFast] = useState(false);
-  const [thinking, setThinking] = useState(false);
+  const [thinking, setThinking] = useState(true);
   const [style, setStyle] = useState("");
   const [backup, setBackup] = useState(true);
   const [pair, setPair] = useState(false);
@@ -102,7 +104,12 @@ function Form() {
   // подпапки, имя которых начинается с набранного; папки с таким именем нет — её можно создать
   const sub = (inside.data?.dirs ?? []).filter((d) => d.toLowerCase().startsWith(leaf.toLowerCase()) && d !== leaf).slice(0, 8);
   const missing = !!leaf && !!inside.data && inside.data.path === parent && !inside.data.dirs.includes(leaf);
-  const picked = pieces ?? piecesFor(sessions, machine, cwd);
+  // кусочка соседней сессии на машине может уже не быть: в выбор идут только те, что машина отдала
+  const picked = (pieces ?? piecesFor(sessions, machine, cwd)).filter((id) => !list.data || list.data.pieces.some((p) => p.id === id && p.ok));
+  // что выбранный набор ставит сам — видно в полях ниже до открытия сессии
+  const view = useCall(profileView, machine && picked.length ? { to: "@" + machine, pieces: picked } : null);
+  const given = picked.length ? (view.data?.settings ?? {}) : {};
+  const from = (key: string, none: string) => (given[key] ? `${String(given[key]!.value)} — из кусочков` : none);
   const finalName = name || freeName(nameOf(cwd), machine, sessions);
   // на машине нет ни входа Claude, ни ключа флота — сессии не на чем идти
   const noAccount = !!accounts.data && !accounts.data.accounts.some((a) => a.ok);
@@ -111,7 +118,7 @@ function Form() {
     setBusy(true);
     const r = await act(sessionOpen, {
       to: "@" + machine,
-      spec: { name: finalName, cwd, ...(model ? { model } : {}), ...(effort ? { effort: effort as never } : {}), mode: mode as never, account, pieces: picked, backup, ...(fast ? { fast: true } : {}), ...(thinking ? { thinking: true } : {}), ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
+      spec: { name: finalName, cwd, ...(model ? { model } : {}), ...(effort ? { effort: effort as never } : {}), mode: mode as never, account, pieces: picked, backup, ...(fast ? { fast: true } : {}), thinking, ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
       ...(prompt.trim() ? { prompt: prompt.trim() } : {}), ...(missing ? { mkdir: true } : {}), ...(pair ? { pair: true } : {}), ...(number ? { number: true } : {}), ...(resume.trim() ? { resume: resume.trim(), ...(fork ? { fork: true } : {}) } : {}),
     });
     setBusy(false);
@@ -147,36 +154,36 @@ function Form() {
           {sub.map((d) => <Button key={d} size="compact-xs" variant="default" className="mono" onClick={() => setCwd(`${parent}${/[\\/]$/.test(parent) ? "" : "/"}${d}`)}>{d}</Button>)}
         </Group>
       )}
-      <Button variant="subtle" size="compact-xs" w="fit-content" onClick={() => setMore((m) => !m)} aria-expanded={more}>{more ? "Скрыть настройки" : "Модель, аккаунт, кусочки, проект"}</Button>
-      <Collapse expanded={more}>
-        <Stack gap="sm">
-          <Group gap="sm" grow>
-            <Select label="Модель" placeholder="по умолчанию" clearable data={MODELS.map(([value, label]) => ({ value, label }))} value={model} onChange={setModel} />
-            <Select label="Усилие" placeholder="как у модели" clearable data={EFFORTS.map(([value, label]) => ({ value, label }))} value={effort} onChange={setEffort} />
-            <Select label="Режим" data={MODES.map(([value, label]) => ({ value, label }))} value={mode} onChange={(v) => v && setMode(v)} allowDeselect={false} />
+      <div>
+        <Text size="sm" fw={500} mb={4}>Кусочки</Text>
+        <Chip.Group multiple value={picked} onChange={setPieces}>
+          <Group gap={6}>{byUse(list.data?.pieces ?? [], sessions).map((p) => <Chip key={p.id} value={p.id} size="xs" disabled={!p.ok} variant="outline" title={p.ok ? p.about : p.why}>{p.title ?? p.id}</Chip>)}</Group>
+        </Chip.Group>
+        {Object.keys(given).length > 0 && (
+          <Group gap={6} mt={6} aria-label="Что ставят кусочки">
+            {Object.entries(given).map(([k, w]) => <Badge key={k} variant="default" title={`из ${w.from}`}><span className="muted">{GIVEN[k] ?? k}</span> {String(w.value)}</Badge>)}
           </Group>
-          <Select label="Аккаунт" data={[{ value: "auto", label: "авто — по лимитам" }, ...(accounts.data?.accounts ?? []).map((a) => ({ value: a.id, label: a.kind === "key" ? `ключ ${a.id}${a.model ? ` · ${a.model}` : ""}` : a.id, disabled: !a.ok }))]} value={account} onChange={(v) => v && setAccount(v)} allowDeselect={false} />
-          <div>
-            <Text size="sm" fw={500} mb={4}>Кусочки</Text>
-            <Chip.Group multiple value={picked} onChange={setPieces}>
-              <Group gap={6}>{byUse(list.data?.pieces ?? [], sessions).map((p) => <Chip key={p.id} value={p.id} size="xs" disabled={!p.ok} variant="outline">{p.title ?? p.id}</Chip>)}</Group>
-            </Chip.Group>
-          </div>
-          <Select label="Проект" clearable data={(people.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={project} onChange={setProject} />
-          <Group gap="lg">
-            <Switch label="Быстрый режим" checked={fast} onChange={(e) => setFast(e.currentTarget.checked)} />
-            <Switch label="Всегда размышлять" checked={thinking} onChange={(e) => setThinking(e.currentTarget.checked)} />
-            <Switch label="Сохранять точки в архив" checked={backup} onChange={(e) => setBackup(e.currentTarget.checked)} />
-            <Switch label="С ведомым" checked={pair} onChange={(e) => setPair(e.currentTarget.checked)} />
-            <Switch label="Номер к имени" checked={number} onChange={(e) => setNumber(e.currentTarget.checked)} />
-          </Group>
-          <TextInput label="Стиль ответа" value={style} onChange={(e) => setStyle(e.currentTarget.value)} />
-          <Group gap="sm" align="end" wrap="nowrap">
-            <TextInput label="Продолжить разговор с диска машины" placeholder="номер разговора" className="mono" style={{ flex: 1 }} value={resume} onChange={(e) => setResume(e.currentTarget.value)} />
-            <Switch label="Копией" disabled={!resume.trim()} checked={fork} onChange={(e) => setFork(e.currentTarget.checked)} />
-          </Group>
-        </Stack>
-      </Collapse>
+        )}
+      </div>
+      <SimpleGrid cols={{ base: 1, xs: 2, md: 3 }} spacing="sm">
+        <Select label="Модель" placeholder={from("model", "по умолчанию")} clearable data={MODELS.map(([value, label]) => ({ value, label }))} value={model} onChange={setModel} />
+        <Select label="Усилие" placeholder={from("effortLevel", "как у модели")} clearable data={EFFORTS.map(([value, label]) => ({ value, label }))} value={effort} onChange={setEffort} />
+        <Select label="Режим" data={MODES.map(([value, label]) => ({ value, label }))} value={mode} onChange={(v) => v && setMode(v)} allowDeselect={false} />
+        <Select label="Аккаунт" data={[{ value: "auto", label: "авто — по лимитам" }, ...(accounts.data?.accounts ?? []).map((a) => ({ value: a.id, label: a.kind === "key" ? `ключ ${a.id}${a.model ? ` · ${a.model}` : ""}` : a.id, disabled: !a.ok }))]} value={account} onChange={(v) => v && setAccount(v)} allowDeselect={false} />
+        <Select label="Проект" placeholder="без проекта" clearable data={(people.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={project} onChange={setProject} />
+        <TextInput label="Стиль ответа" placeholder={from("outputStyle", "обычный")} value={style} onChange={(e) => setStyle(e.currentTarget.value)} />
+      </SimpleGrid>
+      <Group gap="lg">
+        <Switch label="Размышлять перед ответом" checked={thinking} onChange={(e) => setThinking(e.currentTarget.checked)} />
+        <Switch label="Быстрый режим" checked={fast} onChange={(e) => setFast(e.currentTarget.checked)} />
+        <Switch label="С ведомым" checked={pair} onChange={(e) => setPair(e.currentTarget.checked)} />
+        <Switch label="Сохранять точки в архив" checked={backup} onChange={(e) => setBackup(e.currentTarget.checked)} />
+        <Switch label="Номер к имени" checked={number} onChange={(e) => setNumber(e.currentTarget.checked)} />
+      </Group>
+      <Group gap="sm" align="end" wrap="nowrap">
+        <TextInput label="Продолжить разговор с диска машины" placeholder="номер разговора" className="mono" style={{ flex: 1 }} value={resume} onChange={(e) => setResume(e.currentTarget.value)} />
+        <Switch label="Копией" disabled={!resume.trim()} checked={fork} onChange={(e) => setFork(e.currentTarget.checked)} />
+      </Group>
       {noAccount && <Text size="sm" c="red" role="alert">На машине {machine} нет входа Claude и ключа флота: войдите в аккаунт во «Флоте».</Text>}
       <Group justify="space-between">
         <Text size="sm" className="mono muted">{finalName}{number ? "-N" : ""}@{machine}</Text>
@@ -193,5 +200,5 @@ export const newPath = (preset?: { machine?: string; project?: string } | null):
 };
 
 export function NewSession() {
-  return <RoutePage title="Новая сессия"><Form /></RoutePage>;
+  return <RoutePage title="Новая сессия"><NewForm /></RoutePage>;
 }
