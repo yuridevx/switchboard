@@ -246,7 +246,7 @@ export function make(): Module {
           s.input(body, { from, priority, uuid });
         }
         // сообщение — в ленту сразу: процесс свой ввод зрителям не повторяет; номер тот же, что будет у записи разговора
-        push(to, withPeer({ type: "user", uuid, from, message: { role: "user", content: body } }));
+        push(to, withPeer({ type: "user", uuid, from, at: Date.now(), message: { role: "user", content: body } }));
         lastUuid.set(to, uuid);
         // сессия занята — сообщение ждёт в очереди: его видно зрителям и его можно отменить
         const waits = s.state !== "idle";
@@ -339,6 +339,20 @@ export function make(): Module {
           if (!msg.uuid) msg = { ...msg, uuid: randomUUID() };
           if (after) merge(s, { ends: [...(part(s).ends ?? []), { after, event: Object.fromEntries(END_FIELDS.filter((f) => msg[f] !== undefined).map((f) => [f, msg[f]])) }].slice(-ENDS_MAX) });
         }
+        // сброс разговора: /clear говорит об этом сам, словами его называет Host; след отката встаёт в историю за последней оставшейся записью
+        if (msg?.type === "conversation_reset") {
+          if (!msg.uuid) msg = { ...msg, uuid: randomUUID() };
+          if (!msg.text) msg = { ...msg, text: "Разговор очищен" };
+          if (typeof msg.after === "string") {
+            merge(s, { ends: [...(part(s).ends ?? []), { after: msg.after, event: { type: msg.type, uuid: msg.uuid, text: msg.text, at: Date.now() } }].slice(-ENDS_MAX) });
+            lastUuid.set(cs, msg.after);
+          } else {
+            lastUuid.delete(cs);
+          }
+          recent.set(cs, []);
+        }
+        // у живого события своего времени нет — время машины: по нему страница считает, сколько идёт работа
+        if (msg && typeof msg === "object" && msg.at === undefined && msg.timestamp === undefined) msg = { ...msg, at: Date.now() };
         push(cs, msg);
         // ход взял сообщения из очереди
         const taken = (msg as { user_message_uuids?: unknown }).user_message_uuids;

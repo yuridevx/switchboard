@@ -485,20 +485,6 @@ export function createMock(o: MockOptions = {}) {
       void s;
       return out;
     },
-    "session.compact": (f) => {
-      const { c } = sess(f);
-      setRow(c, { compacting: true });
-      setTimeout(() => {
-        if (!sessions[c]) return;
-        setRow(c, { compacting: undefined, context: 0.12 });
-        emit(c, [
-          { type: "system", subtype: "compact_boundary", uuid: uid("cb"), compact_metadata: { trigger: "manual", pre_tokens: 68_000, post_tokens: 12_000 } } as Ev,
-          { type: "user", uuid: uid("cs"), isCompactSummary: true, timestamp: new Date(now()).toISOString(), message: { role: "user", content: "Summary:\nРазобрана причина: стили меню на узких экранах. Правка внесена в Header.tsx и header.css, тесты 6 из 6. Осталось: снять экран на 390 и приложить к итогу." } } as Ev,
-        ]);
-        tellLead(c, `Ведомый ${c} сжат: контекст 12%.`);
-      }, 2500);
-      return {};
-    },
     "machine.conversations": (f) => {
       mach(f);
       const here = Object.values(sessions).find((x) => x.spec.cwd === f.cwd && machineOf(x.callsign) === String(f.to).slice(1));
@@ -537,11 +523,18 @@ export function createMock(o: MockOptions = {}) {
       if (f.method === "hooks") return { hooks: [{ event: "PreToolUse", matcher: "Bash", displayText: "node .claude/hooks/gate.mjs" }, { event: "Stop", matcher: "", displayText: "node .claude/hooks/summary.mjs" }] };
       if (f.method === "permissionRules") return { state: { rules: [{ behavior: "allow", source: "projectSettings", rule: "Bash(npm run *)" }, { behavior: "deny", source: "userSettings", rule: "Read(~/secrets/**)" }, { behavior: "ask", source: "session", rule: "Bash(git push *)" }] } };
       if (f.method === "sideQuestion") return { response: `Коротко: «${String(args[0]).slice(0, 60)}» — да, это уже учтено в текущей правке; подробности будут в итоге хода.` };
-      if (f.method === "compact") return setRow(c, { compacting: true }), setTimeout(() => sessions[c] && setRow(c, { compacting: undefined, context: 0.12 }), 2500), {};
-      if (f.method === "rewindFiles") {
-        const a = args[0] ?? {};
-        if (typeof a.message !== "string" || !a.message) throw new Refusal("bad_input", "rewindFiles: args — { message: uuid сообщения, dryRun? }");
-        return { canRewind: true, filesChanged: a.dryRun ? ["src/components/Header.tsx", "src/components/MenuButton.tsx", "src/styles/header.css"] : [], insertions: 41, deletions: 17 };
+      if (f.method === "compact") {
+      setRow(c, { compacting: true });
+      setTimeout(() => {
+        if (!sessions[c]) return;
+        setRow(c, { compacting: undefined, context: 0.12 });
+        emit(c, [
+          { type: "system", subtype: "compact_boundary", uuid: uid("cb"), compact_metadata: { trigger: "manual", pre_tokens: 68_000, post_tokens: 12_000 } } as Ev,
+          { type: "user", uuid: uid("cs"), isCompactSummary: true, timestamp: new Date(now()).toISOString(), message: { role: "user", content: "Summary:\nРазобрана причина: стили меню на узких экранах. Правка внесена в Header.tsx и header.css, тесты 6 из 6. Осталось: снять экран на 390 и приложить к итогу." } } as Ev,
+        ]);
+        tellLead(c, `Ведомый ${c} сжат: контекст 12%.`);
+      }, 2500);
+      return {};
       }
       return {};
     },

@@ -11,6 +11,17 @@ const ACTION_WORDS: Record<string, string> = { "Разрешить": "allow", "�
 type Q = { question?: string; multiSelect?: boolean; header?: string; options?: Array<{ label?: string; description?: string }> };
 type Pending = { ask: Ask; settle(answer: unknown, by: string, via?: "push"): void };
 
+/** Правило, которое ляжет навсегда: «Bash(npm test)», режим или папки — одной строкой. */
+export function ruleOf(suggestions: unknown[] | undefined): string | undefined {
+  const line = ((suggestions ?? []) as Array<{ type?: string; mode?: string; directories?: string[]; rules?: Array<{ toolName?: string; ruleContent?: string }> }>)
+    .map((s) => (s.type === "setMode" ? `режим ${s.mode}` : s.type === "addDirectories" ? (s.directories ?? []).join(", ") : (s.rules ?? []).map((r) => (r.ruleContent ? `${r.toolName}(${r.ruleContent})` : String(r.toolName))).join(", ")))
+    .filter(Boolean)
+    .join("; ");
+  return line || undefined;
+}
+/** Почему Claude спросил: строка как есть или поле reason. */
+const reasonOf = (r: unknown): string | undefined => (typeof r === "string" && r ? r : typeof (r as { reason?: unknown })?.reason === "string" ? ((r as { reason: string }).reason || undefined) : undefined);
+
 const isHuman = (a: string) => kindOf(a) === "device" || kindOf(a) === "person";
 
 /** Вопрос дочери во вводе сессии-родителя. */
@@ -54,7 +65,7 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
       };
       const abort = () => {
         close();
-        feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, answer: "cancelled", at: Date.now() });
+        feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, q: ask, answer: "cancelled", at: Date.now() });
         resolve(cancelled);
       };
       signal.addEventListener("abort", abort);
@@ -64,7 +75,8 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
           close();
           host().log.info("answered", { callsign: cs, ask: ask.id, from: by, ...(via ? { via } : {}) });
           // итог вопроса — в ленту: кто ответил, чем и откуда (кнопкой уведомления — via: push)
-          feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, by, answer, ...(via ? { via } : {}), at: Date.now() });
+          // событие несёт сам вопрос: из него страница собирает карточку ответа
+          feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, q: ask, by, answer, ...(via ? { via } : {}), at: Date.now() });
           resolve(answered(answer, by));
         },
       });
@@ -95,6 +107,10 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
       id: opts.toolUseID, kind: plan ? "plan" : "permission", title: opts.title ?? opts.tool,
       text: plan ? String(input.plan ?? "") : (opts.description ?? opts.title ?? opts.tool),
       options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }], tool: opts.tool, input, at: Date.now(),
+      // что запишет «Разрешать всегда», какой путь задет и почему спросили — как это назвал сам Claude
+      ...(!plan && ruleOf(opts.suggestions) ? { rule: ruleOf(opts.suggestions) } : {}),
+      ...(opts.blockedPath ? { blocked: opts.blockedPath } : {}),
+      ...(reasonOf(opts.decisionReason) ? { notes: reasonOf(opts.decisionReason) } : {}),
     };
     return put<PermissionResult>(s, ask, opts.signal, (answer) => {
       // кнопка в уведомлении или в чате отвечает подписью — она значит то же действие

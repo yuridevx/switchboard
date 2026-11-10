@@ -102,13 +102,10 @@ describe("ядро: открытие и документ", () => {
     expect(st.sdk.last(CS)!.options).toMatchObject({ cwd: other, settings: { fastMode: true, outputStyle: "short", alwaysThinkingEnabled: false } });
   });
 
-  it("режим auto идёт в опции запуска; session.call: откат файлов к сообщению с пробой, расход, правила, сжатие; сведения — и у остановленной", async () => {
+  it("режим auto идёт в опции запуска; session.call: расход, правила, сжатие; сведения — и у остановленной", async () => {
     st = await stand();
     const { proc, q } = await st.open("site", { mode: "auto" });
     expect((q.options as any).permissionMode).toBe("auto");
-    expect((await st.request("session.call", { to: CS, method: "rewindFiles", args: { message: "u-7", dryRun: true } })).ok).toBe(true);
-    expect(q.calls.find((c) => c.name === "rewindFiles")!.args).toEqual(["u-7", { dryRun: true }]);
-    expect(await st.request("session.call", { to: CS, method: "rewindFiles", args: {} })).toMatchObject({ ok: false, error: "bad_input" });
     await st.request("session.call", { to: CS, method: "usage" });
     await st.request("session.call", { to: CS, method: "permissionRules" });
     expect(q.calls.map((c) => c.name)).toEqual(expect.arrayContaining([USAGE, "listPermissionRules"]));

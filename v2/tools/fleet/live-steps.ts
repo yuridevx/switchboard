@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   accountList, answer, CallError, createApi, fleetList, hostRestart, httpTransport, incidentList, incidentRaise, keeperState, machineMetrics, obsHealth, pointsDelete, pointsList, prefsGet, prefsSet,
-  sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionStart, sessionStop, sessionUpdate, shellInfo, shellRun, slotSet, slotSwap, type SessionRow,
+  sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellInfo, shellRun, slotSet, slotSwap, type SessionRow,
 } from "@sb/protocol";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
@@ -111,13 +111,13 @@ await step("остановка и старт: разговор возобнов�
 });
 
 /* Откат файлов */
-await step("откат файлов к сообщению: проба числа файлов", async () => {
+await step("откат к сообщению: показ без отката — сколько записей и файлов уйдёт", async () => {
   if (!asker) throw new Error("сессии нет");
   const h = await api.call(sessionHistory, { to: asker, limit: 100 });
   const first = h.events.find((e) => e.type === "user" && typeof (e as { message?: { content?: unknown } }).message?.content === "string" && e.uuid);
   if (!first?.uuid) throw new Error("нет сообщения человека с uuid");
-  const r = await api.call(sessionCall, { to: asker, method: "rewindFiles", args: { message: first.uuid, dryRun: true } });
-  return `ответ SDK: ${JSON.stringify(r).slice(0, 120)}`;
+  const r = await api.call(sessionRewind, { to: asker, upto: first.uuid, files: true, dry: true });
+  return `уйдёт записей ${r.cut}, файлов ${r.files?.length ?? 0}`;
 });
 
 /* Пара */

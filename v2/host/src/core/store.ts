@@ -11,6 +11,8 @@ export type CoreRecord = {
   /** папка на диске: spec.cwd глазами машины */
   cwd: string;
   sessionId: string;
+  /** откат: запись, до которой включительно разговор читается при запуске (resumeSessionAt); снимается первым ответом после отката */
+  upto?: string;
   sdk: string;
   stopped: boolean;
   state?: SessionState;

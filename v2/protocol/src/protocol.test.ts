@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { socketLink } from "./client.ts";
-import { accountList, contract, createApi, fail, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, sessionOpen, slotSet, slotSwap, Spec, z, type Transport } from "./index.ts";
+import { accountList, contract, createApi, fail, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, sessionOpen, slotSet, slotSwap, Spec, TOOL_METHODS, z, type Transport } from "./index.ts";
 
 describe("protocol", () => {
   it("адреса по форме; голое имя — не адрес", () => {
@@ -83,5 +83,13 @@ describe("инструменты: одна таблица для страниц�
     expect(accountList.output.safeParse({ accounts: [] }).success).toBe(false);
     expect(accountList.output.parse({ accounts: [], slots: [{ name: "main", order: ["a@b.c"], account: "a@b.c", sessions: 2 }] }).slots[0]).toEqual({ name: "main", order: ["a@b.c"], account: "a@b.c", sessions: 2 });
     expect(contract.tools().map((d) => d.name)).toEqual(expect.arrayContaining(["slot.set", "slot.swap"]));
+  });
+  it("ведущая управляет ведомым инструментами: откат и действия session.call из закрытого списка; отката файлов отдельным методом и запроса сжатия нет", () => {
+    const tools = contract.tools().map((d) => d.name);
+    expect(tools).toEqual(expect.arrayContaining(["session.rewind", "session.call", "machine.conversations"]));
+    expect(contract.request("session.compact")).toBeUndefined();
+    const call = contract.request("session.call")!;
+    expect(call.input.safeParse({ to: "a@b", method: "rewindFiles" }).success).toBe(false);
+    for (const method of TOOL_METHODS) expect(call.input.safeParse({ to: "a@b", method }).success).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 // Разговор сессии: шапка — только кто это и чем занят; лента; над полем ввода — дела и «Идут сейчас»; под полем — документ сессии и все действия значками.
 // Рядом — инспектор (ширина тянется) или второй разговор пары; у пары шапка одна на обоих участников.
-import { accountList, prefsSet, profileList, sessionCall, sessionCompact, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, type SessionRow } from "@sb/protocol";
+import { accountList, prefsSet, profileList, sessionCall, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, type SessionRow } from "@sb/protocol";
 import { ActionIcon, Button, Checkbox, Group, Loader, Menu, MultiSelect, SegmentedControl, Select, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { useSplit } from "../lib/Split.tsx";
 import { Page } from "../shell/Page.tsx";
@@ -119,7 +119,7 @@ function CtxRing({ s }: { s: SessionRow }) {
   const word = s.compacting ? "Сжимаю контекст" : `Контекст ${pct}% · сжать`;
   return (
     <Tooltip label={word}>
-      <button type="button" className={`ctxring${pct >= 85 ? " bad" : pct >= 65 ? " warn" : ""}`} aria-label={word} disabled={!!s.compacting} onClick={() => act(sessionCompact, { to: s.callsign })}>
+      <button type="button" className={`ctxring${pct >= 85 ? " bad" : pct >= 65 ? " warn" : ""}`} aria-label={word} disabled={!!s.compacting} onClick={() => act(sessionCall, { to: s.callsign, method: "compact" })}>
         <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
           <circle cx="9" cy="9" r={r} className="track" />
           <circle cx="9" cy="9" r={r} className="arc" strokeDasharray={s.compacting ? "2.5 3" : `${(c * pct) / 100} ${c}`} transform="rotate(-90 9 9)" />
@@ -277,12 +277,13 @@ function Rewind({ s, upto, onDone }: { s: SessionRow; upto: string; onDone(text?
   const d = dry.data;
   return (
     <Stack gap="sm">
-      <SegmentedControl value={what} onChange={(v) => setWhat(v as "talk" | "both")} data={[{ value: "talk", label: "Только разговор" }, { value: "both", label: "Разговор и файлы" }]} aria-label="Что откатить" />
+      <SegmentedControl value={what} onChange={(v) => setWhat(v as "talk" | "both")} data={[{ value: "talk", label: "Только разговор" }, { value: "both", label: "Разговор и файлы", disabled: !!dry.data?.nofiles }]} aria-label="Что откатить" />
       {dry.error ? <Failed error={dry.error} /> : !d ? <Loader size="sm" /> : (
         <>
           {d.text && <div className="me" style={{ alignSelf: "stretch", maxWidth: "none" }}><Text size="sm" className="clamp2">{d.text}</Text></div>}
           <Text size="sm">Из разговора уйдёт записей: <b>{d.cut}</b>{d.text ? " — это сообщение и всё после него. Его текст вернётся в поле ввода." : "."}</Text>
           {midTurn && <Text size="sm" c="orange" role="note">Текущий ход прервётся</Text>}
+          {d.nofiles && <Text size="sm" role="note">Файлы к этому сообщению не вернуть: {d.nofiles}</Text>}
           {files && (
             <div className="card" style={{ gap: 2 }}>
               <Text size="sm" fw={600}>Файлы вернутся к состоянию до этого сообщения · <span style={{ color: "var(--st-idle)" }}>+{d.plus ?? 0}</span> <span style={{ color: "var(--st-failed)" }}>−{d.minus ?? 0}</span></Text>

@@ -159,16 +159,18 @@ export const sessionRemove = request("session.remove", {
 });
 
 /** Проход к методам SDK живой сессии: один список методов — здесь.
- *  rewindFiles — args { message: uuid сообщения человека, dryRun? }: с dryRun только считает, сколько файлов изменится.
  *  compact — сжать контекст сейчас; permissionRules — правила разрешений сессии; renameSession — args: заголовок;
  *  cancelMessage — args { uuid }: отменить своё сообщение, пока ход его не взял (то же, что message.cancel). */
 export const SDK_METHODS = [
   "interrupt", "contextUsage", "commands", "models", "agents", "mcpStatus", "mcpToggle", "mcpReconnect", "mcpAuthenticate",
-  "rewindFiles", "tasks", "taskStop", "taskOutput", "reload", "sideQuestion", "cancelMessage", "status", "hooks",
+  "tasks", "taskStop", "taskOutput", "reload", "sideQuestion", "cancelMessage", "status", "hooks",
   "usage", "renameSession", "getSessionInfo", "permissionRules", "compact",
 ] as const;
+/** Методы, которые сессия зовёт у другой сессии инструментом: остальные — только страница. */
+export const TOOL_METHODS = ["interrupt", "compact", "reload", "mcpStatus", "mcpReconnect", "mcpToggle", "contextUsage", "status"] as const;
 export const sessionCall = request("session.call", {
   owner: "host", target: "session",
+  tool: "Действие над живой сессией: method — interrupt (прервать ход), compact (сжать разговор), reload (перечитать скилы, агентов и серверы плагинов), mcpStatus (серверы MCP), mcpReconnect (args: имя сервера), mcpToggle (args: [имя сервера, включён]), contextUsage (занятость контекста), status (состояние).",
   input: z.object({ to: Callsign, method: z.enum(SDK_METHODS), args: z.unknown().optional() }),
   output: z.unknown(),
 });
@@ -229,17 +231,14 @@ export const sessionWatch = request("session.watch", {
 export const sessionUnwatch = request("session.unwatch", { owner: "host-chat", target: "session", input: toSession, output: Done });
 
 /** «Прочитано»: человек дочитал сессию — пометка снимается у него на всех устройствах. */
-/** Откат разговора. upto — uuid сообщения человека: оно и всё после него уходит; без upto — разговор начинается заново.
+/** Откат разговора в той же сессии. upto — uuid сообщения человека или задачи от сессии: оно и всё после него уходит; без upto — разговор начинается заново.
  *  files — вернуть и файлы к тому же моменту; dry — только посчитать. text — текст ушедшего сообщения: страница кладёт его в поле ввода. */
 export const sessionRewind = request("session.rewind", {
   owner: "host", target: "session",
   tool: "Откатить разговор сессии к сообщению человека: upto — uuid этого сообщения, оно и всё после него уходит; без upto — разговор начинается заново. files: true — вернуть и файлы к тому же моменту. dry: true — только показать, что уйдёт.",
   input: z.object({ to: Callsign, upto: z.string().optional(), files: z.boolean().optional(), dry: z.boolean().optional() }),
-  output: z.object({ cut: z.number(), text: z.string().optional(), files: z.array(z.string()).optional(), plus: z.number().optional(), minus: z.number().optional() }),
-});
-export const sessionCompact = request("session.compact", {
-  owner: "host", target: "session", tool: "Сжать разговор сессии: история заменяется сводкой, место в контексте освобождается.",
-  input: toSession, output: Done,
+  /** nofiles — у показа: почему файлы к этому сообщению не вернуть (снимка нет); откат с файлами тогда отказывает словом */
+  output: z.object({ cut: z.number(), text: z.string().optional(), files: z.array(z.string()).optional(), plus: z.number().optional(), minus: z.number().optional(), nofiles: z.string().optional() }),
 });
 export const sessionRead = request("session.read", { owner: "host-chat", target: "session", input: toSession, output: Done });
 

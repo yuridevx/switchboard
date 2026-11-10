@@ -1,5 +1,7 @@
 // Запросы ядра о сессиях: открыть, изменить документ, остановить, запустить, убрать, список, проход к SDK. Родитель и пара — здесь.
-import { kindOf, ledgerAdd, message, messageCancel, Refusal, sessionName, sessionRemove, sessionStart, sessionStop, type Spec, type SpecPatch } from "@sb/protocol";
+import { randomUUID } from "node:crypto";
+import { kindOf, ledgerAdd, message, messageCancel, Refusal, sessionName, sessionRemove, sessionStart, sessionStop, TOOL_METHODS, type Spec, type SpecPatch } from "@sb/protocol";
+import { tildePath } from "./paths.ts";
 import type { Ctx, Module, SessionApi } from "./contract.ts";
 import { FLAGS, MODES, type Kernel } from "./kernel.ts";
 import { quiet, type Session } from "./session.ts";
@@ -12,7 +14,7 @@ const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
 const SDK: Record<string, string> = {
   interrupt: "interrupt", contextUsage: "getContextUsage", commands: "supportedCommands", models: "supportedModels", agents: "supportedAgents",
   mcpStatus: "mcpServerStatus", mcpToggle: "toggleMcpServer", mcpReconnect: "reconnectMcpServer", mcpAuthenticate: "mcpAuthenticate",
-  rewindFiles: "rewindFiles", tasks: "backgroundTasks", taskStop: "stopTask", taskOutput: "getTaskOutput", sideQuestion: "askSideQuestion",
+  tasks: "backgroundTasks", taskStop: "stopTask", taskOutput: "getTaskOutput", sideQuestion: "askSideQuestion",
   cancelMessage: "cancelAsyncMessage", status: "getStatus", hooks: "getHooksListing",
   usage: USAGE, renameSession: "renameSession", getSessionInfo: "getSessionInfo", permissionRules: "listPermissionRules",
 };
@@ -20,6 +22,17 @@ const SDK: Record<string, string> = {
 const OFFLINE = new Set(["renameSession", "getSessionInfo"]);
 /** Предел шага перечитывания: как ступень остановки сессии. */
 const RELOAD_MS = 30_000;
+/** Предел шага отката: как ступень остановки сессии. */
+const REWIND_MS = 30_000;
+type Said = { uuid?: string; type?: string; parent_tool_use_id?: string | null; message?: { content?: unknown } };
+/** Сообщение, к которому можно откатить: реплика человека или задача от сессии, а не ответ инструмента. */
+const spoken = (m: Said) => m.type === "user" && !(Array.isArray(m.message?.content) && (m.message!.content as Array<{ type?: string }>).some((b) => b.type === "tool_result"));
+/** Текст реплики человека; задача от сессии приходит в обёртке — её в поле ввода не возвращают. */
+function humanText(m: Said): string | undefined {
+  const c = m.message?.content;
+  const text = typeof c === "string" ? c : Array.isArray(c) ? (c as Array<{ type?: string; text?: string }>).filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n") : "";
+  return text && !text.startsWith("<") ? text : undefined;
+}
 /** Имя ведомого пары. */
 const wingName = (lead: string) => `${sessionName(lead)}-wing`;
 
@@ -172,7 +185,69 @@ export function coreModule(k: Kernel): Module {
       return {};
     },
 
-    async "session.call"({ to, method, args }: { to: string; method: string; args?: unknown }) {
+    /** Откат разговора в той же сессии: показать → прервать ход → файлы → перезапуск на обрезанном разговоре → сказать. Без upto — /clear самого Claude. */
+    async "session.rewind"({ to, upto, files, dry }: { to: string; upto?: string; files?: boolean; dry?: boolean }) {
+      const s = session(to);
+      const api = s.facade(self);
+      if (!live(api)) throw new Refusal("stopped", `session.rewind ${to}: сессия ${api.state}`);
+      const step = <T>(name: string, ...a: unknown[]) =>
+        Promise.race([sdk(api, name, ...a) as Promise<T>, new Promise<T>((_, rej) => setTimeout(() => rej(new Refusal("sdk_error", `${to}: ${name} — Claude не ответил за ${REWIND_MS / 1000} с`)), REWIND_MS).unref())]);
+      const said = ((await step<Said[]>("getSessionMessages", { includeSystemMessages: true })) ?? []).filter((m) => !m.parent_tool_use_id);
+      const at = upto ? said.findIndex((m) => m.uuid === upto) : 0;
+      if (at < 0) throw new Refusal("not_found", `session.rewind ${to}: сообщения ${upto} в разговоре нет`);
+      if (upto && !spoken(said[at]!)) throw new Refusal("bad_input", `session.rewind ${to}: ${upto} — не сообщение, а ответ инструмента`);
+      const text = upto ? humanText(said[at]!) : undefined;
+      const cut = said.slice(at).filter((m) => m.type !== "system").length;
+      type Back = { canRewind?: boolean; error?: string; filesChanged?: string[]; insertions?: number; deletions?: number };
+      const back = async (dryRun: boolean): Promise<Back> => {
+        const r = (await step<Back>("rewindFiles", upto, { dryRun })) ?? {};
+        if (r.canRewind === false) throw new Refusal("no_checkpoint", `session.rewind ${to}: файлы к этому сообщению не вернуть — ${r.error ?? "снимка нет"}`);
+        return r;
+      };
+      // показ не отказывает из-за файлов: разговор откатить можно и без них — причина уходит в ответ
+      const probe = upto && files ? await step<Back>("rewindFiles", upto, { dryRun: true }).then((r) => r ?? {}) : undefined;
+      if (probe?.canRewind === false && !dry) throw new Refusal("no_checkpoint", `session.rewind ${to}: файлы к этому сообщению не вернуть — ${probe.error ?? "снимка нет"}`);
+      const changed = probe && probe.canRewind !== false ? probe : undefined;
+      const out = { cut, ...(text ? { text } : {}), ...(probe?.canRewind === false ? { nofiles: probe.error ?? "снимка файлов нет" } : {}), ...(changed ? { files: (changed.filesChanged ?? []).map((f) => tildePath(f)), plus: changed.insertions ?? 0, minus: changed.deletions ?? 0 } : {}) };
+      if (dry) return out;
+      if (!(await s.halt())) throw new Refusal("busy", `session.rewind ${to}: ход не прервался за ${REWIND_MS / 1000} с — откат не начат`);
+      if (changed) await back(false);
+      const kept = upto && at > 0 ? said.slice(0, at).filter((m) => m.type !== "system").at(-1)?.uuid : undefined;
+      if (!kept) {
+        // очистка и откат к первому сообщению: разговор начинается заново командой самого Claude — событие сброса придёт от него
+        api.input("/clear", { priority: "now" });
+        tellLead(s, `Ведомый ${to} очищен: разговор начат заново.`);
+        return out;
+      }
+      try {
+        await s.rewind(kept);
+      } catch (e) {
+        throw new Refusal("open_failed", `session.rewind ${to}: ${(e as Error).message}`);
+      }
+      const words = `Откат к ${text ? `«${text.slice(0, 60)}»` : "полученной задаче"}${changed ? ` · файлы возвращены: ${changed.filesChanged?.length ?? 0}` : ""}`;
+      // след отката — в ленту и в историю: встаёт за последней оставшейся записью
+      s.tell({ type: "conversation_reset", uuid: randomUUID(), after: kept, text: words });
+      tellLead(s, `Ведомый ${to} откачен${text ? ` к сообщению «${text.slice(0, 60)}»` : " к полученной задаче"}: ушло записей — ${cut}${changed ? ", файлы возвращены" : ""}.`);
+      k.log.info("rewind", { callsign: to, cut, files: !!changed });
+      return out;
+    },
+
+    /** Разговоры папки на диске машины: что можно продолжить новой сессией и какой из них ведёт сессия. */
+    async "machine.conversations"({ cwd }: { cwd: string }) {
+      const dir = k.folder(cwd);
+      const list = ((await Promise.race([
+        k.sdk.functions.listSessions!({ dir }),
+        new Promise((_, rej) => setTimeout(() => rej(new Refusal("sdk_error", `machine.conversations ${cwd}: список не получен за ${REWIND_MS / 1000} с`)), REWIND_MS).unref()),
+      ])) ?? []) as Array<{ sessionId: string; summary?: string; customTitle?: string; firstPrompt?: string; lastModified: number; fileSize?: number }>;
+      const held = new Map([...k.sessions.values()].map((x) => [x.rec.sessionId, x.callsign]));
+      return {
+        conversations: list
+          .sort((a, b) => b.lastModified - a.lastModified)
+          .map((c) => ({ id: c.sessionId, title: c.customTitle ?? c.firstPrompt ?? c.summary ?? "", at: c.lastModified, size: c.fileSize ?? 0, ...(held.has(c.sessionId) ? { live: held.get(c.sessionId)! } : {}) })),
+      };
+    },
+
+    async "session.call"({ to, method, args }: { to: string; method: string; args?: unknown }, ctx) {
       const s = session(to).facade(self);
       if (!live(s) && !OFFLINE.has(method)) throw new Refusal("stopped", `session.call ${to}: ${method} — сессия ${s.state}`);
       const list = args === undefined ? [] : Array.isArray(args) ? args : [args];
@@ -184,16 +259,12 @@ export function coreModule(k: Kernel): Module {
         await Promise.all(mcpServers.filter((m) => m.name.startsWith("plugin:") && m.status === "connected").map((m) => step("reconnectMcpServer", m.name)));
         return {};
       }
+      // сессия зовёт у другой сессии только действия из закрытого списка
+      if (kindOf(ctx.from) === "session" && !(TOOL_METHODS as readonly string[]).includes(method)) throw new Refusal("forbidden", `session.call ${to}: ${method} — сессии доступны ${TOOL_METHODS.join(", ")}`);
       if (method === "compact") {
         // сжатие — команда самого Claude: идёт вводом, как её набрал бы человек
         s.input("/compact", { priority: "next" });
         return {};
-      }
-      if (method === "rewindFiles") {
-        // откат файлов — к сообщению человека по его uuid; dryRun только считает, что изменится
-        const a = (list[0] ?? {}) as { message?: unknown; dryRun?: unknown };
-        if (typeof a.message !== "string" || !a.message) throw new Refusal("bad_input", "rewindFiles: args — { message: uuid сообщения, dryRun? }");
-        return sdk(s, "rewindFiles", a.message, { dryRun: a.dryRun === true });
       }
       if (method === "cancelMessage") {
         // отмена сообщения из очереди: args — { uuid } или сам номер. Очередь ведёт модуль разговора — отмена идёт его запросом
@@ -244,6 +315,13 @@ export function coreModule(k: Kernel): Module {
   self.on = {
     // режим сменили в самой сессии — документ следует за ней
     event(s, m) {
+      // ведущая узнаёт, что ведомого сжали
+      if (m?.type === "system" && m.subtype === "compact_boundary") {
+        const wing = k.sessions.get(s.callsign);
+        const meta = (m.compact_metadata ?? m.compactMetadata ?? {}) as { pre_tokens?: number; post_tokens?: number; preTokens?: number; postTokens?: number };
+        const pre = meta.pre_tokens ?? meta.preTokens, post = meta.post_tokens ?? meta.postTokens;
+        if (wing) tellLead(wing, `Ведомый ${s.callsign} сжат${pre ? `: ${Math.round(pre / 1000)} К${post ? ` → ${Math.round(post / 1000)} К` : ""} токенов` : ""}.`);
+      }
       const mode = (m as { permissionMode?: string }).permissionMode;
       if (!mode) return;
       const name = Object.keys(MODES).find((key) => MODES[key] === mode);
@@ -251,6 +329,14 @@ export function coreModule(k: Kernel): Module {
       if (!name || !rec || (rec.spec.mode ?? "all") === name) return;
       rec.spec = { ...rec.spec, mode: name as Spec["mode"] };
       k.save();
+    },
+    // ведущая узнаёт, что ведомый ждёт человека; вопрос самой ведущей уже пришёл ей вопросом
+    asked(view, ask) {
+      const s = k.sessions.get(view.callsign);
+      if (!s) return;
+      const lead = [...k.sessions.values()].find((x) => x.rec.spec.wing === s.callsign);
+      if (!lead || (ask.kind === "question" && ask.to === lead.callsign)) return;
+      tellLead(s, `Ведомый ${s.callsign} ждёт ответа человека: ${ask.kind === "question" ? "вопрос" : ask.kind === "plan" ? "план" : ask.kind === "permission" ? "разрешение" : "форма сервера"} — ${(ask.title ?? ask.text).slice(0, 120)}.`);
     },
     state(view, state, was) {
       const s = k.sessions.get(view.callsign);

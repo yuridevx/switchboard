@@ -48,6 +48,8 @@ export class Session {
   private turnEnds: Array<() => void> = [];
   private changed: Array<() => void> = [];
   private sent = "";
+  /** номер вопроса, о котором модули уже знают */
+  private asked: string | undefined;
   private views = new Map<Module, SessionApi>();
 
   constructor(k: Kernel, rec: CoreRecord) {
@@ -112,6 +114,12 @@ export class Session {
   sync(): void {
     if (this.k.sessions.get(this.callsign) !== this) return;
     const r = this.row();
+    // новый вопрос в строке — модулям: ядро зовёт ведущую
+    const ask = r.ask ?? undefined;
+    if (ask?.id !== this.asked) {
+      this.asked = ask?.id;
+      if (ask) this.k.each(this, "on.asked", (mod, view) => mod.on?.asked?.(view, ask));
+    }
     const text = JSON.stringify(r);
     if (text === this.sent) return;
     this.sent = text;
@@ -183,7 +191,7 @@ export class Session {
     const { sessionId: id, fork } = this.rec;
     if (kind === "spawn") return { start: kind, options: { sessionId: id, ...(this.rec.title ? { title: this.rec.title } : {}) } };
     if (kind === "fork") return { start: kind, options: { resume: fork, forkSession: true, sessionId: id } };
-    if (kind === "attach" || (await within(this.k.clock, this.k.sdk.functions.getSessionInfo!(id), STEP_MS, () => undefined))) return { start: kind, options: { resume: id } };
+    if (kind === "attach" || (await within(this.k.clock, this.k.sdk.functions.getSessionInfo!(id), STEP_MS, () => undefined))) return { start: kind, options: { resume: id, ...(kind !== "attach" && this.rec.upto ? { resumeSessionAt: this.rec.upto } : {}) } };
     return this.plan(fork ? "fork" : "spawn");
   }
 
@@ -279,6 +287,17 @@ export class Session {
         this.k.save();
       }
     }
+    // /clear и подобное: разговор сессии теперь другой
+    if (m.type === "conversation_reset" && typeof m.new_conversation_id === "string") {
+      this.rec.sessionId = m.new_conversation_id;
+      this.rec.upto = undefined;
+      this.k.save();
+    }
+    // после отката разговор пошёл дальше: новая ветка — последняя, обрезать при запуске больше нечего
+    if (this.rec.upto && m.type === "assistant") {
+      this.rec.upto = undefined;
+      this.k.save();
+    }
     if (m.type === "result") {
       if (typeof m.result === "string") this.result = m.result;
       this.turnEnded();
@@ -371,6 +390,29 @@ export class Session {
     }
     this.setState("stopped");
     this.k.log.info("stop", { callsign: this.callsign });
+  }
+
+  /** Прервать идущий ход и дождаться его конца; false — не кончился за предел ступени. */
+  async halt(): Promise<boolean> {
+    const run = this.run;
+    if (!run || !isBusy(this.state)) return true;
+    const ended = this.turn(STEP_MS);
+    void Promise.resolve(run.q.interrupt()).catch(() => {});
+    return ended;
+  }
+
+  /** Откат разговора до записи at включительно: процесс снимается и поднимается на том же разговоре — его обрезает SDK при запуске. */
+  async rewind(at: string): Promise<void> {
+    const run = this.run;
+    this.rec.upto = at;
+    this.k.save();
+    if (run) await this.shut(run, isBusy(this.state));
+    await this.launch("resume");
+  }
+
+  /** Событие ядра в ленту сессии — той же дорогой, что события процесса. */
+  tell(m: Record<string, unknown>): void {
+    this.k.each(this, "on.event", (mod, view) => mod.on?.event?.(view, m));
   }
 
   async start(): Promise<void> {

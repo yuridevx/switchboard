@@ -1,5 +1,5 @@
 // Договор ядра с модулями Host: что модуль отдаёт ядру и что ядро даёт модулю.
-import type { Frame, InputOf, Logger, OutputOf, RequestDef, SessionRow, SessionState, Spec } from "@sb/protocol";
+import type { Ask, Frame, InputOf, Logger, OutputOf, RequestDef, SessionRow, SessionState, Spec } from "@sb/protocol";
 import type { Meter } from "./meter.ts";
 
 /** Хранилище раздела: значение таким, каким его прочтёт следующий Host. */
@@ -77,6 +77,8 @@ export interface Module {
     /** сообщение SDK */
     event?(s: SessionApi, m: any): void;
     state?(s: SessionApi, state: SessionState, was: SessionState): void | Promise<void>;
+    /** в строке сессии появился вопрос */
+    asked?(s: SessionApi, ask: Ask): void;
     /** сессии больше нет */
     removed?(callsign: string): void;
     /** кадр «изменилось» от служб: что именно — ключи флота, настройка флота по имени */

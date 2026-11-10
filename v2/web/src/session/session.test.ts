@@ -245,8 +245,6 @@ describe("мок отвечает в формах Host", () => {
     expect((await call("mcpStatus") as any[]).map((s) => s.status)).toEqual(["connected", "connected", "needs-auth", "failed"]);
     await call("mcpToggle", ["playwright", false]);
     expect((await call("mcpStatus") as any[])[1]).toEqual({ name: "playwright", status: "disabled" });
-    await expect(call("rewindFiles")).rejects.toMatchObject({ word: "bad_input" });
-    expect(await call("rewindFiles", { message: "u1", dryRun: true })).toMatchObject({ canRewind: true, filesChanged: expect.arrayContaining(["src/components/Header.tsx"]) });
     expect(await call("sideQuestion", ["а тесты?"])).toMatchObject({ response: expect.stringContaining("а тесты?") });
   });
 });
