@@ -50,7 +50,7 @@ async function feed(env: Env, deps: Deps, n: PointNote): Promise<number> {
     await ch(env, f, CREATE);
     created = true;
   }
-  const rows = calls.map((c) => JSON.stringify({ fleet: n.fleet, machine: n.machine, owner, sid: n.sid, callsign: session?.callsign ?? "", project: session?.project ?? "", ...c }));
+  const rows = calls.map((c) => JSON.stringify({ fleet: n.fleet, machine: n.machine, owner, sid: n.sid, callsign: session?.callsign ?? "", project: session?.project ?? "", ...c, at: c.at / 1000 })); // ClickHouse читает число как секунды: время вызова у нас в миллисекундах
   await ch(env, f, `INSERT INTO ${TABLE} FORMAT JSONEachRow`, rows.join("\n"));
   return rows.length;
 }

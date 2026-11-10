@@ -15,6 +15,7 @@ import { lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { createHashRouter, Navigate, RouterProvider } from "react-router";
 import { api } from "./api.ts";
+import { Boundary } from "./common.tsx";
 import { onOpenFromPush } from "./lib/push.ts";
 import { Inbox } from "./screens/Inbox.tsx";
 import { Work } from "./screens/Work.tsx";
@@ -64,7 +65,9 @@ let sent = 0;
 setInterval(() => (sent = 0), 60_000);
 const report = (msg: string, stack?: string) => {
   if (sent++ >= 5 || !api) return;
-  api.call(obsReport, { part: "web", level: "error", msg: msg.slice(0, 500), ...(stack ? { stack: stack.slice(0, 4000) } : {}) }).catch(() => {});
+  // где это случилось: экран, приложение с экрана «Домой» или вкладка, браузер — без этого ошибку с телефона не разобрать
+  const where = `${location.hash.split("?")[0] || "#/"} · ${window.matchMedia?.("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone ? "с экрана Домой" : "вкладка"} · ${navigator.userAgent.replace("Mozilla/5.0 ", "").slice(0, 110)}`;
+  api.call(obsReport, { part: "web", level: "error", msg: `${msg.slice(0, 380)} · ${where}`, ...(stack ? { stack: stack.slice(0, 4000) } : {}) }).catch(() => {});
 };
 // у ошибки без текста сообщение события — голое «Uncaught»: тогда берём имя и текст самой ошибки
 const errorText = (message: string, error?: { name?: string; message?: string }) => (error?.message ? `${error.name ?? "Error"}: ${error.message}` : message.replace(/^Uncaught\s*/, "") || "ошибка без текста");
@@ -77,7 +80,14 @@ const isConsent = location.pathname.replace(/\/+$/, "") === "/consent";
 
 const lacks = browserLacks();
 
-createRoot(document.getElementById("root")!).render(
+// Ошибка отрисовки вне границ экранов: React отдаёт её сюда с местом в дереве; без этого браузер показывает безымянную «Script error.»
+const said = (e: unknown) => (e instanceof Error ? `${e.name}: ${e.message}` : String(e));
+createRoot(document.getElementById("root")!, {
+  onUncaughtError: (e, info) => report("отрисовка: " + said(e), `${e instanceof Error ? e.stack : ""}
+${info.componentStack ?? ""}`),
+  onCaughtError: (e, info) => report("экран: " + said(e), `${e instanceof Error ? e.stack : ""}
+${info.componentStack ?? ""}`),
+}).render(
   lacks.length ? (
     <MantineProvider theme={theme} defaultColorScheme="auto">
       <div className="hole" role="alert" style={{ height: "100dvh", flexDirection: "column", gap: 8, padding: 24, textAlign: "center" }}>
@@ -90,7 +100,7 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={qc}>
       <ModalsProvider>
         <Notifications position="bottom-right" />
-        <Gate>{isConsent ? <Consent /> : <RouterProvider router={router} />}</Gate>
+        <Boundary name="Страница"><Gate>{isConsent ? <Consent /> : <RouterProvider router={router} />}</Gate></Boundary>
       </ModalsProvider>
     </QueryClientProvider>
   </MantineProvider>
