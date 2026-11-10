@@ -61,7 +61,7 @@ export function iter2Handlers(c: MockCtx, base: H): H {
     // лимиты с временем замера: старше часа подписаны «от ЧЧ:ММ»; вход с датой окончания
     "account.list": (f) => {
       const r = base["account.list"]!(f) as { accounts: Array<{ limits?: Array<Record<string, unknown>>; kind: string; expires?: number }> };
-      return { accounts: r.accounts.map((a, i) => ({ ...a, ...(a.kind === "claude" ? { expires: now() + (20 + i) * 24 * 60 * MIN } : { models: { fast: "orca/flash", smart: "orca/glm" } }), limits: a.limits?.map((l, j) => ({ ...l, at: now() - (j ? 95 : 4) * MIN })) })) };
+      return { ...r, accounts: r.accounts.map((a, i) => ({ ...a, ...(a.kind === "claude" ? { expires: now() + (20 + i) * 24 * 60 * MIN } : { models: { fast: "orca/flash", smart: "orca/glm" } }), limits: a.limits?.map((l, j) => ({ ...l, at: now() - (j ? 95 : 4) * MIN })) })) };
     },
   };
 }

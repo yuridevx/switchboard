@@ -1,13 +1,13 @@
 // Живые сценарии флота поверх своих тестовых сессий: node tools/fleet/live-steps.ts <флот> <устройство> <машина> [вторая машина]
 // Вопрос сессии и ответ (режим ask), пара, остановка и старт, откат файлов, скрипт на машине, обращение (инцидент), перезапуск Host
-// с сохранением сессий. Сессии открываются на ключе флота deepseek и убираются за собой. Шаг, которому нужна более новая сборка
+// с сохранением сессий, очереди аккаунтов. Сессии открываются на ключе флота muse и убираются за собой. Шаг, которому нужна более новая сборка
 // на машине, помечается «ждёт выкладки» и сбоем не считается.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  answer, CallError, createApi, fleetList, hostRestart, httpTransport, incidentList, incidentRaise, keeperState, machineMetrics, obsHealth, pointsDelete, pointsList, prefsGet, prefsSet,
-  sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionStart, sessionStop, sessionUpdate, shellInfo, shellRun, type SessionRow,
+  accountList, answer, CallError, createApi, fleetList, hostRestart, httpTransport, incidentList, incidentRaise, keeperState, machineMetrics, obsHealth, pointsDelete, pointsList, prefsGet, prefsSet,
+  sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionStart, sessionStop, sessionUpdate, shellInfo, shellRun, slotSet, slotSwap, type SessionRow,
 } from "@sb/protocol";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
@@ -15,7 +15,8 @@ const env = Object.fromEntries(fs.readFileSync(path.join(dir, "v2-fleet.env"), "
 const [fleet = "test", device = "cli", machine = "devbox", second = ""] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
 const api = createApi(httpTransport({ base: env.SB2_BASE!, key }));
-const ACCOUNT = "deepseek";
+/** Ключ флота тестовых сессий. */
+const SEAT = "muse";
 
 let bad = 0, waits = 0;
 const made: string[] = [];
@@ -50,7 +51,7 @@ async function until<T>(what: string, fn: () => Promise<T | undefined | false | 
 }
 const tmp = (m: string) => (m === "wsl" ? "/tmp/sb2-live-steps" : "C:/Users/" + os.userInfo().username + "/AppData/Local/Temp/sb2-live-steps");
 async function open(name: string, m: string, extra: Record<string, unknown> = {}, prompt?: string): Promise<string> {
-  const r = await api.call(sessionOpen, { to: "@" + m, spec: { name, cwd: tmp(m), account: ACCOUNT, ...extra } as never, mkdir: true, number: true, ...(prompt ? { prompt } : {}) });
+  const r = await api.call(sessionOpen, { to: "@" + m, spec: { name, cwd: tmp(m), slot: SEAT, ...extra } as never, mkdir: true, number: true, ...(prompt ? { prompt } : {}) });
   made.push(r.callsign);
   return r.callsign;
 }
@@ -136,7 +137,7 @@ await step("пара: ведомый открыт вместе с ведущим
 await step("обращение: вид из настроек флота открывает сессию; обращение видно в списке", async () => {
   const kinds = ((await api.call(prefsGet, { scope: "fleet", prefix: "incidents.kinds" })).values["incidents.kinds"] ?? {}) as Record<string, unknown>;
   const kind = "live-" + tag;
-  await api.call(prefsSet, { scope: "fleet", name: "incidents.kinds", value: { ...kinds, [kind]: { cwd: tmp(machine), account: ACCOUNT, prompt: "Это проверка: ответь одним словом «принято»." } } });
+  await api.call(prefsSet, { scope: "fleet", name: "incidents.kinds", value: { ...kinds, [kind]: { cwd: tmp(machine), slot: SEAT, prompt: "Это проверка: ответь одним словом «принято»." } } });
   try {
     await sleep(3000); // Host перечитывает настройку по кадру «изменилось»
     const r = await api.call(incidentRaise, { to: "@" + machine, kind, key: "k1", text: "живая проверка обращения " + tag });
@@ -187,6 +188,69 @@ await step("числа Host: машина отвечает на запрос, с
   if (!mine) later("служба наблюдения ещё не получала числа Host этой машины");
   return `сессий ${Object.values(now.sessions).reduce((a, b) => a + b, 0)}, очередь ${now.queue}; в сводке — окно от ${new Date(mine!.at).toISOString().slice(11, 19)}`;
 });
+
+/* Очереди аккаунтов: несколько именованных очередей на машине */
+{
+  const queue = "live-" + tag;
+  const word = async (fn: () => Promise<unknown>): Promise<string> => fn().then(() => "ok", (e) => (e instanceof CallError ? `${e.word}: ${e.why ?? ""}` : Promise.reject(e)));
+  const slots = async () => (await api.call(accountList, { to: "@" + machine })).slots;
+  let login = "", held = "";
+  await step("очереди: вторая очередь на машине — у каждой свой порядок и тот, кто стоит сейчас", async () => {
+    const list = await api.call(accountList, { to: "@" + machine });
+    login = list.accounts.find((a) => a.kind === "claude" && a.ok)?.id ?? "";
+    if (!login) later(`на ${machine} нет входа Claude — очередь не из кого завести`);
+    if (!list.slots.some((q) => q.name === "main")) throw new Error("очереди main нет: " + list.slots.map((q) => q.name).join(", "));
+    await api.call(slotSet, { to: "@" + machine, slot: queue, order: [login] });
+    const now = await slots();
+    const mine = now.find((q) => q.name === queue);
+    if (!mine || mine.account !== login || mine.order.join() !== login) throw new Error("новая очередь: " + JSON.stringify(mine));
+    return now.map((q) => `${q.name} → ${q.account ?? "пусто"}`).join(" · ");
+  });
+  await step("очереди: сессия во второй очереди идёт на её аккаунте; имя очереди — в документе", async () => {
+    if (!login) later("нет входа Claude");
+    const r = await api.call(sessionOpen, { to: "@" + machine, spec: { name: "q" + tag, cwd: tmp(machine), slot: queue } as never, mkdir: true });
+    held = r.callsign;
+    made.push(held);
+    const row = await until("строка сессии с аккаунтом очереди", async () => { const x = await rowOf(held); return x?.account === login ? x : undefined; }, 60_000);
+    if (row.spec.slot !== queue) throw new Error("в документе очередь " + row.spec.slot);
+    const mine = (await slots()).find((q) => q.name === queue);
+    if (mine?.sessions !== 1) throw new Error("на очереди сессий: " + mine?.sessions);
+    return `${held}: slot ${row.spec.slot}, идёт на ${row.account}`;
+  });
+  await step("очереди: открытие без названной очереди при двух — отказ slot_required с их именами; почта вместо очереди — no_slot", async () => {
+    if (!login) later("нет входа Claude");
+    const none = await word(() => api.call(sessionOpen, { to: "@" + machine, spec: { name: "qn" + tag, cwd: tmp(machine) } as never }));
+    if (!none.startsWith("slot_required") || !none.includes("main") || !none.includes(queue)) throw new Error("без очереди: " + none);
+    const mail = await word(() => api.call(sessionOpen, { to: "@" + machine, spec: { name: "qm" + tag, cwd: tmp(machine), slot: login } as never }));
+    if (!mail.startsWith("no_slot")) throw new Error("почта вместо очереди: " + mail);
+    return `${none.split(":")[0]} · ${mail.split(":")[0]}`;
+  });
+  await step("очереди: «Сменить сейчас» идёт в названную очередь и другую не трогает; неизвестная очередь — no_slot", async () => {
+    if (!login) later("нет входа Claude");
+    const before = (await slots()).find((q) => q.name === "main")?.account;
+    // вход на машине один: запаса в очереди нет — отказ приходит от названной очереди
+    const swap = await word(() => api.call(slotSwap, { to: "@" + machine, slot: queue }));
+    if (!swap.startsWith("no_reserve") || !swap.includes(queue)) throw new Error("смена в очереди без запаса: " + swap);
+    const ghost = await word(() => api.call(slotSwap, { to: "@" + machine, slot: "nope-" + tag }));
+    if (!ghost.startsWith("no_slot")) throw new Error("неизвестная очередь: " + ghost);
+    const after = (await slots()).find((q) => q.name === "main")?.account;
+    if (after !== before) throw new Error(`main сменилась: ${before} → ${after}`);
+    return `${queue}: no_reserve · main осталась на ${after}`;
+  });
+  await step("очереди: очередь с сессией не удаляется; без сессий пустой порядок убирает её", async () => {
+    if (!login) later("нет входа Claude");
+    const busy = await word(() => api.call(slotSet, { to: "@" + machine, slot: queue, order: [] }));
+    if (!busy.startsWith("has_sessions")) throw new Error("удаление очереди с сессией: " + busy);
+    await api.call(sessionRemove, { to: held });
+    await until("сессия убрана", async () => !(await rowOf(held)), 60_000);
+    await api.call(slotSet, { to: "@" + machine, slot: queue, order: [] });
+    const left = (await slots()).map((q) => q.name);
+    if (left.includes(queue)) throw new Error("очередь осталась: " + left.join(", "));
+    return `осталось: ${left.join(", ")}`;
+  });
+  // сбой посреди шагов не оставляет очередь на машине
+  if (login) await api.call(slotSet, { to: "@" + machine, slot: queue, order: [] }).catch(() => {});
+}
 
 /* Перезапуск Host с сохранением сессий */
 await step("перезапуск Host: процесс новый, сессии на месте", async () => {

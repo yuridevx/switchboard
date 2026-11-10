@@ -81,7 +81,7 @@ export function iter4Handlers(c: MockCtx, base: H): H {
     // время замера — и у аккаунта целиком: Host называет его одним числом на опрос
     "account.list": (f) => {
       const r = base["account.list"]!(f) as { accounts: Array<Record<string, any>> };
-      return { accounts: r.accounts.map((a) => (a.kind === "claude" ? { ...a, at: Math.max(0, ...(a.limits ?? []).map((l: { at?: number }) => l.at ?? 0)) || now() } : a)) };
+      return { ...r, accounts: r.accounts.map((a) => (a.kind === "claude" ? { ...a, at: Math.max(0, ...(a.limits ?? []).map((l: { at?: number }) => l.at ?? 0)) || now() } : a)) };
     },
   };
 }

@@ -33,7 +33,7 @@ export function pairRows(lead: SessionRow, wing: SessionRow): Array<[string, str
   return [
     row("Состояние", (s) => (s.compacting ? "сжимает контекст" : (s.doing ?? STATE_WORD[s.state]))),
     row("Модель", (s) => s.spec.model ?? "по умолчанию"),
-    row("Аккаунт", (s) => s.account ?? accountWord(s.spec.account)),
+    row("Очередь", (s) => accountWord(s.spec.slot) + (s.account && s.account !== s.spec.slot ? ` · ${s.account}` : "")),
     row("Кусочки", (s) => (s.spec.pieces ?? []).join(", ") || "нет"),
     row("Папка", (s) => s.spec.cwd),
     row("Открыта", (s) => ago(s.since)),
@@ -62,7 +62,8 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
   const later = useLater(s);
   const labels = useLabels();
   const mine = accounts.data?.accounts.find((a) => a.id === s.account || a.email === s.account);
-  const auto = (s.spec.account ?? "auto") === "auto";
+  // сессия стоит на очереди машины, а не на ключе флота
+  const auto = !!accounts.data?.slots.some((q) => q.name === s.spec.slot);
   const qc = useQueryClient();
   return (
     <Stack gap="sm" p="md">
@@ -97,10 +98,10 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
         {s.incident && <><dt>Разбирает</dt><dd>{s.incident.kind} · <span className="mono">{s.incident.key}</span></dd></>}
         {/* у пары кусочки, аккаунт и срок стоят в её двух колонках выше */}
         {!other && <><dt>Кусочки</dt><dd>{(s.spec.pieces ?? []).join(", ") || "нет"}</dd></>}
-        {!other ? <><dt>Аккаунт</dt><dd>{s.account ?? accountWord(s.spec.account)}{mine?.plan ? ` · ${mine.plan}` : ""}</dd></> : mine?.plan ? <><dt>План</dt><dd>{mine.plan}</dd></> : null}
+        {!other ? <><dt>Очередь</dt><dd><span className="mono">{accountWord(s.spec.slot)}</span>{s.account && s.account !== s.spec.slot ? ` · ${s.account}` : ""}{mine?.plan ? ` · ${mine.plan}` : ""}</dd></> : mine?.plan ? <><dt>План</dt><dd>{mine.plan}</dd></> : null}
         {(mine?.limits ?? []).map((l) => <span key={l.name} style={{ display: "contents" }}><dt>{LIMIT_NAMES[l.name] ?? l.name}</dt><dd style={l.used >= 0.9 ? { color: "var(--st-failed)" } : l.used >= 0.7 ? { color: "var(--st-waiting)" } : undefined}>{Math.round(l.used * 100)}%{l.resets ? ` · сброс ${day(l.resets)}, ${hhmm(l.resets)}` : ""}</dd></span>)}
       </dl>
-      {auto && !off && <Button size="xs" variant="default" w="fit-content" onClick={async () => (await act(slotSwap, { to: "@" + machine }, "Аккаунт очереди сменён")) && qc.invalidateQueries({ queryKey: ["account.list"] })}>Сменить аккаунт сейчас</Button>}
+      {auto && !off && <Button size="xs" variant="default" w="fit-content" onClick={async () => (await act(slotSwap, { to: "@" + machine, slot: s.spec.slot ?? "" }, "Аккаунт очереди сменён")) && qc.invalidateQueries({ queryKey: ["account.list"] })}>Сменить аккаунт сейчас</Button>}
     </Stack>
   );
 }

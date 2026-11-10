@@ -119,7 +119,7 @@ describe("ключи флота: свойства и сессии", () => {
     const s = stand();
     await s.ask("keys.set", { name: "orca", provider: "anthropic", value: "sk-orca-9999" });
     const row = (callsign: string, extra: Partial<SessionRow>): SessionRow => ({ callsign, state: "idle", spec: { name: callsign.split("@")[0]!, cwd: "~" }, by: "~yuri@example.com", since: 1, ...extra });
-    s.state.sessions = [row("a@laptop", { account: "orca" }), row("b@server", { spec: { name: "b", cwd: "~", account: "orca" } }), row("c@laptop", { account: "yuri@example.com" })];
+    s.state.sessions = [row("a@laptop", { account: "orca" }), row("b@server", { spec: { name: "b", cwd: "~", slot: "orca" } }), row("c@laptop", { account: "yuri@example.com" })];
     expect((await list(s))[0]!.sessions).toBe(2);
     expect((await s.ask("keys.remove", { name: "orca", probe: true })).result).toEqual({ sessions: ["a@laptop", "b@server"] });
     expect(await list(s)).toHaveLength(1);

@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
-import { accountKey, bulkOrder, diverge, limitWord, machineOrder, mergeAccounts } from "../lib/accounts.ts";
+import { diverge, dropFromQueues, limitWord, machineOrder, mergeAccounts } from "../lib/accounts.ts";
 import { setLocal } from "../lib/local.ts";
 import { buildsLink } from "../lib/pending.ts";
 import { createMock, type Mock } from "../mock/fleet.ts";
@@ -125,11 +125,11 @@ describe("аккаунты", () => {
     expect(drift.length).toBe(2);
     expect(diverge(m({ laptop: [acc("a@b.c")] }))).toEqual([]);
   });
-  it("очередь пачкой: убрать аккаунт из очередей всех машин и вернуть; машины без изменений не трогаются", () => {
-    const by = { laptop: [acc("a@b.c", { slot: 0 }), acc("c@d.e", { slot: 1 })], server: [acc("c@d.e", { slot: 0 }), acc("a@b.c")] };
-    expect(bulkOrder(by, [accountKey(acc("a@b.c"))], false)).toEqual({ laptop: ["c@d.e"] });
-    expect(bulkOrder(by, [accountKey(acc("a@b.c"))], true)).toEqual({ server: ["c@d.e", "a@b.c"] });
-    expect(bulkOrder(by, ["claude:nobody"], false)).toEqual({});
+  it("убрать аккаунт из всех очередей всех машин; очереди без него не трогаются", () => {
+    const q = (name: string, order: string[]) => ({ name, order, sessions: 0 });
+    const slots = { laptop: [q("main", ["a@b.c", "c@d.e"]), q("night", ["c@d.e"])], server: [q("main", ["c@d.e", "a@b.c"])] };
+    expect(dropFromQueues(slots, ["a@b.c"])).toEqual([{ machine: "laptop", slot: "main", order: ["c@d.e"] }, { machine: "server", slot: "main", order: ["c@d.e"] }]);
+    expect(dropFromQueues(slots, ["nobody"])).toEqual([]);
   });
   it("машины со сбойным входом — первыми; мок отдаёт лимиты с временем замера и срок входа", async () => {
     expect(machineOrder({ a: [acc("x")], b: [acc("y", { ok: false })], c: [acc("z")] })).toEqual(["b", "a", "c"]);

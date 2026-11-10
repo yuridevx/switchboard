@@ -136,7 +136,7 @@ const callsign = name + "@wsl";
 let askMsg = null;
 await r.step("вопрос сессии приходит в личный чат кнопками", async () => {
   const last = (await c2.getMessages(bot, { limit: 1 }))[0]?.id ?? 0;
-  must(await call("session.open", { to: "@wsl", spec: { name, cwd: "/tmp", account: "deepseek", mode: "ask" }, prompt: `Создай файл /tmp/${name}.txt со словом ok. Больше ничего не делай.` }, asTester), "session.open");
+  must(await call("session.open", { to: "@wsl", spec: { name, cwd: "/tmp", slot: "muse", mode: "ask" }, prompt: `Создай файл /tmp/${name}.txt со словом ok. Больше ничего не делай.` }, asTester), "session.open");
   await waitRow(callsign, (s) => s.state === "waiting" && s.ask);
   askMsg = await waitMessage(c2, bot, (m) => !m.out && m.replyMarkup?.rows?.length, { after: last, ms: 40_000 });
   if (!askMsg) throw new Error("сообщения с кнопками нет");

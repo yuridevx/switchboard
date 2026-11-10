@@ -206,7 +206,7 @@ describe("аналитика в стороне", () => {
 describe("архив: документ сессии", () => {
   it("документ, с которым сессия сохранялась, отдаётся с точкой — с ним её поднимают", async () => {
     const s = await stand();
-    const spec = { name: "site", cwd: "~/p", account: "deepseek", pieces: ["base"], model: "m" };
+    const spec = { name: "site", cwd: "~/p", slot: "deepseek", pieces: ["base"], model: "m" };
     const p = await pointOf("s-spec", "документ");
     const first = (await s.ask("points.put", { ...p.put, spec }, "klaptop")).result as { upload: Record<string, string>; done: boolean };
     for (const [i, h] of p.hashes.entries()) if (first.upload[h]) await s.env.FILES.put(blockKey(s.fleet, "laptop", h), await gzip(p.parts[i]!));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { socketLink } from "./client.ts";
-import { contract, createApi, fail, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, sessionOpen, Spec, z, type Transport } from "./index.ts";
+import { accountList, contract, createApi, fail, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, sessionOpen, slotSet, slotSwap, Spec, z, type Transport } from "./index.ts";
 
 describe("protocol", () => {
   it("адреса по форме; голое имя — не адрес", () => {
@@ -71,5 +71,17 @@ describe("инструменты: одна таблица для страниц�
     made[1]!.on.close!({});
     expect(states).toEqual(["connecting", "open", "open", "closed"]);
     link.close();
+  });
+  it("очереди аккаунтов: очередь сессии — поле slot её документа; slot.set и slot.swap называют очередь; account.list отдаёт очереди", () => {
+    expect(Spec.parse({ name: "site", cwd: "~/p", slot: "review" }).slot).toBe("review");
+    // закрепления за аккаунтом в документе нет: такого ключа схема не знает
+    expect("account" in Spec.parse({ name: "site", cwd: "~/p", account: "a@b.c" })).toBe(false);
+    expect(slotSet.input.safeParse({ to: "@laptop", order: ["a@b.c"] }).success).toBe(false);
+    expect(slotSet.input.safeParse({ to: "@laptop", slot: "review", order: [] }).success).toBe(true);
+    expect(slotSwap.input.safeParse({ to: "@laptop" }).success).toBe(false);
+    expect(slotSwap.input.safeParse({ to: "@laptop", slot: "main", account: "a@b.c" }).success).toBe(true);
+    expect(accountList.output.safeParse({ accounts: [] }).success).toBe(false);
+    expect(accountList.output.parse({ accounts: [], slots: [{ name: "main", order: ["a@b.c"], account: "a@b.c", sessions: 2 }] }).slots[0]).toEqual({ name: "main", order: ["a@b.c"], account: "a@b.c", sessions: 2 });
+    expect(contract.tools().map((d) => d.name)).toEqual(expect.arrayContaining(["slot.set", "slot.swap"]));
   });
 });

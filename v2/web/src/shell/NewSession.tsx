@@ -7,6 +7,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { act, sayError } from "../api.ts";
 import { EFFORTS, MODELS, MODES, useCall, useMyPrefs } from "../common.tsx";
 import { RoutePage } from "./Page.tsx";
+import { seatOptions } from "../lib/accounts.ts";
 import { useFleet } from "../store/fleet.ts";
 
 export const nameOf = (cwd: string) => (cwd.split(/[\\/]/).filter(Boolean).pop() ?? "session").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "session";
@@ -80,7 +81,7 @@ export function NewForm() {
   const [model, setModel] = useState<string | null>(null);
   const [effort, setEffort] = useState<string | null>(null);
   const [mode, setMode] = useState("all");
-  const [account, setAccount] = useState("auto");
+  const [seat, setSeat] = useState<string | null>(null);
   const [fast, setFast] = useState(false);
   const [thinking, setThinking] = useState(true);
   const [style, setStyle] = useState("");
@@ -91,7 +92,7 @@ export function NewForm() {
   const [number, setNumber] = useState(false);
   const [project, setProject] = useState<string | null>(preset?.project ?? null);
   const [busy, setBusy] = useState(false);
-  const setCwd = (v: string) => (setCwdRaw(v), setPieces(null));
+  const setCwd = (v: string) => (setCwdRaw(v), setPieces(null), setSeat(null));
   const { parent, leaf } = splitPath(cwd);
   const dirs = useCall(machineDirs, machine ? { to: "@" + machine } : null);
   const inside = useCall(machineDirs, machine && parent ? { to: "@" + machine, path: parent } : null);
@@ -112,13 +113,16 @@ export function NewForm() {
   const from = (key: string, none: string) => (given[key] ? `${String(given[key]!.value)} — из кусочков` : none);
   const finalName = name || freeName(nameOf(cwd), machine, sessions);
   // на машине нет ни входа Claude, ни ключа флота — сессии не на чем идти
-  const noAccount = !!accounts.data && !accounts.data.accounts.some((a) => a.ok);
+  const seats = seatOptions(accounts.data);
+  // очередь новой сессии: выбранная, иначе первая годная очередь машины, иначе первый годный ключ
+  const account = seat && seats.some((o) => o.value === seat && !o.disabled) ? seat : (seats.find((o) => !o.disabled)?.value ?? "");
+  const noAccount = !!accounts.data && !account;
   const start = async () => {
     if (!machine || !cwd) return;
     setBusy(true);
     const r = await act(sessionOpen, {
       to: "@" + machine,
-      spec: { name: finalName, cwd, ...(model ? { model } : {}), ...(effort ? { effort: effort as never } : {}), mode: mode as never, account, pieces: picked, backup, ...(fast ? { fast: true } : {}), thinking, ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
+      spec: { name: finalName, cwd, ...(model ? { model } : {}), ...(effort ? { effort: effort as never } : {}), mode: mode as never, slot: account, pieces: picked, backup, ...(fast ? { fast: true } : {}), thinking, ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
       ...(prompt.trim() ? { prompt: prompt.trim() } : {}), ...(missing ? { mkdir: true } : {}), ...(pair ? { pair: true } : {}), ...(number ? { number: true } : {}), ...(resume.trim() ? { resume: resume.trim(), ...(fork ? { fork: true } : {}) } : {}),
     });
     setBusy(false);
@@ -169,7 +173,7 @@ export function NewForm() {
         <Select label="Модель" placeholder={from("model", "по умолчанию")} clearable data={MODELS.map(([value, label]) => ({ value, label }))} value={model} onChange={setModel} />
         <Select label="Усилие" placeholder={from("effortLevel", "как у модели")} clearable data={EFFORTS.map(([value, label]) => ({ value, label }))} value={effort} onChange={setEffort} />
         <Select label="Режим" data={MODES.map(([value, label]) => ({ value, label }))} value={mode} onChange={(v) => v && setMode(v)} allowDeselect={false} />
-        <Select label="Аккаунт" data={[{ value: "auto", label: "авто — по лимитам" }, ...(accounts.data?.accounts ?? []).map((a) => ({ value: a.id, label: a.kind === "key" ? `ключ ${a.id}${a.model ? ` · ${a.model}` : ""}` : a.id, disabled: !a.ok }))]} value={account} onChange={(v) => v && setAccount(v)} allowDeselect={false} />
+        <Select label="Очередь аккаунтов" data={seats} value={account || null} onChange={(v) => v && setSeat(v)} allowDeselect={false} />
         <Select label="Проект" placeholder="без проекта" clearable data={(people.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={project} onChange={setProject} />
         <TextInput label="Стиль ответа" placeholder={from("outputStyle", "обычный")} value={style} onChange={(e) => setStyle(e.currentTarget.value)} />
       </SimpleGrid>
@@ -184,7 +188,7 @@ export function NewForm() {
         <TextInput label="Продолжить разговор с диска машины" placeholder="номер разговора" className="mono" style={{ flex: 1 }} value={resume} onChange={(e) => setResume(e.currentTarget.value)} />
         <Switch label="Копией" disabled={!resume.trim()} checked={fork} onChange={(e) => setFork(e.currentTarget.checked)} />
       </Group>
-      {noAccount && <Text size="sm" c="red" role="alert">На машине {machine} нет входа Claude и ключа флота: войдите в аккаунт во «Флоте».</Text>}
+      {noAccount && <Text size="sm" c="red" role="alert">На машине {machine} нет очереди аккаунтов и ключа флота: войдите в аккаунт во «Флоте».</Text>}
       <Group justify="space-between">
         <Text size="sm" className="mono muted">{finalName}{number ? "-N" : ""}@{machine}</Text>
         <Button loading={busy} disabled={!machine || !cwd || noAccount} onClick={start}>{missing ? "Создать папку и открыть" : prompt.trim() ? "Открыть и отправить" : "Открыть сессию"}</Button>

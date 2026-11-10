@@ -4,6 +4,7 @@ import { Button, Group, SegmentedControl, Select, Stack, Text, TextInput } from 
 import { useState } from "react";
 import { api, sayError } from "../../api.ts";
 import { useCall, useMachineName } from "../../common.tsx";
+import { seatOptions } from "../../lib/accounts.ts";
 import { nFiles } from "../../lib/time.ts";
 import { useFleet } from "../../store/fleet.ts";
 
@@ -28,7 +29,7 @@ export function checkWord(c: Check, files: "keep" | "point"): { word: string; ba
 
 /** Ввод points.raise по виду действия. Перенос живой сессии идёт без точки: прежняя машина снимает свежую. */
 export function raiseInput(kind: RaiseKind, s: ArchSession, f: { machine: string; name: string; cwd: string; account: string; files: "keep" | "point"; point?: string }): InputOf<typeof pointsRaise> {
-  const base = { to: "@" + f.machine, sid: s.sid, files: f.files, ...(f.cwd && f.cwd !== s.cwd ? { cwd: f.cwd } : {}), ...(f.account && f.account !== "auto" ? { account: f.account } : {}) };
+  const base = { to: "@" + f.machine, sid: s.sid, files: f.files, ...(f.cwd && f.cwd !== s.cwd ? { cwd: f.cwd } : {}), ...(f.account ? { slot: f.account } : {}) };
   if (kind === "rollback") return { to: "@" + s.machine, sid: s.sid, files: f.files, ...(f.point ? { point: f.point } : {}) };
   if (kind === "move") return { ...base, move: true };
   if (kind === "copy") return { ...base, name: f.name, ...(f.point ? { point: f.point } : {}) };
@@ -60,12 +61,14 @@ export function Raise({ kind, s, point, onDone, onClose }: { kind: RaiseKind; s:
   const [machine, setMachine] = useState<string | null>(kind === "rollback" ? s.machine : targets.includes(s.machine) && kind !== "move" ? s.machine : targets[0] ?? null);
   const [name, setName] = useState(kind === "copy" ? base + "-copy" : base);
   const [cwd, setCwd] = useState(s.cwd ?? "");
-  const [account, setAccount] = useState("auto");
+  const [picked, setAccount] = useState<string | null>(null);
   const [files, setFiles] = useState<"keep" | "point">("point");
   const [check, setCheck] = useState<Check | null>(null);
   const [steps, setSteps] = useState<Step[] | null>(null);
   const [why, setWhy] = useState("");
   const accounts = useCall(accountList, machine && kind !== "rollback" ? { to: "@" + machine } : null);
+  const seats = seatOptions(accounts.data);
+  const account = picked && seats.some((o) => o.value === picked && !o.disabled) ? picked : (seats.find((o) => !o.disabled)?.value ?? "");
   const form = { machine: machine ?? "", name, cwd, account, files, point };
   const running = !!live && live.state !== "stopped" && live.state !== "failed";
   const probe = async () => {
@@ -115,7 +118,7 @@ export function Raise({ kind, s, point, onDone, onClose }: { kind: RaiseKind; s:
         : <Select label="Машина" data={targets.map((m) => ({ value: m, label: nameOf(m) + (m === s.machine ? " · здесь была" : near.includes(m) ? " · проект уже здесь" : "") }))} value={machine} onChange={(m) => (setMachine(m), setCheck(null))} allowDeselect={false} error={!targets.length ? "Других машин на связи нет" : undefined} />}
       {(kind === "copy" || kind === "raise") && <TextInput label="Имя сессии" className="mono" value={name} onChange={(e) => setName(e.currentTarget.value.toLowerCase())} error={badName ? "латиница, цифры, дефис" : undefined} />}
       {kind !== "rollback" && <TextInput label="Папка" className="mono" value={cwd} onChange={(e) => (setCwd(e.currentTarget.value), setCheck(null))} />}
-      {kind !== "rollback" && <Select label="Аккаунт" data={[{ value: "auto", label: "авто — по очереди машины" }, ...(accounts.data?.accounts ?? []).filter((a) => a.ok).map((a) => ({ value: a.id, label: a.email ?? a.id }))]} value={account} onChange={(v) => setAccount(v ?? "auto")} allowDeselect={false} />}
+      {kind !== "rollback" && <Select label="Очередь аккаунтов" data={seats} value={account || null} onChange={(v) => setAccount(v)} allowDeselect={false} />}
       <SegmentedControl value={files} onChange={(v) => (setFiles(v as "keep" | "point"), setCheck(null))} data={[{ value: "point", label: "Файлы папки — как в точке" }, { value: "keep", label: "Файлы не трогать" }]} aria-label="Что делать с файлами папки" />
       {said && <Text size="sm" c={said.bad ? "red" : undefined}>{said.word}</Text>}
       {why && <Text size="sm" c="red">{why}</Text>}

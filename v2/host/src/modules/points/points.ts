@@ -234,7 +234,7 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
   /** Поднять сессию из точки: откат на месте, копия или перенос — один путь: проверка → блоки → папка и файлы → сессия.
    *  dryRun — только проверка папки. files: keep — файлы папки не трогаются, встаёт только разговор.
    *  Перенос: прежняя машина снимает свежую точку и останавливает сессию; поднялась здесь — убирает её у себя, не поднялась — запускает снова. */
-  async function raise({ sid, point, name, cwd, move, files: mode = "point", dryRun, account, expect }: { sid: string; point?: string; name?: string; cwd?: string; move?: boolean; files?: "keep" | "point"; dryRun?: boolean; account?: string; expect?: string }, ctx: Ctx) {
+  async function raise({ sid, point, name, cwd, move, files: mode = "point", dryRun, slot, expect }: { sid: string; point?: string; name?: string; cwd?: string; move?: boolean; files?: "keep" | "point"; dryRun?: boolean; slot?: string; expect?: string }, ctx: Ctx) {
     // перенос решает хозяин сессии: архив сверяет человека, начавшего его; expect — в архиве та точка, которую человек видел
     let got = await host.call(pointsGet, { sid, ...(point ? { point } : {}), ...(expect ? { expect } : {}), ...(move ? { move: true } : {}), by: ctx.from });
     const origin = got.session.callsign;
@@ -253,7 +253,7 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
       }
     }
     try {
-      return await bringUp(got, { name, cwd, move, mode, dryRun, account }, ctx);
+      return await bringUp(got, { name, cwd, move, mode, dryRun, slot }, ctx);
     } catch (e) {
       // не поднялась — прежняя машина запускает сессию снова
       if (released) await host.call(sessionStart, { to: origin }, { from: ctx.from, trace: ctx.trace }).catch((x: unknown) => ctx.log.warn("raise_return", { callsign: origin, why: (x as Error).message }));
@@ -261,7 +261,7 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
     }
   }
 
-  async function bringUp(got: Awaited<ReturnType<typeof host.call<typeof pointsGet>>>, { name, cwd, move, mode, dryRun, account }: { name?: string; cwd?: string; move?: boolean; mode: "keep" | "point"; dryRun?: boolean; account?: string }, ctx: Ctx) {
+  async function bringUp(got: Awaited<ReturnType<typeof host.call<typeof pointsGet>>>, { name, cwd, move, mode, dryRun, slot }: { name?: string; cwd?: string; move?: boolean; mode: "keep" | "point"; dryRun?: boolean; slot?: string }, ctx: Ctx) {
     const sid = got.session.sid;
     const where = cwd ?? got.session.cwd;
     const dir = where ? clientPath(where, homedir()) : null;
@@ -290,7 +290,7 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
     // перенос — тот же разговор продолжает здесь; копия — новый разговор от файла точки
     // документ — тот, с каким сессия сохранялась: кусочки, модель, режим, аккаунт; пара и родитель остаются на прежнем месте
     const { wing: _wing, parent: _parent, ...kept } = got.session.spec ?? ({} as Partial<Spec>);
-    const spec: Spec = { ...kept, name: name ?? sessionName(got.session.callsign) ?? basename(dir), cwd: tildePath(dir, homedir()), backup: true, ...(got.session.project ? { project: got.session.project } : {}), ...(account ? { account } : {}) };
+    const spec: Spec = { ...kept, name: name ?? sessionName(got.session.callsign) ?? basename(dir), cwd: tildePath(dir, homedir()), backup: true, ...(got.session.project ? { project: got.session.project } : {}), ...(slot ? { slot } : {}) };
     const s = await host.open(spec, { by: ctx.from, resume: sid, fork: !move });
     // ветка линии: перенос продолжает точку своей же сессии, копия — точку чужой
     markOf(s).update((m) => ({ ...m, ...(move ? { point: got.point.point } : { origin: `${sid}/${got.point.point}` }) }));

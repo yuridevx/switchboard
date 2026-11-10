@@ -11,6 +11,7 @@ import { useLocal } from "../lib/local.ts";
 import { exportMd, focused } from "../chat/focus.ts";
 import { confirmDanger, EFFORTS, Failed, Lamp, MODES, personWord, STATE_WORD, useCall, useMachineName, useMyPrefs, useUi, useWide } from "../common.tsx";
 import { day, hhmm } from "../lib/time.ts";
+import { seatOptions } from "../lib/accounts.ts";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { AskCard } from "./Ask.tsx";
 import { Composer, type ComposerHandle } from "./Composer.tsx";
@@ -45,10 +46,11 @@ function useDoc(s: SessionRow, running?: string) {
   const accounts = useCall(accountList, offline ? null : { to: "@" + machine });
   const pieces = useCall(profileList, offline ? null : { to: "@" + machine });
   // у сессии на ключе флота модель — та, что записана у ключа
-  const mine = accounts.data?.accounts.find((a) => a.id === (s.account ?? s.spec.account));
+  // аккаунт, на котором сессия идёт сейчас: вход очереди или ключ флота
+  const mine = accounts.data?.accounts.find((a) => a.id === (s.account ?? s.spec.slot));
   const models = modelsFor(mine, useModels(s, !offline && isLive(s)));
   const model = effectiveModel(s.spec, models, running);
-  const accountOptions = [["auto", `авто${s.account ? ` · ${s.account}` : ""}`] as const, ...(accounts.data?.accounts ?? []).map((a) => [a.id, a.id + (a.ok ? "" : " · нет входа") + (a.wait ? ` · лимит до ${hhmm(a.wait)}` : "")] as const)];
+  const accountOptions = seatOptions(accounts.data).map((o) => [o.value, o.label] as const);
   const list = pieces.data?.pieces ?? [];
   const title = (id: string) => list.find((p) => p.id === id)?.title ?? id;
   const efforts = model.efforts ? EFFORTS.filter(([e]) => model.efforts!.includes(e)) : EFFORTS;
@@ -63,14 +65,14 @@ export function DocFields({ s }: { s: SessionRow }) {
       <Select label="Модель" data={d.models.map((m) => ({ value: m.value, label: m.label }))} value={d.model.value || null} onChange={(model) => model && patchDoc(s, { model })} allowDeselect={false} />
       <Select label="Усилие" data={d.efforts.map(([value, label]) => ({ value, label }))} value={s.spec.effort ?? null} placeholder="как у модели" onChange={(effort) => effort && patchDoc(s, { effort: effort as never })} allowDeselect={false} />
       <Select label="Режим" data={MODES.map(([value, label]) => ({ value, label }))} value={s.spec.mode ?? "all"} onChange={(mode) => mode && patchDoc(s, { mode: mode as never })} allowDeselect={false} />
-      <Select label="Аккаунт" data={d.accountOptions.map(([value, label]) => ({ value, label }))} value={s.spec.account ?? "auto"} onChange={(account) => account && patchDoc(s, { account })} allowDeselect={false} />
+      <Select label="Очередь аккаунтов" data={d.accountOptions.map(([value, label]) => ({ value, label }))} value={s.spec.slot ?? null} onChange={(slot) => slot && patchDoc(s, { slot })} allowDeselect={false} />
       <MultiSelect label="Кусочки" data={d.pieces.map((p) => ({ value: p.id, label: p.title ?? p.id, disabled: !p.ok }))} value={s.spec.pieces ?? []} onChange={(pieces) => patchDoc(s, { pieces })} />
     </Stack>
   );
 }
 
 /** Что стоит в шапке разговора: человек выбирает сам, выбор помнит устройство. */
-export const HEAD_PARTS = [["model", "Модель"], ["effort", "Усилие"], ["account", "Аккаунт"], ["pieces", "Кусочки"], ["machine", "Машина"], ["owner", "Владелец"]] as const;
+export const HEAD_PARTS = [["model", "Модель"], ["effort", "Усилие"], ["account", "Очередь"], ["pieces", "Кусочки"], ["machine", "Машина"], ["owner", "Владелец"]] as const;
 export const HEAD_DEFAULT: string[] = ["model", "effort", "account", "pieces"];
 const HEAD_KEY = "head.parts";
 /** Переключить часть шапки: порядок частей — всегда как в списке. */
@@ -90,7 +92,7 @@ function Chips({ s, running }: { s: SessionRow; running?: string }) {
       {on("owner") && <Badge variant="default"><span className="muted">открыл</span> {personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</Badge>}
       {on("model") && <Chip label="Модель" value={d.model.value} word={d.model.label} options={d.models.map((m) => [m.value, m.label] as const)} later={d.later.includes("model")} onPick={(model) => patchDoc(s, { model })} />}
       {on("effort") && <Chip label="Усилие" value={s.spec.effort} word={s.spec.effort ? undefined : "как у модели"} options={d.efforts} later={d.later.includes("effort")} onPick={(effort) => patchDoc(s, { effort: effort as never })} />}
-      {on("account") && <Chip label="Аккаунт" value={s.spec.account ?? "auto"} options={d.accountOptions} later={d.later.includes("account")} onPick={(account) => patchDoc(s, { account })} />}
+      {on("account") && <Chip label="Очередь" value={s.spec.slot} options={d.accountOptions} later={d.later.includes("slot")} onPick={(slot) => patchDoc(s, { slot })} />}
       {on("pieces") && (
         <Badge component="button" type="button" variant="default" rightSection={<IconChevronDown size={11} />} aria-label="Кусочки" style={{ cursor: "pointer" }} onClick={() => setPiecesOpen(true)}>
           <span className="muted">кусочки</span> {picked.length ? picked.map(d.title).join(" + ") : "нет"} <AfterTurn on={d.later.includes("pieces")} />

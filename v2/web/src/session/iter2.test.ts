@@ -76,9 +76,9 @@ describe("пара в разговоре", () => {
   });
   it("«Сведения» пары: общие ряды, две колонки — ведущий и ведомый", () => {
     const rows = pairRows(row("lead@laptop", { state: "busy", doing: "Ждёт итог", account: "work@example.com", pieces: ["base"] } as never), row("wing@laptop", { state: "waiting" }));
-    expect(rows.map((r) => r[0])).toEqual(["Состояние", "Модель", "Аккаунт", "Кусочки", "Папка", "Открыта"]);
+    expect(rows.map((r) => r[0])).toEqual(["Состояние", "Модель", "Очередь", "Кусочки", "Папка", "Открыта"]);
     expect(rows[0]).toEqual(["Состояние", "Ждёт итог", "ждёт вас"]);
-    expect(rows[2]).toEqual(["Аккаунт", "work@example.com", "авто"]);
+    expect(rows[2]).toEqual(["Очередь", "— · work@example.com", "—"]);
   });
   it("модели сессии: у ключа флота — одна, записанная у ключа; у входа Claude — список SDK", () => {
     const sdk = [{ value: "default", label: "Default" }, { value: "opus", label: "Opus" }];

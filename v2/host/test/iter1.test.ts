@@ -1,5 +1,5 @@
 // Эталоны первой итерации: функции старой системы, которых не хватало в Host v2.
-import { existsSync, mkdirSync, mkdtempSync, appendFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, appendFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,13 +49,15 @@ async function server(answer: () => { status?: number; body?: Buffer | string } 
   return { url: `http://127.0.0.1:${(s.address() as { port: number }).port}`, seen };
 }
 
-function homeWithAccounts(names: string[], limits: Record<string, unknown> = {}): string {
+function homeWithAccounts(names: string[], limits: Record<string, unknown> = {}, slots: Record<string, string[]> = { main: names }): string {
   const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
   mkdirSync(join(home, "store"), { recursive: true });
-  const book = { accounts: Object.fromEntries(names.map((n) => [n, { login: "ok", plan: "max", limits: limits[n] ?? {} }])), order: names };
+  const book = { accounts: Object.fromEntries(names.map((n) => [n, { login: "ok", plan: "max", limits: limits[n] ?? {} }])), slots };
   writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: book }));
   const dirs = folders(home);
   for (const n of names) mkdirSync(dirs.accDir(n), { recursive: true });
+  // у каждой очереди на диске — ссылка на первого по порядку
+  for (const [slot, order] of Object.entries(slots)) symlinkSync(dirs.accDir(order[0]!), (mkdirSync(join(home, "slots"), { recursive: true }), dirs.slotDir(slot)), process.platform === "win32" ? "junction" : "dir");
   return home;
 }
 
@@ -296,26 +298,26 @@ describe("accounts", () => {
       "a@example.com": { five_hour: { utilization: 1, resetsAt: at + 600, at } },
       "b@example.com": { five_hour: { utilization: 1, resetsAt: at + 900, at } },
     });
-    await folders(home).place("auto", "a@example.com");
     st = await stand({ home, modules: [accounts()] });
     st.services.handlers["keys.list"] = () => ({ keys: [] });
     const list = (await st.request("account.list", { to: "@laptop" })).result as any;
-    expect(list.accounts[0]).toMatchObject({ id: "a@example.com", current: true, wait: (at + 600) * 1000 });
+    expect(list.accounts[0]).toMatchObject({ id: "a@example.com", wait: (at + 600) * 1000 });
+    expect(list.slots).toEqual([{ name: "main", order: ["a@example.com", "b@example.com"], account: "a@example.com", wait: (at + 600) * 1000, sessions: 0 }]);
     await st.open("site");
     expect(st.link.rows(CS).at(-1)!.row).toMatchObject({ account: "a@example.com", wait: (at + 600) * 1000 });
-    expect(await st.request("slot.swap", { to: "@laptop" })).toMatchObject({ ok: false, error: "no_reserve" });
-    expect((await st.request("slot.swap", { to: "@laptop", account: "b@example.com" })).result).toEqual({ account: "b@example.com" });
-    expect(folders(home).inSlot("auto")).toBe("b@example.com");
+    expect(await st.request("slot.swap", { to: "@laptop", slot: "main" })).toMatchObject({ ok: false, error: "no_reserve" });
+    expect((await st.request("slot.swap", { to: "@laptop", slot: "main", account: "b@example.com" })).result).toEqual({ account: "b@example.com" });
+    expect(folders(home).inSlot("main")).toBe("b@example.com");
     expect(st.link.rows(CS).at(-1)!.row).toMatchObject({ account: "b@example.com" });
     expect(st.services.of("ledger.add").some((f) => f.what === "account.swapped")).toBe(true);
-    expect(await st.request("slot.swap", { to: "@laptop", account: "nope@example.com" })).toMatchObject({ ok: false, error: "no_account" });
+    expect(await st.request("slot.swap", { to: "@laptop", slot: "main", account: "nope@example.com" })).toMatchObject({ ok: false, error: "no_account" });
   });
 
   it("ключ флота: переменные и настройки ключа идут в запуск сессии; провайдер и адрес — в списке", async () => {
     st = await stand({ modules: [accounts()] });
     st.services.handlers["keys.value"] = () => ({ value: "sk-one", provider: "anthropic", base: "https://api.example.com", models: { opus: "big-1", haiku: "" }, window: 200000, env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: "1" }, settings: { autoCompactWindow: 200000 } });
     st.services.handlers["keys.list"] = () => ({ keys: [{ name: "team-key", provider: "anthropic", base: "https://api.example.com", model: "big-1", at: 1, tail: "…abcd" }] });
-    const { q } = await st.open("site", { account: "team-key" });
+    const { q } = await st.open("site", { slot: "team-key" });
     expect((q.options as any).env).toMatchObject({ ANTHROPIC_DEFAULT_OPUS_MODEL: "big-1", CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000", CLAUDE_CODE_DISABLE_1M_CONTEXT: "1", ANTHROPIC_API_KEY: "fleet" });
     expect((q.options as any).env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBeUndefined();
     const route = await (st.kernel.mods.find((m) => m.name === "host-accounts")!.api as any).keyRoute("team-key");

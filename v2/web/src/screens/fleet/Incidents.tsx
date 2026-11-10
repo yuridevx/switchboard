@@ -33,7 +33,7 @@ function KindForm({ name, kind, isNew, onSave, onClose }: { name: string; kind: 
       <Textarea label="Что сказать сессии" autosize minRows={2} value={k.prompt ?? ""} onChange={(e) => set({ prompt: e.currentTarget.value || undefined })} />
       <TagsInput label="Кусочки профиля" className="mono" value={k.pieces ?? []} onChange={(v) => set({ pieces: v.length ? v : undefined })} />
       <Group grow>
-        <TextInput label="Аккаунт" className="mono" value={k.account ?? ""} onChange={(e) => set({ account: e.currentTarget.value || undefined })} placeholder="auto" />
+        <TextInput label="Очередь или ключ" className="mono" value={k.slot ?? ""} onChange={(e) => set({ slot: e.currentTarget.value || undefined })} placeholder="main" />
         <TextInput label="Модель" className="mono" value={k.model ?? ""} onChange={(e) => set({ model: e.currentTarget.value || undefined })} />
       </Group>
       <TagsInput label="Кого позвать" placeholder="~почта" value={k.notify ?? []} onChange={(v) => set({ notify: v.length ? v : undefined })} error={badNotify ? `${badNotify}: нужен человек вида ~a@b.c` : undefined} />

@@ -61,6 +61,8 @@ export interface Module {
   frames?: Record<string, (f: Frame, ctx: Ctx) => void>;
   /** ключи документа сессии: проверка значения; негодное — throw Refusal своим словом. s — нет при открытии */
   spec?: Record<string, (value: unknown, s: SessionApi | null) => void | Promise<void>>;
+  /** при открытии: значение своего ключа документа, когда его не назвали; назвать обязательно — throw Refusal своим словом */
+  fill?: Record<string, () => unknown | Promise<unknown>>;
   /** ключ документа изменён у живой сессии: применить без перезапуска */
   applied?(s: SessionApi, keys: string[]): void | Promise<void>;
   /** вклад в опции запуска */

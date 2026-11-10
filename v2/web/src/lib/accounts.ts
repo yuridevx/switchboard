@@ -1,5 +1,5 @@
 // Аккаунты: один аккаунт на нескольких машинах — одна строка; лимиты, пороги, ожидание сброса.
-import type { Account } from "@sb/protocol";
+import type { Account, Slot } from "@sb/protocol";
 import { hhmm } from "./time.ts";
 
 export type Seat = { machine: string; account: Account };
@@ -96,26 +96,36 @@ export function diverge(m: Merged): string[] {
 /** Ключ аккаунта для подсветки и выбора: вид и почта (у ключа — имя). */
 export const accountKey = (a: Pick<Account, "kind" | "email" | "id">) => a.kind + ":" + (a.email ?? a.id);
 
-/** Очередь пачкой: убрать выбранные аккаунты из очереди на всех машинах или вернуть в конец. Ответ — новый порядок только там, где он изменился. */
-export function bulkOrder(byMachine: Record<string, Account[]>, keys: string[], into: boolean): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
-  for (const [machine, list] of Object.entries(byMachine)) {
-    const { queue, out: outside } = queueOf(list);
-    const order = queue.map((a) => a.id);
-    const next = into ? [...order, ...outside.filter((a) => keys.includes(accountKey(a))).map((a) => a.id)] : queue.filter((a) => !keys.includes(accountKey(a))).map((a) => a.id);
-    if (next.length !== order.length) out[machine] = next;
-  }
-  return out;
+/** Убрать выбранные аккаунты из всех очередей всех машин. Ответ — новые порядки только там, где они изменились. */
+export function dropFromQueues(slots: Record<string, Slot[]>, mails: string[]): Array<{ machine: string; slot: string; order: string[] }> {
+  return Object.entries(slots).flatMap(([machine, list]) => list.filter((q) => q.order.some((m) => mails.includes(m))).map((q) => ({ machine, slot: q.name, order: q.order.filter((m) => !mails.includes(m)) })));
 }
 
 /** Порядок машин на экране аккаунтов: сначала те, где есть негодный вход, потом по имени. */
 export const machineOrder = (byMachine: Record<string, Account[]>) =>
   Object.keys(byMachine).sort((a, b) => Number(byMachine[b]!.some((x) => !x.ok)) - Number(byMachine[a]!.some((x) => !x.ok)) || a.localeCompare(b));
 
-/** Очередь auto машины: аккаунты Claude с местом, по порядку; без места — вне очереди. */
-export function queueOf(list: Account[]): { queue: Account[]; out: Account[] } {
-  const claude = list.filter((a) => a.kind === "claude");
-  return { queue: claude.filter((a) => a.slot !== undefined).sort((a, b) => a.slot! - b.slot!), out: claude.filter((a) => a.slot === undefined) };
+/** Перенос аккаунта: из очереди from (null — из списка входов) в очередь to (null — убрать из from) перед before (null — в конец).
+ *  В той же очереди — смена порядка; из входов — аккаунт добавляется; между очередями — уходит из одной и встаёт в другую. Ответ — изменённые порядки. */
+export function queueMove(slots: Slot[], from: string | null, to: string | null, mail: string, before: string | null): Array<{ slot: string; order: string[] }> {
+  const out: Array<{ slot: string; order: string[] }> = [];
+  const of = (name: string) => slots.find((q) => q.name === name)?.order ?? [];
+  if (from && from !== to) out.push({ slot: from, order: of(from).filter((m) => m !== mail) });
+  if (to) {
+    const rest = of(to).filter((m) => m !== mail);
+    const at = before && before !== mail ? rest.indexOf(before) : -1;
+    const order = at < 0 ? [...rest, mail] : [...rest.slice(0, at), mail, ...rest.slice(at)];
+    if (order.join() !== of(to).join()) out.push({ slot: to, order });
+  }
+  return out;
+}
+
+/** На чём пойдёт сессия: очереди машины с тем, кто в них стоит сейчас, затем ключи флота. Пустая очередь и негодный ключ не выбираются. */
+export function seatOptions(data?: { accounts: Account[]; slots: Slot[] }): Array<{ value: string; label: string; disabled?: boolean }> {
+  return [
+    ...(data?.slots ?? []).map((q) => ({ value: q.name, label: `${q.name} · ${q.account ?? "пусто"}${q.wait ? ` · ждёт до ${hhmm(q.wait)}` : ""}`, ...(q.account ? {} : { disabled: true }) })),
+    ...(data?.accounts ?? []).filter((a) => a.kind === "key").map((a) => ({ value: a.id, label: `ключ ${a.id}${a.model ? ` · ${a.model}` : ""}`, ...(a.ok ? {} : { disabled: true }) })),
+  ];
 }
 
 /** Вход закончился не той почтой, которую ждали. */

@@ -41,29 +41,41 @@ describe("ядро Host", () => {
     const owner: Module = {
       name: "host-accounts",
       spec: {
-        account(v) {
-          if (v !== "auto" && v !== "work") throw new Refusal("unknown_account", `аккаунта ${String(v)} нет`);
+        slot(v) {
+          if (v !== "main" && v !== "work") throw new Refusal("unknown_account", `очереди ${String(v)} нет`);
         },
       },
     };
     st = await stand({ modules: [owner] });
-    const { s } = await st.open("site", { account: "auto" });
-    const bad = await st.request("session.update", { to: "site@laptop", patch: { account: "nope", effort: "high" } });
+    const { s } = await st.open("site", { slot: "main" });
+    const bad = await st.request("session.update", { to: "site@laptop", patch: { slot: "nope", effort: "high" } });
     expect(bad).toMatchObject({ ok: false, error: "unknown_account" });
-    expect(s.rec.spec).toMatchObject({ account: "auto" });
+    expect(s.rec.spec).toMatchObject({ slot: "main" });
     expect(s.rec.spec.effort).toBeUndefined();
-    const good = await st.request("session.update", { to: "site@laptop", patch: { account: "work", effort: "high" } });
+    const good = await st.request("session.update", { to: "site@laptop", patch: { slot: "work", effort: "high" } });
     expect(good.ok).toBe(true);
-    expect(s.rec.spec).toMatchObject({ account: "work", effort: "high" });
+    expect(s.rec.spec).toMatchObject({ slot: "work", effort: "high" });
     expect(st.sdk.last("site@laptop")!.calls.map((c) => c.name)).toContain("applyFlagSettings");
-    expect(st.link.rows("site@laptop").at(-1)!.row).toMatchObject({ spec: { account: "work", effort: "high" } });
+    expect(st.link.rows("site@laptop").at(-1)!.row).toMatchObject({ spec: { slot: "work", effort: "high" } });
+  });
+
+  it("неназванный ключ документа ставит его хозяин: значение записано в документ; хозяин отказал — сессия не открыта", async () => {
+    let only: string | undefined = "main";
+    const owner: Module = { name: "host-accounts", spec: { slot() {} }, fill: { slot: () => { if (!only) throw new Refusal("slot_required", "назовите очередь"); return only; } } };
+    st = await stand({ modules: [owner] });
+    const { s } = await st.open("site");
+    expect(s.rec.spec.slot).toBe("main");
+    expect((await st.open("named", { slot: "review" })).s.rec.spec.slot).toBe("review");
+    only = undefined;
+    expect(await st.request("session.open", { to: "@laptop", spec: { name: "x", cwd: st.dir } })).toMatchObject({ ok: false, error: "slot_required" });
+    expect(st.kernel.sessions.has("x@laptop")).toBe(false);
   });
 
   it("у ключа документа и у запроса один хозяин: два — Host не стартует", async () => {
-    const a: Module = { name: "a", spec: { account() {} } };
-    const b: Module = { name: "b", spec: { account() {} }, requests: { "session.open": () => ({}) } };
+    const a: Module = { name: "a", spec: { slot() {} } };
+    const b: Module = { name: "b", spec: { slot() {} }, requests: { "session.open": () => ({}) } };
     st = await stand({ modules: [a, b] });
-    expect(st.error?.reasons.join("\n")).toMatch(/ключ документа account: два хозяина — a и b/);
+    expect(st.error?.reasons.join("\n")).toMatch(/ключ документа slot: два хозяина — a и b/);
     expect(st.error?.reasons.join("\n")).toMatch(/запрос session.open: два хозяина — host и b/);
   });
 

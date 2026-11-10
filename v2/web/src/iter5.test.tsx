@@ -32,7 +32,7 @@ describe("новая сессия", () => {
   it("форма одного уровня: поля видны сразу, раскрывать нечего; размышления включены, ведомый — на виду", async () => {
     page(<NewForm />);
     expect(screen.queryByRole("button", { name: /Скрыть настройки|Модель, аккаунт/ })).toBeNull();
-    for (const label of ["Модель", "Усилие", "Режим", "Аккаунт", "Проект"]) expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    for (const label of ["Модель", "Усилие", "Режим", "Очередь аккаунтов", "Проект"]) expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     expect((screen.getByLabelText("Размышлять перед ответом") as HTMLInputElement).checked).toBe(true);
     expect((screen.getByLabelText("С ведомым") as HTMLInputElement).checked).toBe(false);
     await waitFor(() => expect(screen.getByText("Кусочки")).toBeTruthy());

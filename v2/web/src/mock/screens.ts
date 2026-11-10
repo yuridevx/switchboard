@@ -1,7 +1,7 @@
 // Мок флота — запросы экранов (кроме разговора): пропуска и люди, аккаунты, профили, архив, инциденты, правила прокси, связь с людьми, наблюдение.
 // Формы — те же, что в договоре после первой волны итерации. Подключается одной строкой в fleet.ts: обработчики ложатся поверх прежних.
 import {
-  type Account, type ArchPoint, type ArchSession, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type MachineRow, type ObsRow, type PassRow,
+  type Account, type Slot, type ArchPoint, type ArchSession, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type MachineRow, type ObsRow, type PassRow,
   type PersonRow, type Piece, type Project, type ProxyRule, type RepoClone, type SessionRow, machineOf, newId, Refusal,
 } from "@sb/protocol";
 
@@ -9,7 +9,7 @@ type Ev = Record<string, any>;
 export type MockCtx = {
   now: () => number; T: number; ME: string; MY_ADDR: string;
   machines: Record<string, MachineRow>; sessions: Record<string, SessionRow>; people: PersonRow[]; projects: Project[]; passes: PassRow[]; devices: DeviceRow[];
-  keys: KeyRow[]; accounts: Record<string, Account[]>; pieces: Piece[]; archive: ArchSession[]; incidents: Record<string, Incident[]>;
+  keys: KeyRow[]; accounts: Record<string, Account[]>; slots: Record<string, Slot[]>; pieces: Piece[]; archive: ArchSession[]; incidents: Record<string, Incident[]>;
   prefs: Record<"me" | "fleet", Record<string, unknown>>; ledger: LedgerEvent[]; obs: ObsRow[];
   archPoints: (s: ArchSession) => ArchPoint[]; journal: (machine: string) => Array<{ t: number; part: string; level: "info" | "warn" | "error"; msg: string; machine: string; trace: string }>;
   talk: (c: string) => Ev[]; talks: Map<string, Ev[]>;
@@ -51,7 +51,7 @@ export function applyRules(text: string, rules: Array<Partial<ProxyRule> & { nam
 }
 
 export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> {
-  const { now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, pieces, archive, incidents, prefs, ledger, obs } = c;
+  const { now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, slots, pieces, archive, incidents, prefs, ledger, obs } = c;
   const online = (m: string) => machines[m]?.online === true;
 
   /* ===== Данные в формах договора ===== */
@@ -60,11 +60,8 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
     p.online = !p.wait && (p.addr.startsWith("@") ? online(p.addr.slice(1)) : p.addr === MY_ADDR || (p.seen ?? 0) > T - 30 * MIN);
   }
   const devicesOf = (person: string) => passes.filter((p) => p.person === person).map((p) => ({ kid: p.kid, addr: p.addr, wait: p.wait, online: !!p.online, at: p.at, ...(p.seen ? { seen: p.seen } : {}) }));
-  accounts.laptop[0] = { ...accounts.laptop[0], current: true };
   accounts.laptop[1] = { ...accounts.laptop[1], wait: T + 2 * HOUR };
-  accounts.server[0] = { ...accounts.server[0], current: true };
   accounts.server.push({ id: "night@example.com", kind: "claude", email: "night@example.com", plan: "Max 5x", limits: [{ name: "five_hour", used: 0.02, resets: T + 4 * HOUR }, { name: "seven_day", used: 0.11, resets: T + 5 * DAY }], ok: true, sessions: 0 });
-  accounts["anya-pc"][0] = { ...accounts["anya-pc"][0], current: true };
   for (const list of Object.values(accounts)) for (const a of list) if (a.kind === "key") Object.assign(a, { provider: "openai-compatible", base: "https://api.orca.example/v1", model: "glm-abliterated" });
   Object.assign(keys[0], { models: { "claude-fable-5-2": "glm-5.3", "claude-haiku-5-5": "glm-5.3-flash" }, window: 128_000, env: { DISABLE_TELEMETRY: "1" }, sessions: 0 });
   Object.assign(keys[1], { sessions: 1 });
@@ -138,20 +135,39 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
 
     /* аккаунты и ключи */
     "slot.set": (f) => {
-      const list = accounts[c.mach(f)];
+      const m = c.mach(f);
       const order = f.order as string[];
-      for (const a of list) if (a.kind === "claude") a.slot = order.includes(a.id) ? order.indexOf(a.id) + 1 : undefined;
-      list.sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99));
+      const name = String(f.slot);
+      const ghost = order.find((id) => !accounts[m].some((a) => a.id === id && a.kind === "claude"));
+      if (ghost) throw new Refusal("no_account", `${ghost}: такого аккаунта на машине нет`);
+      const q = slots[m].find((x) => x.name === name);
+      if (!order.length) {
+        if (q?.sessions) throw new Refusal("has_sessions", `на очереди ${name} есть сессии`);
+        slots[m] = slots[m].filter((x) => x.name !== name);
+        return {};
+      }
+      const ok = (id: string) => accounts[m].find((a) => a.id === id)?.ok;
+      if (!q) {
+        if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) throw new Refusal("bad_input", "имя очереди — латиница, цифры, дефис");
+        if (keys.some((k) => k.name === name)) throw new Refusal("name_taken", `${name}: так зовут ключ флота`);
+        if (!order.some(ok)) throw new Refusal("no_reserve", "в порядке нет вошедшего аккаунта");
+        slots[m].push({ name, order, account: order.find(ok), sessions: 0 });
+        return {};
+      }
+      q.order = order;
+      if (!q.account || !order.includes(q.account)) q.account = order.find(ok);
       return {};
     },
     "slot.swap": (f) => {
-      const list = accounts[c.mach(f)].filter((a) => a.kind === "claude");
-      const queue = list.filter((a) => a.slot !== undefined && a.ok && a.wait === undefined);
-      const cur = list.find((a) => a.current);
-      const next = f.account ? list.find((a) => a.id === f.account) : queue[(queue.indexOf(cur!) + 1) % Math.max(1, queue.length)];
-      if (!next || !next.ok) throw new Refusal("no_account", f.account ? `${f.account}: вход не годен` : "годных аккаунтов в очереди нет");
-      for (const a of list) a.current = a === next;
-      return { account: next.id };
+      const m = c.mach(f);
+      const q = c.need(slots[m].find((x) => x.name === f.slot), `очереди ${f.slot} на ${m} нет`);
+      const good = q.order.filter((id) => { const a = accounts[m].find((x) => x.id === id); return a?.ok && a.wait === undefined; });
+      const next = f.account ? (good.includes(f.account) ? f.account : undefined) : good[(good.indexOf(q.account ?? "") + 1) % Math.max(1, good.length)];
+      if (!next || (!f.account && next === q.account)) throw new Refusal("no_reserve", f.account ? `${f.account}: вход не годен` : "в очереди нет другого вошедшего аккаунта ниже порога");
+      q.account = next;
+      delete q.wait;
+      for (const s of Object.values(sessions)) if (s.callsign.endsWith("@" + m) && s.spec.slot === q.name) c.setRow(s.callsign, { account: next });
+      return { account: next };
     },
     "keys.list": () => ({ keys }),
     "keys.set": (f) => {
@@ -163,7 +179,7 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
       return {};
     },
     "keys.remove": (f) => {
-      const on = Object.values(sessions).filter((s) => s.spec.account === f.name || s.account === f.name).map((s) => s.callsign);
+      const on = Object.values(sessions).filter((s) => s.spec.slot === f.name || s.account === f.name).map((s) => s.callsign);
       if (f.probe) return { sessions: f.name === "meta-muse" && !on.length ? ["wing@laptop"] : on };
       keys.splice(keys.findIndex((k) => k.name === f.name), 1);
       return {};
@@ -237,7 +253,8 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
       const cs = `${name}@${m}`;
       if (sessions[cs]) throw new Refusal("name_taken", `сессия ${cs} уже есть`);
       c.talks.set(cs, [...c.talk(src.callsign)]);
-      sessions[cs] = c.row(cs, "idle", src.project, { title: src.title, cwd: f.cwd ?? src.cwd, last: now(), since: now(), ...(f.account ? { account: f.account } : {}) });
+      sessions[cs] = c.row(cs, "idle", src.project, { title: src.title, cwd: f.cwd ?? src.cwd, last: now(), since: now() });
+      if (f.slot) sessions[cs].spec.slot = f.slot;
       c.delta({ sessions: [{ callsign: cs, row: sessions[cs] }] });
       // перенос: прежняя машина отпускает сессию
       if (f.move && sessions[src.callsign] && src.callsign !== cs) c.setRow(src.callsign, null);

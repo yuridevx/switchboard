@@ -76,7 +76,7 @@ await step("страница открыта по приглашению", async 
 
 /* вопрос сессии */
 await step("сессия в режиме «спрашивать» задаёт вопрос разрешения", async () => {
-  const r = call("session.open", { to: "@" + source, spec: { name, cwd, account: "deepseek", mode: "ask", backup: true }, prompt: "Создай в этой папке файл w3.txt со словом ok. Больше ничего не делай." });
+  const r = call("session.open", { to: "@" + source, spec: { name, cwd, slot: "muse", mode: "ask", backup: true }, prompt: "Создай в этой папке файл w3.txt со словом ok. Больше ничего не делай." });
   if (!r.ok) throw new Error(r.error + " " + (r.why ?? ""));
   const row = await waitRow(callsign, (s) => !!s.ask);
   return `вопрос ${row.ask.kind}, адресат ${row.ask.to ?? "—"}`;

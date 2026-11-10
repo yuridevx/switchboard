@@ -97,7 +97,7 @@ describe("подъём из архива", () => {
   });
   it("перенос живой сессии идёт с move и без точки: прежняя машина снимает свежую", () => {
     const s = { sid: "s1", machine: "laptop", callsign: "site@laptop", points: 3, last: T, cwd: "~/p" };
-    expect(raiseInput("move", s, { machine: "server", name: "site", cwd: "~/p", account: "auto", files: "point", point: "p2" })).toEqual({ to: "@server", sid: "s1", files: "point", move: true });
+    expect(raiseInput("move", s, { machine: "server", name: "site", cwd: "~/p", account: "", files: "point", point: "p2" })).toEqual({ to: "@server", sid: "s1", files: "point", move: true });
   });
 });
 

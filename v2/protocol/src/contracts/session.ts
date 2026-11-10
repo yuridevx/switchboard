@@ -10,7 +10,7 @@ export const Effort = z.enum(["low", "medium", "high", "xhigh", "max"]);
 export const Mode = z.enum(["all", "ask", "plan", "edits", "auto"]);
 
 /** Документ сессии: у каждого ключа один хозяин. Ядро: name, cwd, model, effort, mode, fast, style, thinking, title, parent, wing, project.
- *  accounts: account · profiles: pieces · points: backup · remote: remote. */
+ *  accounts: slot · profiles: pieces · points: backup · remote: remote. */
 export const Spec = z.object({
   name: Name,
   cwd: z.string().min(1),
@@ -31,8 +31,8 @@ export const Spec = z.object({
   wing: Callsign.optional(),
   /** проект доски */
   project: z.string().optional(),
-  /** вход Claude или ключ флота; auto — выбирает модуль аккаунтов по лимитам */
-  account: z.string().optional(),
+  /** очередь аккаунтов машины или ключ флота: на каком аккаунте сессия идёт сейчас, решает очередь — он в поле account её строки */
+  slot: z.string().optional(),
   /** кусочки профиля */
   pieces: z.array(z.string()).optional(),
   /** сохранять точки в архив */
@@ -135,7 +135,7 @@ export const sessionOpen = request("session.open", {
 
 export const sessionUpdate = request("session.update", {
   owner: "host", target: "session",
-  tool: "Изменить документ сессии: patch — ключи для замены (model, effort, mode, fast, style, thinking, title, account, pieces, project, wing, backup, remote, cwd); wing: null — снять ведомого; pair: true — открыть ведомого <имя>-wing.",
+  tool: "Изменить документ сессии: patch — ключи для замены (model, effort, mode, fast, style, thinking, title, slot — очередь аккаунтов или ключ флота, pieces, project, wing, backup, remote, cwd); wing: null — снять ведомого; pair: true — открыть ведомого <имя>-wing.",
   input: z.object({ to: Callsign, patch: SpecPatch.extend({ wing: Callsign.nullable().optional() }), pair: z.boolean().optional() }),
   /** now — что подействовало сразу; later — что вступит в силу после хода, с новым процессом */
   output: z.object({ now: z.array(z.string()), later: z.array(z.string()), wing: Callsign.optional() }).loose(),

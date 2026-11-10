@@ -20,7 +20,7 @@ export const personWord = (p: string) => p.replace(/^~/, "");
 /** Части пути запроса — по-человечески. */
 export const PART: Record<string, string> = { services: "службы", platform: "платформа", host: "Host", keeper: "Keeper", archive: "архив", prefs: "настройки", analytics: "аналитика", ledger: "журнал флота", builds: "выпуски", reach: "связь с людьми", keys: "ключи флота", obs: "наблюдение", github: "GitHub", fleet: "флот" };
 export const partWord = (p: string) => PART[p] ?? p;
-export const accountWord = (a?: string) => (!a || a === "auto" ? "авто" : a);
+export const accountWord = (a?: string) => a ?? "—";
 
 /** Подтверждение опасного действия: страница с тем, что случится, красной кнопкой и «Отменой». */
 export function confirmDanger(o: { title: string; body?: ReactNode; confirm: string; onConfirm: () => unknown }) {

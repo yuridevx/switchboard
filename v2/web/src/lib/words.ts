@@ -14,7 +14,7 @@ export const SAY: Record<string, string> = {
   bad_dir: "Папка не подходит", has_wing: "У сессии есть ведомый", pair_inside: "Сессия уже в паре", has_sessions: "На нём идут сессии", not_started: "Сессия не запущена", running: "Уже идёт",
   stopped: "Остановлено", sdk_error: "Ошибка Claude", waiting: "Сессия ждёт ответа", bad_attachment: "Вложение не подходит", not_text: "Нужен текст",
   // аккаунты и ключи
-  no_account: "Нет годного аккаунта", no_accounts: "Аккаунтов нет", not_logged_in: "Вход не выполнен", login_failed: "Вход не удался", bad_code: "Код не подошёл", no_reserve: "Запасного аккаунта нет",
+  no_account: "Нет годного аккаунта", no_accounts: "Аккаунтов нет", not_logged_in: "Вход не выполнен", login_failed: "Вход не удался", bad_code: "Код не подошёл", no_reserve: "Запасного аккаунта нет", no_slot: "Такой очереди нет", slot_required: "Назовите очередь",
   account_dir_busy: "Папка аккаунта занята", slot_dir_busy: "Папка входа занята", refresh_locked: "Вход обновляется другим процессом", no_key: "Такого ключа нет", rate_limit: "Лимит исчерпан",
   upstream: "Провайдер модели отказал", muse_version: "Версия Muse не получена", rules_unavailable: "Правила прокси не прочитаны", bad_rule: "Правило не разобрано", check_failed: "Проверка не прошла",
   // профили, точки, архив

@@ -24,7 +24,7 @@ const told = (ctx: Ctx) => ctx.platform.broadcast(ctx.fleet, { type: "changed", 
 async function sessionsOn(ctx: Ctx): Promise<Map<string, string[]>> {
   const by = new Map<string, string[]>();
   for (const s of await ctx.platform.sessions(ctx.fleet)) {
-    const name = s.account ?? s.spec?.account;
+    const name = s.account ?? s.spec?.slot;
     if (name) (by.get(name) ?? by.set(name, []).get(name)!).push(s.callsign);
   }
   return by;

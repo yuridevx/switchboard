@@ -15,13 +15,9 @@ export const Account = z.object({
   plan: z.string().optional(),
   /** доля лимитов 0..1 по окнам */
   limits: z.array(Limit).optional(),
-  /** место в очереди выбора auto; нет — не участвует */
-  slot: z.number().optional(),
   ok: z.boolean(),
   why: z.string().optional(),
   sessions: z.number().optional(),
-  /** стоит в очереди auto прямо сейчас */
-  current: z.boolean().optional(),
   /** лимит исчерпан: когда аккаунт снова годен, мс */
   wait: z.number().optional(),
   /** у ключа флота: провайдер, адрес, модель по умолчанию */
@@ -37,9 +33,13 @@ export const Account = z.object({
 });
 export type Account = z.infer<typeof Account>;
 
+/** Очередь аккаунтов машины. order — порядок выбора; account — кто стоит сейчас; wait — все у порога: до какого времени очередь ждёт сброса, мс; sessions — сколько сессий идёт на очереди. */
+export const Slot = z.object({ name: z.string(), order: z.array(z.string()), account: z.string().optional(), wait: z.number().optional(), sessions: z.number() });
+export type Slot = z.infer<typeof Slot>;
+
 export const accountList = request("account.list", {
-  owner: "host-accounts", target: "machine", tool: "Аккаунты машины: входы Claude с лимитами и ключи флота.",
-  input: toMachine, output: z.object({ accounts: z.array(Account) }),
+  owner: "host-accounts", target: "machine", tool: "Аккаунты машины: входы Claude с лимитами, очереди аккаунтов (slots) и ключи флота.",
+  input: toMachine, output: z.object({ accounts: z.array(Account), slots: z.array(Slot) }),
 });
 export const accountLogin = request("account.login", {
   owner: "host-accounts", target: "machine",
@@ -54,16 +54,17 @@ export const accountRemove = request("account.remove", {
   /** account — номер аккаунта из account.list. Поле id здесь не работает: это имя занято конвертом кадра. */
   input: z.object({ to: MachineAddr, id: z.string().optional(), account: z.string() }), output: Done,
 });
-/** Очередь выбора auto: порядок аккаунтов. Убрать аккаунт из очереди — порядок без него, вернуть — с ним. */
+/** Очередь аккаунтов: slot — её имя, order — порядок. Имени нет — очередь заводится; пустой order удаляет очередь без сессий. */
 export const slotSet = request("slot.set", {
   owner: "host-accounts", target: "machine",
-  input: z.object({ to: MachineAddr, order: z.array(z.string()) }), output: Done,
+  tool: "Завести или изменить очередь аккаунтов на машине: slot — имя очереди, order — почты по порядку выбора; пустой order удаляет очередь без сессий.",
+  input: z.object({ to: MachineAddr, slot: z.string(), order: z.array(z.string()) }), output: Done,
 });
-/** «Сменить сейчас»: поставить в очередь auto этот аккаунт; без account — следующий годный по порядку. */
+/** «Сменить сейчас»: поставить в очередь slot этот аккаунт; без account — следующий годный по порядку. */
 export const slotSwap = request("slot.swap", {
   owner: "host-accounts", target: "machine",
-  tool: "Сменить аккаунт очереди auto на машине сейчас: account — почта аккаунта; без него — следующий годный по порядку.",
-  input: z.object({ to: MachineAddr, account: z.string().optional() }), output: z.object({ account: z.string() }),
+  tool: "Сменить аккаунт очереди на машине сейчас: slot — имя очереди, account — почта аккаунта; без него — следующий годный по порядку.",
+  input: z.object({ to: MachineAddr, slot: z.string(), account: z.string().optional() }), output: z.object({ account: z.string() }),
 });
 export const keyCheck = request("key.check", {
   owner: "host-proxy", target: "machine",
@@ -169,7 +170,7 @@ export const pointsRaise = request("points.raise", {
   tool: "Поднять сессию из архива на машине: sid — сессия архива, point — точка (по умолчанию последняя), name — имя новой сессии, cwd — папка; move — перенос (прежняя машина отпускает сессию), иначе копия; files: point — вернуть файлы папки к точке, keep — оставить как есть; dryRun — только проверить папку.",
   input: z.object({
     to: MachineAddr, sid: z.string(), point: z.string().optional(), name: z.string().optional(), cwd: z.string().optional(), move: z.boolean().optional(),
-    files: z.enum(["keep", "point"]).optional(), dryRun: z.boolean().optional(), account: z.string().optional(),
+    files: z.enum(["keep", "point"]).optional(), dryRun: z.boolean().optional(), slot: z.string().optional(),
     /** последняя точка, которую видел человек: в архиве уже другая — отказ changed */
     expect: z.string().optional(),
   }),
@@ -232,7 +233,7 @@ export const incidentRaise = request("incident.raise", {
 });
 /** Правило вида обращений — ключ incidents.kinds настроек флота: имя вида → где открыть сессию, с чем, что ей сказать и кого позвать. */
 export const IncidentKind = z.object({
-  cwd: z.string(), pieces: z.array(z.string()).optional(), account: z.string().optional(), model: z.string().optional(), project: z.string().optional(),
+  cwd: z.string(), pieces: z.array(z.string()).optional(), slot: z.string().optional(), model: z.string().optional(), project: z.string().optional(),
   /** добавка к промпту сессии этого вида */
   prompt: z.string().optional(),
   /** кого позвать о новом обращении: ~почта */

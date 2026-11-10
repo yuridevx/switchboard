@@ -63,10 +63,10 @@ describe("аккаунты", () => {
     const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
     mkdirSync(join(home, "store"), { recursive: true });
     const at = Math.floor(Date.now() / 1000), expires = at + 30 * 86400;
-    const book = { accounts: { "a@example.com": { login: "ok", plan: "max", expires, limits: { five_hour: { utilization: 0.2, resetsAt: at + 600, at: at - 30 }, seven_day: { utilization: 0.4, resetsAt: at + 9000, at } } } }, order: ["a@example.com"] };
+    const book = { accounts: { "a@example.com": { login: "ok", plan: "max", expires, limits: { five_hour: { utilization: 0.2, resetsAt: at + 600, at: at - 30 }, seven_day: { utilization: 0.4, resetsAt: at + 9000, at } } } }, slots: { main: ["a@example.com"] } };
     writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: book }));
     mkdirSync(folders(home).accDir("a@example.com"), { recursive: true });
-    await folders(home).place("auto", "a@example.com");
+    await folders(home).place("main", "a@example.com");
     st = await stand({ home, modules: [accounts()] });
     st.services.handlers["keys.list"] = () => ({ keys: [] });
     const reply = await st.request("account.list", { to: "@laptop" });

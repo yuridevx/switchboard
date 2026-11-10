@@ -33,7 +33,7 @@ function lastBridge(text: string): Bridge | undefined {
 export function make({ claudeDir: dir }: { claudeDir?: string } = {}): Module {
   let host: HostApi;
   /** Аккаунт сессии сейчас: его называет модуль аккаунтов в строке; своего знания нет. */
-  const accountOf = (s: SessionApi): string | null => s.spec.account ?? null;
+  const accountOf = (s: SessionApi): string | null => s.spec.slot ?? null;
 
   /** Привязку снимаем, если аккаунт сменился: та же учётная запись продолжает. */
   function unbind(s: SessionApi): void {

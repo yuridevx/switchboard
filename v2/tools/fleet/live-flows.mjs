@@ -72,6 +72,16 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
     await page.waitForFunction(() => !/do=/.test(location.hash) && !document.querySelector("[data-step]"));
     if (!/#\/fleet\/accounts$/.test(page.url())) throw new Error("адрес после закрытия: " + page.url());
   });
+  await step("аккаунты — очереди машины строками; «+ очередь» — страница шага", async () => {
+    await open("/fleet/accounts");
+    await page.getByText("main", { exact: true }).first().waitFor({ timeout: 15_000 });
+    await page.getByRole("button", { name: "+ очередь" }).first().click();
+    await at(/do=queue/); await title(/^Новая очередь на /);
+    await page.getByRole("textbox", { name: "Имя очереди" }).waitFor(); await shot("queue-new");
+    await page.goBack();
+    await page.waitForFunction(() => !/do=/.test(location.hash) && !document.querySelector("[data-step]"));
+    await shot("queues");
+  });
   await step("пригласить устройство — форма, затем ссылка", async () => {
     await open("/settings/passes");
     await page.getByRole("button", { name: "Выдать приглашение" }).waitFor();

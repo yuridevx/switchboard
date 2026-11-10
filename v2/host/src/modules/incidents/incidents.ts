@@ -96,7 +96,7 @@ export function make(): Module {
       if (!kind) throw new Refusal("unknown_kind", `вид ${a.kind} не настроен на машине ${host.machine}`);
       let n = 1;
       while (host.session(`${a.kind}-${n}@${host.machine}`)) n++;
-      const spec: Spec = { name: `${a.kind}-${n}`, cwd: kind.cwd, ...(kind.pieces ? { pieces: kind.pieces } : {}), ...(kind.account ? { account: kind.account } : {}), ...(kind.model ? { model: kind.model } : {}), ...(kind.project ? { project: kind.project } : {}) };
+      const spec: Spec = { name: `${a.kind}-${n}`, cwd: kind.cwd, ...(kind.pieces ? { pieces: kind.pieces } : {}), ...(kind.slot ? { slot: kind.slot } : {}), ...(kind.model ? { model: kind.model } : {}), ...(kind.project ? { project: kind.project } : {}) };
       const callsign = `${spec.name}@${host.machine}`;
       opening.set(callsign, { kind: a.kind, key: a.key });
       try {

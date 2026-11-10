@@ -3,8 +3,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
-  consent, createApi, fleetList, invite, keysRemove, ledgerRead, obsHealth, obsRecent, obsReport, passes, peopleList, pointsCalls, pointsDelete, pointsHistory, pointsList,
-  pointsRaise, profileList, profileSync, profileView, ProxyRule, reachBot, reachSubscribe, rulesTest, sessionStop, slotSwap, type Account, type ArchSession, type SessionRow,
+  accountList, consent, createApi, fleetList, invite, keysRemove, ledgerRead, obsHealth, obsRecent, obsReport, passes, peopleList, pointsCalls, pointsDelete, pointsHistory, pointsList,
+  pointsRaise, profileList, profileSync, profileView, ProxyRule, reachBot, reachSubscribe, rulesTest, sessionStop, slotSet, slotSwap, type Account, type ArchSession, type SessionRow,
 } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { Steps } from "../shell/Page.tsx";
@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
-import { limitTone, limitWord, mergeAccounts, otherMail, queueOf } from "../lib/accounts.ts";
+import { limitTone, limitWord, mergeAccounts, otherMail, queueMove, seatOptions } from "../lib/accounts.ts";
 import { getLocal, setLocal } from "../lib/local.ts";
 import { deviceLabel, keyBytes, pushStateOf, subscriptionFields } from "../lib/push.ts";
 import { byDay, dayWord } from "../lib/time.ts";
@@ -240,7 +240,7 @@ describe("аккаунты и ключи", () => {
   const acc = (id: string, o: Partial<Account> = {}): Account => ({ id, kind: "claude", email: id, ok: true, ...o });
   it("аккаунт на нескольких машинах — одна строка: лимит — большее из известного, сессии — суммой, сбой входа виден", () => {
     const m = mergeAccounts({
-      laptop: [acc("a@x.io", { limits: [{ name: "five_hour", used: 0.4 }], sessions: 2, slot: 1 }), acc("b@x.io", { ok: false, why: "вход устарел" })],
+      laptop: [acc("a@x.io", { limits: [{ name: "five_hour", used: 0.4 }], sessions: 2 }), acc("b@x.io", { ok: false, why: "вход устарел" })],
       server: [acc("a@x.io", { limits: [{ name: "five_hour", used: 0.6, resets: 5 }], sessions: 3 }), { id: "k", kind: "key", ok: true }],
     });
     expect(m.map((x) => x.id)).toEqual(["b@x.io", "a@x.io", "k"]);
@@ -258,18 +258,31 @@ describe("аккаунты и ключи", () => {
     expect([0.5, 0.71, 0.91].map(limitTone)).toEqual(["teal", "orange", "red"]);
     expect(limitWord({ used: 0.456, resets: new Date(2026, 0, 1, 9, 5).getTime() })).toBe("46% · до 09:05");
   });
-  it("очередь — аккаунты с местом по порядку; без места — вне очереди; вход под другой почтой замечен", () => {
-    const q = queueOf([acc("c", { slot: 2 }), acc("a", { slot: 1 }), acc("z"), { id: "k", kind: "key", ok: true }]);
-    expect(q.queue.map((a) => a.id)).toEqual(["a", "c"]);
-    expect(q.out.map((a) => a.id)).toEqual(["z"]);
+  it("перенос аккаунта: порядок в очереди, из входов в очередь, между очередями, вон из очереди; вход под другой почтой замечен", () => {
+    const slots = [{ name: "main", order: ["a", "b", "c"], sessions: 0 }, { name: "night", order: ["c"], sessions: 0 }];
+    expect(queueMove(slots, "main", "main", "c", "a")).toEqual([{ slot: "main", order: ["c", "a", "b"] }]);
+    expect(queueMove(slots, "main", "main", "a", "b")).toEqual([]);
+    expect(queueMove(slots, null, "night", "a", null)).toEqual([{ slot: "night", order: ["c", "a"] }]);
+    expect(queueMove(slots, "main", "night", "b", "c")).toEqual([{ slot: "main", order: ["a", "c"] }, { slot: "night", order: ["b", "c"] }]);
+    expect(queueMove(slots, "main", "night", "c", null)).toEqual([{ slot: "main", order: ["a", "b"] }]);
+    expect(queueMove(slots, "night", null, "c", null)).toEqual([{ slot: "night", order: [] }]);
+    expect(seatOptions({ slots: [{ name: "main", order: ["a"], account: "a", sessions: 1 }, { name: "empty", order: ["b"], sessions: 0 }], accounts: [{ id: "orca", kind: "key", ok: true, model: "glm" }] }))
+      .toEqual([{ value: "main", label: "main · a" }, { value: "empty", label: "empty · пусто", disabled: true }, { value: "orca", label: "ключ orca · glm" }]);
     expect(otherMail("a@x.io", acc("B@x.io"))).toBe(true);
     expect(otherMail("a@x.io", acc("A@X.io"))).toBe(false);
     expect(otherMail(undefined, acc("b@x.io"))).toBe(false);
   });
   it("«сменить сейчас»: названный аккаунт или следующий годный; негодный — отказ", async () => {
     const api = ask(quiet());
-    await expect(api.call(slotSwap, { to: "@server" })).resolves.toEqual({ account: "ops@example.com" });
-    await expect(api.call(slotSwap, { to: "@laptop", account: "work@example.com" })).rejects.toMatchObject({ word: "no_account" });
+    await expect(api.call(slotSwap, { to: "@server", slot: "main" })).resolves.toEqual({ account: "ops@example.com" });
+    await expect(api.call(slotSwap, { to: "@server", slot: "night" })).resolves.toEqual({ account: "ops@example.com" });
+    await expect(api.call(slotSwap, { to: "@laptop", slot: "main", account: "work@example.com" })).rejects.toMatchObject({ word: "no_reserve" });
+    await expect(api.call(slotSet, { to: "@laptop", slot: "orca-glm", order: ["yuri@example.com"] })).rejects.toMatchObject({ word: "name_taken" });
+    await api.call(slotSet, { to: "@laptop", slot: "docs", order: ["yuri@example.com"] });
+    expect((await api.call(accountList, { to: "@laptop" })).slots.map((q) => q.name)).toEqual(["main", "review", "docs"]);
+    await expect(api.call(slotSet, { to: "@laptop", slot: "main", order: [] })).rejects.toMatchObject({ word: "has_sessions" });
+    await api.call(slotSet, { to: "@laptop", slot: "docs", order: [] });
+    expect((await api.call(accountList, { to: "@laptop" })).slots.map((q) => q.name)).toEqual(["main", "review"]);
   });
   it("форма ключа: пары «a = b», настройки — объект JSON, новый ключ без значения не записать, старый — можно", () => {
     expect(parsePairs("a = b\n\nплохо\n c=d = e ")).toEqual({ a: "b", c: "d = e" });
@@ -364,9 +377,9 @@ describe("архив", () => {
     expect(checkWord(c("other"), "point").bad).toBe(true);
   });
   it("ввод подъёма по виду: перенос — без точки и с move; копия — с именем; откат — на своей машине", () => {
-    const f = { machine: "server", name: "site-copy", cwd: "~/projects/site", account: "auto", files: "point" as const, point: "p3" };
+    const f = { machine: "server", name: "site-copy", cwd: "~/projects/site", account: "", files: "point" as const, point: "p3" };
     expect(raiseInput("move", s, f)).toEqual({ to: "@server", sid: "s1", files: "point", move: true });
-    expect(raiseInput("copy", s, { ...f, cwd: "~/else", account: "ops@example.com" })).toEqual({ to: "@server", sid: "s1", files: "point", cwd: "~/else", account: "ops@example.com", name: "site-copy", point: "p3" });
+    expect(raiseInput("copy", s, { ...f, cwd: "~/else", account: "night" })).toEqual({ to: "@server", sid: "s1", files: "point", cwd: "~/else", slot: "night", name: "site-copy", point: "p3" });
     expect(raiseInput("rollback", s, { ...f, files: "keep" })).toEqual({ to: "@laptop", sid: "s1", files: "keep", point: "p3" });
     expect(raiseInput("raise", s, { ...f, name: "site", point: undefined })).toEqual({ to: "@server", sid: "s1", files: "point", move: true });
     expect(stepsOf("rollback", s, "laptop", true)[0]).toBe("Остановить site@laptop");

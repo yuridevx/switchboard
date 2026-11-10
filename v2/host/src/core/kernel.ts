@@ -512,6 +512,12 @@ export class Kernel {
     let parts: Parts;
     this.opening.add(callsign);
     try {
+      // неназванные ключи документа ставят их хозяева: значение записано в документ, а не подразумевается
+      for (const [key, owner] of this.specOwners) {
+        if ((spec as Record<string, unknown>)[key] !== undefined || !owner.fill?.[key]) continue;
+        const value = await owner.fill[key]!();
+        if (value !== undefined) (spec as Record<string, unknown>)[key] = value;
+      }
       await this.checkSpec(spec as Record<string, unknown>, null);
       parts = await this.parts(s);
       if (parts.conflicts.length) throw new Refusal("open_failed", parts.conflicts.join("; "));
