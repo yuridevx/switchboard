@@ -65,6 +65,11 @@ describe("откат разговора", () => {
     withTalk(st, SIX);
     await st.request("session.rewind", { to: CS, upto: "h2" }, PULT);
     expect(s.rec.upto).toBe("a1");
+    // файл разговора ещё хранит ушедшее — история его уже не показывает; повтор старой записи при запуске обрезку не снимает
+    expect(((await st.request("session.history", { to: CS }, PULT)).result as { events: any[] }).events.map((e) => e.uuid).filter((u) => /^[ha][0-9]$/.test(u))).toEqual(["h1", "a1"]);
+    st.proc(CS).send({ ...user("h1", "Почини меню"), isReplay: true });
+    await tick(20);
+    expect(s.rec.upto).toBe("a1");
     st.proc(CS).exit(1, "упал");
     await until(() => st!.sdk.of(CS).length === 3 && s.state === "idle", 5000, "resume после сбоя");
     expect((st.sdk.last(CS)!.options as any).resumeSessionAt).toBe("a1");

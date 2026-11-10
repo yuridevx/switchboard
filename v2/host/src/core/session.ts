@@ -175,7 +175,13 @@ export class Session {
       const named = typeof last === "object" && last !== null;
       const options = { dir, ...(named ? last : {}) };
       const fn = this.k.sdk.functions;
-      return name === "getSessionMessages" ? wholeConversation(fn, id, options) : fn[name]!(id, ...(named ? args.slice(0, -1) : args), options);
+      if (name !== "getSessionMessages") return fn[name]!(id, ...(named ? args.slice(0, -1) : args), options);
+      // после отката и до первого нового сообщения файл разговора ещё хранит ушедшее: SDK обрезает его при запуске, здесь — тем же номером
+      const upto = this.rec.upto;
+      return wholeConversation(fn, id, options).then((all) => {
+        const at = upto && Array.isArray(all) ? all.findIndex((m: { uuid?: string }) => m.uuid === upto) : -1;
+        return at < 0 ? all : (all as unknown[]).slice(0, at + 1);
+      });
     }
     return q ? q[name](...args) : Promise.reject(new Error("процесс сессии не запущен"));
   }
@@ -294,7 +300,7 @@ export class Session {
       this.k.save();
     }
     // после отката разговор пошёл дальше: новая ветка — последняя, обрезать при запуске больше нечего
-    if (this.rec.upto && m.type === "assistant") {
+    if (this.rec.upto && (m.type === "assistant" || m.type === "user") && !m.isReplay) {
       this.rec.upto = undefined;
       this.k.save();
     }
