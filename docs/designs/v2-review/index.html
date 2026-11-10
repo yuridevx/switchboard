@@ -1,0 +1,112 @@
+<title>Проход архитектора v2</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Раскладка: лента из пяти итераций сверху, под ней — карточка выбранной итерации с числами «было → стало», внизу — что дальше. */
+:root {
+  --bg: #f6f7f4; --panel: #ffffff; --ink: #18211d; --mute: #5d6b64; --line: #d5dbd4;
+  --ok: #1f7a4d; --was: #b9c2bb; --now: #1f7a4d; --pick: #e3efe7;
+  --head: "Space Grotesk", "Segoe UI", system-ui, sans-serif; --text: "Inter", "Segoe UI", system-ui, sans-serif; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #121714; --panel: #1a211d; --ink: #e6ece8; --mute: #94a39b; --line: #2c3731; --ok: #58c08a; --was: #46524b; --now: #58c08a; --pick: #1f2f27; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #121714; --panel: #1a211d; --ink: #e6ece8; --mute: #94a39b; --line: #2c3731; --ok: #58c08a; --was: #46524b; --now: #58c08a; --pick: #1f2f27; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--text); padding-block: 28px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+main { max-width: 980px; margin: 0 auto; display: grid; gap: 22px; }
+h1 { font: 600 28px/1.15 var(--head); margin: 0; text-wrap: balance; }
+h2 { font: 600 13px/1 var(--head); letter-spacing: .08em; text-transform: uppercase; color: var(--mute); margin: 0; }
+.lead { color: var(--mute); margin: 0; max-width: 62ch; }
+.track { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.it { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 12px; text-align: left; font: inherit; color: inherit; cursor: pointer; display: grid; gap: 6px; min-width: 0; }
+.it:hover, .it:focus-visible { border-color: var(--ok); outline: none; }
+.it[aria-pressed="true"] { background: var(--pick); border-color: var(--ok); }
+.it b { font: 600 22px/1 var(--head); }
+.it span { font-size: 13px; color: var(--mute); overflow-wrap: anywhere; }
+.it i { font-style: normal; font: 12px var(--mono); color: var(--ok); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 14px; }
+.card h3 { font: 600 19px/1.25 var(--head); margin: 0; }
+.card p { margin: 0; max-width: 68ch; }
+.rows { display: grid; gap: 10px; }
+.row { display: grid; grid-template-columns: minmax(0, 15rem) minmax(0, 1fr) 6.5rem; gap: 12px; align-items: center; }
+.row .name { font-size: 14px; }
+.bars { display: grid; gap: 3px; }
+.bar { height: 9px; border-radius: 5px; background: var(--was); min-width: 3px; }
+.bar.now { background: var(--now); }
+.row .num { font: 13px var(--mono); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.key { display: flex; gap: 16px; font-size: 12.5px; color: var(--mute); }
+.key span::before { content: ""; display: inline-block; width: 18px; height: 8px; border-radius: 4px; margin-right: 6px; background: var(--was); }
+.key span.n::before { background: var(--now); }
+.next { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.next div { border: 1px dashed var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 4px; }
+.next b { font: 600 15px var(--head); }
+.next span { font-size: 13px; color: var(--mute); }
+.total { display: flex; flex-wrap: wrap; gap: 8px 22px; font: 13px var(--mono); color: var(--mute); }
+.total b { color: var(--ink); font-weight: 600; }
+@media (max-width: 640px) { .track { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row { grid-template-columns: minmax(0, 1fr); gap: 4px; } .row .num { text-align: left; } .next { grid-template-columns: minmax(0, 1fr); } }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@600&display=swap">
+<main>
+  <header style="display:grid;gap:8px">
+    <h1>Проход архитектора по коду v2</h1>
+    <p class="lead">Пять итераций подряд: найти повтор, кольцо или лишнее — убрать — проверить тестами. Нажмите итерацию, чтобы увидеть, что изменилось.</p>
+    <div class="total"><span>тесты после: <b>protocol 11 · platform 40 · services 95 · host 105 · web 220</b></span><span>гейт: <b>чисто</b></span><span>колец импортов: <b>3 → 0</b></span></div>
+  </header>
+  <section style="display:grid;gap:10px">
+    <h2>Итерации</h2>
+    <div class="track" id="track"></div>
+  </section>
+  <section class="card" id="card" aria-live="polite"></section>
+  <section style="display:grid;gap:10px">
+    <h2>Дальше</h2>
+    <div class="next">
+      <div><b>Покрытие тестами</b><span>план флоу по коду, тесты по плану, прогон на тестовом флоте</span></div>
+      <div><b>Сборка на флот</b><span>код после прохода ещё не выложен: на флоте сборка 14</span></div>
+      <div><b>Прод</b><span>замена первой версии — отдельным словом</span></div>
+    </div>
+  </section>
+</main>
+<script>
+const ITER = [
+  { n: 1, name: "Один вход, одно имя", gain: "−21 обработчик", title: "Повторы имён и входов",
+    text: "У запроса в поддельном флоте страницы стояло по два обработчика — второй был мёртвым. Отмена сообщения в очереди имела два входа. Четыре имени на странице значили по две разные вещи. Файл настроек флота разбирали 21 скрипт, каждый по-своему.",
+    rows: [["Обработчиков на запрос в поддельном флоте", 2, 1, "2 → 1"], ["Входов отмены сообщения", 2, 1, "2 → 1"], ["Имён с двумя смыслами на странице", 4, 0, "4 → 0"], ["Разборов файла настроек флота", 21, 1, "21 → 1"]] },
+  { n: 2, name: "Повторы между файлами", gain: "−15 мёртвых имён", title: "Одинаковый код в двух местах",
+    text: "Формат цен моделей был описан дважды — на странице и в службах; теперь он в договоре. Стирание данных устройства и пометка «после хода» объявлены по одному разу. Неиспользуемые имена убраны и запрещены настройкой. Типы теперь проверяются вместе с тестами — так нашлись 6 ошибок в тестах Host, которые упали бы на первом же CI.",
+    rows: [["Описаний формата цен", 2, 1, "2 → 1"], ["Повторов мелких виджетов", 4, 0, "4 → 0"], ["Неиспользуемых имён", 15, 0, "15 → 0"], ["Ошибок типов в тестах Host", 6, 0, "6 → 0"]] },
+  { n: 3, name: "Границы модулей служб", gain: "гейт видит 10 модулей", title: "Сосед — только через договор",
+    text: "Модули служб лежали плоскими файлами, и правило «сосед зовёт соседа только через его договор» на них не действовало: один модуль брал у другого пять внутренних функций напрямую. Теперь каждый модуль — папка со своим входом для соседей, и гейт ловит обход.",
+    rows: [["Модулей служб под гейтом", 0, 10, "0 → 10"], ["Импортов соседа мимо договора", 9, 0, "9 → 0"], ["Договоров между модулями", 0, 5, "0 → 5"]] },
+  { n: 4, name: "Кольца зависимостей", gain: "3 → 0", title: "Файлы не зависят друг от друга по кругу",
+    text: "Три кольца: ядро Host и его запросы; вход служб, наблюдение и связь с людьми; разговор и инспектор на странице. Общее вынесено в отдельные файлы, а гейт получил правило: кольцо импортов — сборка не проходит.",
+    rows: [["Колец между файлами", 3, 0, "3 → 0"], ["Колец между папками страницы", 2, 0, "2 → 0"], ["Правил гейта", 4, 5, "4 → 5"]] },
+  { n: 5, name: "Обвязка живых проверок", gain: "9 копий → 1", title: "Живые сценарии браузера",
+    text: "Девять сценариев, которые водят настоящий Chrome по тестовому флоту, каждый сам запускал браузер и сам звал флот. Теперь это один помощник; повтор запроса при моргнувшей сети достался всем. Проверено вживую: экраны 27 из 27.",
+    rows: [["Копий обвязки", 9, 1, "9 → 1"], ["Сценариев с повтором при обрыве сети", 1, 9, "1 → 9"]] },
+];
+const track = document.getElementById("track"), card = document.getElementById("card");
+function show(i) {
+  const it = ITER[i];
+  [...track.children].forEach((b, j) => b.setAttribute("aria-pressed", String(j === i)));
+  const max = Math.max(...it.rows.flatMap((r) => [r[1], r[2]]));
+  card.innerHTML = "";
+  const h = document.createElement("h3"); h.textContent = `Итерация ${it.n}. ${it.title}`;
+  const p = document.createElement("p"); p.textContent = it.text;
+  const rows = document.createElement("div"); rows.className = "rows";
+  for (const [name, was, now, word] of it.rows) {
+    const row = document.createElement("div"); row.className = "row";
+    const nm = document.createElement("div"); nm.className = "name"; nm.textContent = name;
+    const bars = document.createElement("div"); bars.className = "bars";
+    for (const [v, cls] of [[was, "bar"], [now, "bar now"]]) { const b = document.createElement("div"); b.className = cls; b.style.width = (v / max * 100) + "%"; bars.append(b); }
+    const num = document.createElement("div"); num.className = "num"; num.textContent = word;
+    row.append(nm, bars, num); rows.append(row);
+  }
+  const key = document.createElement("div"); key.className = "key"; key.innerHTML = "<span>было</span><span class=\"n\">стало</span>";
+  card.append(h, p, rows, key);
+}
+ITER.forEach((it, i) => {
+  const b = document.createElement("button"); b.type = "button"; b.className = "it"; b.id = "it-" + it.n;
+  const n = document.createElement("b"); n.textContent = it.n;
+  const s = document.createElement("span"); s.textContent = it.name;
+  const g = document.createElement("i"); g.textContent = it.gain;
+  b.append(n, s, g); b.addEventListener("click", () => show(i)); track.append(b);
+});
+show(0);
+</script>
