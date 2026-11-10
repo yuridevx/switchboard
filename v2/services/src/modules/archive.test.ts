@@ -215,3 +215,74 @@ describe("архив: документ сессии", () => {
     expect(got.session.spec).toEqual(spec);
   });
 });
+
+// Отказы архива словом — устав: «система ловит»: отказать, назвать причину, ничего не менять.
+describe("архив: отказы словом", () => {
+  it("вызовы модели сессии чужой машины — not_found: до машины не достаёт, значит сессии для него нет", async () => {
+    const s = stand();
+    await save(s, "sid1", "выкладка");
+    // Олег достаёт только до своей oleg-mac
+    expect(await s.ask("points.calls", { sid: "sid1" }, "koleg1")).toMatchObject({ ok: false, error: "not_found" });
+  });
+
+  it("текст вызова сессии чужой машины — not_found, текста нет", async () => {
+    const s = stand();
+    await save(s, "sid1", "выкладка");
+    const r = await s.ask("points.call", { sid: "sid1", call: "msg_1" }, "koleg1");
+    expect(r).toMatchObject({ ok: false, error: "not_found" });
+    expect(r.result).toBeUndefined();
+  });
+
+  it("удаление: сессии нет или точки нет — not_found; точки и блоки на месте", async () => {
+    const s = stand();
+    const p = await save(s, "sid1", "выкладка");
+    expect(await s.ask("points.delete", { sid: "nosuch" })).toMatchObject({ ok: false, error: "not_found" });
+    expect(await s.ask("points.delete", { sid: "sid1", point: "p9" })).toMatchObject({ ok: false, error: "not_found" });
+    expect((await list(s, { sid: "sid1" })).sessions[0]!.points).toBe(1);
+    for (const h of p.hashes) expect(await s.env.FILES.head(blockKey(s.fleet, "laptop", h))).not.toBeNull();
+  });
+
+  it("ссылки на блоки: сессии нет среди своих машин или нет названной точки — not_found с её номером, ссылок нет", async () => {
+    const s = stand();
+    await save(s, "sid1", "выкладка");
+    const foreign = await s.ask("points.get", { sid: "sid1" }, "koleg1");
+    expect(foreign).toMatchObject({ ok: false, error: "not_found" });
+    expect(String(foreign.why)).toContain("sid1");
+    const noPoint = await s.ask("points.get", { sid: "sid1", point: "p9" });
+    expect(noPoint).toMatchObject({ ok: false, error: "not_found" });
+    expect(String(noPoint.why)).toContain("p9");
+    expect(noPoint.result).toBeUndefined();
+  });
+
+  it("каталог по номеру сессии: сессии в архиве нет — not_found с причиной словами", async () => {
+    const s = stand();
+    await save(s, "sid1", "выкладка");
+    const r = await s.ask("points.list", { sid: "nosuch" });
+    expect(r).toMatchObject({ ok: false, error: "not_found" });
+    expect(String(r.why)).toContain("nosuch");
+    // названная машина, на которой этой сессии нет, — тот же отказ
+    expect(await s.ask("points.list", { sid: "sid1", machine: "server" })).toMatchObject({ ok: false, error: "not_found" });
+  });
+
+  it("разговор сессии чужой машины — not_found, событий нет", async () => {
+    const s = stand();
+    await save(s, "sid1", "выкладка");
+    const r = await s.ask("points.history", { sid: "sid1" }, "koleg1");
+    expect(r).toMatchObject({ ok: false, error: "not_found" });
+    expect(r.result).toBeUndefined();
+  });
+
+  it("каталог по чужой машине — forbidden с её именем", async () => {
+    const s = stand();
+    const r = await s.ask("points.list", { machine: "laptop" }, "koleg1");
+    expect(r).toMatchObject({ ok: false, error: "forbidden" });
+    expect(String(r.why)).toContain("laptop");
+  });
+
+  it("обзор архива по чужой машине — forbidden с её именем", async () => {
+    const s = stand();
+    const r = await s.ask("points.stats", { machine: "laptop" }, "koleg1");
+    expect(r).toMatchObject({ ok: false, error: "forbidden" });
+    expect(String(r.why)).toContain("laptop");
+  });
+});

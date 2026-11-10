@@ -51,3 +51,24 @@ describe("GitHub", () => {
     expect(await s.ask("github.token", { repo: "не репозиторий" }, "klaptop")).toMatchObject({ ok: false, error: "bad_input" });
   });
 });
+
+// устав: «прямой запрос … не прошёл — отказ словом»
+describe("GitHub: недоступен", () => {
+  it("GitHub не ответил или ответил ошибкой при выдаче токена — github_failed с причиной, токена нет", async () => {
+    const s = stand();
+    await github(s);
+    await s.ask("github.setup", { code: "code123" });
+    const up = s.state.net;
+    // сеть оборвалась
+    s.state.net = () => { throw new Error("connect ECONNRESET"); };
+    const down = await s.ask("github.token", { repo: "yuri/site" }, "klaptop");
+    expect(down).toMatchObject({ ok: false, error: "github_failed" });
+    expect(down.result).toBeUndefined();
+    expect(String(down.why)).toContain("ECONNRESET");
+    // GitHub ответил ошибкой на выдачу токена
+    s.state.net = (url, init) => (url.endsWith("/access_tokens") ? new Response("{\"message\":\"boom\"}", { status: 500 }) : up(url, init));
+    const failed = await s.ask("github.token", { repo: "yuri/site" }, "klaptop");
+    expect(failed).toMatchObject({ ok: false, error: "github_failed" });
+    expect(failed.result).toBeUndefined();
+  });
+});

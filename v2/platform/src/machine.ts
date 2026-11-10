@@ -32,7 +32,7 @@ export class MachineObject extends DurableObject<Env> {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         resolve(fail(id, "timeout", "машина не ответила за отведённое время"));
-      }, CALL_MS);
+      }, Number(this.env.CALL_MS) || CALL_MS);
       this.pending.set(id, { resolve, role, timer });
       send(ws, f);
     });

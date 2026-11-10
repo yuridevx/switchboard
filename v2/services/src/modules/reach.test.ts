@@ -251,7 +251,68 @@ describe("связь с людьми: Telegram", () => {
     await link(s, { id: 500 }, 9);
     await s.ask("reach.send", NOTE, "klaptop");
     s.state.dead.add("kanya1");
+    s.seen.net.length = 0;
     await hook(s, { message: { message_id: 3, chat: { id: 500 }, message_thread_id: 77, from: { id: 9 }, text: "main" } });
     expect(s.seen.delivered).toHaveLength(0);
+    // человек видит отказ: реакция на его сообщение
+    expect(calls(s)).toEqual([["setMessageReaction", { chat_id: 500, message_id: 3, reaction: [{ type: "emoji", emoji: "👎" }] }]]);
+  });
+
+  // устав: «система ловит» — отказать, записать причину
+  it("код привязки не принят — чужого флота или уже использованный: устройства нет, на сообщение реакция 👎", async () => {
+    const s = await withBot();
+    const code = await link(s, { id: 500 }, 9);
+    s.seen.net.length = 0;
+    // использованный код из другого чата и код чужого флота
+    await hook(s, { message: { message_id: 7, chat: { id: 600 }, from: { id: 10 }, text: code } });
+    await hook(s, { message: { message_id: 8, chat: { id: 600 }, from: { id: 10 }, text: code.replace(s.fleet, "otherfleet") } });
+    expect(await devices(s)).toHaveLength(1);
+    expect(await devices(s, "koleg1")).toHaveLength(0);
+    expect(calls(s)).toEqual([
+      ["setMessageReaction", { chat_id: 600, message_id: 7, reaction: [{ type: "emoji", emoji: "👎" }] }],
+      ["setMessageReaction", { chat_id: 600, message_id: 8, reaction: [{ type: "emoji", emoji: "👎" }] }],
+    ]);
+  });
+
+  // устав: ожидаемая ветка «соединение с машиной оборвалось»; чьё: код — «всегда 200: повтор доставки дал бы двойной ввод»
+  it("машина сессии не на связи: вебхук отвечает 200, на сообщение человека реакция 🤷", async () => {
+    const s = await withBot();
+    await link(s, { id: 500 }, 9);
+    await s.ask("reach.send", NOTE, "klaptop");
+    s.state.answer = (f) => ({ type: "reply", id: f.id!, ok: false, error: "offline" });
+    s.seen.net.length = 0;
+    const res = await hook(s, { message: { message_id: 3, chat: { id: 500 }, message_thread_id: 77, from: { id: 9 }, text: "main" } });
+    expect(res.status).toBe(200);
+    expect(calls(s)).toEqual([["setMessageReaction", { chat_id: 500, message_id: 3, reaction: [{ type: "emoji", emoji: "🤷" }] }]]);
+  });
+
+  // чьё: код
+  it("чат Telegram убран из устройств: его нет в списке, сообщение из прежней темы сессии никуда не уходит", async () => {
+    const s = await withBot();
+    await link(s, { id: 500 }, 9);
+    await s.ask("reach.send", NOTE, "klaptop");
+    const [dev] = await devices(s);
+    expect(await s.ask("reach.remove", { device: dev!.id }, "kanya1")).toMatchObject({ ok: true });
+    expect(await devices(s)).toHaveLength(0);
+    await hook(s, { message: { message_id: 3, chat: { id: 500 }, message_thread_id: 77, from: { id: 9 }, text: "main" } });
+    expect(s.seen.delivered).toHaveLength(0);
+  });
+
+  // устав: «система ловит» — отказать, записать причину
+  it("бот заблокирован в чате (403): уведомление не ушло — sent 0, чат убран из устройств", async () => {
+    const s = await withBot();
+    await link(s, { id: 500 }, 9);
+    const before = s.state.net;
+    s.state.net = (url, init) => (url.endsWith("/sendMessage") ? Response.json({ ok: false, error_code: 403, description: "Forbidden: bot was blocked by the user" }) : before(url, init));
+    expect((await s.ask("reach.send", NOTE, "klaptop")).result).toEqual({ sent: 0, online: false });
+    expect(await devices(s)).toHaveLength(0);
+  });
+
+  // чьё: код
+  it("админ убирает чужое устройство: у владельца его больше нет", async () => {
+    const s = stand(undefined, { env: { VAPID_PRIVATE: await vapidKey() } });
+    const { id } = (await s.ask("reach.subscribe", await subscription(), "kanya1")).result as { id: string };
+    expect(await s.ask("reach.remove", { device: id }, "kyura1")).toMatchObject({ ok: true });
+    expect(await devices(s, "kanya1")).toHaveLength(0);
   });
 });

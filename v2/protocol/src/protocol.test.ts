@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { socketLink } from "./client.ts";
 import { accountList, contract, createApi, fail, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, sessionOpen, slotSet, slotSwap, Spec, TOOL_METHODS, z, type Transport } from "./index.ts";
 
@@ -91,5 +91,31 @@ describe("инструменты: одна таблица для страниц�
     const call = contract.request("session.call")!;
     expect(call.input.safeParse({ to: "a@b", method: "rewindFiles" }).success).toBe(false);
     for (const method of TOOL_METHODS) expect(call.input.safeParse({ to: "a@b", method }).success).toBe(true);
+  });
+  // устав: закрытый список ожидаемых веток — «соединение оборвалось → клиенты переподключаются»
+  it("соединение оборвалось: «нет связи», после паузы — новое соединение и hello тем же пропуском; слово revoked переподключение останавливает", () => {
+    vi.useFakeTimers();
+    try {
+      const made: Array<{ on: Record<string, (e: any) => void>; sent: string[] }> = [];
+      class WS { on: Record<string, (e: any) => void> = {}; sent: string[] = []; readyState = 1; constructor() { made.push(this); } send(t: string) { this.sent.push(t); } close() {} addEventListener(t: string, fn: (e: any) => void) { this.on[t] = fn; } }
+      const states: string[] = [], pauses: number[] = [];
+      socketLink({ url: "ws://x", hello: { type: "hello", key: "k1", role: "page" }, onFrame: () => {}, onState: (st, why) => states.push(why ? `${st}:${why}` : st), onPause: (ms) => pauses.push(ms), WebSocket: WS as never });
+      made[0]!.on.open!({});
+      made[0]!.on.close!({});
+      expect(states).toEqual(["connecting", "open", "closed"]);
+      expect(made.length).toBe(1);
+      expect(pauses[0]).toBeGreaterThan(0);
+      vi.advanceTimersByTime(pauses[0]! + 1);
+      expect(made.length).toBe(2);
+      made[1]!.on.open!({});
+      expect(JSON.parse(made[1]!.sent[0]!)).toEqual({ type: "hello", key: "k1", role: "page" });
+      expect(states.slice(3)).toEqual(["connecting", "open"]);
+      made[1]!.on.close!({ reason: "revoked" });
+      vi.advanceTimersByTime(60_000);
+      expect(made.length).toBe(2);
+      expect(states.at(-1)).toBe("stopped:revoked");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -246,13 +246,13 @@ describe("кто пришёл и что может", () => {
     expect((await api.machines(b)).map((m) => m.owner)).toEqual([ANYA]);
   });
 
-  it("флот заводится один раз и только с секретом", async () => {
+  it("флот заводится с секретом: ответ несёт приглашение первого админа, оно становится его пропуском; /health отвечает", async () => {
     const fleet = newFleet();
-    const post = (auth: string, body: unknown) => SELF.fetch("https://p.test/boot", { method: "POST", headers: { authorization: auth }, body: JSON.stringify(body) });
-    expect((await post("Bearer wrong", { fleet, person: YURI })).status).toBe(403);
-    expect((await post("Bearer boot-secret", { fleet, person: "yuri" })).status).toBe(400);
-    expect((await post("Bearer boot-secret", { fleet, person: YURI })).status).toBe(200);
-    expect((await post("Bearer boot-secret", { fleet, person: ANYA })).status).toBe(409);
+    const res = await SELF.fetch("https://p.test/boot", { method: "POST", headers: { authorization: "Bearer boot-secret" }, body: JSON.stringify({ fleet, person: YURI }) });
+    expect(res.status).toBe(200);
+    const made = (await res.json()) as { ok: boolean; invite: string };
+    expect(made.ok).toBe(true);
+    expect(await api.who(await redeem(made.invite))).toMatchObject({ person: YURI, admin: true });
     expect(await (await SELF.fetch("https://p.test/health")).json()).toEqual({ ok: true, part: "platform" });
   });
 });
@@ -369,6 +369,9 @@ describe("доставка", () => {
     const q = await kl.next((f) => f.type === "keeper.state");
     kl.send({ type: "reply", id: q.id!, ok: true, result: { build: 412 } });
     expect(await waiting).toMatchObject({ ok: true, result: { build: 412 } });
+    // Keeper ушёл — пометка в строке машины снята
+    kl.ws.close(1000, "bye");
+    expect((await y.next((f) => f.type === "roster.delta" && (f.machines as MachineRow[] | undefined)?.[0]?.keeper === false)).machines).toMatchObject([{ name: "laptop", keeper: false }]);
   });
 
   it("на связи ли человек — по открытой странице", async () => {

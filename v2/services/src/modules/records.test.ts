@@ -52,7 +52,10 @@ describe("ключи флота", () => {
     expect(JSON.stringify(list)).not.toContain("sk-secret");
     expect(await s.ask("keys.value", { name: "orca" }, "klaptop")).toMatchObject({ result: { value: "sk-secret-9876", provider: "anthropic" } });
     expect(await s.ask("keys.value", { name: "нет" }, "klaptop")).toMatchObject({ ok: false, error: "not_found" });
+    expect(await s.ask("keys.remove", { name: "orca" }, "kanya1")).toMatchObject({ ok: false, error: "forbidden" });
+    expect(await s.ask("keys.value", { name: "orca" }, "klaptop")).toMatchObject({ ok: true });
     await s.ask("keys.remove", { name: "orca" });
+    expect(await s.ask("keys.value", { name: "orca" }, "klaptop")).toMatchObject({ ok: false, error: "not_found" });
     expect(s.seen.broadcasts.map((b) => [b.role, b.frame.type, b.frame.what])).toEqual([["host", "changed", "keys"], ["host", "changed", "keys"]]);
     expect(await s.ask("keys.set", { name: "x", provider: "p", value: "v" }, "kanya1")).toMatchObject({ ok: false, error: "forbidden" });
   });

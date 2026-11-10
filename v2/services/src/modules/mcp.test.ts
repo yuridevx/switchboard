@@ -15,6 +15,7 @@ describe("сервер MCP", () => {
     const s = stand();
     expect((await rpc(s, "initialize", {}, null)).status).toBe(401);
     expect((await rpc(s, "initialize", {}, "knobody")).status).toBe(401);
+    expect((await rpc(s, "tools/call", { name: "prefs_get", arguments: { scope: "me" } }, "knobody")).status).toBe(401);
     const ok = await rpc(s, "initialize", { protocolVersion: "2025-03-26" });
     expect(ok.body.result).toMatchObject({ protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "switchboard" } });
     expect((await rpc(s, "notifications/initialized", {}, "kanya1", {}, null)).status).toBe(202);
@@ -42,6 +43,7 @@ describe("сервер MCP", () => {
     const refused = await rpc(s, "tools/call", { name: "message", arguments: { to: "site@oleg-mac", text: "привет" } });
     expect(refused.body.result.isError).toBe(true);
     expect(refused.body.result.content[0].text).toContain("forbidden");
+    expect(refused.body.result.content[0].text).toMatch(/\(trace t[\w-]+\)$/);
     expect((await rpc(s, "tools/call", { name: "no_such", arguments: {} })).body.error?.code).toBe(-32602);
   });
 

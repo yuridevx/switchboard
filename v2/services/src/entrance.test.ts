@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import type { ObsRow, Reply } from "@sb/protocol";
+import { describe, expect, it, vi } from "vitest";
+import { CALL_MS, MAX_FRAME, type ObsRow, type Reply } from "@sb/protocol";
 import { newFleet, stand } from "../test/stand.ts";
 
 describe("вход служб", () => {
@@ -135,5 +135,81 @@ describe("вход: сообщение человеку", () => {
     expect(r).toMatchObject({ ok: false, error: "not_session" });
     expect(r.why).toContain("reach.send");
     expect(await s.ask("message", { to: "phone~anya@example.com", text: "привет" })).toMatchObject({ ok: false, error: "not_session" });
+  });
+});
+
+describe("вход: предел ответа", () => {
+  // слово пользователя 2 нояб.: «у всех операций должен быть лимит»
+  it("машина не ответила за предел — timeout с причиной словами; отказ записан строкой наблюдения", async () => {
+    const s = stand();
+    // платформа приняла кадр и молчит
+    s.platform.deliver = () => new Promise(() => {});
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const waiting = s.ask("message", { to: "site@laptop", text: "привет" });
+      await vi.advanceTimersByTimeAsync(CALL_MS + 1000);
+      const r = await waiting;
+      expect(r).toMatchObject({ ok: false, error: "timeout" });
+      expect(r.why).toContain("машина не ответила");
+    } finally {
+      vi.useRealTimers();
+    }
+    const rows = ((await s.ask("obs.recent", { failed: true })).result as { rows: ObsRow[] }).rows;
+    expect(rows.map((x) => [x.type, x.ok, x.word])).toEqual([["message", false, "timeout"]]);
+  });
+});
+
+describe("вход OAuth: платформа не ответила", () => {
+  // устав: «прямой запрос … не прошёл — отказ словом»
+  it("/token при молчащей платформе — 503 server_error, пропуск не выдан", async () => {
+    const s = stand();
+    s.platform.fleetCall = async () => { throw new Error("платформа упала"); };
+    const res = await s.http("/token", {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code: `${s.fleet}:kinvite1:${"s".repeat(20)}`, code_verifier: "good", client_id: "https://c.example/c.json", redirect_uri: "https://c.example/cb" }).toString(),
+    });
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ error: "server_error", error_description: "платформа не ответила" });
+    expect(body.access_token).toBeUndefined();
+  });
+});
+
+describe("адрес установки приложения", () => {
+  /** Файлы страницы: разметка со ссылкой на манифест и сам манифест. */
+  const ASSETS = {
+    fetch: async (req: Request) => {
+      const { pathname } = new URL(req.url);
+      if (pathname === "/manifest.webmanifest") return Response.json({ name: "Switchboard", start_url: "/" });
+      return new Response('<html><head><link rel="manifest" href="/manifest.webmanifest"></head><body></body></html>', { headers: { "content-type": "text/html" } });
+    },
+  } as unknown as Fetcher;
+  const INVITE = "home:kinvite1:" + "s".repeat(20);
+
+  // факт: проверено пользователем на iPhone — приложение с экрана «Домой» входит без вставки приглашения
+  it("с приглашением: страница ссылается на манифест с приглашением, а его адрес запуска несёт приглашение", async () => {
+    const s = stand(undefined, { env: { ASSETS } });
+    const page = await (await s.http("/i?invite=" + encodeURIComponent(INVITE))).text();
+    expect(page).toContain('href="/manifest.webmanifest?invite=' + encodeURIComponent(INVITE) + '"');
+    const manifest = (await (await s.http("/manifest.webmanifest?invite=" + encodeURIComponent(INVITE))).json()) as { name: string; start_url: string };
+    expect(manifest).toEqual({ name: "Switchboard", start_url: "/i?invite=" + encodeURIComponent(INVITE) });
+  });
+
+  // чьё: код
+  it("без приглашения — страница и манифест как в файлах страницы", async () => {
+    const s = stand(undefined, { env: { ASSETS } });
+    expect(await (await s.http("/i")).text()).toContain('href="/manifest.webmanifest"');
+    expect(await (await s.http("/manifest.webmanifest")).json()).toEqual({ name: "Switchboard", start_url: "/" });
+  });
+});
+
+describe("вход: предел кадра", () => {
+  // устав: «система ловит» — отказ словом; чьё: код
+  it("кадр больше предела — 413 too_large, обработчик не вызван", async () => {
+    const s = stand();
+    const res = await s.http("/call", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + s.key("kyura1") }, body: JSON.stringify({ type: "prefs.set", id: "r1", scope: "me", name: "big", value: "x".repeat(MAX_FRAME) }) });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toMatchObject({ ok: false, error: "too_large" });
+    expect((await s.ask("prefs.get", { scope: "me" })).result).toEqual({ values: {} });
   });
 });

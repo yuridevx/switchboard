@@ -126,6 +126,9 @@ func TestSecondCrashFailsAndKeeperAnswers(t *testing.T) {
 		t.Fatalf("запусков Host %d, ждали 2", n)
 	}
 	waitFor(t, "host.failed в журнале флота", func() bool { return s.f.ledgerHas("host.failed", "второе падение") })
+	if !has(s.home, "host_exit") {
+		t.Fatal("падение Host не записано в журнал машины (host_exit)")
+	}
 	r := s.f.ask(map[string]any{"type": "keeper.state", "id": "q1", "trace": "t-77", "to": ".keeper@win", "from": "pult~a@b.c"})
 	if r["id"] != "q1" || r["ok"] != true || r["trace"] != "t-77" {
 		t.Fatalf("ответ: %v", r)
@@ -600,5 +603,44 @@ func TestUnpackRefusesPathOutside(t *testing.T) {
 	}
 	if fileExists(filepath.Join(filepath.Dir(dir), "evil.txt")) {
 		t.Fatal("файл записан вне папки сборки")
+	}
+}
+
+// Упавший Host поднимается запросом host.restart, и счёт падений сброшен: следующее падение снова даёт один перезапуск, а не сразу failed.
+// Источник: устав — «второе падение — failed, дальше решает агент»; договор host.restart — «упавший — поднять».
+func TestHostRestartRaisesFailedAndResetsCrashCount(t *testing.T) {
+	s := newStand(t)
+	s.f.setPlan(s.f.hostPlan(1, "crash", nil))
+	k := s.start()
+	waitFor(t, "Host failed", func() bool { return stateOf(k).Host.State == "failed" && count(s.home, "host_start") == 2 })
+	if r := s.f.ask(map[string]any{"type": "host.restart", "id": "q1"}); r["ok"] != true {
+		t.Fatalf("ответ: %v", r)
+	}
+	// запрос поднял Host (третий запуск); он упал — один перезапуск (четвёртый); упал снова — failed
+	waitFor(t, "после запроса — запуск и ещё один перезапуск", func() bool { return count(s.home, "host_start") == 4 && stateOf(k).Host.State == "failed" })
+	time.Sleep(300 * time.Millisecond)
+	if n := count(s.home, "host_start"); n != 4 {
+		t.Fatalf("запусков Host %d, ждали 4: счёт падений не сброшен или перезапусков больше одного", n)
+	}
+}
+
+// Перезапуск Host по запросу не трогает держателей сессий: процесс сессии и его держатель те же, Host — новый процесс той же сборки.
+// Источник: договор host.restart — «сессии живут в держателях»; устав — «Keeper … сессии не останавливает».
+func TestHostRestartKeepsSessionHolders(t *testing.T) {
+	s := newStand(t)
+	s.f.setPlan(s.f.hostPlan(1, "session", nil))
+	k := s.start()
+	waitFor(t, "Host работает", running(k, 1))
+	var sess heldFile
+	waitFor(t, "держатель сессии", func() bool { h, ok := heldOf(s.home, "site@win"); sess = h; return ok })
+	old, _ := heldOf(s.home, "host")
+	if r := s.f.ask(map[string]any{"type": "host.restart", "id": "q1"}); r["ok"] != true {
+		t.Fatalf("ответ: %v", r)
+	}
+	waitFor(t, "Host запущен заново", func() bool { return running(k, 1)() && count(s.home, "host_start") == 2 })
+	waitFor(t, "прежний Host вышел", func() bool { return !alive(old.Pid) })
+	now, ok := heldOf(s.home, "site@win")
+	if !ok || now.Pid != sess.Pid || now.Holder != sess.Holder || !alive(sess.Pid) || !alive(sess.Holder) {
+		t.Fatalf("держатель сессии: был %+v, стал %+v", sess, now)
 	}
 }

@@ -77,5 +77,31 @@ describe("выпуски: отпечаток кода", () => {
     await s.ask("builds.upload", { build: 413, files: FILES });
     const list = (await s.ask("builds.list")).result as { builds: { build: number; digest?: string }[] };
     expect(list.builds.map((b) => [b.build, b.digest])).toEqual([[413, undefined], [412, "d".repeat(64)]]);
+    await s.ask("builds.deploy", { build: 413 });
+    await s.ask("builds.deploy", { build: 412, machine: "laptop" });
+    expect((await s.ask("builds.list")).result).toMatchObject({ stable: 413, pins: { laptop: 412 } });
+  });
+});
+
+// устав: «система ловит» — отказ словом с причиной, ничего не изменено
+describe("выпуски: отказы словом", () => {
+  it("флоту без номера сборки — bad_input: сборка флота прежняя, Keeper никто не звал", async () => {
+    const s = stand();
+    await s.ask("builds.upload", { build: 412, files: FILES });
+    await s.ask("builds.deploy", { build: 412 });
+    s.seen.broadcasts.length = 0;
+    expect(await s.ask("builds.deploy", { build: null })).toMatchObject({ ok: false, error: "bad_input" });
+    expect((await s.ask("builds.list")).result).toMatchObject({ stable: 412 });
+    expect(s.seen.broadcasts).toHaveLength(0);
+  });
+
+  it("в стоящей сборке нет Keeper под эту ОС — not_found с номером сборки и именем файла", async () => {
+    const s = stand();
+    await s.ask("builds.upload", { build: 412, files: FILES });
+    await s.ask("builds.deploy", { build: 412 });
+    const r = await s.ask("builds.keeper", { os: "darwin", arch: "arm64" }, "kanya1");
+    expect(r).toMatchObject({ ok: false, error: "not_found" });
+    expect(String(r.why)).toContain("412");
+    expect(String(r.why)).toContain("keeper-darwin-arm64");
   });
 });
