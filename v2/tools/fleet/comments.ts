@@ -21,6 +21,11 @@ type Event = { at: number; who: string; data?: { comments?: Note[] } };
 
 while (Date.now() < until) {
   const reply = await wire.call({ type: "ledger.read", id: newId("r"), trace: newId("t"), what: "comments", after, limit: 50 });
+  // сеть моргнула — этот такт пропущен, следующий через 5 с; любой другой отказ — выход с причиной
+  if (!reply.ok && reply.error === "offline") {
+    await new Promise((r) => setTimeout(r, 5000));
+    continue;
+  }
   if (!reply.ok) throw new Error(`ledger.read: ${reply.error} ${reply.why ?? ""}`);
   const events = (reply.result as { events: Event[] }).events;
   if (events.length) {
