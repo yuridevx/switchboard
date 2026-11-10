@@ -40,7 +40,8 @@ async function until<T>(what: string, fn: () => Promise<T | undefined | false | 
     await sleep(1500);
   }
 }
-const idle = (cs: string) => until(`${cs} свободна`, async () => (await rowOf(cs))?.state === "idle");
+// ход ведущей с тремя действиями над ведомым на модели ключа флота идёт до трёх минут
+const idle = (cs: string) => until(`${cs} свободна`, async () => (await rowOf(cs))?.state === "idle", 300_000);
 /** Ход: сообщение ушло, сессия поработала и освободилась. */
 async function turn(cs: string, text: string): Promise<string> {
   const r = await api.call(message, { to: cs, text });

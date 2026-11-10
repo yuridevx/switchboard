@@ -177,59 +177,93 @@ try {
     return `${w0} → ${w1}, после перезагрузки ${w2}`;
   });
 
-  await step("карточка разрешения: путь и строка правила «Разрешать всегда»; «Разрешить» продолжает ход", async () => {
+  await step("карточка разрешения: причина вопроса и строка правила «Разрешать всегда»; «Разрешить» продолжает ход", async () => {
     await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
     await box.waitFor({ timeout: 15_000 });
     must("session.update", { to: cs, patch: { mode: "ask" } });
-    await idle(cs);
-    await box.fill("Создай файл perm-" + tag + ".txt со словом ok. Ничего больше.");
-    await box.press("Enter");
-    const card = page.locator(".feed-in .askcard[data-open]");
-    await card.first().waitFor({ timeout: 90_000 });
-    await card.getByText(/запишет правило/).first().waitFor({ timeout: 5000 });
-    await card.getByText(/Путь:/).first().waitFor({ timeout: 5000 });
-    await shot("permission");
-    await card.getByRole("button", { name: "Разрешить", exact: true }).click();
-    await idle(cs);
-    must("session.update", { to: cs, patch: { mode: "all" } });
-    if (fileOn("perm-" + tag + ".txt") !== "ok") throw new Error("файл не создан после разрешения");
+    try {
+      await idle(cs);
+      // файл вне папки сессии: Claude называет причину вопроса и правило с этой папкой (отдельного поля пути SDK для Write не даёт — факт прогона 10 нояб.)
+      const outside = "../sb2-talk-" + tag + "-out.txt";
+      await box.fill(`Создай инструментом Write файл ${cwd}-out.txt (это рядом с рабочей папкой, вне её) со словом ok. Ничего больше.`);
+      await box.press("Enter");
+      const card = page.locator(".feed-in .askcard[data-open]");
+      await card.first().waitFor({ timeout: 90_000 });
+      await card.getByText(/запишет правило/).first().waitFor({ timeout: 5000 });
+      await card.getByText(/outside allowed working directories/).first().waitFor({ timeout: 5000 });
+      await shot("permission");
+      await card.getByRole("button", { name: "Разрешить", exact: true }).click();
+      await idle(cs);
+      if (fileOn(outside) !== "ok") throw new Error("файл не создан после разрешения");
+    } finally {
+      // режим возвращается и при сбое шага: следующие шаги идут на свободной сессии
+      const open = must("fleet.list", { machine }).sessions.find((x) => x.callsign === cs)?.ask;
+      if (open) call("answer", { to: cs, ask: open.id, answer: { action: "deny" } });
+      call("session.update", { to: cs, patch: { mode: "all" } });
+      call("shell.run", { to: "@" + machine, shell: "node", script: `import fs from "node:fs";fs.rmSync(${JSON.stringify(cwd + "-out.txt")},{force:true})`, wait: 30 });
+    }
   });
 
   await step("граница списка тянется пальцем", async () => {
+    await idle(cs);
     const width = async () => Math.round((await page.locator(".pane.list").boundingBox()).width);
     const w0 = await width();
-    const edge = page.getByRole("separator", { name: "Ширина списка" });
-    const b = await edge.boundingBox();
-    const at = (x) => ({ pointerId: 7, pointerType: "touch", isPrimary: true, clientX: x, clientY: b.y + 200, bubbles: true });
-    const x0 = b.x + b.width / 2;
-    await edge.dispatchEvent("pointerdown", at(x0));
-    for (const dx of [20, 40, 60]) await edge.dispatchEvent("pointermove", at(x0 + dx));
-    await edge.dispatchEvent("pointerup", at(x0 + 60));
+    const b = await page.getByRole("separator", { name: "Ширина списка" }).boundingBox();
+    // настоящее касание через протокол браузера: события указателя вида touch рождает сам Chrome
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+    const x0 = Math.round(b.x + b.width / 2), y = Math.round(b.y + 200);
+    const touch = (type, x) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
+    try {
+      await touch("touchStart", x0);
+      for (const dx of [20, 40, 60]) { await touch("touchMove", x0 + dx); await sleep(60); }
+      await touch("touchEnd", x0 + 60);
+      await sleep(300);
+    } finally {
+      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+    }
     const w1 = await width();
-    await edge.dblclick();
+    await page.getByRole("separator", { name: "Ширина списка" }).dblclick();
     if (Math.abs(w1 - w0 - 60) > 12) throw new Error(`ширина ${w0} → ${w1}`);
     return `${w0} → ${w1}`;
   });
 
-  await step("пара: шапка с двумя участниками, выбор стороны, инспектор у стороны ведомого", async () => {
+  await step("пара: шапка с двумя участниками, выбор стороны, «обе» и инспектор у стороны ведомого", async () => {
     const wing = must("session.update", { to: cs, patch: {}, pair: true }).wing;
-    await idle(wing);
-    await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
-    const bar = page.getByRole("group", { name: "Пара" });
-    await bar.waitFor({ timeout: 20_000 });
-    if ((await bar.locator(".pm-who").count()) !== 2) throw new Error("в шапке пары не два участника");
-    // выбрать ведомого: показана его сторона, адрес — его
-    await bar.locator(`.pm-who[aria-label$="${wing}"]`).click();
-    await page.waitForFunction((w) => location.hash.includes(w), wing, { timeout: 10_000 });
-    // инспектор стороны
-    await page.locator(".composer-opts").getByRole("button", { name: "Инспектор" }).first().click();
-    await page.locator('aside.insp[aria-label="Инспектор"]').waitFor({ timeout: 10_000 });
-    await shot("pair-inspector");
-    await page.locator(".composer-opts").getByRole("button", { name: "Инспектор" }).first().click();
-    must("session.update", { to: cs, patch: { wing: null } });
+    try {
+      await idle(wing);
+      await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
+      const bar = page.getByRole("group", { name: "Пара" });
+      await bar.waitFor({ timeout: 20_000 });
+      if ((await bar.locator(".pm-who").count()) !== 2) throw new Error("в шапке пары не два участника");
+      const who = bar.locator(`.pm-who[aria-label$="${wing}"]`);
+      // выбрать ведомого: показана его сторона, адрес — его
+      await who.click();
+      await page.waitForFunction((w) => location.hash.includes(w), wing, { timeout: 10_000 });
+      // повторное нажатие на показанную сторону — обе рядом
+      if (!(await page.locator(".talk.pair").count())) await who.click();
+      await page.locator(".talk.pair").waitFor({ timeout: 10_000 });
+      if ((await page.locator(".talk.pair .conv").count()) !== 2) throw new Error("при «обе» не два разговора");
+      // инспектор стороны ведомого: его разговор и инспектор, ведущая остаётся участником шапки
+      await page.locator(".talk.pair .conv").nth(1).locator(".composer-opts").getByRole("button", { name: "Инспектор" }).click();
+      await page.locator('aside.insp[aria-label="Инспектор"]').waitFor({ timeout: 10_000 });
+      if ((await page.locator(".talk .conv").count()) !== 1) throw new Error("с инспектором показаны оба разговора");
+      if ((await bar.locator(".pm-who").count()) !== 2) throw new Error("вторая сторона пропала из шапки");
+      await shot("pair-inspector");
+      // закрытие инспектора возвращает обе стороны
+      await page.locator(".composer-opts").getByRole("button", { name: "Инспектор" }).first().click();
+      await page.locator(".talk.pair").waitFor({ timeout: 10_000 });
+    } finally {
+      call("session.update", { to: cs, patch: { wing: null } });
+    }
   });
 
   await step("«Работа» открывает последнюю сессию; раздела «Вам» нет", async () => {
+    // последняя — та, что человек открывал последней
+    await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
+    await box.waitFor({ timeout: 15_000 });
+    await page.goto(`${env.SB2_BASE}/#/fleet/machines`);
+    await page.waitForFunction(() => location.hash.startsWith("#/fleet"), null, { timeout: 10_000 });
     await page.goto(`${env.SB2_BASE}/#/work`);
     await page.waitForFunction((c) => location.hash.includes(c), cs, { timeout: 10_000 });
     if (await page.locator("nav.rail").getByText("Вам", { exact: true }).count()) throw new Error("пункт «Вам» остался");

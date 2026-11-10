@@ -3,7 +3,7 @@
 // Проверяет: группу с темами (тема на сессию, ответ в теме, отказ постороннему), вопрос сессии кнопками в личном чате, ответ текстом на сообщение бота.
 import fs from "node:fs";
 import path from "node:path";
-import { account, Api, call, dev, note, notes, reporter, sleep, waitMessage } from "./tg.mjs";
+import { account, Api, call, dev, fleetEnv, note, notes, reporter, sleep, waitMessage } from "./tg.mjs";
 
 const r = reporter();
 const c1 = await account(1), c2 = await account(2);
@@ -169,6 +169,50 @@ await r.step("итог хода приходит в чат; ответ текс�
   throw new Error("ответ из чата до сессии не дошёл");
 });
 
+/** Сессия второго человека в режиме «спрашивать»: её вопрос о разрешении. */
+const askOf = async (n) => {
+  must(await call("session.open", { to: "@wsl", spec: { name: n, cwd: "/tmp", slot: "muse", mode: "ask" }, prompt: `Создай файл /tmp/${n}.txt со словом ok. Больше ничего не делай.` }, asTester), "session.open");
+  return (await waitRow(n + "@wsl", (x) => x.state === "waiting" && x.ask)).ask;
+};
+
+const name2 = "tgwon" + word();
+await r.step("на вопрос уже ответили со страницы — кнопка в чате говорит это, ход идёт с первым ответом", async () => {
+  const last = (await c2.getMessages(bot, { limit: 1 }))[0]?.id ?? 0;
+  const ask = await askOf(name2);
+  const msg = await waitMessage(c2, bot, (m) => !m.out && m.replyMarkup?.rows?.length, { after: last, ms: 40_000 });
+  if (!msg) throw new Error("сообщения с кнопками нет");
+  // первый ответ — как со страницы: запросом answer от устройства человека
+  must(await call("answer", { to: name2 + "@wsl", ask: ask.id, answer: { action: "allow" } }, asTester), "answer");
+  const said = await c2.invoke(new Api.messages.GetBotCallbackAnswer({ peer: bot, msgId: msg.id, data: msg.replyMarkup.rows.at(-1).buttons[0].data }));
+  if (!/уже ответили/.test(said.message ?? "")) throw new Error("ответ кнопки: " + JSON.stringify(said.message));
+  await waitRow(name2 + "@wsl", (x) => x.state === "idle", 90_000);
+  const check = must(await call("shell.run", { to: "@wsl", script: `cat /tmp/${name2}.txt`, wait: 20 }), "shell.run");
+  if (!/ok/.test(check.stdout ?? check.out ?? "")) throw new Error("ход не пошёл с первым ответом: файла нет");
+  return `кнопка «${msg.replyMarkup.rows.at(-1).buttons[0].text}» → «${said.message}», файл создан`;
+});
+
+const name3 = "tgpage" + word();
+await r.step("страница человека открыта — вопрос в чат не уходит", async () => {
+  const { httpTransport } = await import("@sb/protocol");
+  const key = fs.readFileSync(path.join(dev, "v2-test-tester.pass"), "utf8").trim();
+  let open = false;
+  const link = httpTransport({ base: fleetEnv.SB2_BASE, key }).open("page", { onFrame: () => {}, onState: (st) => (open = st === "open") });
+  try {
+    for (let i = 0; i < 20 && !open; i++) await sleep(500);
+    if (!open) throw new Error("соединение страницы второго человека не открылось");
+    await sleep(2000);
+    const last = (await c2.getMessages(bot, { limit: 1 }))[0]?.id ?? 0;
+    const ask = await askOf(name3);
+    const msg = await waitMessage(c2, bot, (m) => !m.out && m.replyMarkup?.rows?.length, { after: last, ms: 15_000 });
+    if (msg) throw new Error("вопрос ушёл в чат при открытой странице");
+    must(await call("answer", { to: name3 + "@wsl", ask: ask.id, answer: { action: "deny" } }, asTester), "answer");
+    return "за 15 с сообщения с кнопками нет";
+  } finally {
+    link.close();
+  }
+});
+
+for (const n of [name2, name3]) await call("session.remove", { to: n + "@wsl" }, asTester);
 await call("session.remove", { to: callsign }, asTester);
 await c1.disconnect();
 await c2.disconnect();
