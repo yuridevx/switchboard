@@ -264,7 +264,7 @@ await step("числа Host: машина отвечает на запрос, с
 if (second) {
   await step("кусочки обновились на другой машине — работающая сессия видит новый скил", async () => {
     const far = (await api.call(profileList, { to: "@" + second })).repos?.find((r) => r.state === "ok" && r.dir);
-    const piece = (await api.call(profileList, { to: "@" + machine })).pieces.find((p) => p.ok && far && p.repo === far.repo && (p.has?.skills ?? 0) > 0);
+    const piece = (await api.call(profileList, { to: "@" + machine })).pieces.find((p) => p.ok && far && p.repo === far.repo && (p.has?.skill ?? 0) > 0);
     if (!far || !piece) throw new Error("на машинах нет общего сведённого репозитория кусочков со скилами");
     const folder = piece.id.split("/").pop()!;
     const cs = await open("skills-" + tag, machine, { pieces: [piece.id] });
