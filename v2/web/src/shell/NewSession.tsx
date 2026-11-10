@@ -102,6 +102,8 @@ export function NewForm() {
   const list = useCall(profileList, machine ? { to: "@" + machine } : null);
   const accounts = useCall(accountList, machine ? { to: "@" + machine } : null);
   const people = useCall(peopleList, {});
+  // разговор, который держит живая сессия, продолжается только копией: два процесса на один разговор не идут
+  const held = (list0: Array<{ id: string; live?: string }> | undefined) => list0?.find((t) => t.id === resume)?.live;
   const talks = useCall(machineConversations, machine && cwd && !missing0(cwd) ? { to: "@" + machine, cwd } : null);
   useEffect(() => { if (!cwd && dirs.data?.recent?.[0]) setCwdRaw(dirs.data.recent[0]); }, [dirs.data, cwd]);
   const here = places.filter((p) => p.machine === machine).map((p) => p.cwd);
@@ -124,7 +126,7 @@ export function NewForm() {
     const r = await act(sessionOpen, {
       to: "@" + machine,
       spec: { name: finalName, cwd, ...(model ? { model } : {}), ...(effort ? { effort: effort as never } : {}), mode: mode as never, account, pieces: picked, backup, ...(fast ? { fast: true } : {}), thinking, ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
-      ...(prompt.trim() ? { prompt: prompt.trim() } : {}), ...(missing ? { mkdir: true } : {}), ...(pair ? { pair: true } : {}), ...(number ? { number: true } : {}), ...(resume.trim() ? { resume: resume.trim(), ...(fork ? { fork: true } : {}) } : {}),
+      ...(prompt.trim() ? { prompt: prompt.trim() } : {}), ...(missing ? { mkdir: true } : {}), ...(pair ? { pair: true } : {}), ...(number ? { number: true } : {}), ...(resume.trim() ? { resume: resume.trim(), ...(fork || held(talks.data?.conversations) ? { fork: true } : {}) } : {}),
     });
     setBusy(false);
     if (r) {
@@ -159,6 +161,23 @@ export function NewForm() {
           {sub.map((d) => <Button key={d} size="compact-xs" variant="default" className="mono" onClick={() => setCwd(`${parent}${/[\\/]$/.test(parent) ? "" : "/"}${d}`)}>{d}</Button>)}
         </Group>
       )}
+      {(talks.data?.conversations ?? []).length > 0 && (
+        <div>
+          <Group justify="space-between" mb={4}>
+            <Text size="sm" fw={500}>Продолжить разговор этой папки</Text>
+            <Switch size="xs" label="Копией" disabled={!resume || !!held(talks.data?.conversations)} checked={fork || !!held(talks.data?.conversations)} onChange={(e) => setFork(e.currentTarget.checked)} />
+          </Group>
+          <div role="listbox" aria-label="Разговоры папки" className="card" style={{ gap: 0, padding: 4 }}>
+            {talks.data!.conversations.slice(0, 6).map((t) => (
+              <div key={t.id} role="option" aria-selected={resume === t.id} tabIndex={0} className={`row${resume === t.id ? " sel" : ""}`} style={{ gridTemplateColumns: "minmax(0,1fr) auto", padding: "6px 10px" }}
+                onClick={() => setResume(resume === t.id ? "" : t.id)} onKeyDown={(e) => e.key === "Enter" && setResume(resume === t.id ? "" : t.id)}>
+                <span className="trunc">{t.title}</span>
+                <span className="muted" style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{t.live ? <>занят <span className="mono">{t.live}</span> · копией · </> : null}{ago(t.at)} · {Math.max(1, Math.round(t.size / 1024))} КБ</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div>
         <Text size="sm" fw={500} mb={4}>Кусочки</Text>
         <Chip.Group multiple value={picked} onChange={setPieces}>
@@ -185,27 +204,10 @@ export function NewForm() {
         <Switch label="Сохранять точки в архив" checked={backup} onChange={(e) => setBackup(e.currentTarget.checked)} />
         <Switch label="Номер к имени" checked={number} onChange={(e) => setNumber(e.currentTarget.checked)} />
       </Group>
-      {(talks.data?.conversations ?? []).length > 0 && (
-        <div>
-          <Group justify="space-between" mb={4}>
-            <Text size="sm" fw={500}>Продолжить разговор этой папки</Text>
-            <Switch size="xs" label="Копией" disabled={!resume} checked={fork} onChange={(e) => setFork(e.currentTarget.checked)} />
-          </Group>
-          <div role="listbox" aria-label="Разговоры папки" className="card" style={{ gap: 0, padding: 4 }}>
-            {talks.data!.conversations.slice(0, 6).map((t) => (
-              <div key={t.id} role="option" aria-selected={resume === t.id} tabIndex={0} className={`row${resume === t.id ? " sel" : ""}`} style={{ gridTemplateColumns: "minmax(0,1fr) auto", padding: "6px 10px" }}
-                onClick={() => setResume(resume === t.id ? "" : t.id)} onKeyDown={(e) => e.key === "Enter" && setResume(resume === t.id ? "" : t.id)}>
-                <span className="trunc">{t.title}</span>
-                <span className="muted" style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{t.live ? <span className="mono">{t.live} · </span> : null}{ago(t.at)} · {Math.max(1, Math.round(t.size / 1024))} КБ</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
       {noAccount && <Text size="sm" c="red" role="alert">На машине {machine} нет входа Claude и ключа флота: войдите в аккаунт во «Флоте».</Text>}
       <Group justify="space-between">
         <Text size="sm" className="mono muted">{finalName}{number ? "-N" : ""}@{machine}</Text>
-        <Button loading={busy} disabled={!machine || !cwd || noAccount} onClick={start}>{missing ? "Создать папку и открыть" : prompt.trim() ? "Открыть и отправить" : "Открыть сессию"}</Button>
+        <Button loading={busy} disabled={!machine || !cwd || noAccount} onClick={start}>{missing ? "Создать папку и открыть" : resume ? "Продолжить разговор" : prompt.trim() ? "Открыть и отправить" : "Открыть сессию"}</Button>
       </Group>
     </Stack>
   );

@@ -83,17 +83,12 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
       <Switch label={<>Открыть в приложении Claude <AfterTurn on={later.includes("remote")} /></>} disabled={off} checked={!!s.spec.remote} onChange={(e) => patchDoc(s, { remote: e.currentTarget.checked })} />
       {s.remoteUrl && <Text size="sm" component="a" href={s.remoteUrl} target="_blank" rel="noreferrer" style={{ overflowWrap: "anywhere" }}>{s.remoteUrl}</Text>}
       {other && <PairInfo s={s} other={other} />}
-      {s.spec.wing ? (
-        <Group justify="space-between" wrap="nowrap">
-          <Text size="sm">Ведомый <Link className="mono" to={`/work/${s.spec.wing}`}>{labels.name(s.spec.wing)}</Link></Text>
-          <Button size="compact-xs" variant="default" disabled={off} onClick={() => confirmDanger({ title: "Убрать пару?", body: `Ведомый ${s.spec.wing} перестанет получать задачи от ${s.callsign}. Сама сессия ведомого останется.`, confirm: "Убрать пару", onConfirm: () => patchDoc(s, { wing: null }) })}>Убрать пару</Button>
-        </Group>
-      ) : !s.lead && <Button size="xs" variant="default" w="fit-content" disabled={off} onClick={() => patchDoc(s, {}, { pair: true })}>Открыть ведомого</Button>}
       <dl className="kv">
-        <dt>Открыл</dt><dd className="mono">{personWord(s.by)}</dd>
+        {/* ведомого открыла ведущая: она названа один раз — в колонке пары выше */}
+        {!s.lead && <><dt>Открыл</dt><dd className="mono">{personWord(s.by)}</dd></>}
         {!other && <><dt>Открыта</dt><dd>{ago(s.since)}</dd></>}
-        {s.spec.parent && <><dt>Задачу дала</dt><dd><Link className="mono" to={`/work/${s.spec.parent}`}>{labels.name(s.spec.parent)}</Link></dd></>}
-        {s.lead && <><dt>Ведущий</dt><dd><Link className="mono" to={`/work/${s.lead}`}>{labels.name(s.lead)}</Link></dd></>}
+        {s.spec.parent && !s.lead && <><dt>Задачу дала</dt><dd><Link className="mono" to={`/work/${s.spec.parent}`}>{labels.name(s.spec.parent)}</Link></dd></>}
+        {s.lead && !other && <><dt>Ведущий</dt><dd><Link className="mono" to={`/work/${s.lead}`}>{labels.name(s.lead)}</Link></dd></>}
         {s.incident && <><dt>Разбирает</dt><dd>{s.incident.kind} · <span className="mono">{s.incident.key}</span></dd></>}
         {/* у пары кусочки, аккаунт и срок стоят в её двух колонках выше */}
         {!other && <><dt>Кусочки</dt><dd>{(s.spec.pieces ?? []).join(", ") || "нет"}</dd></>}
@@ -195,34 +190,6 @@ function Context({ s }: { s: SessionRow }) {
           return rows.length ? <dl className="kv">{rows.map((r, i) => <span key={i} style={{ display: "contents" }}><dt>{STATUS_LABELS[r.label] ?? r.label}</dt><dd>{String(r.value).replace("connected", "подключено")}</dd></span>)}</dl> : null;
         }}
       </Section>
-    </Stack>
-  );
-}
-
-/** Откат файлов сессии к сообщению человека: сначала проба — сколько файлов изменится, потом откат. */
-function Files({ s, view }: { s: SessionRow; view?: View }) {
-  const marks = (view?.rows ?? []).filter((r) => r.k === "me" && r.uuid && !r.state).map((r) => r as Extract<typeof r, { k: "me" }>).slice(-30).reverse();
-  const [to, setTo] = useState<string | null>(null);
-  const [probe, setProbe] = useState<Any | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => setProbe(null), [to]);
-  const check = async () => {
-    setBusy(true);
-    setProbe(((await act(sessionCall, { to: s.callsign, method: "rewindFiles", args: { message: to, dryRun: true } })) as Any | undefined) ?? null);
-    setBusy(false);
-  };
-  const files = (probe?.filesChanged ?? []) as string[];
-  return (
-    <Stack gap="xs" p="md">
-      <Select label="Вернуть файлы к сообщению" placeholder="Выберите сообщение" data={marks.map((r) => ({ value: r.uuid!, label: r.text.slice(0, 70) || "сообщение с вложением" }))} value={to} onChange={setTo} />
-      <Button size="xs" variant="default" w="fit-content" disabled={!to} loading={busy} onClick={check}>Проверить, что изменится</Button>
-      {probe && (probe.canRewind === false ? <Text size="sm" c="red">Откатить нельзя{probe.error ? `: ${probe.error}` : ""}</Text> : (
-        <>
-          <Text size="sm">{files.length ? <>Изменится {count(files.length, "файл", "файла", "файлов")} <span className="stat-pm"><b className="plus">+{probe.insertions ?? 0}</b> <b className="minus">−{probe.deletions ?? 0}</b></span></> : "Файлы уже такие, как были на этом сообщении"}</Text>
-          {files.map((f) => <span key={f} className="mono trunc">{f}</span>)}
-          {files.length > 0 && <Button size="xs" color="red" variant="light" w="fit-content" onClick={() => confirmDanger({ title: "Вернуть файлы?", body: `${count(files.length, "файл", "файла", "файлов")} в папке сессии вернутся к состоянию на выбранном сообщении. Разговор останется как есть.`, confirm: "Вернуть файлы", onConfirm: async () => (await act(sessionCall, { to: s.callsign, method: "rewindFiles", args: { message: to } }, "Файлы возвращены")) !== undefined && setProbe(null) })}>Вернуть файлы</Button>}
-        </>
-      ))}
     </Stack>
   );
 }
@@ -336,14 +303,12 @@ export function Inspector({ s, other, view, tab, onTab }: { s: SessionRow; /** �
       <Tabs.List px={4} style={{ flexWrap: "nowrap" }}>
         <Tabs.Tab px={10} value="doc">Обзор</Tabs.Tab>
         <Tabs.Tab px={10} value="ctx">Контекст</Tabs.Tab>
-        <Tabs.Tab px={10} value="files">Файлы</Tabs.Tab>
         <Tabs.Tab px={10} value="points">Точки</Tabs.Tab>
         <Tabs.Tab px={10} value="log">Журнал</Tabs.Tab>
       </Tabs.List>
       <div className="scroll">
         <Tabs.Panel value="doc"><Overview key={s.callsign} s={s} other={other} /></Tabs.Panel>
         <Tabs.Panel value="ctx"><Context s={s} /></Tabs.Panel>
-        <Tabs.Panel value="files"><Files s={s} view={view} /></Tabs.Panel>
         <Tabs.Panel value="points"><Points s={s} /></Tabs.Panel>
         <Tabs.Panel value="log"><Journal key={s.callsign} s={s} other={other} /></Tabs.Panel>
       </div>

@@ -97,8 +97,9 @@ function Chips({ s, running }: { s: SessionRow; running?: string }) {
         </Badge>
       )}
       {isLive(s) && <button type="button" className="linkbtn" disabled={!!s.compacting} onClick={() => act(sessionCompact, { to: s.callsign })}>сжать</button>}
-      {isLive(s) && <button type="button" className="linkbtn" onClick={() => confirmDanger({ title: `Очистить разговор ${s.callsign}?`, body: "Разговор начнётся заново: сессия забудет всё, что было сказано. Файлы останутся как есть.", confirm: "Очистить", onConfirm: async () => void (await act(sessionRewind, { to: s.callsign })) })}>очистить</button>}
-      {isLive(s) && !s.spec.wing && !s.lead && <button type="button" className="linkbtn" onClick={() => act(sessionUpdate, { to: s.callsign, patch: {}, pair: true }, "Ведомый открыт")}>+ ведомый</button>}
+      {isLive(s) && !s.spec.wing && !s.lead && <button type="button" className="linkbtn" onClick={() => act(sessionUpdate, { to: s.callsign, patch: {}, pair: true })}>+ ведомый</button>}
+      {s.spec.wing && <button type="button" className="linkbtn" onClick={() => confirmDanger({ title: `Убрать ведомого ${s.spec.wing}?`, body: `${s.spec.wing} перестанет получать задачи от ${s.callsign} и слать ей вести. Сама сессия ведомого останется.`, confirm: "Убрать ведомого", onConfirm: () => void patchDoc(s, { wing: null }) })}>убрать ведомого</button>}
+      {isLive(s) && <button type="button" className="linkbtn far" onClick={() => confirmDanger({ title: `Очистить разговор ${s.callsign}?`, body: "Разговор начнётся заново: сессия забудет всё, что было сказано. Файлы останутся как есть.", confirm: "Очистить", onConfirm: async () => void (await act(sessionRewind, { to: s.callsign })) })}>очистить</button>}
       <Page name="pieces" opened={piecesOpen} onClose={() => setPiecesOpen(false)} title={`Кусочки ${s.callsign}`}>
         <Stack gap="sm">
           {d.pieces.map((p) => (
@@ -216,7 +217,9 @@ function StateCards({ s, onWhy }: { s: SessionRow; onWhy(): void }) {
 function Rewind({ s, upto, onDone }: { s: SessionRow; upto: string; onDone(text?: string): void }) {
   const [what, setWhat] = useState<"talk" | "both">("talk");
   const files = what === "both";
-  const dry = useCall(sessionRewind, { to: s.callsign, upto, files, dry: true });
+  // проба одна на оба варианта: число записей от выбора не зависит, список файлов показывается при «Разговор и файлы»
+  const dry = useCall(sessionRewind, { to: s.callsign, upto, files: true, dry: true });
+  const midTurn = s.state === "busy" || s.state === "waiting" || s.state === "starting";
   const d = dry.data;
   return (
     <Stack gap="sm">
@@ -225,6 +228,7 @@ function Rewind({ s, upto, onDone }: { s: SessionRow; upto: string; onDone(text?
         <>
           {d.text && <div className="me" style={{ alignSelf: "stretch", maxWidth: "none" }}><Text size="sm" className="clamp2">{d.text}</Text></div>}
           <Text size="sm">Из разговора уйдёт записей: <b>{d.cut}</b>{d.text ? " — это сообщение и всё после него. Его текст вернётся в поле ввода." : "."}</Text>
+          {midTurn && <Text size="sm" c="orange" role="note">Текущий ход прервётся</Text>}
           {files && (
             <div className="card" style={{ gap: 2 }}>
               <Text size="sm" fw={600}>Файлы вернутся к состоянию до этого сообщения · <span style={{ color: "var(--st-idle)" }}>+{d.plus ?? 0}</span> <span style={{ color: "var(--st-failed)" }}>−{d.minus ?? 0}</span></Text>

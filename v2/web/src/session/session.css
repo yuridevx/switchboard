@@ -62,6 +62,9 @@
 .composer-opts { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; margin: 6px 0 0 44px; font-size: 12.5px; }
 @media (max-width: 860px) { .composer-opts { margin-left: 0; } }
 .composer-opts .linkbtn { color: var(--muted); text-decoration: none; }
+/* «очистить» — в конце ряда, отдельно от соседей: промах по ней дорог */
+.composer-opts .linkbtn.far { margin-left: auto; padding-left: 24px; }
+@media (max-width: 860px) { .composer-opts .linkbtn { min-height: 32px; padding-block: 6px; } }
 .composer-opts .linkbtn:hover { color: var(--mantine-color-text); text-decoration: underline; }
 
 /* картинка ленты — кнопка: нажатие открывает её целиком */

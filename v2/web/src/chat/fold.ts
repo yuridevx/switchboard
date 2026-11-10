@@ -434,7 +434,8 @@ const STEP: Record<string, (v: View, m: Msg) => void> = {
     for (const id of (m.preceding_tool_use_ids ?? []) as string[]) toolOf(v, id).note = m.summary;
   },
   prompt_suggestion: (v, m) => void (v.hint = m.suggestion ?? ""),
-  conversation_reset: (v) => push(v, { k: "sys", icon: "rotate-ccw", text: "разговор начат заново" }),
+  // text — что случилось словами Host: откат к сообщению (и файлы) или очистка
+  conversation_reset: (v, m) => push(v, { k: "sys", icon: "rotate-ccw", text: typeof m.text === "string" && m.text ? m.text : "разговор начат заново" }),
   /** Статус своего сообщения от Host: в очереди, взято ходом, отменено. Строка «ход закончен», поставленная перед сообщением из очереди, снимается: ход ещё идёт. */
   "message.status"(v, m) {
     const state: MeState = m.status === "taken" ? "taken" : m.status === "cancelled" ? "cancelled" : "queued";

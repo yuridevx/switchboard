@@ -433,13 +433,18 @@ export function createMock(o: MockOptions = {}) {
       if (at < 0) throw new Refusal("not_found", `${c}: сообщения ${f.upto} в разговоре нет`);
       const gone = all[at] as any;
       const text = f.upto && typeof gone?.message?.content === "string" && !gone.message.content.startsWith("<") ? gone.message.content : undefined;
-      const files = f.files ? { files: ["src/components/Header.tsx", "src/components/MenuButton.tsx", "src/styles/header.css"], plus: 41, minus: 17 } : {};
+      const changed = ["src/components/Header.tsx", "src/components/MenuButton.tsx", "src/styles/header.css"];
+      const files = f.files ? { files: changed, plus: 41, minus: 17 } : {};
       const out = { cut: all.length - at, ...(text ? { text } : {}), ...files };
       if (f.dry) return out;
       live.delete(c);
       all.splice(at);
       recent.set(c, []);
-      emit(c, [{ type: "conversation_reset", uuid: uid("r") } as Ev], true);
+      const said = !f.upto ? "Разговор очищен" : `Откат к ${text ? `«${text.slice(0, 60)}»` : "полученной задаче"}${f.files ? ` · файлы возвращены: ${changed.length}` : ""}`;
+      // след отката остаётся в разговоре: его кладёт Host, перечитанная лента его тоже покажет
+      const mark = { type: "conversation_reset", uuid: uid("r"), text: said } as Ev;
+      all.push(mark);
+      emit(c, [mark], true);
       setRow(c, { state: "idle", doing: undefined, ask: null, context: all.length ? 0.2 : 0.02, last: now() });
       tellLead(c, f.upto ? `Ведомый ${c} откачен${text ? ` к сообщению «${text.slice(0, 60)}»` : " к полученной задаче"}: ушло записей — ${out.cut}${f.files ? ", файлы возвращены" : ""}.` : `Ведомый ${c} очищен: разговор начат заново.`);
       void s;
@@ -448,7 +453,15 @@ export function createMock(o: MockOptions = {}) {
     "session.compact": (f) => {
       const { c } = sess(f);
       setRow(c, { compacting: true });
-      setTimeout(() => { if (!sessions[c]) return; setRow(c, { compacting: undefined, context: 0.12 }); tellLead(c, `Ведомый ${c} сжат: контекст 12%.`); }, 2500);
+      setTimeout(() => {
+        if (!sessions[c]) return;
+        setRow(c, { compacting: undefined, context: 0.12 });
+        emit(c, [
+          { type: "system", subtype: "compact_boundary", uuid: uid("cb"), compact_metadata: { trigger: "manual", pre_tokens: 68_000, post_tokens: 12_000 } } as Ev,
+          { type: "user", uuid: uid("cs"), isCompactSummary: true, timestamp: new Date(now()).toISOString(), message: { role: "user", content: "Summary:\nРазобрана причина: стили меню на узких экранах. Правка внесена в Header.tsx и header.css, тесты 6 из 6. Осталось: снять экран на 390 и приложить к итогу." } } as Ev,
+        ]);
+        tellLead(c, `Ведомый ${c} сжат: контекст 12%.`);
+      }, 2500);
       return {};
     },
     "machine.conversations": (f) => {
