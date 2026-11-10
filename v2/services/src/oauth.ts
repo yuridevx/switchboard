@@ -3,7 +3,7 @@
 // Своей регистрации клиентов нет: описание клиента — по его адресу (client_id — URL), его сверяет платформа при согласии.
 import { errFields, newId, type Reply } from "@sb/protocol";
 import type { Deps, Env } from "./env.ts";
-import { log } from "./entrance.ts";
+import { log } from "./env.ts";
 
 const CORS = { "access-control-allow-origin": "*" };
 const MAX_FORM = 8 * 1024;

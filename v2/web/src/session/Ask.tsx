@@ -6,7 +6,7 @@ import { useState } from "react";
 import { act } from "../api.ts";
 import { later, usePending } from "../common.tsx";
 import { useFleet } from "../store/fleet.ts";
-import { ACTION_WORD, type Action, actionAnswer, formAnswer, formFields, formReady, questionAnswer, questionSaid, questionsOf, seenWord } from "./answers.ts";
+import { ACTION_WORD, type Action, actionAnswer, formAnswer, formFields, formReady, questionAnswer, questionSaid, questionsOf, seenWord } from "../chat/answers.ts";
 import { Md } from "./Feed.tsx";
 
 const KIND: Record<Ask["kind"], string> = { question: "Вопрос", permission: "Разрешение", plan: "План", form: "Форма", url: "Ссылка" };

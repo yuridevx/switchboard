@@ -3,7 +3,7 @@
 import { canReach, errFields, Refusal } from "@sb/protocol";
 import { outbound } from "../../env.ts";
 import type { Ctx, Deps, Env, Module, PointNote } from "../../env.ts";
-import { log } from "../../entrance.ts";
+import { log } from "../../env.ts";
 import { callsOf, conversation, costOf, pointsSince, prices } from "../archive/contract.ts";
 import { record } from "../ledger/contract.ts";
 import { partFailed } from "../obs/contract.ts";

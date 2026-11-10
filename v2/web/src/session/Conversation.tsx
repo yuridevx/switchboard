@@ -1,7 +1,7 @@
 // Разговор сессии: шапка — только кто это и чем занят; лента; над полем ввода — дела и «Идут сейчас»; под полем — документ сессии и все действия значками.
 // Рядом — инспектор (ширина тянется) или второй разговор пары; у пары шапка одна на обоих участников.
-import { accountList, prefsSet, profileList, sessionCall, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, type SessionRow } from "@sb/protocol";
-import { ActionIcon, Button, Checkbox, Group, Loader, Menu, MultiSelect, SegmentedControl, Select, Stack, Text, TextInput, Tooltip } from "@mantine/core";
+import { prefsSet, sessionCall, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, type SessionRow } from "@sb/protocol";
+import { ActionIcon, Button, Checkbox, Group, Loader, Menu, SegmentedControl, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { useSplit } from "../lib/Split.tsx";
 import { Page } from "../shell/Page.tsx";
 import { IconArrowDown, IconArrowLeft, IconCheck, IconDots, IconEraser, IconFocus2, IconLayoutSidebarRight, IconPlayerPlay, IconUserMinus, IconUserPlus } from "@tabler/icons-react";
@@ -11,15 +11,15 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { act } from "../api.ts";
 import { useLocal } from "../lib/local.ts";
 import { exportMd, focused } from "../chat/focus.ts";
-import { AfterTurn, confirmDanger, EFFORTS, Failed, Lamp, MODES, personWord, STATE_WORD, useCall, useLabels, useMachineName, useMyPrefs, useUi, useWide } from "../common.tsx";
+import { AfterTurn, confirmDanger, Failed, Lamp, MODES, personWord, STATE_WORD, useCall, useLabels, useMachineName, useMyPrefs, useUi, useWide } from "../common.tsx";
 import { day, hhmm } from "../lib/time.ts";
-import { seatOptions } from "../lib/accounts.ts";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { AskCard } from "./Ask.tsx";
 import { Composer, type ComposerHandle } from "./Composer.tsx";
 import { Asides, Running } from "./Dock.tsx";
-import { effectiveModel, modelsFor, patchDoc, useLater, useModels } from "./doc.ts";
+import { patchDoc } from "./doc.ts";
 import { type FeedEnv, FeedEnvProvider, Rows, Tail, TodoList } from "./Feed.tsx";
+import { useDoc } from "./DocFields.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { type Talk, useMarkRead, useTalk } from "./talk.ts";
 
@@ -37,37 +37,6 @@ function Chip({ label, value, word, options, later, onPick }: { label: string; v
         {options.map(([v, w]) => <Menu.Item key={v} onClick={() => onPick(v)} fw={v === value ? 700 : undefined}>{w}</Menu.Item>)}
       </Menu.Dropdown>
     </Menu>
-  );
-}
-
-function useDoc(s: SessionRow, running?: string) {
-  const machine = machineOfCall(s.callsign);
-  const offline = useFleet((f) => f.machines[machine]?.online === false);
-  const accounts = useCall(accountList, offline ? null : { to: "@" + machine });
-  const pieces = useCall(profileList, offline ? null : { to: "@" + machine });
-  // у сессии на ключе флота модель — та, что записана у ключа
-  // аккаунт, на котором сессия идёт сейчас: вход очереди или ключ флота
-  const mine = accounts.data?.accounts.find((a) => a.id === (s.account ?? s.spec.slot));
-  const models = modelsFor(mine, useModels(s, !offline && isLive(s)));
-  const model = effectiveModel(s.spec, models, running);
-  const accountOptions = seatOptions(accounts.data).map((o) => [o.value, o.label] as const);
-  const list = pieces.data?.pieces ?? [];
-  const title = (id: string) => list.find((p) => p.id === id)?.title ?? id;
-  const efforts = model.efforts ? EFFORTS.filter(([e]) => model.efforts!.includes(e)) : EFFORTS;
-  return { accountOptions, pieces: list, title, models, model, efforts, later: useLater(s) };
-}
-
-/** Документ сессии полями: на телефоне — в листе инспектора, при паре — в окошке шапки. */
-export function DocFields({ s }: { s: SessionRow }) {
-  const d = useDoc(s);
-  return (
-    <Stack gap="xs">
-      <Select label="Модель" data={d.models.map((m) => ({ value: m.value, label: m.label }))} value={d.model.value || null} onChange={(model) => model && patchDoc(s, { model })} allowDeselect={false} />
-      <Select label="Усилие" data={d.efforts.map(([value, label]) => ({ value, label }))} value={s.spec.effort ?? null} placeholder="как у модели" onChange={(effort) => effort && patchDoc(s, { effort: effort as never })} allowDeselect={false} />
-      <Select label="Режим" data={MODES.map(([value, label]) => ({ value, label }))} value={s.spec.mode ?? "all"} onChange={(mode) => mode && patchDoc(s, { mode: mode as never })} allowDeselect={false} />
-      <Select label="Очередь аккаунтов" data={d.accountOptions.map(([value, label]) => ({ value, label }))} value={s.spec.slot ?? null} onChange={(slot) => slot && patchDoc(s, { slot })} allowDeselect={false} />
-      <MultiSelect label="Кусочки" data={d.pieces.map((p) => ({ value: p.id, label: p.title ?? p.id, disabled: !p.ok }))} value={s.spec.pieces ?? []} onChange={(pieces) => patchDoc(s, { pieces })} />
-    </Stack>
   );
 }
 

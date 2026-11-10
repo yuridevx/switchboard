@@ -6,7 +6,7 @@ import { rowMark } from "../common.tsx";
 import { groupsByMachine, matches, treeOf, whyMine } from "../lib/work.ts";
 import { tabInto } from "../shell/NewSession.tsx";
 import type { Picture } from "../store/fleet.ts";
-import { askOutcome, seenWord } from "./answers.ts";
+import { askOutcome, seenWord } from "../chat/answers.ts";
 import { returned } from "./Composer.tsx";
 import { pairOf, toggleHeadPart } from "./Conversation.tsx";
 import { diffLines } from "./diff.ts";

@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { kindOf, ledgerAdd, message, Refusal, sessionName, sessionRemove, sessionStart, sessionStop, TOOL_METHODS, type Spec, type SpecPatch } from "@sb/protocol";
 import { tildePath } from "./paths.ts";
 import type { Ctx, Module, SessionApi } from "./contract.ts";
-import { FLAGS, MODES, type Kernel } from "./kernel.ts";
+import { FLAGS, MODES } from "./flags.ts";
+import type { Kernel } from "./kernel.ts";
 import { quiet, type Session } from "./session.ts";
 
 /** Ключи документа, которыми владеет ядро. */

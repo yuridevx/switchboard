@@ -1,3 +1,4 @@
+import { logger } from "@sb/protocol";
 // Окружение Worker'а служб и то, что получает обработчик модуля.
 import type { PlatformApi } from "@sb/platform";
 import type { Logger, Who } from "@sb/protocol";
@@ -63,3 +64,6 @@ export interface Deps {
 
 /** Исходящий запрос наружу. Сам fetch нельзя хранить полем объекта: рабочая среда отвергает вызов не от глобального объекта. */
 export const outbound: typeof fetch = (input, init) => fetch(input, init);
+
+/** Журнал служб: один на вход и модули. */
+export const log = logger("services");

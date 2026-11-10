@@ -11,9 +11,9 @@ import type { View } from "../chat/fold.ts";
 import { accountWord, AfterTurn, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels, useWide } from "../common.tsx";
 import { Sortable } from "../lib/Sortable.tsx";
 import { ago, bytesWord, count, day, duration, hhmm, kilo, LIMIT_NAMES, nPoints, nTurns } from "../lib/time.ts";
-import { DeleteTyped } from "../screens/archive/Raise.tsx";
+import { DeleteTyped } from "../lib/DeleteTyped.tsx";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
-import { DocFields } from "./Conversation.tsx";
+import { DocFields } from "./DocFields.tsx";
 import { patchDoc, useLater } from "./doc.ts";
 
 type Any = Record<string, any>;

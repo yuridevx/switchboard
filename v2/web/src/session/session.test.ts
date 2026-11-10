@@ -7,7 +7,7 @@ import { agentSteps, editStat } from "../chat/tools.ts";
 import { researchTurn, siteTurn } from "../mock/convo.ts";
 import { createMock } from "../mock/fleet.ts";
 import { freeName, nameOf, piecesFor, pushPlace, sortMachines, splitPath } from "../shell/NewSession.tsx";
-import { actionAnswer, answeredAll, formAnswer, formFields, formReady, questionAnswer, questionSaid, questionsOf } from "./answers.ts";
+import { actionAnswer, answeredAll, formAnswer, formFields, formReady, questionAnswer, questionSaid, questionsOf } from "../chat/answers.ts";
 import { commandPicks, sideQuestion } from "./Composer.tsx";
 import { effectiveModel, mergeLater, modelOptions } from "./doc.ts";
 import { looksHtml, textOf } from "./html.tsx";

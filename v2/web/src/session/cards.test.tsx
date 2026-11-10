@@ -1,7 +1,7 @@
 // Оформление карточек ленты: правки, ошибки, автораскрытие, значки, тон строк, входящие, размышление, подсказки ввода.
 import { fold } from "../chat/fold.ts";
 import { clampSplit } from "../lib/Split.tsx";
-import { askedOf } from "./answers.ts";
+import { askedOf } from "../chat/answers.ts";
 import { runningOf, runTime, startedOf } from "./Dock.tsx";
 import { MantineProvider } from "@mantine/core";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";

@@ -4,7 +4,7 @@
 import { CALL_MS, errFields, type Frame, type Logger, newId, Refusal, sha256hex } from "@sb/protocol";
 import { outbound } from "../../env.ts";
 import type { Deps, Env, Module, Platform } from "../../env.ts";
-import { log } from "../../entrance.ts";
+import { log } from "../../env.ts";
 import { type Db, records } from "../../records.ts";
 import { encrypt, MAX_PLAIN, publicKey, unb64u, vapid } from "./webpush.ts";
 

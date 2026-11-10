@@ -15,6 +15,7 @@ import { meter } from "./meter.ts";
 import { clientPath } from "./paths.ts";
 import { fleetPrompt } from "./prompt.ts";
 import { Session, quiet, type Parts } from "./session.ts";
+import { MODES } from "./flags.ts";
 import { coreModule } from "./sessions.ts";
 import { Disk } from "./store.ts";
 
@@ -26,10 +27,6 @@ const KILL_MS = 30_000;
 const OWN_ENV = /^(CLAUDE|ANTHROPIC)_/i;
 const KEPT_ENV = new Set(["CLAUDE_CODE_GIT_BASH_PATH", "CLAUDE_CONFIG_DIR"]);
 /** Опции query(), которые держит ядро: процесс, разговор, решения. */
-const CORE_OPTIONS = new Set(["prompt", "cwd", "resume", "resumeSessionAt", "sessionId", "forkSession", "continue", "allowDangerouslySkipPermissions", "spawnClaudeCodeProcess", "canUseTool", "onElicitation", "systemPrompt", "abortController", "pathToClaudeCodeExecutable", "title"]);
-export const MODES: Record<string, string> = { all: "bypassPermissions", ask: "default", plan: "plan", edits: "acceptEdits", auto: "auto" };
-/** Ключ документа → настройка Claude: вступает в силу сразу у живой сессии и стоит в опциях запуска. */
-export const FLAGS = { effort: "effortLevel", fast: "fastMode", style: "outputStyle", thinking: "alwaysThinkingEnabled" } as const;
 /** Сколько знаков первого сообщения идёт в заголовок. */
 const TITLE_MAX = 80;
 
@@ -72,6 +69,7 @@ export class StartError extends Error {
   }
 }
 
+const CORE_OPTIONS = new Set(["prompt", "cwd", "resume", "resumeSessionAt", "sessionId", "forkSession", "continue", "allowDangerouslySkipPermissions", "spawnClaudeCodeProcess", "canUseTool", "onElicitation", "systemPrompt", "abortController", "pathToClaudeCodeExecutable", "title"]);
 export class Kernel {
   readonly sessions = new Map<string, Session>();
   readonly mods: Module[];

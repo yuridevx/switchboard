@@ -2,6 +2,7 @@
 // 1. Пакет зовёт другой пакет только по имени `@sb/<пакет>` (вход пакета), не относительным путём внутрь.
 // 2. Стрелки — в сторону стабильного: protocol ← platform ← services; protocol ← host; protocol ← web. Обратных и лишних нет.
 // 3. Модуль (`src/modules/<имя>/`) зовёт соседний модуль только через его `contract.ts`.
+// 5. Колец импортов между файлами пакета нет (импорт только типов кольцом не считается; тесты, мок и стенд не в счёт).
 // 4. У имени договора один хозяин — это правило исполняет сам `@sb/protocol` при загрузке (второе объявление бросает).
 import fs from "node:fs";
 import path from "node:path";
@@ -34,8 +35,38 @@ const moduleOf = (pkg, file) => {
   return m.length > 1 && !m[0].startsWith("..") ? m[0] : null;
 };
 
+/** Кольца импортов между файлами пакета: каждое — одной строкой. */
+function cycles(base, pkg) {
+  const src = path.join(base, pkg, "src");
+  if (!fs.existsSync(src)) return [];
+  const edges = new Map();
+  for (const file of files(src)) {
+    if (/\.test\.tsx?$/.test(file) || /[\\/](mock|stand)[\\/]/.test(file)) continue;
+    const text = fs.readFileSync(file, "utf8");
+    const lines = text.split("\n");
+    for (const imp of ts.preProcessFile(text, true, true).importedFiles) {
+      if (!imp.fileName.startsWith(".")) continue;
+      if (/^import type /.test(lines.find((l) => l.includes(`"${imp.fileName}"`)) ?? "")) continue;
+      const to = path.resolve(path.dirname(file), imp.fileName);
+      (edges.get(file) ?? edges.set(file, new Set()).get(file)).add(to);
+    }
+  }
+  const seen = new Set(), stack = [], found = new Set();
+  const walk = (n) => {
+    if (stack.includes(n)) return void found.add(stack.slice(stack.indexOf(n)).map((x) => path.relative(base, x).replaceAll(path.sep, "/")).sort().join(" ⇄ "));
+    if (seen.has(n)) return;
+    seen.add(n);
+    stack.push(n);
+    for (const m of edges.get(n) ?? []) walk(m);
+    stack.pop();
+  };
+  for (const n of edges.keys()) walk(n);
+  return [...found].map((c) => `кольцо импортов: ${c}`);
+}
+
 export function check(base = root) {
   const bad = [];
+  for (const pkg of Object.keys(ALLOWED)) bad.push(...cycles(base, pkg));
   for (const pkg of Object.keys(ALLOWED)) {
     const dir = path.join(base, pkg);
     if (!fs.existsSync(dir)) continue;

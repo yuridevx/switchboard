@@ -1,13 +1,12 @@
 // Вход служб: один для страницы, Host, Keeper, скриптов и сервера MCP. Кадр → кто пришёл → права → схема → исполнение → ответ с отрезком пути.
 import {
-  CALL_MS, canReach, contract, errFields, fail, type Frame, kindOf, logger, machineOf, MAX_FRAME, ok, parseFrame, parsePass, Refusal, type Reply, type RequestDef,
+  CALL_MS, canReach, contract, errFields, fail, type Frame, kindOf, machineOf, MAX_FRAME, ok, parseFrame, parsePass, Refusal, type Reply, type RequestDef,
   stopwatch, type Who, within,
 } from "@sb/protocol";
-import { outbound } from "./env.ts";
+import { log, outbound } from "./env.ts";
 import type { Ctx, Deps, Env, Module } from "./env.ts";
 import { note } from "./modules/obs/contract.ts";
 
-export const log = logger("services");
 
 /** Обработчики по имени запроса: у имени один модуль. */
 export function handlersOf(modules: Module[]): Map<string, { module: string; run: Module["handlers"][string] }> {

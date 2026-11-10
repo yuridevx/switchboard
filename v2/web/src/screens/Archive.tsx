@@ -16,7 +16,8 @@ import { ago, byDay, bytesWord, day, hhmm, kilo, nCalls, nPoints, nSessions, nTu
 import { useSplit } from "../lib/Split.tsx";
 import { Rows } from "../session/Feed.tsx";
 import { useFleet } from "../store/fleet.ts";
-import { DeleteTyped, Raise, RAISE_TITLE, type RaiseKind } from "./archive/Raise.tsx";
+import { DeleteTyped } from "../lib/DeleteTyped.tsx";
+import { Raise, RAISE_TITLE, type RaiseKind } from "./archive/Raise.tsx";
 import { fireCount } from "./fleet/Machines.tsx";
 
 /** Сводка архива: сколько сессий в нём, сколько из них идёт сейчас, сколько только в архиве, сколько живых сессий точек не сохраняет. */

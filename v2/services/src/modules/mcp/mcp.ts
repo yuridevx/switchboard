@@ -3,7 +3,8 @@
 // Вход — Bearer пропуска (у сессии флота — пропуск машины и позывной в x-sb-as); без живого пропуска — 401 со ссылкой на метаданные входа OAuth.
 import { contract, type Frame, newId, parsePass, READ_MS, type RequestDef, within, z } from "@sb/protocol";
 import type { Deps, Env } from "../../env.ts";
-import { bearer, call, type handlersOf, log } from "../../entrance.ts";
+import { bearer, call, type handlersOf } from "../../entrance.ts";
+import { log } from "../../env.ts";
 
 /** Версии протокола MCP, которые сервер понимает; первая — та, что предлагается на незнакомую. */
 const KNOWN = ["2025-06-18", "2025-03-26", "2024-11-05"];
