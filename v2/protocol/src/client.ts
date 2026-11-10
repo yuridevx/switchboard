@@ -7,7 +7,8 @@ export interface Transport {
   /** запрос: кадр с id → ответ */
   call(f: Frame): Promise<Reply>;
   /** соединение: role page — картина флота; watch — лента сессий машины */
-  open(role: "page" | "watch", opts: { machine?: string; onFrame: (f: Frame) => void; onState?: (s: LinkState) => void }): Link;
+  /** onState: why — слово закрытия у stopped (revoked, bad_key, proto…); onPause — сколько мс до следующей попытки подключиться */
+  open(role: "page" | "watch", opts: { machine?: string; onFrame: (f: Frame) => void; onState?: (s: LinkState, why?: string) => void; onPause?: (ms: number) => void }): Link;
 }
 
 export type LinkState = "connecting" | "open" | "closed" | "stopped";
@@ -51,7 +52,9 @@ export function socketLink(o: {
   url: string;
   hello: Frame;
   onFrame: (f: Frame) => void;
-  onState?: (s: LinkState) => void;
+  onState?: (s: LinkState, why?: string) => void;
+  /** пауза перед следующей попыткой, мс */
+  onPause?: (ms: number) => void;
   WebSocket?: new (url: string) => SocketLike;
   /** слова закрытия, после которых не переподключаемся: пропуск отозван или не принят, конверт не тот */
   stopOn?: string[];
@@ -80,11 +83,12 @@ export function socketLink(o: {
       if (closed) return;
       if (e.reason && stopOn.includes(e.reason)) {
         closed = true;
-        o.onState?.("stopped");
+        o.onState?.("stopped", e.reason);
         return;
       }
       o.onState?.("closed");
       const pause = Math.min(30_000, 500 * 2 ** tries++) * (0.5 + Math.random());
+      o.onPause?.(pause);
       timer = setTimeout(connect, pause);
     });
     s.addEventListener("error", () => {});
@@ -123,7 +127,7 @@ export function httpTransport(o: { base: string; key: string; fetch?: typeof fet
     open(role, opts) {
       const fleet = parsePass(o.key)?.fleet ?? "";
       const url = role === "page" ? wsBase + "/f/" + fleet : wsBase + "/m/" + fleet + "/" + opts.machine;
-      return socketLink({ url, hello: { type: "hello", proto: PROTO, key: o.key, role }, onFrame: opts.onFrame, onState: opts.onState, WebSocket: o.WebSocket });
+      return socketLink({ url, hello: { type: "hello", proto: PROTO, key: o.key, role }, onFrame: opts.onFrame, onState: opts.onState, onPause: opts.onPause, WebSocket: o.WebSocket });
     },
   };
 }

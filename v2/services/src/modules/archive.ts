@@ -16,6 +16,8 @@ const SCHEMA = [
   // какая точка держит какой блок: блок без ссылок убирается из хранилища
   "CREATE TABLE IF NOT EXISTS refs (hash TEXT, sid TEXT, point TEXT, PRIMARY KEY (hash, sid, point))",
   "CREATE INDEX IF NOT EXISTS refs_point ON refs (sid, point)",
+  // документ сессии на последней точке: с ним её поднимают
+  "CREATE TABLE IF NOT EXISTS specs (sid TEXT PRIMARY KEY, spec TEXT NOT NULL)",
 ];
 const db = (env: Env, fleet: string, machine: string) => records(env, fleet, NAME, SCHEMA, machine);
 
@@ -230,7 +232,7 @@ export const archive: Module = {
   name: NAME,
   handlers: {
     async "points.put"(i: {
-      sid: string; callsign: string; point: string; label?: string; title?: string; model?: string; cwd?: string; project?: string; git?: string; turns?: number; tokens?: number;
+      sid: string; callsign: string; point: string; spec?: unknown; label?: string; title?: string; model?: string; cwd?: string; project?: string; git?: string; turns?: number; tokens?: number;
       files: FileIn[]; text?: { uuid: string; role: string; text: string }[]; commit?: boolean;
     }, ctx) {
       const machine = machineOf(ctx.who.addr)!;
@@ -254,6 +256,7 @@ export const archive: Module = {
           i.sid, i.callsign, i.title ?? null, i.model ?? null, i.cwd ?? null, i.project ?? null, now, bytes, i.tokens ?? null,
         ],
         ["INSERT OR REPLACE INTO points (sid, point, at, label, turns, bytes, git, files) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", i.sid, i.point, now, i.label ?? null, i.turns ?? null, bytes, i.git ?? null, JSON.stringify(i.files)],
+        ...(i.spec ? [["INSERT OR REPLACE INTO specs (sid, spec) VALUES (?, ?)", i.sid, JSON.stringify(i.spec)] as Op] : []),
         ["DELETE FROM refs WHERE sid = ? AND point = ?", i.sid, i.point],
         ["UPDATE sessions SET points = (SELECT count(*) FROM points WHERE sid = ?1) WHERE sid = ?1", i.sid],
       ];
@@ -324,7 +327,8 @@ export const archive: Module = {
         for (const hash of f.blocks) blocks.push({ hash, url: await link(ctx.env, "GET", blockKey(ctx.fleet, machine, hash)) });
         files.push({ path: f.path, size: f.size, blocks });
       }
-      return { session: session(row, machine), point: point(p), files };
+      const spec = await db(ctx.env, ctx.fleet, machine).first<{ spec: string }>("SELECT spec FROM specs WHERE sid = ?", i.sid);
+      return { session: { ...session(row, machine), ...(spec ? { spec: JSON.parse(spec.spec) } : {}) }, point: point(p), files };
     },
 
     async "points.history"(i: { sid: string; point?: string; before?: string; limit?: number }, ctx) {

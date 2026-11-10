@@ -124,7 +124,7 @@ export function make(): Module {
     const { text, last, ...summary } = await summaryOf(s);
     const point = `p${Date.now().toString(36)}`;
     const frame = {
-      sid: s.info.sessionId, callsign: s.callsign, point, ...(label ? { label } : {}), cwd: tildePath(s.info.cwd, homedir()), ...(s.spec.project ? { project: s.spec.project } : {}),
+      sid: s.info.sessionId, callsign: s.callsign, point, spec: s.spec, ...(label ? { label } : {}), cwd: tildePath(s.info.cwd, homedir()), ...(s.spec.project ? { project: s.spec.project } : {}),
       ...(git ? { git: JSON.stringify(git.summary) } : {}), ...summary, files, ...(text.length ? { text } : {}),
     };
     const first = await host.call(pointsPut, frame);
@@ -262,7 +262,9 @@ export function make(): Module {
       return { callsign: here.callsign };
     }
     // перенос — тот же разговор продолжает здесь; копия — новый разговор от файла точки
-    const spec: Spec = { name: name ?? sessionName(got.session.callsign) ?? basename(dir), cwd: tildePath(dir, homedir()), backup: true, ...(got.session.project ? { project: got.session.project } : {}), ...(account ? { account } : {}) };
+    // документ — тот, с каким сессия сохранялась: кусочки, модель, режим, аккаунт; пара и родитель остаются на прежнем месте
+    const { wing: _wing, parent: _parent, ...kept } = got.session.spec ?? ({} as Partial<Spec>);
+    const spec: Spec = { ...kept, name: name ?? sessionName(got.session.callsign) ?? basename(dir), cwd: tildePath(dir, homedir()), backup: true, ...(got.session.project ? { project: got.session.project } : {}), ...(account ? { account } : {}) };
     const s = await host.open(spec, { by: ctx.from, resume: sid, fork: !move });
     ctx.log.info("raise", { callsign: s.callsign, sid, point: got.point.point, why: move ? "перенос" : "копия" });
     if (move && machineOf(got.session.callsign) !== host.machine) {

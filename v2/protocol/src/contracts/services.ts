@@ -1,6 +1,6 @@
 // Службы: выпуски, журнал флота, архив сессий, связь с людьми, настройки, ключи флота, GitHub, аналитика, наблюдение.
 import { Callsign, Done, Empty, Name, Person, request, z } from "../define.ts";
-import { SdkEvent } from "./session.ts";
+import { SdkEvent, Spec } from "./session.ts";
 
 /* ===== Выпуски (builds) ===== */
 
@@ -51,6 +51,8 @@ export const ArchSession = z.object({
   cwd: z.string().optional(), project: z.string().optional(), points: z.number(), last: z.number(), bytes: z.number().optional(), tokens: z.number().optional(),
   /** строка с найденным словом */
   hit: z.string().optional(),
+  /** документ сессии на последней точке: с ним сессию поднимают (отдаёт points.get) */
+  spec: Spec.optional(),
   /** сессия с этим позывным сейчас есть на машине и не остановлена */
   live: z.boolean().optional(),
   /** владелец машины: удалить сессию архива может он и админ */
@@ -68,7 +70,7 @@ export type ArchPoint = z.infer<typeof ArchPoint>;
 export const pointsPut = request("points.put", {
   owner: "archive", target: "service", machineOnly: true,
   input: z.object({
-    sid: z.string(), callsign: Callsign, point: z.string(), label: z.string().optional(), title: z.string().optional(), model: z.string().optional(),
+    sid: z.string(), callsign: Callsign, point: z.string(), spec: Spec.optional(), label: z.string().optional(), title: z.string().optional(), model: z.string().optional(),
     cwd: z.string().optional(), project: z.string().optional(), git: z.string().optional(), turns: z.number().optional(), tokens: z.number().optional(),
     files: z.array(z.object({ path: z.string(), blocks: z.array(z.string()), size: z.number() })),
     /** текст новых сообщений для поиска: uuid, роль, текст */
