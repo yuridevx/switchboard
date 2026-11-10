@@ -18,6 +18,13 @@
   // Прод — отдельный Worker sb2-services-prod со своей платформой, бакетом и очередью: wrangler --env prod.
   "env": {
     "prod": {
+      // Адреса прода: страница — pult и phone, машины и Telegram — relay; служебный адрес workers.dev остаётся рабочим.
+      "routes": [
+        { "pattern": "pult.pfarm.app", "custom_domain": true },
+        { "pattern": "phone.pfarm.app", "custom_domain": true },
+        { "pattern": "relay.pfarm.app", "custom_domain": true }
+      ],
+      "workers_dev": true,
       "services": [{ "binding": "PLATFORM", "service": "sb2-platform-prod", "entrypoint": "Platform" }],
       "durable_objects": { "bindings": [{ "name": "RECORDS", "class_name": "Records" }] },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Records"] }],
