@@ -3,6 +3,7 @@ import {
   type Account, type ArchPoint, type ArchSession, type Ask, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type Link, type MachineRow,
   type ObsRow, type PassRow, type PersonRow, type Piece, type Project, type Reply, type SessionRow, type Span, type Transport, fail, machineOf, newId, ok, Refusal,
 } from "@sb/protocol";
+import { screenHandlers } from "./screens.ts";
 import { done, type Ev, liveSteps, peer, reply, researchTurn, say, shortTurn, siteTurn, text, uid } from "./convo.ts";
 
 const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
@@ -54,17 +55,17 @@ export function createMock(o: MockOptions = {}) {
 
   add(row("site@laptop", "busy", "site", { title: "Шапка сайта на узких экранах", doing: "Правит src/components/Header.tsx", pieces: ["base", "web"], last: T - 1 * MIN, context: 0.42 }));
   add(row("site-tests@laptop", "waiting", "site", { title: "Выкладка тестового стенда", pieces: ["base", "web"], last: T - 6 * MIN,
-    ask: ask({ kind: "question", title: "Ветка для выкладки", text: "Какую ветку выкладывать на тестовый стенд?", options: [{ label: "main", about: "последний зелёный коммит" }, { label: "release/2.4", about: "ветка выпуска" }, { label: "Обе по очереди" }] }, 6) }));
+    ask: ask({ kind: "question", title: "Ветка для выкладки", text: "Какую ветку выкладывать на тестовый стенд?", tool: "AskUserQuestion", options: [{ label: "main", about: "последний зелёный коммит" }, { label: "release/2.4", about: "ветка выпуска" }, { label: "Обе по очереди" }] }, 6) }));
   add(row("docs@laptop", "idle", "site", { title: "Раздел про выкладку в документации", unread: [ME], last: T - 14 * MIN, context: 0.18, result: "Дописал раздел «Выкладка»: три шага, откат и пример. Проверил ссылки в разделе — 14 из 14 открываются." }));
   add(row("lead@laptop", "busy", "research", { title: "Замена клиента оплаты", doing: "Ждёт итог от wing@laptop", last: T - 2 * MIN, spec: { name: "lead", cwd: "~/projects/billing", model: M, effort: "xhigh", mode: "all", account: "auto", pieces: ["base", "research"], wing: "wing@laptop", project: "research", backup: true } }));
-  add(row("wing@laptop", "busy", "research", { title: "Поиск вызовов старого клиента", doing: "Читает src/jobs/renew.ts", by: "lead@laptop", last: T - 1 * MIN, model: "claude-sonnet-5-5", spec: { name: "wing", cwd: "~/projects/billing", model: "claude-sonnet-5-5", effort: "medium", mode: "all", account: "auto", pieces: ["base"], parent: "lead@laptop", project: "research", backup: true } }));
+  add(row("wing@laptop", "busy", "research", { title: "Поиск вызовов старого клиента", doing: "Читает src/jobs/renew.ts", by: "lead@laptop", lead: "lead@laptop", last: T - 1 * MIN, model: "claude-sonnet-5-5", spec: { name: "wing", cwd: "~/projects/billing", model: "claude-sonnet-5-5", effort: "medium", mode: "all", account: "auto", pieces: ["base"], parent: "lead@laptop", project: "research", backup: true } }));
   add(row("hotfix@laptop", "failed", "site", { title: "Срочная правка формы входа", error: "процесс claude дважды вышел до готовности: код 1, «Invalid API key»", last: T - 50 * MIN, account: "work@example.com" }));
   add(row("deploy@server", "waiting", "infra", { title: "Пересборка и выкладка статики", mode: "ask", last: T - 3 * MIN, pieces: ["base", "ops"],
-    ask: ask({ kind: "permission", title: "Команда", text: "rm -rf dist && npm run build", tool: "Bash", input: { command: "rm -rf dist && npm run build", description: "Чистая пересборка" }, options: [{ label: "Разрешить" }, { label: "Разрешать всегда" }, { label: "Отклонить" }] }, 3) }));
+    ask: ask({ kind: "permission", title: "Команда", text: "rm -rf dist && npm run build", tool: "Bash", input: { command: "rm -rf dist && npm run build", description: "Чистая пересборка" }, options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 3) }));
   add(row("api@server", "waiting", "infra", { title: "Предел запросов на входе", mode: "plan", last: T - 22 * MIN, pieces: ["base", "ops"],
-    ask: ask({ kind: "plan", title: "План", text: "## Предел запросов на входе\n\n1. Счётчик на адрес в памяти процесса, окно 10 секунд.\n2. Отказ `429` со словом `too_many` и временем сброса.\n3. Тесты: 3 сценария — ровно на пределе, сверх предела, после сброса.\n\nФайлы: `src/entrance.ts`, `src/limit.ts`, `test/limit.test.ts`.", options: [{ label: "Делай" }, { label: "Делай, правки без вопросов" }, { label: "Доработать" }] }, 22) }));
+    ask: ask({ kind: "plan", title: "План", text: "## Предел запросов на входе\n\n1. Счётчик на адрес в памяти процесса, окно 10 секунд.\n2. Отказ `429` со словом `too_many` и временем сброса.\n3. Тесты: 3 сценария — ровно на пределе, сверх предела, после сброса.\n\nФайлы: `src/entrance.ts`, `src/limit.ts`, `test/limit.test.ts`.", tool: "ExitPlanMode", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 22) }));
   add(row("ingest@server", "busy", "infra", { title: "Разбор ночной выгрузки", doing: "Выполняет node scripts/ingest.mjs", last: T - 1 * MIN, context: 0.67, pieces: ["base", "ops"] }));
-  add(row("nightcheck@server", "idle", "infra", { title: "Ночная проверка флота", last: T - 7 * HOUR, by: "~yuri@example.com", pieces: ["base", "ops"] }));
+  add(row("nightcheck@server", "idle", "infra", { title: "Ночная проверка флота", incident: { kind: "disk", key: "/var" }, last: T - 7 * HOUR, by: "~yuri@example.com", pieces: ["base", "ops"] }));
   add(row("migrate@server", "stopped", "infra", { title: "Перенос журналов в архив", last: T - 2 * DAY, pieces: ["base"] }));
   add(row("landing@anya-pc", "busy", "site", { title: "Новый первый экран", doing: "Собирает снимки на 390 и 1440", by: ANYA, last: T - 2 * MIN, account: "anya@example.com", pieces: ["base", "web"] }));
   add(row("design@anya-pc", "idle", "site", { title: "Палитра и сетка", by: ANYA, unread: [ME, ANYA], result: "Тёмный вариант готов: фон #0F1413, контраст 11,4 : 1. Оба варианта лежат рядом, выберите один.", last: T - 41 * MIN, account: "anya@example.com", pieces: ["base", "web"] }));
@@ -86,6 +87,8 @@ export function createMock(o: MockOptions = {}) {
   talk("deploy@server").push(...shortTurn(T - 25 * MIN, "Какая сборка статики сейчас на сервере?", "На сервере сборка от вчера, 18:40, коммит `a41f9c2`."), say("Пересобери с нуля и выложи.", T - 4 * MIN), reply([text("Начну с чистой пересборки.")], T - 3 * MIN));
   talk("api@server").push(say("Добавь предел запросов на входе. Сначала план.", T - 26 * MIN), reply([text("Составил план, жду решения.")], T - 22 * MIN));
   talk("ingest@server").push(say("Разбери ночную выгрузку и скажи, сколько строк не прошло проверку.", T - 12 * MIN));
+  // фоновая задача сессии: видна в доке над вводом, у неё есть вывод и «Стоп»
+  talk("ingest@server").push({ type: "system", subtype: "task_started", uuid: uid("s"), task_id: "bg1", description: "npm run dev", task_type: "local_bash", is_backgrounded: true, timestamp: new Date(T - 9 * MIN).toISOString() } as Ev);
   talk("nightcheck@server").push(...shortTurn(T - 7 * HOUR, "Проверь флот: все ли машины на последней сборке.", "Три машины из четырёх на сборке 412. `base2` — на 410 и без связи с 02:10."));
   talk("migrate@server").push(...shortTurn(T - 2 * DAY, "Перенеси журналы старше 30 дней в архив.", "Перенесено 1 284 файла, 3,1 ГБ. Сессию можно останавливать."));
   talk("landing@anya-pc").push(say("Собери первый экран по макету из design@anya-pc.", T - 20 * MIN));
@@ -96,7 +99,11 @@ export function createMock(o: MockOptions = {}) {
 
   const live = new Map<string, Live>();
   /** сообщения, которые ждут конца идущего хода */
-  const queue = new Map<string, Array<{ uuid: string; text: string }>>();
+  const queue = new Map<string, Array<{ uuid: string; text: string; from: string; at: number; event: Ev }>>();
+  /** сессии, которые уберутся после хода */
+  const removeAfter = new Set<string>();
+  /** серверы MCP, выключенные человеком */
+  const mcpOff = new Set<string>();
   const startLive = (c: string, about: string, then?: () => void) => live.set(c, { steps: liveSteps(now, about), then });
   startLive("site@laptop", "подвал сайта");
   startLive("ingest@server", "ночная выгрузка");
@@ -239,9 +246,14 @@ export function createMock(o: MockOptions = {}) {
     else sessions[c] = { ...sessions[c], ...patch };
     delta({ sessions: [{ callsign: c, row: patch === null ? null : sessions[c] }] });
   };
-  const emit = (c: string, events: Ev[]) => {
-    talk(c).push(...events);
-    const seq = (seqs.get(c) ?? talk(c).length - events.length) + events.length;
+  /** последние события ленты по сессиям: из них дочитывается пропущенное */
+  const recent = new Map<string, Ev[]>();
+  const FEED_ONLY = new Set(["message.status", "prompt_suggestion"]);
+  const emit = (c: string, events: Ev[], feedOnly = false) => {
+    // в разговор идут записи SDK; статусы и подсказки — только в ленту, как у Host
+    if (!feedOnly) talk(c).push(...events.filter((e) => !FEED_ONLY.has(e.type)));
+    recent.set(c, [...(recent.get(c) ?? []), ...events].slice(-200));
+    const seq = (seqs.get(c) ?? 0) + events.length;
     seqs.set(c, seq);
     if (!watched.has(c)) return;
     for (const w of watchers) if (w.machine === machineOf(c)) w.on({ type: "session.events", callsign: c, seq, events });
@@ -264,16 +276,31 @@ export function createMock(o: MockOptions = {}) {
         const said = events.flatMap((e) => (e.type === "assistant" ? (e.message.content as any[]) : [])).findLast((b) => b.type === "text")?.text as string | undefined;
         const next = queue.get(c)?.shift();
         if (next) {
-          // очередь: следующее сообщение уходит сессии, ход продолжается
-          emit(c, [say(next.text, now())]);
+          // очередь: ход взял следующее сообщение, работа продолжается
+          talk(c).push(next.event);
+          emit(c, [{ type: "message.status", uuid: next.uuid, status: "taken" } as Ev]);
           startLive(c, next.text.slice(0, 40));
           setRow(c, { doing: "Читает сообщение из очереди", last: now() });
-        } else setRow(c, { state: "idle", doing: undefined, last: now(), unread: watched.has(c) ? [] : [ME], ...(said ? { result: said.replace(/[`*#|]/g, "").slice(0, 200) } : {}) });
+        } else if (removeAfter.delete(c)) setRow(c, null);
+        else {
+          setRow(c, { state: "idle", doing: undefined, last: now(), unread: watched.has(c) ? [] : [ME], ...(said ? { result: said.replace(/[`*#|]/g, "").slice(0, 200) } : {}) });
+          emit(c, [{ type: "prompt_suggestion", suggestion: "Покажи, что изменилось в файлах" } as Ev]);
+        }
         l.then?.();
       } else if (tool) setRow(c, { doing: DOING[tool.name]?.(tool.input) ?? tool.name });
     }
   };
   const timer = o.live === false ? null : setInterval(tick, 1600);
+
+  /** Снять своё сообщение с очереди: его ещё не взял ход. */
+  const cancelQueued = (c: string, uuid: unknown) => {
+    const list = queue.get(c) ?? [];
+    const i = list.findIndex((m) => m.uuid === uuid);
+    if (i < 0) return { cancelled: false };
+    list.splice(i, 1);
+    emit(c, [{ type: "message.status", uuid, status: "cancelled" } as Ev]);
+    return { cancelled: true };
+  };
 
   /* ===== Запросы ===== */
   const need = <T>(v: T | undefined, why: string): T => {
@@ -336,10 +363,19 @@ export function createMock(o: MockOptions = {}) {
 
     "session.open": (f) => {
       const m = mach(f);
-      const c = `${f.spec.name}@${m}`;
+      let name = String(f.spec.name);
+      if (f.number) for (let i = 1; sessions[`${name}@${m}`]; i++) name = `${f.spec.name}-${i}`;
+      const c = `${name}@${m}`;
       if (sessions[c]) throw new Refusal("name_taken", `сессия ${c} уже есть`);
-      sessions[c] = { callsign: c, state: "starting", spec: { mode: "all", account: "auto", effort: "high", model: M, pieces: ["base"], backup: true, ...f.spec }, by: MY_ADDR, since: now(), last: now(), account: accounts[m]?.[0]?.id, context: 0.02, ...(f.prompt ? { title: String(f.prompt).slice(0, 60) } : {}) };
+      if (!f.mkdir && /nope|нет-такой/.test(String(f.spec.cwd))) throw new Refusal("bad_input", `spec.cwd: папка не найдена — ${f.spec.cwd}`);
+      const wing = f.pair ? `${name}-wing@${m}` : undefined;
+      sessions[c] = { callsign: c, state: "starting", spec: { mode: "all", account: "auto", pieces: ["base"], backup: true, ...f.spec, name, ...(wing ? { wing } : {}) }, by: MY_ADDR, since: now(), last: now(), account: accounts[m]?.[0]?.id, context: 0.02, ...(f.prompt ? { title: String(f.prompt).slice(0, 60) } : {}) };
+      if (f.resume) talks.set(c, [...shortTurn(now() - 30 * MIN, "Продолжим с прошлого раза.", `Разговор ${f.resume} продолжен${f.fork ? " копией" : ""}.`)]);
       delta({ sessions: [{ callsign: c, row: sessions[c] }] });
+      if (wing) {
+        sessions[wing] = { callsign: wing, state: "idle", spec: { ...sessions[c].spec, name: `${name}-wing`, wing: undefined, parent: c }, by: c, lead: c, since: now(), last: now(), account: accounts[m]?.[0]?.id, context: 0.02 };
+        delta({ sessions: [{ callsign: wing, row: sessions[wing] }] });
+      }
       setTimeout(() => {
         if (!sessions[c]) return;
         if (f.prompt) {
@@ -348,67 +384,130 @@ export function createMock(o: MockOptions = {}) {
           setRow(c, { state: "busy", doing: "Читает задачу" });
         } else setRow(c, { state: "idle" });
       }, 1200);
-      return { callsign: c };
+      return { callsign: c, ...(wing ? { wing } : {}) };
     },
     "session.update": (f) => {
       const { c, s } = sess(f);
-      setRow(c, { spec: { ...s.spec, ...f.patch } });
-      return {};
+      const patch = { ...f.patch };
+      let wing: string | undefined;
+      if (patch.wing === null) {
+        const was = s.spec.wing;
+        delete patch.wing;
+        const spec = { ...s.spec, ...patch };
+        delete spec.wing;
+        setRow(c, { spec });
+        if (was && sessions[was]) setRow(was, { lead: undefined });
+      } else {
+        if (f.pair && !s.spec.wing) {
+          wing = `${s.spec.name}-wing@${machineOf(c)}`;
+          sessions[wing] = { callsign: wing, state: "idle", spec: { ...s.spec, name: `${s.spec.name}-wing`, wing: undefined, parent: c }, by: c, lead: c, since: now(), last: now(), account: s.account, context: 0.02 };
+          delta({ sessions: [{ callsign: wing, row: sessions[wing] }] });
+          patch.wing = wing;
+        }
+        setRow(c, { spec: { ...s.spec, ...patch } });
+      }
+      // посреди хода модель, усилие, аккаунт, кусочки и папка вступают в силу с новым процессом — после хода
+      const keys = Object.keys(f.patch ?? {});
+      const slow = s.state === "busy" ? keys.filter((k) => ["model", "effort", "account", "pieces", "cwd", "fast", "thinking", "style", "remote"].includes(k)) : [];
+      return { now: keys.filter((k) => !slow.includes(k)), later: slow, ...(wing ? { wing } : {}) };
     },
     "session.stop": (f) => (setRow(sess(f).c, { state: "stopped", doing: undefined, ask: null }), {}),
     "session.start": (f) => (setRow(String(f.to), { state: "idle", error: undefined }), {}),
-    "session.remove": (f) => (setRow(String(f.to), null), {}),
+    "session.remove": (f) => {
+      const c = String(f.to);
+      if (f.after_turn && sessions[c]?.state === "busy") return removeAfter.add(c), { after_turn: true };
+      return setRow(c, null), {};
+    },
     "session.call": (f) => {
       const { c } = sess(f);
-      if (f.method === "cancelMessage") {
-        const list = queue.get(c) ?? [];
-        const i = list.findIndex((m) => m.uuid === f.args?.uuid);
-        if (i < 0) throw new Refusal("not_found", "сообщения нет в очереди: оно уже ушло сессии");
-        list.splice(i, 1);
-        return {};
-      }
+      const args: any[] = f.args === undefined ? [] : Array.isArray(f.args) ? f.args : [f.args];
+      if (f.method === "cancelMessage") return cancelQueued(c, typeof args[0] === "string" ? args[0] : args[0]?.uuid);
       if (f.method === "interrupt") {
         live.delete(c);
         emit(c, [say("[Request interrupted by user]", now())]);
         setRow(c, { state: "idle", doing: undefined });
         return {};
       }
-      if (f.method === "contextUsage") return { used: Math.round((sessions[c].context ?? 0.3) * 200_000), max: 200_000, parts: [{ name: "Разговор", tokens: 41_000 }, { name: "Инструменты", tokens: 18_400 }, { name: "Память и правила", tokens: 9_200 }, { name: "Серверы MCP", tokens: 6_100 }] };
-      if (f.method === "mcpStatus") return { servers: [{ name: "fleet", status: "connected", tools: 24 }, { name: "playwright", status: "connected", tools: 21 }, { name: "github", status: "failed", error: "нет токена" }] };
-      if (f.method === "tasks") return { tasks: sessions[c].state === "busy" ? [{ id: "bg1", desc: "npm run dev", type: "local_bash", started: now() - 9 * MIN }] : [] };
-      if (f.method === "commands") return { commands: [{ name: "/compact", about: "Сжать контекст" }, { name: "/clear", about: "Начать разговор заново" }, { name: "/review", about: "Ревью текущих правок" }, { name: "/deliver", about: "Довести принятое до конца" }, { name: "/design", about: "Дизайн в персоне архитектора" }] };
-      if (f.method === "models") return { models: [{ id: "claude-fable-5-2", name: "Fable 5.2" }, { id: "claude-opus-5-5", name: "Opus 5.5" }, { id: "claude-sonnet-5-5", name: "Sonnet 5.5" }, { id: "claude-haiku-5-5", name: "Haiku 5.5" }] };
-      if (f.method === "rewindFiles") return { files: ["src/components/Header.tsx", "src/components/MenuButton.tsx", "src/styles/header.css"] };
+      if (f.method === "contextUsage") {
+        const max = 200_000, total = Math.round((sessions[c].context ?? 0.3) * max);
+        const cat = (name: string, share: number, kind = "used") => ({ name, tokens: Math.round(total * share), color: "#888", kind });
+        return { categories: [cat("Messages", 0.55), cat("System tools", 0.2), cat("Memory files", 0.1), cat("MCP tools", 0.08), cat("Skills", 0.05), cat("System prompt", 0.02), { name: "Free space", tokens: max - total, color: "#ccc", kind: "free" }], totalTokens: total, maxTokens: max, rawMaxTokens: max, percentage: (total / max) * 100, gridRows: [], model: sessions[c].spec.model ?? M, memoryFiles: [], mcpTools: [], agents: [] };
+      }
+      if (f.method === "mcpStatus") {
+        const tools = (n: number) => Array.from({ length: n }, (_, i) => ({ name: "tool_" + i }));
+        return [{ name: "fleet", status: "connected", tools: tools(24) }, { name: "playwright", status: "connected", tools: tools(21) }, { name: "github", status: "needs-auth" }, { name: "sentry", status: "failed", error: "сервер не ответил за 30 с" }].map((s) => (mcpOff.has(s.name) ? { name: s.name, status: "disabled" } : s));
+      }
+      if (f.method === "mcpToggle") return void (args[1] ? mcpOff.delete(args[0]) : mcpOff.add(args[0])), {};
+      if (f.method === "mcpReconnect" || f.method === "reload" || f.method === "taskStop") return {};
+      if (f.method === "mcpAuthenticate") return { authUrl: "https://github.com/login/oauth/authorize?client_id=mock&state=" + args[0] };
+      if (f.method === "tasks") return true;
+      if (f.method === "taskOutput") return { output: "> dev\n> vite\n\n  VITE v8.3.7  ready in 412 ms\n  ➜  Local:   http://localhost:5173/\n", total_bytes: 96, truncated: false };
+      if (f.method === "commands") return [{ name: "compact", description: "Сжать контекст", argumentHint: "" }, { name: "clear", description: "Начать разговор заново", argumentHint: "" }, { name: "review", description: "Ревью текущих правок", argumentHint: "[что смотреть]" }, { name: "deliver", description: "Довести принятое до конца", argumentHint: "" }, { name: "design", description: "Дизайн в персоне архитектора", argumentHint: "" }];
+      if (f.method === "models") return [["claude-fable-5-2", "Fable 5.2"], ["claude-opus-5-5", "Opus 5.5"], ["claude-sonnet-5-5", "Sonnet 5.5"], ["claude-haiku-5-5", "Haiku 5.5"]].map(([value, displayName], i) => ({ value, displayName, description: "", supportsEffort: true, supportedEffortLevels: i === 3 ? ["low", "medium", "high"] : ["low", "medium", "high", "xhigh", "max"], supportsFastMode: i < 2, supportsAutoMode: i < 3 }));
+      if (f.method === "agents") return [{ name: "Explore", description: "Поиск по коду: только чтение" }, { name: "critic", description: "Критик прототипа по живой странице" }];
+      if (f.method === "usage") return { session: { total_cost_usd: 1.84, total_api_duration_ms: 412_000, total_duration_ms: 3_600_000, total_lines_added: 214, total_lines_removed: 61, model_usage: {} }, subscription_type: "max", rate_limits_available: true, rate_limits: { five_hour: { utilization: 46, resets_at: new Date(now() + 2 * HOUR).toISOString() }, seven_day: { utilization: 38, resets_at: new Date(now() + 3 * DAY).toISOString() } } };
+      if (f.method === "status") return { sections: [{ rows: [{ label: "Version", value: "2.1.321" }, { label: "Session ID", value: "7c1e0a52-9d3b" }, { label: "Peer address", value: "x" }] }] };
+      if (f.method === "hooks") return { hooks: [{ event: "PreToolUse", matcher: "Bash", displayText: "node .claude/hooks/gate.mjs" }, { event: "Stop", matcher: "", displayText: "node .claude/hooks/summary.mjs" }] };
+      if (f.method === "permissionRules") return { state: { rules: [{ behavior: "allow", source: "projectSettings", rule: "Bash(npm run *)" }, { behavior: "deny", source: "userSettings", rule: "Read(~/secrets/**)" }, { behavior: "ask", source: "session", rule: "Bash(git push *)" }] } };
+      if (f.method === "sideQuestion") return { response: `Коротко: «${String(args[0]).slice(0, 60)}» — да, это уже учтено в текущей правке; подробности будут в итоге хода.` };
+      if (f.method === "compact") return setRow(c, { compacting: true }), setTimeout(() => sessions[c] && setRow(c, { compacting: undefined, context: 0.12 }), 2500), {};
+      if (f.method === "rewindFiles") {
+        const a = args[0] ?? {};
+        if (typeof a.message !== "string" || !a.message) throw new Refusal("bad_input", "rewindFiles: args — { message: uuid сообщения, dryRun? }");
+        return { canRewind: true, filesChanged: a.dryRun ? ["src/components/Header.tsx", "src/components/MenuButton.tsx", "src/styles/header.css"] : [], insertions: 41, deletions: 17 };
+      }
       return {};
     },
     message: (f) => {
       const { c, s } = sess(f);
-      if (s.state === "busy") {
-        const uuid = uid("m");
-        (queue.get(c) ?? (queue.set(c, []), queue.get(c)!)).push({ uuid, text: String(f.text) });
+      if (s.state === "stopped" || s.state === "failed") throw new Refusal("stopped", `${c}: сессия ${s.state} — запускает session.start`);
+      const uuid = uid("m");
+      const pics = ((f.files ?? []) as Array<{ name: string; mime: string; base64: string }>).filter((x) => x.mime.startsWith("image/"));
+      const content = pics.length ? [{ type: "text", text: String(f.text) }, ...pics.map((p) => ({ type: "image", source: { type: "base64", media_type: p.mime, data: p.base64 } }))] : String(f.text);
+      const event = { type: "user", uuid, from: MY_ADDR, timestamp: new Date(now()).toISOString(), message: { role: "user", content } } as Ev;
+      if (s.state === "busy" && f.priority !== "now") {
+        (queue.get(c) ?? (queue.set(c, []), queue.get(c)!)).push({ uuid, text: String(f.text), from: MY_ADDR, at: now(), event });
+        // сообщение в очереди видно зрителям сразу, а в разговор попадает, когда его возьмёт ход
+        emit(c, [event, { type: "message.status", uuid, status: "queued" } as Ev], true);
         return { queued: true, uuid };
       }
-      emit(c, [say(f.text, now())]);
+      if (s.state === "busy") {
+        live.delete(c);
+        emit(c, [say("[Request interrupted by user]", now())]);
+      }
+      emit(c, [event]);
       startLive(c, String(f.text).slice(0, 40));
       setRow(c, { state: "busy", doing: "Читает сообщение", unread: [], error: undefined });
-      return {};
+      return { queued: false, uuid };
     },
+    "message.cancel": (f) => cancelQueued(sess(f).c, f.uuid),
     "session.history": (f) => {
       const all = talk(String(f.to));
       const end = f.before ? Math.max(0, all.findIndex((e) => e.uuid === f.before)) : all.length;
       const start = Math.max(0, end - (f.limit ?? 50));
-      return { events: all.slice(start, end), more: start > 0, seq: all.length };
+      return { events: all.slice(start, end), more: start > 0, seq: seqs.get(String(f.to)) ?? 0 };
     },
     "session.files": (f) => ({ files: ["src/components/Header.tsx", "src/components/Footer.tsx", "src/lib/http.ts", "src/routes.ts", "package.json", "README.md"].filter((p) => p.toLowerCase().includes(String(f.q).toLowerCase())) }),
-    "session.watch": (f) => (watched.add(String(f.to)), { seq: talk(String(f.to)).length }),
+    "session.watch": (f) => {
+      const c = String(f.to);
+      watched.add(c);
+      const seq = seqs.get(c) ?? 0, kept = recent.get(c) ?? [];
+      const waiting = (queue.get(c) ?? []).map(({ event: _event, ...q }) => q);
+      const base = { seq, ...(waiting.length ? { queued: waiting } : {}) };
+      if (f.after === undefined || f.after >= seq) return base;
+      // мок помнит последние 200 событий ленты: чего в памяти уже нет — разговор перечитывается
+      const first = seq - kept.length;
+      return f.after < first ? { ...base, gap: true } : { ...base, events: kept.slice(f.after - first) };
+    },
     "session.unwatch": (f) => (watched.delete(String(f.to)), {}),
     "session.read": (f) => (sessions[String(f.to)]?.unread?.includes(ME) && setRow(String(f.to), { unread: (sessions[String(f.to)].unread ?? []).filter((p) => p !== ME) }), {}),
     answer: (f) => {
       const { c, s } = sess(f);
       if (!s.ask || s.ask.id !== f.ask) throw new Refusal("already_answered", "на этот вопрос уже ответили");
-      const said = typeof f.answer === "string" ? f.answer : JSON.stringify(f.answer);
+      const a = f.answer as any;
+      const said = typeof a === "string" ? a : a?.answers ? Object.values(a.answers).join("; ") : a?.action ? `${a.action}${a.message ? `: ${a.message}` : ""}` : JSON.stringify(a);
       emit(c, [say(`Ответ: ${said}`, now(), { isMeta: false })]);
-      if (/Отклонить|Доработать/.test(said)) setRow(c, { state: "idle", ask: null, unread: [] });
+      if (a === "deny" || a?.action === "deny" || a?.action === "decline" || a?.action === "cancel") setRow(c, { state: "idle", ask: null, unread: [] });
       else {
         startLive(c, s.title ?? "задача");
         setRow(c, { state: "busy", ask: null, doing: "Продолжает после ответа", unread: [] });
@@ -444,6 +543,13 @@ export function createMock(o: MockOptions = {}) {
       });
       list.sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99));
       return {};
+    },
+    "slot.swap": (f) => {
+      const list = accounts[mach(f)].filter((a) => a.kind === "claude" && a.ok);
+      const next = f.account ? list.find((a) => a.id === f.account) : (list.find((a) => !a.current && a.slot !== 1) ?? list[0]);
+      if (!next) throw new Refusal("not_found", "годного аккаунта в очереди нет");
+      for (const a of accounts[mach(f)]) a.current = a === next;
+      return { account: next.id };
     },
     "key.check": (f) => (mach(f), { ok: true, word: "glm-abliterated ответила за 1,4 с" }),
     "profile.list": (f) => (mach(f), { pieces }),
@@ -488,7 +594,9 @@ export function createMock(o: MockOptions = {}) {
       return { path, dirs: path === "~/projects" ? ["site", "billing", "docs", "infra", "prices", "sandbox"] : ["src", "test", "scripts", "docs"], recent: ["~/projects/site", "~/projects/billing", "~/projects/docs", "~/projects/infra"], git: path !== "~/projects" };
     },
     "machine.journal": (f) => {
-      const all = journal(mach(f)).filter((l) => (!f.level || l.level === f.level) && (!f.part || l.part === f.part) && (!f.of || l.trace === f.of));
+      const who = f.session ? String(f.session).slice(0, String(f.session).indexOf("@")) : "";
+      const KIND: Record<string, RegExp> = { stop: /вышел|сбой|failed|остановл/, refuse: /отказ|устарел/ };
+      const all = journal(mach(f)).filter((l) => (!f.level || l.level === f.level) && (!f.part || l.part === f.part) && (!f.of || l.trace === f.of) && (!who || new RegExp(`сессия ${who}\\b`).test(l.msg)) && (!f.since || l.t >= f.since) && (!f.kind || (f.kind === "note" ? !KIND.stop!.test(l.msg) && !KIND.refuse!.test(l.msg) : KIND[f.kind as string]!.test(l.msg))));
       const p = page(all, f.before, f.limit ?? 40, (l) => l.t);
       return { lines: p.items, more: p.more };
     },
@@ -611,7 +719,10 @@ export function createMock(o: MockOptions = {}) {
     "obs.report": () => ({}),
   };
 
-  const SPANS: Record<string, string[]> = { session: ["services", "platform", "host"], machine: ["services", "platform", "host"], fleet: ["services", "platform"] };
+  // запросы экранов (пропуска, аккаунты, профили, архив, правила, наблюдение) — в screens.ts: ложатся поверх прежних
+  Object.assign(H, screenHandlers({ now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, pieces, archive, incidents, prefs, ledger, obs, archPoints, journal, talk, talks, need, mach, sess, delta, setRow, row }));
+
+  const SPANS: Record<string, string[]> ={ session: ["services", "platform", "host"], machine: ["services", "platform", "host"], fleet: ["services", "platform"] };
   const call = async (f: Frame): Promise<Reply> => {
     await new Promise((r) => setTimeout(r, latency));
     const t0 = now();

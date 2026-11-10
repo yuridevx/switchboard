@@ -1,0 +1,57 @@
+/* Стили экранов (кроме разговора): оболочка, «Работа», «Флот», «Архив», «Настройки», «Наблюдение». */
+
+/* оболочка */
+.morerow { grid-template-columns: 24px 1fr; align-items: center; text-decoration: none; color: inherit; border: 0; background: none; font: inherit; text-align: left; width: 100%; }
+.linklamp { position: absolute; top: 7px; right: calc(50% - 20px); width: 7px; height: 7px; margin: 0; box-shadow: none !important; }
+.banner .mantine-Button-root { flex: none; }
+
+/* «Работа»: перетаскивание */
+.dragbox { position: relative; }
+.dragline { position: absolute; left: 10px; right: 10px; height: 2px; background: var(--st-busy); border-radius: 2px; pointer-events: none; z-index: 3; }
+.rowwrap.dragging { opacity: 0.45; }
+.rowwrap { touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+.grp .grp-acts { margin-left: auto; display: flex; gap: 2px; opacity: 0; }
+.grp:hover .grp-acts, .grp:focus-within .grp-acts { opacity: 1; }
+.grp .grp-name { display: flex; align-items: center; gap: 6px; border: 0; background: none; cursor: pointer; font: inherit; color: inherit; padding: 0; min-width: 0; }
+.grp .lamps { display: flex; gap: 4px; align-items: center; margin-left: 6px; }
+.grp .lamps .lamp { margin-top: 0; width: 8px; height: 8px; box-shadow: none; }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; line-height: 1; padding: 3px 7px; border-radius: 999px; background: var(--surface-2); color: var(--muted); white-space: nowrap; max-width: 100%; }
+.chip.warn { background: var(--st-waiting-weak); color: var(--mantine-color-text); }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+@media (max-width: 860px) { .grp .grp-acts { opacity: 1; } }
+
+/* списки с действиями в строке */
+.line { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); min-width: 0; }
+.line:first-child { border-top: 0; }
+.line .grow { flex: 1; min-width: 0; }
+.sect { font-weight: 600; margin: 0 0 6px; }
+.codebox { font-family: var(--mantine-font-family-monospace); font-size: 12.5px; background: var(--surface-2); padding: 10px; border-radius: 6px; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.qr { background: #fff; padding: 10px; border-radius: 8px; width: fit-content; line-height: 0; }
+.qr svg { display: block; }
+
+/* вкладки внутри карточки (профили, архив) */
+.subtabs { display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.subtabs button { border: 0; background: none; font: inherit; color: var(--muted); padding: 6px 10px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.subtabs button[aria-selected="true"] { color: var(--mantine-color-text); border-bottom-color: var(--mantine-color-text); font-weight: 600; }
+.split { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 860px) { .split { grid-template-columns: minmax(0, 1fr); } }
+.tree { margin: 0; padding-left: 16px; list-style: none; }
+.tree > li { padding: 2px 0; }
+.lost { text-decoration: line-through; color: var(--muted); }
+
+/* архив: точки по дням, приглушение после точки */
+.feed-in .after-point { opacity: 0.45; }
+.pointmark { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.pointmark::before, .pointmark::after { content: ""; flex: 1; border-top: 1px dashed var(--line); }
+.pointmark button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 2px 10px; font: inherit; font-size: 12px; cursor: pointer; color: inherit; }
+.pointmark button[aria-pressed="true"] { background: var(--mantine-color-text); color: var(--surface); border-color: var(--mantine-color-text); }
+.daygrp { padding: 10px 8px 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.steps { display: flex; flex-direction: column; gap: 6px; }
+.steps .step { display: flex; gap: 8px; align-items: center; font-size: 13.5px; }
+.steps .step .lamp { margin-top: 0; }
+
+/* журнал по дням */
+.dayhead { padding: 10px 12px 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); background: var(--surface); position: sticky; top: 0; }
+
+/* подпись поля с моноширинным значением остаётся обычным шрифтом */
+.mono > .mantine-InputWrapper-label { font-family: var(--mantine-font-family); }

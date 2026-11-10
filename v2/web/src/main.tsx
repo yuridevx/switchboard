@@ -1,22 +1,26 @@
-// Вход страницы: провод (мок или настоящий флот), картина флота, маршруты.
+// Вход страницы: провод (мок или настоящий флот), вход по приглашению, картина флота, маршруты.
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "@mantine/spotlight/styles.css";
 import "@mantine/charts/styles.css";
 import "./styles.css";
-import { whoami } from "@sb/protocol";
-import { Button, MantineProvider, Stack, Text } from "@mantine/core";
+import "./screens/screens.css";
+import { obsReport } from "@sb/protocol";
+import { MantineProvider } from "@mantine/core";
 import { ModalsProvider } from "@mantine/modals";
 import { Notifications } from "@mantine/notifications";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { createHashRouter, Navigate, RouterProvider } from "react-router";
-import { acceptInvite, api, connect, inviteInHash, isMock, keyStore, sayError } from "./api.ts";
+import { api } from "./api.ts";
+import { onOpenFromPush } from "./lib/push.ts";
 import { Inbox } from "./screens/Inbox.tsx";
 import { Work } from "./screens/Work.tsx";
+import { Consent } from "./shell/Consent.tsx";
+import { Gate } from "./shell/Gate.tsx";
+import { openFromQuery } from "./shell/open.ts";
 import { Shell } from "./shell/Shell.tsx";
-import { useFleet } from "./store/fleet.ts";
 import { theme } from "./theme.ts";
 
 // Редкие разделы — отдельными кусками сборки: графики и таблицы не грузятся, пока их не открыли.
@@ -29,6 +33,9 @@ const Spend = lazy(() => import("./screens/Spend.tsx").then((m) => ({ default: m
 const late = (el: React.ReactNode) => <Suspense fallback={null}>{el}</Suspense>;
 
 const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000, refetchOnWindowFocus: false } } });
+
+const opened = openFromQuery(location.search, location.hash);
+if (opened) history.replaceState(null, "", location.pathname + opened.search + opened.hash);
 
 const router = createHashRouter([
   {
@@ -48,59 +55,28 @@ const router = createHashRouter([
   },
 ]);
 
-type Gate = "starting" | "ready" | "need_invite" | "stopped";
+// клик по уведомлению при открытой странице: сервис-воркер просит перейти к сессии
+onOpenFromPush((hashPath) => void router.navigate(hashPath));
 
-/** Вход: приглашение из ссылки, затем соединение с картиной флота. */
-function Entry() {
-  const [gate, setGate] = useState<Gate>("starting");
-  const [why, setWhy] = useState("");
-  const link = useFleet((f) => f.link);
-  useEffect(() => {
-    let closeLink = () => {};
-    (async () => {
-      connect();
-      const invite = inviteInHash();
-      if (invite && !isMock) {
-        try {
-          await acceptInvite(invite);
-        } catch (e) {
-          setWhy(sayError(e));
-          return setGate("need_invite");
-        }
-      }
-      if (!isMock && !keyStore.get()) return setGate("need_invite");
-      const l = api.transport.open("page", { onFrame: (f) => useFleet.getState().apply(f), onState: (s) => useFleet.getState().setLink(s) });
-      closeLink = () => l.close();
-      if (!isMock) api.call(whoami, {}).catch((e) => (setWhy(sayError(e)), setGate("stopped")));
-      setGate("ready");
-    })();
-    return () => closeLink();
-  }, []);
-  if (gate === "ready" && link === "stopped") return <Stop title="Пропуск больше не действует" text="Его отозвали или он не подошёл. Попросите новую ссылку-приглашение." reset />;
-  if (gate === "stopped") return <Stop title="Пропуск не принят" text={why} reset />;
-  if (gate === "need_invite") return <Stop title="Нужна ссылка-приглашение" text={why || "Откройте ссылку, которую вам выдали в разделе «Пропуска», на этом устройстве."} />;
-  if (gate === "starting") return null;
-  return <RouterProvider router={router} />;
-}
+// ошибки страницы вне экранов — в наблюдение; не чаще пяти в минуту, чтобы сбой не завалил флот отчётами
+let sent = 0;
+setInterval(() => (sent = 0), 60_000);
+const report = (msg: string, stack?: string) => {
+  if (sent++ >= 5 || !api) return;
+  api.call(obsReport, { part: "web", level: "error", msg: msg.slice(0, 500), ...(stack ? { stack: stack.slice(0, 4000) } : {}) }).catch(() => {});
+};
+window.addEventListener("error", (e) => report(e.message, e.error?.stack));
+window.addEventListener("unhandledrejection", (e) => report(String(e.reason?.message ?? e.reason), e.reason?.stack));
 
-function Stop({ title, text, reset }: { title: string; text: string; reset?: boolean }) {
-  return (
-    <div className="hole" style={{ height: "100%" }}>
-      <Stack align="center" gap="xs" maw={420}>
-        <Text fw={700} size="lg">{title}</Text>
-        <Text ta="center">{text}</Text>
-        {reset && <Button variant="default" onClick={() => (keyStore.clear(), location.reload())}>Забыть пропуск на этом устройстве</Button>}
-      </Stack>
-    </div>
-  );
-}
+/** Экран согласия внешнего клиента живёт по пути /consent, а не в маршрутах после #. */
+const isConsent = location.pathname.replace(/\/+$/, "") === "/consent";
 
 createRoot(document.getElementById("root")!).render(
   <MantineProvider theme={theme} defaultColorScheme="auto">
     <QueryClientProvider client={qc}>
       <ModalsProvider>
         <Notifications position="bottom-right" />
-        <Entry />
+        <Gate>{isConsent ? <Consent /> : <RouterProvider router={router} />}</Gate>
       </ModalsProvider>
     </QueryClientProvider>
   </MantineProvider>,

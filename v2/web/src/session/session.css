@@ -1,0 +1,64 @@
+/* Разговор сессии: лента, инструменты, ввод, вопросы, инспектор. Общие классы — в styles.css. */
+.pic { display: block; max-width: 100%; max-height: 420px; margin-top: 6px; border-radius: 6px; }
+.me.gone { text-decoration: line-through; }
+.me-from { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.me-file { display: flex; align-items: center; gap: 5px; font-size: 12.5px; margin-top: 4px; color: var(--muted); }
+.peer.via-service { border-left-color: var(--st-waiting); }
+.peer.via-owner { border-left-color: var(--st-idle); }
+
+/* Живой ответ: каретка в конце идущего текста; без мигания, если человек просил меньше движения */
+.live .md > :last-child::after { content: "▍"; color: var(--st-busy); margin-left: 2px; }
+.sysline.think { border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer; text-align: left; max-width: 100%; min-width: 0; }
+.sysline.think:hover { color: var(--mantine-color-text); }
+.think-body { margin: 4px 0 4px 20px; padding-left: 12px; border-left: 2px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; color: var(--muted); }
+.steps-body { margin: 6px 0 6px 20px; padding-left: 12px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+.tool .st.wait { background: var(--st-waiting); }
+.copy-reply { align-self: flex-start; font-size: 12px; color: var(--muted); opacity: 0; }
+.reply:hover .copy-reply, .copy-reply:focus-visible { opacity: 1; }
+@media (hover: none) { .copy-reply { opacity: 1; } }
+.toolrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.toolrow .tool { flex: 0 1 auto; }
+.toolacts { display: flex; gap: 10px; font-size: 12.5px; flex: none; }
+.toolnote { margin-left: 31px; font-size: 12.5px; }
+.stat-pm { font-size: 12px; white-space: nowrap; font-family: var(--mantine-font-family-monospace); }
+.stat-pm .plus { color: var(--st-idle); font-weight: 600; }
+.stat-pm .minus { color: var(--st-failed); font-weight: 600; }
+.tool .st.bg { background: var(--st-waiting); }
+
+.codeblock { margin: 0.6em 0; border-radius: 8px; background: var(--surface-2); overflow: hidden; }
+.codeblock pre { margin: 0; border-radius: 0; background: none; }
+.codebar { display: flex; gap: 12px; justify-content: flex-end; align-items: center; padding: 4px 10px 0; font-size: 12px; }
+.codebar .mono { margin-right: auto; }
+.htmlframe { display: block; width: 100%; height: 360px; border: 0; background: #fff; }
+
+.feed-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.to-last { position: absolute; right: 22px; bottom: 12px; z-index: 2; }
+.feed.drop { outline: 2px dashed var(--st-busy); outline-offset: -8px; }
+
+/* Док над вводом: дела, фон, вопросы сбоку, подсказка */
+.bg { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 13px; }
+.bg-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; min-width: 0; }
+.bg-row + .bg-row, .bg-out { border-top: 1px solid var(--line); }
+.bg-out pre { margin: 0; padding: 8px 10px; max-height: 220px; overflow: auto; font-family: var(--mantine-font-family-monospace); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.aside { border-left: 3px solid var(--st-idle); padding: 2px 0 2px 12px; font-size: 13.5px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hint { align-self: flex-start; max-width: 100%; border: 1px dashed var(--line); background: none; border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; text-align: left; }
+.hint:hover { color: var(--mantine-color-text); border-color: var(--muted); }
+
+.ask-q { display: flex; flex-direction: column; gap: 8px; }
+.ask-in pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mantine-font-family-monospace); font-size: 12.5px; max-height: 260px; overflow: auto; }
+
+/* Карточки состояния сессии в ленте */
+.statecard { border-radius: 8px; padding: 9px 12px; background: var(--st-waiting-weak); display: flex; flex-direction: column; gap: 4px; }
+.statecard.bad { background: var(--st-failed-weak); }
+.after-turn { font-size: 11.5px; color: var(--st-waiting); white-space: nowrap; }
+
+.insp-sec { display: flex; flex-direction: column; gap: 4px; }
+.insp-sec h4 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+.rule { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 2px 10px; font-size: 12.5px; }
+.rule span { overflow-wrap: anywhere; }
+.tree-mark { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+.composer-opts { display: flex; gap: 16px; margin: 6px 0 0 44px; font-size: 12.5px; }
+.composer-opts .linkbtn { color: var(--muted); text-decoration: none; }
+.composer-opts .linkbtn:hover { color: var(--mantine-color-text); text-decoration: underline; }

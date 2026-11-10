@@ -40,3 +40,27 @@ export const nActions = (n: number) => count(n, "действие", "дейст�
 export const nDays = (n: number) => count(n, "день", "дня", "дней");
 export const nMachines = (n: number) => count(n, "машина", "машины", "машин");
 export const nSessions = (n: number) => count(n, "сессия", "сессии", "сессий");
+
+/** День словами для заголовка группы: «Сегодня», «Вчера», иначе «4 нояб.». */
+export function dayWord(t: number, now = Date.now()) {
+  const d0 = (x: number) => new Date(new Date(x).getFullYear(), new Date(x).getMonth(), new Date(x).getDate()).getTime();
+  const days = Math.round((d0(now) - d0(t)) / 86_400_000);
+  return days === 0 ? "Сегодня" : days === 1 ? "Вчера" : day(t);
+}
+/** Разложить по дням, свежие выше: [[день словами, строки], …]. Порядок строк внутри дня сохраняется. */
+export function byDay<T>(list: T[], at: (x: T) => number, now = Date.now()): Array<[string, T[]]> {
+  const out: Array<[string, T[]]> = [];
+  for (const x of list) {
+    const w = dayWord(at(x), now);
+    const last = out.at(-1);
+    if (last && last[0] === w) last[1].push(x);
+    else out.push([w, [x]]);
+  }
+  return out;
+}
+export const nFiles = (n: number) => count(n, "файл", "файла", "файлов");
+export const nCalls = (n: number) => count(n, "вызов", "вызова", "вызовов");
+export const nDevices = (n: number) => count(n, "устройство", "устройства", "устройств");
+export const nRules = (n: number) => count(n, "правило", "правила", "правил");
+/** Байты словами. */
+export const bytesWord = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1).replace(".", ",")} МБ` : n >= 1024 ? `${Math.round(n / 1024)} КБ` : `${n} Б`);

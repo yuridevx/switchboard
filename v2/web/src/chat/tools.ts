@@ -98,5 +98,18 @@ export function toolState(tool: Tool, task: Task | undefined, waiting: boolean):
   return tool.result ? resultState(tool) : "running";
 }
 
+/** Сколько строк добавила и убрала правка: по вводу Edit, MultiEdit и Write. */
+export function editStat(tool: Tool): { plus: number; minus: number } | null {
+  const i = tool.input ?? {};
+  const lines = (s: unknown) => (typeof s === "string" && s.length ? s.split("\n").length : 0);
+  if (tool.name === "Edit") return { plus: lines(i.new_string), minus: lines(i.old_string) };
+  if (tool.name === "MultiEdit") return ((i.edits ?? []) as Msg[]).reduce<{ plus: number; minus: number }>((a, e) => ({ plus: a.plus + lines(e.new_string), minus: a.minus + lines(e.old_string) }), { plus: 0, minus: 0 });
+  if (tool.name === "Write") return { plus: lines(i.content), minus: 0 };
+  return null;
+}
+
+/** Сколько шагов сделал субагент: вызовы инструментов в его карточке. */
+export const agentSteps = (tool: Tool, task?: Task): number => task?.steps ?? tool.steps.reduce((n, r) => n + (r.k === "reply" ? r.parts.filter((p) => p.k === "tool").length : 0), 0);
+
 /** Метка «в фоне» без задачи или у кончившейся. */
 export const startedInBackground = (tool: Tool, task?: Task) => (task ? task.bg && !!task.end : tool.input?.run_in_background === true || /^Command running in background/.test(tool.result?.text ?? ""));

@@ -13,7 +13,7 @@ import { machineOfCall, useFleet } from "./store/fleet.ts";
 
 export const STATE_WORD: Record<SessionState, string> = { starting: "запускается", idle: "свободна", busy: "работает", waiting: "ждёт вас", stopping: "останавливается", stopped: "остановлена", failed: "сбой" };
 export const EFFORTS = [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"], ["xhigh", "очень высокое"], ["max", "предельное"]] as const;
-export const MODES = [["all", "разрешено всё"], ["ask", "спрашивать"], ["plan", "только план"], ["edits", "правки без вопросов"]] as const;
+export const MODES = [["all", "разрешено всё"], ["ask", "спрашивать"], ["plan", "только план"], ["edits", "правки без вопросов"], ["auto", "решает Claude"]] as const;
 export const MODELS = [["claude-fable-5-2", "Fable 5.2"], ["claude-opus-5-5", "Opus 5.5"], ["claude-sonnet-5-5", "Sonnet 5.5"], ["claude-haiku-5-5", "Haiku 5.5"]] as const;
 export const modelWord = (id?: string) => MODELS.find(([m]) => m === id)?.[1] ?? id ?? "модель";
 export const personWord = (p: string) => p.replace(/^~/, "");
@@ -49,17 +49,26 @@ export function Lamp({ state, offline }: { state: SessionState; offline?: boolea
   return <span className={`lamp ${offline ? "off" : state}`} role="img" aria-label={offline ? "нет связи" : STATE_WORD[state]} />;
 }
 
+/** Кто кого ведёт: пометка в строке сессии. */
+export const treeWord = (s: SessionRow): string => (s.spec.wing ? ` · ведёт ${s.spec.wing.slice(0, s.spec.wing.indexOf("@"))}` : s.lead ? ` · ведомый ${s.lead.slice(0, s.lead.indexOf("@"))}` : s.spec.parent ? ` · от ${s.spec.parent.slice(0, s.spec.parent.indexOf("@"))}` : "");
+/** Чья сессия, если не моя: имя человека, который её открыл. */
+export const ownerWord = (s: SessionRow, me: string): string => {
+  const owner = s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : "";
+  return owner && owner !== me ? ` · ${owner.slice(1).split("@")[0]}` : "";
+};
+
 /** Строка сессии в списке: лампа, заголовок, позывной и чем занята, время. */
 export function SessionLine({ s, selected, onPick, sub }: { s: SessionRow; selected?: boolean; onPick: () => void; sub?: ReactNode }) {
   const me = useFleet((f) => f.you?.person ?? "");
   const offline = useFleet((f) => f.machines[machineOfCall(s.callsign)]?.online === false);
   const unread = s.unread?.includes(me);
+  const label = useLabels()[s.callsign];
   return (
     <div className={`row${selected ? " sel" : ""}${unread ? " unread" : ""}`} role="button" tabIndex={0} data-call={s.callsign} onClick={onPick} onKeyDown={(e) => e.key === "Enter" && onPick()}>
       <Lamp state={s.state} offline={offline} />
       <div style={{ minWidth: 0 }}>
-        <div className="t trunc">{s.title ?? s.spec.name}</div>
-        <div className="sub trunc"><span className="mono">{s.callsign}</span>{offline ? " · нет связи" : sub ?? (s.doing ? ` · ${s.doing}` : s.state === "failed" ? ` · ${s.error ?? "сбой"}` : "")}</div>
+        <div className="t trunc">{label ?? s.title ?? s.spec.name}</div>
+        <div className="sub trunc"><span className="mono">{s.callsign}</span>{treeWord(s)}{ownerWord(s, me)}{offline ? " · нет связи" : sub ?? (s.doing ? ` · ${s.doing}` : s.state === "failed" ? ` · ${s.error ?? "сбой"}` : "")}</div>
       </div>
       <span className="when">{ago(s.last ?? s.since)}</span>
     </div>
@@ -70,6 +79,18 @@ export function SessionLine({ s, selected, onPick, sub }: { s: SessionRow; selec
 export function useCall<D extends RequestDef<any, any>>(def: D, input: InputOf<D> | null, opts: { refetch?: number } = {}): UseQueryResult<OutputOf<D>> {
   return useQuery({ queryKey: [def.name, input], queryFn: () => api.call(def, input as InputOf<D>), enabled: input !== null, refetchInterval: opts.refetch, retry: false });
 }
+
+/** Имена для людей: общая запись флота `labels` — позывной сессии или «@машина» → имя. Где имя есть, оно стоит вместо адреса. */
+export function useLabels(): Record<string, string> {
+  const q = useCall(prefsGet, { scope: "fleet", prefix: "labels" });
+  return (q.data?.values.labels as Record<string, string> | undefined) ?? NO_LABELS;
+}
+const NO_LABELS: Record<string, string> = {};
+/** Имя машины для людей; нет — её имя во флоте. */
+export const useMachineName = () => {
+  const labels = useLabels();
+  return (machine: string) => labels["@" + machine] ?? machine;
+};
 
 /** Свои настройки человека: закреплённые сессии, порядок, вид. Запись видна сразу. */
 export function useMyPrefs() {
@@ -117,7 +138,7 @@ export class Boundary extends Component<{ name: string; children: ReactNode }, {
 }
 
 /** Состояние оболочки. */
-type Ui = { newOpen: boolean; newPreset: { machine?: string } | null; inspector: boolean; keysOpen: boolean; set(p: Partial<Ui>): void };
+type Ui = { newOpen: boolean; newPreset: { machine?: string; project?: string } | null; inspector: boolean; keysOpen: boolean; set(p: Partial<Ui>): void };
 export const useUi = create<Ui>((set) => ({ newOpen: false, newPreset: null, inspector: true, keysOpen: false, set: (p) => set(p) }));
 
 const WIDE = "(min-width: 861px)";

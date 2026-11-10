@@ -49,9 +49,9 @@ describe("свёртка разговора", () => {
     const base = [{ type: "user", uuid: "1", message: { role: "user", content: "Начни" } }, reply("2", "Работаю"), local("local-1", "И подвал", true)];
     const v = fold(base);
     expect(v.rows.map((r) => r.k)).toEqual(["me", "reply", "me"]);
-    expect(v.rows[2]).toMatchObject({ k: "me", text: "И подвал", local: "queued", uuid: "local-1" });
+    expect(v.rows[2]).toMatchObject({ k: "me", text: "И подвал", state: "queued", uuid: "local-1" });
     // ход кончился — сообщение ушло сессии
-    expect(fold([...base, { type: "result", uuid: "3" }]).rows[2]).toMatchObject({ local: "sent" });
+    expect(fold([...base, { type: "result", uuid: "3" }]).rows[2]).toMatchObject({ state: "sent" });
     // лента прислала это сообщение — показанное заранее убрано, повтора нет
     const merged = mergeEvents(base, [{ type: "user", uuid: "9", message: { role: "user", content: "И подвал" } }]);
     expect(merged.map((e) => e.uuid)).toEqual(["1", "2", "9"]);
@@ -129,7 +129,8 @@ describe("мок флота", () => {
     m.transport.open("watch", { machine: "server", onFrame: (f) => seen.push(f) });
     await api.call(sessionWatch, { to: "ingest@server" });
     for (let i = 0; i < 8; i++) m.tick();
-    expect(seen.length).toBe(7);
+    // семь шагов хода и подсказка следующего сообщения после его конца
+    expect(seen.length).toBe(8);
     expect(seen.every((f) => f.type === "session.events" && f.callsign === "ingest@server")).toBe(true);
     expect(m.state.sessions["ingest@server"]).toMatchObject({ state: "idle" });
     expect(m.state.sessions["ingest@server"].result).toMatch(/предел 10 секунд/);
@@ -138,15 +139,16 @@ describe("мок флота", () => {
   it("сообщение свободной сессии запускает ход; занятой — встаёт в очередь; машине без связи — offline", async () => {
     const m = quiet();
     const api = createApi(m.transport);
-    await expect(api.call(message, { to: "nightcheck@server", text: "Проверь ещё раз" })).resolves.toEqual({});
+    await expect(api.call(message, { to: "nightcheck@server", text: "Проверь ещё раз" })).resolves.toMatchObject({ queued: false });
     expect(m.state.sessions["nightcheck@server"].state).toBe("busy");
     // занятая сессия: сообщение ждёт конца хода и до этого в разговор не попадает; из очереди его можно снять
     const before = (await api.call(sessionHistory, { to: "site@laptop" })).events.length;
     const q = (await api.call(message, { to: "site@laptop", text: "И подвал" })) as { queued?: boolean; uuid?: string };
     expect(q).toMatchObject({ queued: true });
     expect((await api.call(sessionHistory, { to: "site@laptop" })).events.length).toBe(before);
-    await expect(api.call(sessionCall, { to: "site@laptop", method: "cancelMessage", args: { uuid: q.uuid } })).resolves.toEqual({});
-    await expect(api.call(sessionCall, { to: "site@laptop", method: "cancelMessage", args: { uuid: q.uuid } })).rejects.toMatchObject({ word: "not_found" });
+    await expect(api.call(sessionCall, { to: "site@laptop", method: "cancelMessage", args: { uuid: q.uuid } })).resolves.toEqual({ cancelled: true });
+    // второй раз снимать нечего
+    await expect(api.call(sessionCall, { to: "site@laptop", method: "cancelMessage", args: { uuid: q.uuid } })).resolves.toEqual({ cancelled: false });
     await expect(api.call(message, { to: "crawler@base2", text: "Как дела?" })).rejects.toMatchObject({ word: "offline" });
   });
   it("ответ мока — копия: следующая запись его не меняет", async () => {

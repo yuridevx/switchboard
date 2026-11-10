@@ -5,17 +5,19 @@ import { API_ERRORS, FALLBACK_WHY, kilo, modelName, REFUSAL_AREAS, RESULT_ERRORS
 export type Msg = Record<string, any>;
 export type Part = { k: "text"; text: string; live?: boolean } | { k: "think"; text: string; live?: boolean } | { k: "tool"; id: string };
 export type Row =
-  | { k: "me"; key: string; uuid?: string; text: string; pics: string[]; /** своё сообщение, ещё не подтверждённое лентой: в очереди или отправлено */ local?: "queued" | "sent" }
-  | { k: "in"; key: string; via: "session" | "agent" | "owner"; from: string; tag?: string; text: string; at: string }
+  | { k: "me"; key: string; uuid?: string; text: string; pics: string[]; /** имена приложенных документов */ files?: string[]; /** кто написал: устройство человека; своё — без подписи */ from?: string; state?: MeState }
+  | { k: "in"; key: string; via: "session" | "agent" | "owner" | "service"; from: string; tag?: string; text: string; at: string }
   | { k: "reply"; key: string; parts: Part[] }
   | { k: "cmd"; key: string; name: string; args: string; out?: string }
   | { k: "sys"; key: string; icon: string; text: string; tone?: "wait" | "swap"; retry?: boolean; boundary?: boolean }
   | { k: "line"; key: string; icon?: string; text: string; dim?: string; tone?: string; local?: boolean }
   | { k: "task"; key: string; id: string }
   | { k: "ban"; key: string; tone: "bad" | "wait"; icon?: string; title: string; body?: string; edit?: string; refusal?: boolean }
-  | { k: "res"; key: string; bits: string[] }
+  | { k: "res"; key: string; bits: string[]; /** строка поставлена страницей: итога хода в записи не было */ synthetic?: boolean }
   | { k: "end"; key: string; text: string; why?: string }
   | { k: "sum"; key: string; stats: string; text: string };
+/** Своё сообщение: sending — уходит; queued — ждёт в очереди сессии; sent — принято; taken — ход его взял; cancelled — снято с очереди; lost — не ушло. */
+export type MeState = "sending" | "queued" | "sent" | "taken" | "cancelled" | "lost";
 type Draft<T = Row> = T extends Row ? Omit<T, "key"> : never;
 export type Tool = { id: string; name?: string; input?: Msg; result?: { text: string; pics: string[]; error: boolean }; note?: string; secs?: number; task?: string; steps: Row[] };
 export type Task = { id: string; tool?: string; desc: string; type?: string; bg: boolean; summary?: string; last?: string; steps?: number; started: number; end?: string; final?: string };
@@ -33,6 +35,8 @@ export type View = {
   cost: number;
   /** ход прервал человек: его строка ошибки не показывается */
   interrupted: boolean;
+  /** статусы сообщений по номеру: что сказал Host */
+  status: Record<string, MeState>;
   /** идущие сообщения: родитель (пусто — лента) → id */
   stream: Record<string, string>;
   replies: Map<string, Extract<Row, { k: "reply" }>>;
@@ -190,7 +194,7 @@ function closeTurn(v: View) {
   for (let i = v.rows.length - 1; i >= 0; i--) {
     const r = v.rows[i]!;
     if (r.k === "res" || r.k === "end" || r.k === "me" || r.k === "in" || (r.k === "sys" && r.tone === "wait" && r.icon === "square")) return;
-    if (r.k === "reply") return push(v, { k: "res", bits: ["ход закончен"] });
+    if (r.k === "reply") return push(v, { k: "res", bits: ["ход закончен"], synthetic: true });
   }
 }
 
@@ -213,14 +217,24 @@ function text(v: View, m: Msg, body: string, pics: string[]) {
     const tag = (n: string) => new RegExp(`<${n}>([\\s\\S]*?)</${n}>`).exec(body)?.[1];
     return endTask(v, tag("task-id") ?? "", tag("status") ?? "", tag("summary"));
   }
+  // сообщение службы или машины без обёртки: показывается с отправителем
+  if (typeof m.from === "string" && /^[.@]/.test(m.from)) {
+    closeTurn(v);
+    return push(v, { k: "in", via: "service", from: m.from, text: body, at: timeOf(m) });
+  }
   if (m.origin?.kind === "peer") {
     closeTurn(v);
     const mode = m.origin.fromMode;
     return push(v, { k: "in", via: "session", from: m.origin.name ?? m.origin.from ?? "", ...(mode && mode !== "default" ? { tag: mode } : {}), text: body, at: timeOf(m) });
   }
   // сообщение в очереди ждёт конца идущего хода: прошлый ход им не закрывается
-  if (!m._queued) closeTurn(v);
-  push(v, { k: "me", uuid: m.uuid, text: body, pics, ...(m._local ? { local: m._queued ? ("queued" as const) : ("sent" as const) } : {}) });
+  const known = typeof m.uuid === "string" ? v.status[m.uuid] : undefined;
+  const state: MeState | undefined = known ?? (m._local ? ((m._state as MeState | undefined) ?? (m._queued ? "queued" : "sent")) : undefined);
+  if (state !== "queued" && state !== "cancelled") closeTurn(v);
+  const content = m.message?.content;
+  const docs = Array.isArray(content) ? (content as Msg[]).filter((b) => b.type === "document").map((b) => String(b.title ?? "документ")) : [];
+  const files = [...docs, ...((m._files as string[] | undefined) ?? [])];
+  push(v, { k: "me", uuid: m.uuid, text: body, pics, ...(files.length ? { files } : {}), ...(typeof m.from === "string" ? { from: m.from } : {}), ...(state ? { state } : {}) });
 }
 
 function user(v: View, m: Msg) {
@@ -229,7 +243,8 @@ function user(v: View, m: Msg) {
   for (const b of blocks) if (b.type === "tool_result") toolOf(v, b.tool_use_id).result = { ...resultParts(b.content), error: !!b.is_error };
   const body = blocks.filter((b) => b.type === "text").map((b) => String(b.text)).join("\n");
   const pics = picsOf(blocks);
-  if (m.parent_tool_use_id || (!body.trim() && !pics.length && !m.files?.length)) return;
+  const attached = blocks.some((b) => b.type === "document") || !!(m._files as unknown[] | undefined)?.length;
+  if (m.parent_tool_use_id || (!body.trim() && !pics.length && !attached)) return;
   v.hint = "";
   if (m.isCompactSummary) return summary(v, body);
   const peer = TAGGED.exec(body);
@@ -245,8 +260,8 @@ function result(v: View, m: Msg) {
   }
   v.compacting = false;
   v.thinking = null;
-  // ход кончился — сообщения из очереди ушли в сессию
-  for (const r of v.rows) if (r.k === "me" && r.local === "queued") r.local = "sent";
+  // ход кончился — свои сообщения из очереди ушли в сессию (про чужие и про отменённые скажет статус Host)
+  for (const r of v.rows) if (r.k === "me" && r.state === "queued" && (!r.uuid || !v.status[r.uuid])) r.state = "sent";
   const was = v.interrupted;
   v.interrupted = false;
   const total = typeof m.total_cost_usd === "number" ? (m.total_cost_usd as number) : null;
@@ -419,25 +434,39 @@ const STEP: Record<string, (v: View, m: Msg) => void> = {
   },
   prompt_suggestion: (v, m) => void (v.hint = m.suggestion ?? ""),
   conversation_reset: (v) => push(v, { k: "sys", icon: "rotate-ccw", text: "разговор начат заново" }),
+  /** Статус своего сообщения от Host: в очереди, взято ходом, отменено. Строка «ход закончен», поставленная перед сообщением из очереди, снимается: ход ещё идёт. */
+  "message.status"(v, m) {
+    const state: MeState = m.status === "taken" ? "taken" : m.status === "cancelled" ? "cancelled" : "queued";
+    v.status[m.uuid] = state;
+    const at = v.rows.findIndex((r) => r.k === "me" && r.uuid === m.uuid);
+    if (at < 0) return;
+    (v.rows[at] as Extract<Row, { k: "me" }>).state = state;
+    const before = v.rows[at - 1];
+    if (state === "queued" && before?.k === "res" && before.synthetic) v.rows.splice(at - 1, 1);
+  },
   /** Свои строки страницы: сообщение сессии владельцу и смена аккаунта. */
   owner: (v, m) => push(v, { k: "in", via: "owner", from: m.from, ...(m.tag ? { tag: m.tag } : {}), text: m.text, at: timeOf(m) }),
   account: (v, m) => push(v, { k: "sys", tone: "swap", icon: "arrow-left-right", text: `аккаунт: ${m.from} → ${m.to}` }),
 };
 
 export function fold(msgs: readonly Msg[]): View {
-  const v: View = { rows: [], tools: {}, tasks: {}, hint: "", compacting: false, thinking: null, cost: 0, interrupted: false, stream: {}, replies: new Map(), sub: 0, n: 0 };
+  const v: View = { rows: [], tools: {}, tasks: {}, hint: "", compacting: false, thinking: null, cost: 0, interrupted: false, status: {}, stream: {}, replies: new Map(), sub: 0, n: 0 };
   const seen = new Set<string>(msgs.flatMap((m) => (m.subtype === "model_refusal_fallback" ? (m.retracted_message_uuids ?? []) : [])));
   for (const m of msgs) {
-    if (typeof m.uuid === "string") {
+    // статус сообщения несёт номер самого сообщения: повтором записи он не считается
+    if (typeof m.uuid === "string" && m.type !== "message.status") {
       if (seen.has(m.uuid)) continue;
       seen.add(m.uuid);
     }
-    v.at = typeof m.uuid === "string" ? m.uuid : undefined;
+    v.at = typeof m.uuid === "string" && m.type !== "message.status" ? m.uuid : undefined;
     v.sub = 0;
     STEP[m.type]?.(v, m);
   }
   return v;
 }
+
+/** Список дел: сколько готово из скольких. */
+export const todoProgress = (todos: readonly Todo[]) => ({ done: todos.filter((t) => t.status === "completed").length, of: todos.length });
 
 /** Задачи в фоне: идут и ушли в фон. */
 export const backgrounded = (v: View) => Object.values(v.tasks).filter((t) => t.bg && !t.end);

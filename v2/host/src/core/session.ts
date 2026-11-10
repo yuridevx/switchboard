@@ -1,4 +1,5 @@
 // Сессия: один разговор и его процесс у держателя. Запуск — значение Run; его конец решает одну ветку: наш close, остановка ОС или сбой.
+import { existsSync } from "node:fs";
 import type { SessionRow, SessionState } from "@sb/protocol";
 import { within } from "./clock.ts";
 import type { InputOpts, Module, QueryPart, SessionApi } from "./contract.ts";
@@ -311,6 +312,14 @@ export class Session {
       return;
     }
     k.log.warn("session_exited", { callsign, why: `процесс claude вышел, ${words(x)}` });
+    // процесс не запустился, потому что папки сессии больше нет: вторая попытка ничего не даст — причина прямо в строке
+    if (/no such file or directory|ENOENT|cannot find the path/i.test(words(x)) && !existsSync(this.rec.cwd)) {
+      const why = `папки сессии нет: ${this.rec.cwd}`;
+      k.log.error("session_failed", { callsign, why });
+      this.falls = [];
+      this.setState("failed", why);
+      return;
+    }
     this.falls.push(words(x));
     if (!run.ready && this.falls.length > 1) {
       const why = `второй сбой до готовности: ${this.falls.join(" · ")}`;

@@ -1,82 +1,140 @@
-// «Работа»: сессии по проектам. Список или доска по состояниям; свои или все; закрепление и свой порядок.
-import { peopleList, type SessionRow } from "@sb/protocol";
-import { ActionIcon, Group, Menu, SegmentedControl, Tooltip } from "@mantine/core";
+// «Работа»: сессии по проектам. Свои фильтры, список или доска, закрепление, свой порядок; строка переносится в другой проект мышью и пальцем.
+import { peopleList, projectRemove, projectSet, sessionUpdate, type SessionRow } from "@sb/protocol";
+import { ActionIcon, Button, Chip, Group, Menu, Modal, MultiSelect, SegmentedControl, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { useHotkeys } from "@mantine/hooks";
-import { IconCheck, IconChevronDown, IconChevronRight, IconFilter, IconPin, IconPinFilled } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { IconArrowDown, IconArrowUp, IconCheck, IconChevronDown, IconChevronRight, IconDots, IconFilter, IconPencil, IconPin, IconPinFilled, IconPlus, IconTrash } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { Lamp, SessionLine, useCall, useMyPrefs, useWide } from "../common.tsx";
+import { act } from "../api.ts";
+import { confirmDanger, Lamp, personWord, SessionLine, useCall, useMyPrefs, useUi, useWide } from "../common.tsx";
+import { useRowDrag } from "../lib/drag.ts";
+import { useLocal } from "../lib/local.ts";
 import { ago } from "../lib/time.ts";
+import { BUILTIN, type Filter, groupsOf, NO_PROJECT, projectOf, reorder, rowsOf, shift, STATE_GROUPS } from "../lib/work.ts";
 import { Conversation } from "../session/Conversation.tsx";
-import { byUrgency, isMine, useFleet } from "../store/fleet.ts";
+import { isMine, machineOfCall, useFleet } from "../store/fleet.ts";
 
-const GROUPS: Array<[string, string, SessionRow["state"][]]> = [["wait", "Ждут вас", ["waiting", "failed"]], ["run", "Работают", ["busy", "starting"]], ["idle", "Свободны", ["idle"]], ["down", "Стоят", ["stopped", "stopping"]]];
-const askLine = (s: SessionRow) => (s.ask ? (s.ask.kind === "plan" ? "ждёт решения по плану" : s.ask.text) : s.doing);
+const askLine = (s: SessionRow) => (s.ask ? (s.ask.kind === "plan" ? "ждёт решения по плану" : s.ask.text) : s.wait ? `ждёт сброса лимита до ${new Date(s.wait).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : s.doing);
+const blank = (): Filter => ({ id: "f" + Date.now().toString(36), name: "", who: "all", states: [], projects: [], machines: [] });
+
+/** Свои фильтры: создать, править, порядок, удалить. Лежат в настройках человека и видны на всех его устройствах. */
+function Filters({ filters, save, onClose }: { filters: Filter[]; save: (next: Filter[]) => void; onClose: () => void }) {
+  const machines = useFleet((f) => f.machines);
+  const projects = useCall(peopleList, {});
+  const [edit, setEdit] = useState<Filter | null>(null);
+  if (edit) {
+    const set = (p: Partial<Filter>) => setEdit({ ...edit, ...p });
+    return (
+      <Stack gap="sm">
+        <TextInput label="Название" value={edit.name} onChange={(e) => set({ name: e.currentTarget.value })} autoFocus />
+        <SegmentedControl value={edit.who} onChange={(who) => set({ who: who as Filter["who"] })} data={[{ value: "mine", label: "Мои" }, { value: "all", label: "Все" }]} aria-label="Чьи сессии" />
+        <Chip.Group multiple value={edit.states ?? []} onChange={(states) => set({ states })}>
+          <Group gap={6}>{STATE_GROUPS.map(([id, word]) => <Chip key={id} value={id} size="xs">{word}</Chip>)}</Group>
+        </Chip.Group>
+        <MultiSelect label="Проекты" data={(projects.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={edit.projects ?? []} onChange={(v) => set({ projects: v })} clearable />
+        <MultiSelect label="Машины" data={Object.keys(machines)} value={edit.machines ?? []} onChange={(v) => set({ machines: v })} clearable />
+        <Group>
+          <Button disabled={!edit.name.trim()} onClick={() => { save(filters.some((f) => f.id === edit.id) ? filters.map((f) => (f.id === edit.id ? edit : f)) : [...filters, edit]); setEdit(null); }}>Сохранить</Button>
+          <Button variant="default" onClick={() => setEdit(null)}>Назад</Button>
+        </Group>
+      </Stack>
+    );
+  }
+  return (
+    <Stack gap="xs">
+      {filters.map((f, i) => (
+        <div key={f.id} className="line">
+          <span className="grow trunc">{f.name}</span>
+          <ActionIcon variant="subtle" size="sm" aria-label={`Выше: ${f.name}`} disabled={i === 0} onClick={() => save(shift(filters, f, -1))}><IconArrowUp size={14} /></ActionIcon>
+          <ActionIcon variant="subtle" size="sm" aria-label={`Ниже: ${f.name}`} disabled={i === filters.length - 1} onClick={() => save(shift(filters, f, 1))}><IconArrowDown size={14} /></ActionIcon>
+          <ActionIcon variant="subtle" size="sm" aria-label={`Изменить: ${f.name}`} onClick={() => setEdit(f)}><IconPencil size={14} /></ActionIcon>
+          <ActionIcon variant="subtle" size="sm" color="red" aria-label={`Удалить: ${f.name}`} onClick={() => save(filters.filter((x) => x.id !== f.id))}><IconTrash size={14} /></ActionIcon>
+        </div>
+      ))}
+      <Group><Button size="xs" onClick={() => setEdit(blank())}>Новый фильтр</Button><Button size="xs" variant="default" onClick={onClose}>Готово</Button></Group>
+    </Stack>
+  );
+}
 
 export function Work() {
   const { callsign } = useParams();
   const go = useNavigate();
   const wide = useWide();
+  const qc = useQueryClient();
   const picture = useFleet();
-  const projects = useCall(peopleList, {});
+  const ui = useUi();
+  const people = useCall(peopleList, {});
   const prefs = useMyPrefs();
-  const [who, setWho] = useState("mine");
-  const [states, setStates] = useState<string[]>([]);
-  const [closed, setClosed] = useState<string[]>([]);
-  const [drag, setDrag] = useState<string | null>(null);
+  // вид, выбранный фильтр и свёрнутые проекты помнит это устройство; фильтры, закрепление и порядок — настройки человека
+  const [view, setView] = useLocal<"list" | "board">("work.view", "list");
+  const [filterId, setFilterId] = useLocal("work.filter", "mine");
+  const [closed, setClosed] = useLocal<string[]>("work.closed", []);
+  const [editFilters, setEditFilters] = useState(false);
+  const [rename, setRename] = useState<{ id: string; name: string } | null>(null);
+  const box = useRef<HTMLDivElement>(null);
   const pins = (prefs.values.pins as string[] | undefined) ?? [];
   const order = (prefs.values.order as string[] | undefined) ?? [];
+  const custom = (prefs.values.filters as Filter[] | undefined) ?? [];
+  const projectOrder = (prefs.values.projects as string[] | undefined) ?? [];
+  const filters = [...BUILTIN, ...custom];
+  const filter = filters.find((f) => f.id === filterId) ?? BUILTIN[0]!;
   // доска — вид широкого экрана: на телефоне те же сессии идут списком
-  const board = wide && !callsign && ((prefs.values.view as { work?: string } | undefined)?.work ?? "list") === "board";
-  const rows = useMemo(() => {
-    const rank = (s: SessionRow) => (order.indexOf(s.callsign) + 1 || 1e6);
-    return Object.values(picture.sessions)
-      .filter((s) => who === "all" || isMine(picture, s))
-      .filter((s) => board || !states.length || GROUPS.some(([id, , st]) => states.includes(id) && st.includes(s.state)))
-      .sort((a, b) => Number(pins.includes(b.callsign)) - Number(pins.includes(a.callsign)) || rank(a) - rank(b) || byUrgency(a, b));
-  }, [picture.sessions, picture.you, who, states, board, pins.join(), order.join()]);
-  const flat = rows.map((s) => s.callsign);
+  const board = wide && !callsign && view === "board";
+  const rows = useMemo(() => rowsOf(picture, filter, pins, order), [picture.sessions, picture.you, filter, pins.join(), order.join()]);
+  const names = Object.fromEntries((people.data?.projects ?? []).map((p) => [p.id, p.name]));
+  const groups = useMemo(() => groupsOf(picture, rows, projectOrder, names), [rows, projectOrder.join(), people.data]);
+  const flat = groups.flatMap((g) => (closed.includes(g.project) ? [] : g.rows.map((s) => s.callsign)));
   const move = (d: number) => {
     const next = flat[Math.max(0, Math.min(flat.length - 1, (callsign ? flat.indexOf(callsign) : -1) + d))];
     if (next) go(`/work/${next}`);
   };
   useHotkeys([["j", () => move(1)], ["k", () => move(-1)]]);
-  const names = Object.fromEntries((projects.data?.projects ?? []).map((p) => [p.id, p.name]));
-  const byProject = new Map<string, SessionRow[]>();
-  for (const s of rows) (byProject.get(s.spec.project ?? "") ?? (byProject.set(s.spec.project ?? "", []), byProject.get(s.spec.project ?? "")!)).push(s);
-  const drop = (target: string) => {
-    if (!drag || drag === target) return;
-    const next = flat.filter((c) => c !== drag);
-    next.splice(next.indexOf(target), 0, drag);
-    void prefs.save("order", next);
-    setDrag(null);
-  };
+  // открытая сессия видна в списке: прокрутка к её строке
+  useEffect(() => {
+    if (callsign) box.current?.querySelector(`[data-call="${CSS.escape(callsign)}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [callsign]);
+
+  const drag = useRowDrag({
+    box,
+    onDrop: ({ id, before, group }) => {
+      const s = picture.sessions[id];
+      if (!s) return;
+      void prefs.save("order", reorder(rows.map((r) => r.callsign), id, before));
+      // строка упала в другой проект — меняется документ сессии
+      if (projectOf(picture, s) !== group) void act(sessionUpdate, { to: id, patch: { project: group } }, `${id} → ${names[group] ?? (group || "без проекта")}`);
+    },
+  });
   const pin = (c: string) => prefs.save("pins", pins.includes(c) ? pins.filter((p) => p !== c) : [...pins, c]);
-  const toggle = (id: string) => setStates((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const toggle = (project: string) => setClosed(closed.includes(project) ? closed.filter((x) => x !== project) : [...closed, project]);
+  const moveProject = (id: string, d: -1 | 1) => prefs.save("projects", shift(groups.map((g) => g.project).filter((p) => p !== NO_PROJECT), id, d));
+  const admin = !!picture.you?.admin;
+  const offline = (s: SessionRow) => picture.machines[machineOfCall(s.callsign)]?.online === false;
 
   return (
     <div className={`panes${callsign ? " has-detail" : " solo"}`}>
       <section className="pane list" aria-label="Работа">
         <div className="pane-head" style={{ flexWrap: "nowrap" }}>
           <h1>Работа</h1>
-          <SegmentedControl size="xs" value={who} onChange={setWho} data={[{ value: "mine", label: "Мои" }, { value: "all", label: "Все" }]} aria-label="Чьи сессии" />
-          {wide && !callsign && <SegmentedControl size="xs" value={board ? "board" : "list"} onChange={(v) => prefs.save("view", { work: v })} data={[{ value: "list", label: "Список" }, { value: "board", label: "Доска" }]} aria-label="Вид" />}
-          {!board && (
-            <Menu position="bottom-end" withinPortal closeOnItemClick={false}>
-              <Menu.Target><Tooltip label="Состояние"><ActionIcon variant={states.length ? "light" : "subtle"} aria-label="Фильтр по состоянию"><IconFilter size={16} /></ActionIcon></Tooltip></Menu.Target>
-              <Menu.Dropdown>{GROUPS.map(([id, word]) => <Menu.Item key={id} onClick={() => toggle(id)} leftSection={states.includes(id) ? <IconCheck size={14} /> : <span style={{ width: 14, display: "inline-block" }} />}>{word}</Menu.Item>)}</Menu.Dropdown>
-            </Menu>
-          )}
+          <Menu position="bottom-end" withinPortal>
+            <Menu.Target><Button size="compact-sm" variant="default" leftSection={<IconFilter size={14} />} aria-label="Фильтр списка">{filter.name}</Button></Menu.Target>
+            <Menu.Dropdown>
+              {filters.map((f) => <Menu.Item key={f.id} onClick={() => setFilterId(f.id)} leftSection={f.id === filter.id ? <IconCheck size={14} /> : <span style={{ width: 14, display: "inline-block" }} />}>{f.name}</Menu.Item>)}
+              <Menu.Divider />
+              <Menu.Item onClick={() => setEditFilters(true)}>Свои фильтры…</Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+          {wide && !callsign && <SegmentedControl size="xs" value={board ? "board" : "list"} onChange={(v) => setView(v as "list" | "board")} data={[{ value: "list", label: "Список" }, { value: "board", label: "Доска" }]} aria-label="Вид" />}
         </div>
         {board ? (
           <div className="board scroll">
-            {GROUPS.map(([id, word, st]) => (
+            {STATE_GROUPS.map(([id, word, st]) => (
               <div key={id} className="col" aria-label={word}>
                 <div className="grp" style={{ padding: "4px 6px" }}>{word}</div>
                 {rows.filter((s) => st.includes(s.state)).map((s) => (
                   <div key={s.callsign} className="tile" role="button" tabIndex={0} onClick={() => go(`/work/${s.callsign}`)} onKeyDown={(e) => e.key === "Enter" && go(`/work/${s.callsign}`)}>
                     <Group gap={8} wrap="nowrap" align="start">
-                      <Lamp state={s.state} offline={picture.machines[s.callsign.slice(s.callsign.indexOf("@") + 1)]?.online === false} />
+                      <Lamp state={s.state} offline={offline(s)} />
                       <div style={{ minWidth: 0, flex: 1 }}><div className="t trunc" style={{ fontWeight: 500 }}>{s.title ?? s.spec.name}</div><div className="sub trunc muted mono" style={{ fontSize: 12 }}>{s.callsign}</div></div>
                       <span className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{ago(s.last ?? s.since)}</span>
                     </Group>
@@ -87,31 +145,64 @@ export function Work() {
             ))}
           </div>
         ) : (
-          <div className="scroll">
+          <div className="scroll dragbox" ref={box}>
             {!rows.length && <div className="hole" style={{ height: "60%" }}>Сессий нет. Клавиша N открывает новую.</div>}
-            {[...byProject].map(([project, list]) => (
-              <div key={project}>
-                <button type="button" className="grp" style={{ border: 0, background: "none", cursor: "pointer", width: "100%", fontFamily: "inherit" }} aria-expanded={!closed.includes(project)} onClick={() => setClosed((c) => (c.includes(project) ? c.filter((x) => x !== project) : [...c, project]))}>
-                  {closed.includes(project) ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}{names[project] ?? (project || "Без проекта")}
-                </button>
-                {!closed.includes(project) && list.map((s) => {
-                  const pinned = pins.includes(s.callsign);
-                  return (
-                    <div key={s.callsign} className="rowwrap" draggable={wide} onDragStart={() => setDrag(s.callsign)} onDragOver={(e) => e.preventDefault()} onDrop={() => drop(s.callsign)}>
-                      <SessionLine s={s} selected={s.callsign === callsign} onPick={() => go(`/work/${s.callsign}`)} sub={askLine(s) ? <> · {askLine(s)}</> : s.state === "failed" ? <> · {s.error ?? "сбой"}</> : <></>} />
-                      {/* закрепление: по наведению; на телефоне — в меню разговора, закреплённая помечена значком */}
-                      {(wide || pinned) && (
-                        <Tooltip label={pinned ? "Открепить" : "Закрепить"}>
-                          <ActionIcon size="xs" variant="subtle" className={`pinbtn${pinned ? " on" : ""}`} aria-label={pinned ? "Открепить" : "Закрепить"} onClick={() => pin(s.callsign)}>
-                            {pinned ? <IconPinFilled size={13} /> : <IconPin size={13} />}
-                          </ActionIcon>
-                        </Tooltip>
+            {drag.line !== null && <div className="dragline" style={{ top: drag.line }} />}
+            {groups.map((g, gi) => {
+              const shut = closed.includes(g.project);
+              const real = g.project !== NO_PROJECT;
+              return (
+                <div key={g.project} data-drop-group={g.project}>
+                  <div className="grp">
+                    <button type="button" className="grp-name" aria-expanded={!shut} onClick={() => toggle(g.project)}>
+                      {shut ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}<span className="trunc">{g.name}</span>
+                    </button>
+                    {/* свёрнутый проект показывает лампами, что в нём ждёт человека */}
+                    {shut && <span className="lamps">{g.rows.filter((s) => s.state === "waiting" || s.state === "failed" || s.state === "busy").slice(0, 8).map((s) => <Lamp key={s.callsign} state={s.state} offline={offline(s)} />)}</span>}
+                    <span className="grp-acts">
+                      <Tooltip label="Новая сессия в проекте"><ActionIcon size="xs" variant="subtle" aria-label={`Новая сессия в проекте ${g.name}`} onClick={() => ui.set({ newOpen: true, newPreset: real ? { project: g.project } : null })}><IconPlus size={13} /></ActionIcon></Tooltip>
+                      {real && (
+                        <Menu withinPortal position="bottom-end">
+                          <Menu.Target><ActionIcon size="xs" variant="subtle" aria-label={`Действия с проектом ${g.name}`}><IconDots size={13} /></ActionIcon></Menu.Target>
+                          <Menu.Dropdown>
+                            <Menu.Item disabled={gi === 0} onClick={() => moveProject(g.project, -1)}>Выше</Menu.Item>
+                            <Menu.Item disabled={gi >= groups.filter((x) => x.project !== NO_PROJECT).length - 1} onClick={() => moveProject(g.project, 1)}>Ниже</Menu.Item>
+                            {admin && <Menu.Item onClick={() => setRename({ id: g.project, name: g.name })}>Переименовать</Menu.Item>}
+                            {admin && <Menu.Item color="red" onClick={() => confirmDanger({
+                              title: `Удалить проект «${g.name}»?`, confirm: "Удалить",
+                              body: "Люди проекта перестанут доставать до машин друг друга через него. Сессии останутся и встанут в «Без проекта».",
+                              onConfirm: async () => (await act(projectRemove, { project: g.project }, "Проект удалён")) && qc.invalidateQueries({ queryKey: ["people.list"] }),
+                            })}>Удалить</Menu.Item>}
+                          </Menu.Dropdown>
+                        </Menu>
                       )}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+                    </span>
+                  </div>
+                  {!shut && g.rows.map((s) => {
+                    const pinned = pins.includes(s.callsign);
+                    const mine = isMine(picture, s);
+                    return (
+                      <div key={s.callsign} className={`rowwrap${drag.dragging === s.callsign ? " dragging" : ""}`} data-drag-id={s.callsign} data-drag-group={g.project} onPointerDown={drag.onPointerDown(s.callsign)}>
+                        <SessionLine s={s} selected={s.callsign === callsign} onPick={() => go(`/work/${s.callsign}`)} sub={<>
+                          {askLine(s) ? <> · {askLine(s)}</> : s.state === "failed" ? <> · {s.error ?? "сбой"}</> : null}
+                          {!mine && <> <span className="chip">{personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</span></>}
+                          {s.incident && <> <span className="chip warn">обращение: {s.incident.kind}</span></>}
+                          {(s.spec.pieces?.length ?? 0) > 1 && <> <span className="chip mono">{s.spec.pieces!.join(" + ")}</span></>}
+                        </>} />
+                        {/* закрепление: по наведению; на телефоне — в меню разговора, закреплённая помечена значком */}
+                        {(wide || pinned) && (
+                          <Tooltip label={pinned ? "Открепить" : "Закрепить"}>
+                            <ActionIcon size="xs" variant="subtle" className={`pinbtn${pinned ? " on" : ""}`} aria-label={pinned ? "Открепить" : "Закрепить"} onClick={() => pin(s.callsign)}>
+                              {pinned ? <IconPinFilled size={13} /> : <IconPin size={13} />}
+                            </ActionIcon>
+                          </Tooltip>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
@@ -120,6 +211,16 @@ export function Work() {
           <Conversation callsign={callsign} onBack={() => go("/work")} />
         </section>
       )}
+      <Modal opened={editFilters} onClose={() => setEditFilters(false)} title="Свои фильтры"><Filters filters={custom} save={(next) => void prefs.save("filters", next)} onClose={() => setEditFilters(false)} /></Modal>
+      <Modal opened={!!rename} onClose={() => setRename(null)} title="Переименовать проект">
+        {rename && (
+          <Stack gap="sm">
+            <TextInput aria-label="Название проекта" value={rename.name} onChange={(e) => setRename({ ...rename, name: e.currentTarget.value })} autoFocus
+              onKeyDown={(e) => e.key === "Enter" && rename.name.trim() && void act(projectSet, { project: rename.id, name: rename.name.trim() }, "Проект переименован").then((r) => r && (qc.invalidateQueries({ queryKey: ["people.list"] }), setRename(null)))} />
+            <Button disabled={!rename.name.trim()} onClick={async () => { if (await act(projectSet, { project: rename.id, name: rename.name.trim() }, "Проект переименован")) { await qc.invalidateQueries({ queryKey: ["people.list"] }); setRename(null); } }}>Сохранить</Button>
+          </Stack>
+        )}
+      </Modal>
     </div>
   );
 }
