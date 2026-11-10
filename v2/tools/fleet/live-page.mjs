@@ -1,0 +1,72 @@
+// Живая проверка страницы на настоящем флоте: node tools/fleet/live-page.mjs <флот> <устройство с пропуском> <позывной сессии> [папка снимков]
+// Принимает приглашение в браузере, открывает сессию, пишет ей и ждёт ответа; печатает исход шагов и ошибки страницы.
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const { chromium } = createRequire(path.join(root, "package.json"))("playwright-core");
+const [fleet = "test", device = "cli", callsign = "", outArg] = process.argv.slice(2);
+const out = outArg ?? path.join(root, "dist", "live");
+fs.mkdirSync(out, { recursive: true });
+const dir = path.join(os.homedir(), ".switchboard-dev");
+const env = Object.fromEntries(fs.readFileSync(path.join(dir, "v2-fleet.env"), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+const call = (type, fields) => JSON.parse(execFileSync(process.execPath, [path.join(root, "tools/fleet/call.ts"), fleet, device, type, JSON.stringify(fields)], { cwd: root }).toString());
+
+const me = call("whoami", {}).result;
+const name = "live" + Date.now().toString(36).slice(-5);
+const invite = call("invite", { addr: name + me.person }).result;
+
+const steps = [];
+const step = async (label, fn) => {
+  const t0 = Date.now();
+  try {
+    await fn();
+    steps.push(`✓ ${label} · ${Date.now() - t0} мс`);
+  } catch (e) {
+    steps.push(`✗ ${label} · ${String(e.message).split("\n")[0]}`);
+  }
+};
+
+const browser = await chromium.launch({ channel: "chrome" });
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+const errors = [];
+page.on("pageerror", (e) => errors.push(e.message));
+page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+
+await step("приглашение принято, картина пришла", async () => {
+  await page.goto(env.SB2_BASE + "/#invite=" + encodeURIComponent(invite.invite));
+  await page.getByText("Работа", { exact: true }).first().waitFor({ timeout: 20_000 });
+});
+await page.screenshot({ path: path.join(out, "1-home.png") });
+if (callsign) {
+  const text = "Ответь одним словом: проверка " + name;
+  await step("сессия открыта из «Работы»", async () => {
+    await page.goto(env.SB2_BASE + "/#/work/" + callsign);
+    await page.getByPlaceholder(/Сообщение/).waitFor({ timeout: 20_000 });
+  });
+  await page.screenshot({ path: path.join(out, "2-session.png") });
+  await step("сообщение отправлено и ответ модели пришёл в ленту", async () => {
+    const box = page.getByPlaceholder(/Сообщение/);
+    await box.fill(text);
+    await box.press("Enter");
+    await page.getByText(text).first().waitFor({ timeout: 15_000 });
+    await page.getByText(/ход закончен/).last().waitFor({ timeout: 90_000 });
+  });
+  await page.screenshot({ path: path.join(out, "3-answered.png") });
+}
+await step("экран «Наблюдение» показывает запросы", async () => {
+  await page.goto(env.SB2_BASE + "/#/observe");
+  await page.getByText("message").first().waitFor({ timeout: 20_000 });
+});
+await page.screenshot({ path: path.join(out, "4-observe.png") });
+await browser.close();
+call("revoke", { kid: invite.kid });
+
+for (const s of steps) console.log(s);
+console.log("ошибок страницы:", errors.length, errors.slice(0, 5).join(" | ").slice(0, 600));
+console.log("снимки:", out);
+process.exit(steps.some((s) => s.startsWith("✗")) || errors.length ? 1 : 0);

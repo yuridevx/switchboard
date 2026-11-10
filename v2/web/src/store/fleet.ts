@@ -20,7 +20,7 @@ export function applyFrame(p: Picture, f: Frame): Picture {
   for (const name of (f.gone as string[] | undefined) ?? []) delete machines[name];
   for (const { callsign, row } of (f.sessions as Array<{ callsign: string; row: Partial<SessionRow> | null }> | undefined) ?? []) {
     if (row === null) delete sessions[callsign];
-    else sessions[callsign] = { ...sessions[callsign], ...row } as SessionRow;
+    else sessions[callsign] = row as SessionRow; // строка идёт целиком и заменяет прежнюю
   }
   return { ...p, rev: f.rev as number, machines, sessions };
 }

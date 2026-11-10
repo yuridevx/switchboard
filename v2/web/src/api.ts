@@ -4,7 +4,9 @@ import { notifications } from "@mantine/notifications";
 import { createMock, type Mock } from "./mock/fleet.ts";
 
 const q = new URLSearchParams(location.search);
-export const fleetBase: string = q.get("fleet") ?? (import.meta.env.VITE_FLEET as string | undefined) ?? "";
+// Адрес флота: ?fleet=<адрес>; сборка для выкладки (VITE_FLEET=origin) берёт адрес самой страницы; ?mock — мок на любой сборке.
+const built = import.meta.env.VITE_FLEET as string | undefined;
+export const fleetBase: string = q.get("mock") !== null ? "" : (q.get("fleet") ?? (built === "origin" ? location.origin : built) ?? "");
 export const isMock = !fleetBase;
 const KEY = "sb2.key";
 

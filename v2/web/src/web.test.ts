@@ -49,7 +49,7 @@ describe("картина флота", () => {
   it("снимок заменяет картину; изменение правит строку; null убирает сессию", async () => {
     const p = await snap();
     expect(Object.keys(p.machines)).toEqual(["laptop", "server", "anya-pc", "base2"]);
-    const next = applyFrame(p, { type: "roster.delta", rev: p.rev + 1, sessions: [{ callsign: "site@laptop", row: { state: "idle" } }, { callsign: "docs@laptop", row: null }] });
+    const next = applyFrame(p, { type: "roster.delta", rev: p.rev + 1, sessions: [{ callsign: "site@laptop", row: { ...p.sessions["site@laptop"]!, state: "idle" } }, { callsign: "docs@laptop", row: null }] });
     expect(next.sessions["site@laptop"]).toMatchObject({ state: "idle", title: "Шапка сайта на узких экранах" });
     expect(next.sessions["docs@laptop"]).toBeUndefined();
     expect(next.rev).toBe(p.rev + 1);

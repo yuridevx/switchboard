@@ -233,7 +233,7 @@ export function createMock(o: MockOptions = {}) {
   const setRow = (c: string, patch: Partial<SessionRow> | null) => {
     if (patch === null) delete sessions[c];
     else sessions[c] = { ...sessions[c], ...patch };
-    delta({ sessions: [{ callsign: c, row: patch }] });
+    delta({ sessions: [{ callsign: c, row: patch === null ? null : sessions[c] }] });
   };
   const emit = (c: string, events: Ev[]) => {
     talk(c).push(...events);
