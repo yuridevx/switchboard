@@ -2,14 +2,14 @@
 // Живой ответ идёт с кареткой, размышление сворачивается, своё сообщение показывает свой статус.
 import { CopyButton, Text } from "@mantine/core";
 import {
-  IconAlertTriangle, IconAnchor, IconArchive, IconBell, IconBolt, IconBook, IconBrain, IconCalendarClock, IconChecklist, IconClipboardList, IconFile, IconFilePencil, IconFilePlus, IconFileText, IconFolderSearch,
+  IconAlertTriangle, IconAnchor, IconArchive, IconBell, IconBolt, IconBook, IconBrain, IconCalendarClock, IconCheck, IconChecklist, IconClipboardList, IconFile, IconFilePencil, IconFilePlus, IconFileText, IconFolderSearch,
   IconGitBranch, IconInfoCircle, IconMessageQuestion, IconMessages, IconNotebook, IconPlayerStop, IconRadar, IconRefresh, IconRobot, IconRotate, IconSearch, IconShieldOff, IconSparkles, IconTerminal2, IconTool, IconWorld, IconX,
 } from "@tabler/icons-react";
 import { createContext, lazy, memo, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Item } from "../chat/focus.ts";
 import { todoProgress, type MeState, type Part, type Row, type Task, type Todo, type Tool, type View } from "../chat/fold.ts";
 import { agentSteps, deniedWhy, editStat, isAgent, isDenied, isShell, startedInBackground, toolLook, toolState } from "../chat/tools.ts";
-import { kilo, nActions, plural } from "../lib/time.ts";
+import { duration, kilo, nActions, plural } from "../lib/time.ts";
 import { MODES } from "../common.tsx";
 import { diffLines, editsOf } from "./diff.ts";
 import { HtmlFrame, openPicture, previewKind, SvgView } from "./html.tsx";
@@ -34,6 +34,8 @@ export type FeedEnv = {
   drop?(id: string): void;
   /** вернуть текст в поле ввода */
   edit?(text: string): void;
+  /** откатить разговор к этому сообщению человека */
+  rewind?(uuid: string): void;
   /** номер вызова инструмента, который ждёт решения человека */
   waiting?: string;
   /** как звать отправителя: имя сессии из настроек */
@@ -71,6 +73,8 @@ export function Diff({ before, after }: { before: string; after: string }) {
     </pre>
   );
 }
+
+const ASKED: Record<string, string> = { question: "Вопрос", permission: "Разрешение", plan: "План" };
 
 /** Длинный текст свёрнут до первых строк. */
 const LONG = 900;
@@ -153,15 +157,16 @@ export function TodoList({ todos, fold }: { todos: Todo[]; fold?: boolean }) {
   );
 }
 
-/** Секунды идущего инструмента: что сказал SDK, дальше — по часам страницы. */
-function Running({ secs }: { secs?: number }) {
-  const [n, setN] = useState(secs ?? 0);
-  useEffect(() => setN(secs ?? 0), [secs]);
+/** Сколько идёт инструмент: от времени его вызова на машине — после перезагрузки страницы и с другого устройства то же; времени вызова в событии нет — то, что сказал SDK. */
+export const toolSecs = (tool: Pick<Tool, "at" | "secs">, now: number): number => (tool.at !== undefined ? Math.max(0, Math.floor((now - tool.at) / 1000)) : (tool.secs ?? 0));
+function Running({ tool }: { tool: Tool }) {
+  const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const t = setInterval(() => setN((x) => x + 1), 1000);
+    const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  return n >= 3 ? <span className="muted">идёт {n} с</span> : null;
+  const n = toolSecs(tool, now);
+  return n >= 3 ? <span className="muted">идёт {duration(n * 1000)}</span> : null;
 }
 
 const STATE_WORD: Record<string, string> = { denied: "отклонено", error: "ошибка", stopped: "остановлено", bg: "в фоне" };
@@ -175,8 +180,8 @@ function ToolLine({ tool, view }: { tool: Tool; view: View }) {
   const task: Task | undefined = tool.task ? view.tasks[tool.task] : undefined;
   const waiting = env.waiting === tool.id;
   const state = toolState(tool, task, waiting);
-  // сам раскрыт: правка, список дел, вопрос; субагент — пока идёт; план — пока его не показывает карточка вопроса. Выбор человека главнее
-  const usual = look.body === "agent" ? !(task?.bg ? task.final : tool.result) : look.body === "plan" ? !waiting : look.open;
+  // сам раскрыт: правка, список дел, вопрос; план — пока его не показывает карточка вопроса; шаги идущего субагента — в блоке «Идут сейчас» над полем ввода. Выбор человека главнее
+  const usual = look.body === "agent" ? false : look.body === "plan" ? !waiting : look.open;
   const open = choice ?? usual;
   const kind = isAgent(tool) && typeof tool.input?.subagent_type === "string" ? tool.input.subagent_type : "";
   const now = isAgent(tool) && task && !task.end ? (task.summary ?? (task.last ? `сейчас: ${task.last}` : "")) : "";
@@ -196,11 +201,12 @@ function ToolLine({ tool, view }: { tool: Tool; view: View }) {
           {kind && <span className="toolchip">{kind}</span>}
           {steps > 0 && <span className="muted">{steps} {plural(steps, "шаг", "шага", "шагов")}</span>}
           {now && <span className="muted trunc">{now}</span>}
-          {running && <Running secs={tool.secs} />}
+          {/* время и «в фон», «стоп» идущего субагента — в блоке «Идут сейчас»; в ленте они не повторяются */}
+          {running && !isAgent(tool) && <Running tool={tool} />}
           {!running && stateWord(state, tool) && <span className="muted">{stateWord(state, tool)}</span>}
           {bg && state !== "bg" && <span className="muted">в фоне</span>}
         </button>
-        {running && !bg && env.canAct && (isShell(tool) || isAgent(tool)) && (
+        {running && !bg && env.canAct && isShell(tool) && (
           <span className="toolacts">
             <button type="button" className="linkbtn" onClick={() => env.act?.("tasks", [tool.id])}>В фон</button>
             {task && <button type="button" className="linkbtn" onClick={() => env.act?.("taskStop", [task.id])}>Стоп</button>}
@@ -281,6 +287,7 @@ function Mine({ r }: { r: Extract<Row, { k: "me" }> }) {
       <Long text={r.text} />
       <Pics pics={r.pics} />
       {r.files?.map((f) => <div key={f} className="me-file"><IconFile size={13} /> {f}</div>)}
+      {(!state || state === "sent") && r.uuid && env.rewind && env.canAct && <div className="me-note"><button type="button" className="linkbtn" onClick={() => env.rewind!(r.uuid!)}>Откатить сюда</button></div>}
       {state && ME_NOTE[state] && (
         <div className="me-note">
           {ME_NOTE[state]}
@@ -311,6 +318,7 @@ function Incoming({ r }: { r: Extract<Row, { k: "in" }> }) {
       </Text>
       <div className={long && !whole ? "peer-clamp" : undefined}><Md text={r.text} /></div>
       {long && <button type="button" className="linkbtn" aria-expanded={whole} onClick={() => setWhole((w) => !w)}>{whole ? "свернуть" : "показать всё"}</button>}
+      {r.via === "session" && r.uuid && env.rewind && env.canAct && <div><button type="button" className="linkbtn" onClick={() => env.rewind!(r.uuid!)}>Откатить сюда</button></div>}
     </div>
   );
 }
@@ -328,12 +336,27 @@ const RowView = memo(function RowView({ r, view }: { r: Item; view: View }) {
       return <Reply parts={r.parts} view={view} />;
     case "cmd":
       return <div className="sysline"><IconTerminal2 size={14} /><span className="mono">{r.name} {r.args}</span>{r.out && <span className="trunc">— {r.out}</span>}</div>;
+    case "asked":
+      // отвеченный вопрос остаётся карточкой: что спросили, что выбрано, кто и когда ответил
+      return (
+        <div className="askcard answered" role="group" aria-label="Отвеченный вопрос">
+          <Text size="xs" fw={600}>{ASKED[r.kind] ?? "Вопрос"}{r.title ? ` · ${r.title}` : ""}</Text>
+          {r.qs.map((q, i) => (
+            <div key={i} className="ask-q">
+              <div className="asked-q"><Md text={q.question} /></div>
+              <div className="asked-opts">{q.options.map((o) => <span key={o} className="asked-opt" aria-current={q.chosen.includes(o) ? "true" : undefined}>{q.chosen.includes(o) && <IconCheck size={13} />}{o}</span>)}</div>
+            </div>
+          ))}
+          <div className="ask-seen">ответил {r.who}{r.at ? ` · ${r.at}` : ""}</div>
+        </div>
+      );
     case "sys":
     case "line":
       return <div className={`sysline${r.tone ? ` tone-${r.tone}` : ""}`}><Icon name={r.icon} size={14} /><span>{r.text}{"dim" in r && r.dim}</span></div>;
     case "task": {
+      // идущая задача стоит строкой в блоке «Идут сейчас» над полем ввода; в ленте — только законченная
       const t = view.tasks[r.id];
-      return t ? (
+      return t?.end ? (
         <div className="sysline"><IconRobot size={14} /><span>{t.desc}{t.summary ? ` — ${t.summary}` : ""}{t.steps ? ` · ${t.steps} ${plural(t.steps, "шаг", "шага", "шагов")}` : ""}</span>
           {!t.end && env.canAct && <button type="button" className="linkbtn" onClick={() => env.act?.("taskStop", [t.id])}>Стоп</button>}
         </div>

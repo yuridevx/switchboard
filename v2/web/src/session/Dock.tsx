@@ -1,11 +1,13 @@
-// Над вводом: вопросы сбоку и то, что идёт в фоне, — с выводом задачи и остановкой.
+// Над вводом: вопросы сбоку и то, что идёт сейчас, — субагенты и фоновые задачи с шагами, выводом и остановкой.
 import { sessionCall } from "@sb/protocol";
-import { IconRobot, IconTerminal2, IconX } from "@tabler/icons-react";
+import { IconChevronDown, IconChevronRight, IconRobot, IconTerminal2, IconX } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { act, api, sayError } from "../api.ts";
-import { backgrounded, taskIcon, type Task, type View } from "../chat/fold.ts";
-import { plural } from "../lib/time.ts";
-import { Md } from "./Feed.tsx";
+import { taskIcon, type Task, type Tool, type View } from "../chat/fold.ts";
+import { agentSteps, isAgent } from "../chat/tools.ts";
+import { useLocal } from "../lib/local.ts";
+import { duration, plural } from "../lib/time.ts";
+import { Md, Rows } from "./Feed.tsx";
 import type { Aside } from "./talk.ts";
 
 const OUTPUT_EVERY_MS = 2000;
@@ -33,29 +35,72 @@ function TaskOutput({ callsign, id }: { callsign: string; id: string }) {
   );
 }
 
-function BgRow({ callsign, task }: { callsign: string; task: Task }) {
+export type Run = { id: string; task?: Task; tool?: Tool };
+/** Что идёт сейчас у сессии: незаконченные задачи (субагенты и фоновые команды) и субагенты, о которых SDK ещё не прислал задачу. */
+export function runningOf(v: View): Run[] {
+  const tasks: Run[] = Object.values(v.tasks).filter((t) => !t.end).map((t) => ({ id: t.id, task: t, tool: t.tool ? v.tools[t.tool] : undefined }));
+  const bare: Run[] = Object.values(v.tools).filter((t) => isAgent(t) && !t.result && !t.task).map((t) => ({ id: t.id, tool: t }));
+  // субагенты — раньше команд; внутри — по времени запуска
+  const agent = (r: Run) => (r.tool ? isAgent(r.tool) : taskIcon(r.task?.type) === "bot");
+  return [...tasks, ...bare].sort((x, y) => Number(agent(y)) - Number(agent(x)) || (startedOf(x) ?? 0) - (startedOf(y) ?? 0));
+}
+/** Когда работа началась на машине: время события задачи, иначе — вызова субагента. Часы страницы сюда не попадают: после перезагрузки и с другого устройства строка показывает то же. */
+export const startedOf = (r: Run): number | undefined => r.task?.started ?? r.tool?.at;
+/** Сколько идёт работа: от её начала на машине; начала в событии нет — времени в строке нет. */
+export const runTime = (r: Run, now: number): string => { const at = startedOf(r); return at === undefined ? "" : duration(Math.max(0, now - at)); };
+
+function RunRow({ callsign, run, view, now }: { callsign: string; run: Run; view: View; now: number }) {
   const [open, setOpen] = useState(false);
-  const withOutput = task.type === "local_bash" || task.type === "monitor";
+  const { task, tool } = run;
+  const agent = tool ? isAgent(tool) : taskIcon(task?.type) === "bot";
+  const kind = agent ? (typeof tool?.input?.subagent_type === "string" ? tool.input.subagent_type : "субагент") : task?.type === "monitor" ? "монитор" : "команда";
+  const desc = task?.desc || (typeof tool?.input?.description === "string" ? tool.input.description : "") || run.id;
+  const doing = task?.summary ?? (task?.last ? `сейчас: ${task.last}` : "");
+  const steps = tool && agent ? agentSteps(tool, task) : (task?.steps ?? 0);
+  const act1 = (method: "tasks" | "taskStop", id: string, said: string) => act(sessionCall, { to: callsign, method, args: [id] }, said);
   return (
     <>
-      <div className="bg-row">
-        {taskIcon(task.type) === "bot" ? <IconRobot size={14} /> : <IconTerminal2 size={14} />}
-        <span className="trunc mono" style={{ flex: 1 }} title={task.desc || task.id}>{task.desc || task.id}</span>
-        {task.summary && <span className="trunc muted">{task.summary}</span>}
-        {!!task.steps && <span className="muted" style={{ whiteSpace: "nowrap" }}>{task.steps} {plural(task.steps, "шаг", "шага", "шагов")}</span>}
-        {withOutput && <button type="button" className="linkbtn" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? "Скрыть" : "Вывод"}</button>}
-        <button type="button" className="linkbtn" onClick={() => act(sessionCall, { to: callsign, method: "taskStop", args: [task.id] }, "Задача остановлена")}>Стоп</button>
+      <div className="run-row" data-run={run.id}>
+        <button type="button" className="run-main" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          <span className="st running" />
+          {agent ? <IconRobot size={14} /> : <IconTerminal2 size={14} />}
+          <span className="toolchip">{kind}</span>
+          <span className={`trunc${agent ? "" : " mono"}`} title={desc}>{desc}</span>
+          {doing && <span className="trunc muted run-now">{doing}</span>}
+        </button>
+        <span className="muted run-n steps">{steps > 0 ? `${steps} ${plural(steps, "шаг", "шага", "шагов")}` : ""}</span>
+        <span className="muted run-n time">{runTime(run, now)}</span>
+        {task?.bg ? <span className="muted run-n bgw">в фоне</span> : tool ? <button type="button" className="linkbtn bgw" onClick={() => act1("tasks", tool.id, "Ушло в фон")}>в фон</button> : <span className="bgw" />}
+        {task && <button type="button" className="linkbtn" onClick={() => act1("taskStop", task.id, "Остановлено")}>стоп</button>}
       </div>
-      {open && <TaskOutput callsign={callsign} id={task.id} />}
+      {open && (agent
+        ? <div className="run-steps">{tool?.input?.prompt && <pre>{String(tool.input.prompt)}</pre>}{tool?.steps.length ? <Rows rows={tool.steps} view={view} /> : <span className="muted">шагов пока нет</span>}</div>
+        : task && <TaskOutput callsign={callsign} id={task.id} />)}
     </>
   );
 }
 
-/** Что идёт в фоне у сессии. */
-export function Background({ callsign, view }: { callsign: string; view: View }) {
-  const tasks = backgrounded(view);
-  if (!tasks.length) return null;
-  return <div className="bg" aria-label="В фоне">{tasks.map((t) => <BgRow key={t.id} callsign={callsign} task={t} />)}</div>;
+/** «Идут сейчас»: по строке на работающего субагента и фоновую задачу; нажатие раскрывает шаги или вывод на месте. Законченное остаётся карточкой в ленте.
+ *  Блок сворачивается до одной строки «идут: N» — выбор помнит устройство. */
+export function Running({ callsign, view }: { callsign: string; view: View }) {
+  const runs = runningOf(view);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!runs.length) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [runs.length]);
+  const [open, setOpen] = useLocal("runs.open", true);
+  if (!runs.length) return null;
+  return (
+    <div className="runs" role="group" aria-label="Идут сейчас">
+      <button type="button" className="runs-head" aria-expanded={open} aria-label={open ? "Свернуть «Идут сейчас»" : "Показать «Идут сейчас»"} onClick={() => setOpen(!open)}>
+        {open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}<span>идут: {runs.length}</span>
+        {!open && <span className="trunc muted">{runs.map((r) => r.task?.desc || (typeof r.tool?.input?.description === "string" ? r.tool.input.description : "")).filter(Boolean).join(" · ")}</span>}
+      </button>
+      {open && runs.map((r) => <RunRow key={r.id} callsign={callsign} run={r} view={view} now={now} />)}
+    </div>
+  );
 }
 
 /** Вопросы сбоку: ответ Claude мимо разговора; закрываются крестиком. */

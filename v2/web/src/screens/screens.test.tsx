@@ -127,7 +127,7 @@ describe("уведомления", () => {
   it("клик по уведомлению без кнопки открывает сессию; без пропуска на устройстве ответ не уходит", async () => {
     const w = worker({});
     await w.fire("notificationclick", { action: "", notification: { data: note, close() {} } });
-    expect(w.calls[0]!.url).toBe("open:/#/inbox/site@laptop");
+    expect(w.calls[0]!.url).toBe("open:/#/work/site@laptop");
     await w.fire("notificationclick", { action: "answer:0", notification: { data: note, close() {} } });
     expect(w.calls.length).toBe(1);
     expect(w.shown.at(-1)!.title).toMatch(/Ответ не ушёл: нет пропуска/);
@@ -208,7 +208,7 @@ describe("«Работа»", () => {
     expect(matches(p, foreign, mine, ["landing@anya-pc"])).toBe(true);
     expect(matches(p, foreign, all, [])).toBe(true);
     const f = { id: "f1", name: "Инфра ждёт", who: "all" as const, states: ["wait"], projects: ["infra"], machines: ["server"] };
-    expect(rowsOf(p, f, [], []).map((s) => s.callsign).sort()).toEqual(["api@server", "deploy@server"]);
+    expect(rowsOf(p, f, [], []).map((s) => s.callsign).sort()).toEqual(["api@server", "audit@server", "deploy@server"]);
   });
   it("группы по проектам — в порядке человека, «Без проекта» последней; закреплённые выше", async () => {
     const p = await snap();

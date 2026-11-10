@@ -72,11 +72,11 @@ export function SessionLine({ s, selected, onPick, sub, depth = 0, wing, why, pa
       <div style={{ minWidth: 0 }}>
         <div className="t trunc">
           {label ?? s.title ?? s.spec.name}
-          {wing && <span className="pairmate"> ▸ <Lamp state={wing.state} offline={offline} /> {labels[wing.callsign] ?? wing.title ?? wing.spec.name}</span>}
+          {wing && <span className="pairmate"><span className="arrow"> ▸ </span><Lamp state={wing.state} offline={offline} /> {labels[wing.callsign] ?? wing.title ?? wing.spec.name}</span>}
         </div>
         {(parts.call || parts.doing || offline) && <div className="sub trunc">{parts.call && <span className="mono">{s.callsign}</span>}{parts.call && (wing ? "" : treeWord(s))}{parts.call && ownerWord(s, me)}{offline ? " · нет связи" : !parts.doing ? "" : sub ?? (s.doing ? ` · ${s.doing}` : s.state === "failed" ? ` · ${s.error ?? "сбой"}` : "")}{s.archiveError && !offline ? " · точка не сохранилась" : ""}</div>}
       </div>
-      <span className="when">{mark === "ask" ? <span className="qmark" role="img" aria-label="ждёт ответа">?</span> : mark === "new" ? <span className="newdot" role="img" aria-label="есть новое" /> : null}{parts.when ? ago(s.last ?? s.since) : null}</span>
+      <span className="when">{mark === "ask" ? <span className="qmark" role="img" aria-label="ждёт ответа">?</span> : mark === "new" ? <span className="newdot" role="img" aria-label="есть новое" /> : null}{parts.when ? <span className="ago">{ago(s.last ?? s.since)}</span> : null}</span>
     </div>
   );
 }

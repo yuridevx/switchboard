@@ -1,10 +1,14 @@
 // Оформление карточек ленты: правки, ошибки, автораскрытие, значки, тон строк, входящие, размышление, подсказки ввода.
+import { fold } from "../chat/fold.ts";
+import { clampSplit } from "../lib/Split.tsx";
+import { askedOf } from "./answers.ts";
+import { runningOf, runTime, startedOf } from "./Dock.tsx";
 import { MantineProvider } from "@mantine/core";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Row, Task, Tool, View } from "../chat/fold.ts";
 import { editsOf } from "./diff.ts";
-import { FeedEnvProvider, Md, Rows } from "./Feed.tsx";
+import { FeedEnvProvider, Md, Rows, toolSecs } from "./Feed.tsx";
 import { safeHref } from "./Markdown.tsx";
 
 vi.hoisted(() => {
@@ -68,10 +72,10 @@ describe("раскрытие", () => {
     fireEvent.click(line());
     expect(screen.queryByText(/стало/)).toBeNull();
   });
-  it("субагент раскрыт, пока идёт, и свёрнут с итогом; у идущего — чип типа и «сейчас: …»", () => {
+  it("субагент в ленте свёрнут и пока идёт, и с итогом — его шаги в блоке «Идут сейчас»; у идущего — чип типа и «сейчас: …»", () => {
     const task: Task = { id: "k", desc: "поиск", bg: false, started: Date.now(), last: "Grep", steps: 2 };
     const { unmount } = feed([tool({ name: "Agent", task: "k", input: { subagent_type: "Explore", prompt: "найди вход" } })], { tasks: [task] });
-    expect(screen.getByText("найди вход")).toBeTruthy();
+    expect(screen.queryByText("найди вход")).toBeNull();
     expect(screen.getByText("Explore").className).toBe("toolchip");
     expect(screen.getByText("сейчас: Grep")).toBeTruthy();
     unmount();
@@ -162,4 +166,47 @@ describe("разметка", () => {
     expect(safeHref("https://x.test/doc#part")).toBe("https://x.test/doc#part");
     expect(safeHref("https://x.test/doc")).toBe("https://x.test/doc");
   });
+
+describe("«Идут сейчас»: время и вид", () => {
+  const T0 = Date.parse("2026-11-10T12:00:00Z"), MIN = 60_000;
+  const agent = (id: string, extra: object) => ({ type: "assistant", uuid: "a-" + id, ...extra, message: { id: "m-" + id, role: "assistant", content: [{ type: "tool_use", id, name: "Task", input: { description: "Права службы оплаты", subagent_type: "Explore", prompt: "проверь" } }] } });
+  it("время строки — от начала работы на машине, а не от открытия страницы: началось 5 минут назад — «5 мин», и столько же после перечитывания ленты", () => {
+    const events = [agent("ag1", { timestamp: new Date(T0 - 5 * MIN).toISOString() }), { type: "system", subtype: "task_started", uuid: "s1", task_id: "t1", tool_use_id: "ag1", description: "Права службы оплаты", task_type: "local_agent", timestamp: new Date(T0 - 5 * MIN).toISOString() }];
+    const first = runningOf(fold(events as never));
+    expect(first).toHaveLength(1);
+    expect(startedOf(first[0]!)).toBe(T0 - 5 * MIN);
+    expect(runTime(first[0]!, T0)).toBe(runTime({ id: "x", task: { id: "x", desc: "", bg: false, started: T0 - 5 * MIN } }, T0));
+    expect(runTime(first[0]!, T0)).toMatch(/^5 мин/);
+    // та же лента, свёрнутая позже (страницу открыли заново): начало то же
+    expect(startedOf(runningOf(fold(events as never))[0]!)).toBe(T0 - 5 * MIN);
+  });
+  it("живое событие без timestamp берёт время машины из at; субагент без события задачи — время своего вызова; времени нет нигде — строка без времени, а не «0 с»", () => {
+    const live = runningOf(fold([agent("ag2", { at: T0 - 3 * MIN }), { type: "system", subtype: "task_started", uuid: "s2", task_id: "t2", tool_use_id: "ag2", description: "x", task_type: "local_agent", at: T0 - 2 * MIN }] as never));
+    expect(startedOf(live[0]!)).toBe(T0 - 2 * MIN);
+    const bare = runningOf(fold([agent("ag3", { at: T0 - 4 * MIN })] as never));
+    expect(startedOf(bare[0]!)).toBe(T0 - 4 * MIN);
+    const blind = runningOf(fold([agent("ag4", {})] as never));
+    expect(startedOf(blind[0]!)).toBeUndefined();
+    expect(runTime(blind[0]!, T0)).toBe("");
+  });
+  it("идущий инструмент в ленте считает время от своего вызова на машине; времени вызова нет — берёт то, что сказал SDK", () => {
+    expect(toolSecs({ at: T0 - 5 * MIN }, T0)).toBe(300);
+    expect(toolSecs({ secs: 7 }, T0)).toBe(7);
+    expect(toolSecs({}, T0)).toBe(0);
+  });
+  it("граница панели держит пределы: панель не уже своей наименьшей, второй части остаётся её наименьшая", () => {
+    expect(clampSplit(100, 1200, 280, 420)).toBe(280);
+    expect(clampSplit(400, 1200, 280, 420)).toBe(400);
+    expect(clampSplit(5000, 1200, 280, 420)).toBe(780);
+    expect(clampSplit(400, 500, 280, 420)).toBe(280);
+  });
+  it("отвеченный вопрос: выбранный вариант выделен, свой ответ встаёт вариантом, разрешение — словами кнопок", () => {
+    const q = { id: "q", kind: "question", text: "Ветка?", options: [{ label: "main" }, { label: "dev" }], at: 0 } as never;
+    expect(askedOf(q, { answers: { "Ветка?": "dev" } })).toEqual([{ question: "Ветка?", options: ["main", "dev"], chosen: ["dev"] }]);
+    expect(askedOf(q, { answers: { "Ветка?": "release-2" } })).toEqual([{ question: "Ветка?", options: ["main", "dev", "release-2"], chosen: ["release-2"] }]);
+    const p = { id: "p", kind: "permission", text: "rm -rf dist", at: 0 } as never;
+    expect(askedOf(p, { action: "allow_always" })[0]).toMatchObject({ chosen: ["Разрешать всегда"], options: ["Разрешить", "Разрешать всегда", "Отклонить"] });
+    expect(askedOf(p, { action: "deny", message: "не трогай" })[0]!.chosen).toEqual(["Отклонить: не трогай"]);
+  });
+});
 });

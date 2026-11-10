@@ -53,7 +53,7 @@ function Attached({ file, onDrop }: { file: File; onDrop(): void }) {
 /** Текст, вернувшийся в поле ввода (отменённое сообщение из очереди): к набранному добавляется с новой строки. */
 export const returned = (typed: string, text: string): string => (typed.trim() ? `${typed.replace(/\s+$/, "")}\n${text}` : text);
 
-export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; hint?: string; autoFocus?: boolean; /** чипы документа сессии — в ряду под полем */ tools?: ReactNode }>(function Composer({ s, talk, hint, autoFocus, tools }, handle) {
+export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; hint?: string; autoFocus?: boolean; /** ряд под полем: значения документа сессии слева, действия над разговором значками справа */ values?: ReactNode; acts?: ReactNode }>(function Composer({ s, talk, hint, autoFocus, values, acts }, handle) {
   const [text, setTextRaw] = useState(() => draft.get(s.callsign));
   const [files, setFiles] = useState<File[]>([]);
   const [picks, setPicks] = useState<Pick[]>([]);
@@ -143,16 +143,18 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
         {busy && s.state !== "waiting" && <Tooltip label="Прервать ход"><ActionIcon className="narrow-only" size="lg" variant="default" aria-label="Прервать ход" onClick={() => act(sessionCall, { to: s.callsign, method: "interrupt" })}><IconPlayerStop size={17} /></ActionIcon></Tooltip>}
         <ActionIcon size="lg" variant="filled" aria-label={busy ? "В очередь" : "Отправить"} disabled={dead || (!text.trim() && !files.length)} onClick={send}><IconArrowUp size={18} /></ActionIcon>
       </Group>
-      {!dead && (
+      {/* ряд под полем есть всегда: у стоящей сессии в нём остаются инспектор и «ещё» */}
+      {(
         <div className="composer-opts">
-          <button type="button" className="linkbtn" aria-label="Команды сессии" title="Команды сессии" onClick={() => (setText("/"), ref.current?.focus())}>/ команды</button>
-          {tools}
-          {busy && (
+          {!dead && values}
+          {/* когда взять сообщение — выбор есть, только пока идёт ход */}
+          {!dead && (s.state === "busy" || s.state === "starting") && (
             <Menu position="top-start" withinPortal>
-              <Menu.Target><button type="button" className="linkbtn" aria-label="Когда взять сообщение">взять: {word}</button></Menu.Target>
+              <Menu.Target><button type="button" className="docval take" aria-label="Когда взять сообщение" title="Когда взять сообщение">взять {word}</button></Menu.Target>
               <Menu.Dropdown>{PRIORITY.map(([pr, w, about]) => <Menu.Item key={pr} fw={pr === priority ? 700 : undefined} onClick={() => setPriority(pr)}>{w} — {about}</Menu.Item>)}</Menu.Dropdown>
             </Menu>
           )}
+          {acts}
         </div>
       )}
     </div>

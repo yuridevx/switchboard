@@ -202,9 +202,13 @@ export function useTalk(callsign: string): Talk {
   const dropAside = useCallback((id: string) => setAsides((a) => a.filter((x) => x.id !== id)), []);
 
   // разговор начат заново — история прежнего не нужна
-  const reset = events.some((e) => e.type === "conversation_reset" && !(e as Msg)._seen);
+  // след сброса остаётся в истории: перечитанная лента его покажет, но второй раз перечитывать не станет
+  const resets = useRef(new Set<string>());
+  const reset = events.find((e) => e.type === "conversation_reset" && !(e as Msg)._seen && !resets.current.has(String(e.uuid)))?.uuid;
   useEffect(() => {
-    if (reset) setEpoch((n) => n + 1);
+    if (!reset) return;
+    resets.current.add(String(reset));
+    setEpoch((n) => n + 1);
   }, [reset]);
 
   const view = useMemo(() => fold(events as Msg[]), [events]);

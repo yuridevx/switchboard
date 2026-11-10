@@ -45,15 +45,29 @@ const ask = (a: Partial<Ask>): Ask => ({ id: "q1", kind: "question", text: "Ка
 const pending = () => Object.values(usePending.getState().items);
 
 describe("вопрос сессии", () => {
-  it("несколько вопросов идут по одному с «N из M»; выбор нескольких — флажками; ответ собран по всем", () => {
+  it("несколько вопросов — карточка на каждый, все видны сразу; выбор нескольких — флажками; ответ собран по всем и уходит, когда отвечены все", () => {
     page(<AskCard callsign="site@laptop" ask={ask({ input: { questions: [{ question: "Ветка?", options: [{ label: "main" }, { label: "release" }] }, { question: "Что проверить?", multiSelect: true, options: [{ label: "тесты" }, { label: "снимки" }] }] } })} />);
-    expect(screen.getByText(/1 из 2/)).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Вопрос 1 из 2" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Вопрос 2 из 2" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Ответить" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "main" }));
-    expect(screen.getByText(/2 из 2/)).toBeTruthy();
+    expect(pending()).toEqual([]);
+    expect(screen.getByText("Отвечено 1 из 2")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("тесты"));
     fireEvent.click(screen.getByLabelText("снимки"));
     fireEvent.click(screen.getByRole("button", { name: "Ответить" }));
     expect(pending()).toEqual(["site@laptop: отвечено «main; тесты, снимки»"]);
+  });
+  it("один вопрос с одним выбором уходит нажатием варианта; свой ответ — полем", () => {
+    const { unmount } = page(<AskCard callsign="site@laptop" ask={ask({ options: [{ label: "main", about: "зелёный коммит" }, { label: "release" }] })} />);
+    fireEvent.click(screen.getByRole("button", { name: "main" }));
+    expect(pending()).toEqual(["site@laptop: отвечено «main»"]);
+    unmount();
+    usePending.setState({ items: {} });
+    page(<AskCard callsign="site@laptop" ask={ask({ id: "q9", options: [{ label: "main" }] })} />);
+    fireEvent.change(screen.getByLabelText("Свой ответ"), { target: { value: "hotfix" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ответить" }));
+    expect(pending()).toEqual(["site@laptop: отвечено «hotfix»"]);
   });
   it("разрешение: слова для человека; отказ — с причиной; «Весь ввод» раскрывает ввод инструмента", () => {
     page(<AskCard callsign="deploy@server" ask={ask({ kind: "permission", text: "rm -rf dist", tool: "Bash", input: { command: "rm -rf dist", timeout: 5 }, options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] })} />);
@@ -66,15 +80,10 @@ describe("вопрос сессии", () => {
     fireEvent.click(screen.getByRole("button", { name: "Отклонить" }));
     expect(pending()).toEqual(["deploy@server: отвечено «Отклонить: не трогай dist»"]);
   });
-  it("план: «Одобрить и разрешать правки»; в строке «Вам» сложный вопрос свёрнут до кнопки", () => {
-    const { unmount } = page(<AskCard callsign="api@server" ask={ask({ kind: "plan", text: "## План\n\n1. Шаг", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] })} />);
+  it("план: «Одобрить и разрешать правки»", () => {
+    page(<AskCard callsign="api@server" ask={ask({ kind: "plan", text: "## План\n\n1. Шаг", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] })} />);
     fireEvent.click(screen.getByRole("button", { name: "Одобрить и разрешать правки" }));
     expect(pending()).toEqual(["api@server: отвечено «Одобрить и разрешать правки»"]);
-    unmount();
-    const open = vi.fn();
-    page(<AskCard inline callsign="x@server" onOpen={open} ask={ask({ id: "q2", multi: true, options: [{ label: "a" }, { label: "b" }] })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Ответить" }));
-    expect(open).toHaveBeenCalled();
   });
 });
 

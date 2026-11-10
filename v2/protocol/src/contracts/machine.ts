@@ -250,6 +250,12 @@ export const machineDirs = request("machine.dirs", {
   input: z.object({ to: MachineAddr, path: z.string().optional() }),
   output: z.object({ path: z.string(), dirs: z.array(z.string()), recent: z.array(z.string()).optional(), git: z.boolean().optional() }),
 });
+/** Разговоры папки на диске машины: их можно продолжить новой сессией. live — сессия, которая ведёт разговор сейчас. */
+export const machineConversations = request("machine.conversations", {
+  owner: "host-machine", target: "machine", tool: "Разговоры Claude в папке на диске машины: номер, первая реплика, когда шёл последний раз.",
+  input: z.object({ to: MachineAddr, cwd: z.string() }),
+  output: z.object({ conversations: z.array(z.object({ id: z.string(), title: z.string(), at: z.number(), size: z.number(), live: z.string().optional() })) }),
+});
 export const JournalLine = z.object({ t: z.number(), part: z.string(), level: z.enum(["info", "warn", "error"]), msg: z.string() }).loose();
 export const machineJournal = request("machine.journal", {
   owner: "host-machine", target: "machine", tool: "Журнал машины: строки Host, Keeper и держателей. part — чей, before — время, до которого читать.",

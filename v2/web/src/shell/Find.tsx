@@ -88,7 +88,7 @@ export function More() {
   const lamp = LAMP[picture.link] ?? "failed";
   return (
     <RoutePage title="Ещё">
-      {NAV.slice(3).map(([to, word, I]) => <NavLink key={to} to={to} className="row morerow"><I size={20} stroke={1.6} /><span>{word}</span></NavLink>)}
+      {NAV.slice(2).map(([to, word, I]) => <NavLink key={to} to={to} className="row morerow"><I size={20} stroke={1.6} /><span>{word}</span></NavLink>)}
       <NavLink to="/find" className="row morerow"><IconSearch size={20} stroke={1.6} /><span>Найти</span></NavLink>
       <button type="button" className="row morerow" onClick={() => setColorScheme(colorScheme === "dark" ? "light" : "dark")}>{colorScheme === "dark" ? <IconSun size={20} stroke={1.6} /> : <IconMoon size={20} stroke={1.6} />}<span>{colorScheme === "dark" ? "Светлая тема" : "Тёмная тема"}</span></button>
       <div className="row morerow" style={{ cursor: "default" }}><span className={`lamp ${lamp}`} style={{ marginTop: 0, justifySelf: "center" }} /><span>{personWord(picture.you?.person ?? "")} · {linkWord(picture.link)}</span></div>
@@ -98,7 +98,7 @@ export function More() {
 
 const KEYS: Array<[string, string]> = [
   ["Ctrl K", "Найти: сессии, машины, папки, проекты, действия"], ["N", "Новая сессия"], ["J  K", "Вниз и вверх по списку"], ["E", "Прочитано"], ["I", "Инспектор"],
-  ["G затем I W A S F O T", "Разделы: Вам, Работа, Архив, Расход, Флот, Наблюдение, Настройки"], ["Enter", "Отправить сообщение"], ["Shift Enter", "Новая строка"], ["Esc", "Отменить перетаскивание"], ["?", "Этот список"],
+  ["G затем W A S F O T", "Разделы: Работа, Архив, Расход, Флот, Наблюдение, Настройки"], ["Enter", "Отправить сообщение"], ["Shift Enter", "Новая строка"], ["Esc", "Отменить перетаскивание"], ["?", "Этот список"],
 ];
 
 export function Keys() {

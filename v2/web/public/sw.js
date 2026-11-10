@@ -38,7 +38,7 @@ self.addEventListener("push", (e) => {
 
 function route(n) {
   // нажатие на уведомление ведёт прямо в сессию: вопрос с кнопками ответа стоит внизу её разговора
-  return n.callsign ? "/#/inbox/" + n.callsign : n.kind === "alert" ? "/#/observe" : n.kind === "incident" ? "/#/fleet/incidents" : "/#/inbox";
+  return n.callsign ? "/#/work/" + n.callsign : n.kind === "alert" ? "/#/observe" : n.kind === "incident" ? "/#/fleet/incidents" : "/#/work";
 }
 
 async function show(n) {

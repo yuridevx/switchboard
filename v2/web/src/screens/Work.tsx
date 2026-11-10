@@ -5,7 +5,7 @@ import { Page } from "../shell/Page.tsx";
 import { useHotkeys } from "@mantine/hooks";
 import { IconAdjustmentsHorizontal, IconCheck, IconChevronDown, IconChevronRight, IconDots, IconFilter, IconPencil, IconPin, IconPinFilled, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { act } from "../api.ts";
 import { confirmDanger, Lamp, personWord, ROW_PARTS, SessionLine, useCall, useMachineName, useMyPrefs, useWide, type RowParts } from "../common.tsx";
@@ -13,6 +13,7 @@ import { newPath } from "../shell/NewSession.tsx";
 import { useRowDrag } from "../lib/drag.ts";
 import { Sortable } from "../lib/Sortable.tsx";
 import { getLocal, useLocal } from "../lib/local.ts";
+import { clampSplit, useSplit } from "../lib/Split.tsx";
 import { ago } from "../lib/time.ts";
 import { BUILTIN, type Filter, groupsByMachine, groupsOf, NO_PROJECT, projectOf, reorder, rowsOf, STATE_GROUPS, treeOf, whyMine } from "../lib/work.ts";
 import { Conversation, pairKey, type Side } from "../session/Conversation.tsx";
@@ -69,6 +70,17 @@ function Filters({ filters, save, onClose }: { filters: Filter[]; save: (next: F
   );
 }
 
+/** Какую сессию «Работа» открывает сама: последнюю, с которой человек работал на этом устройстве; её нет — первую, что ждёт ответа; иначе самую свежую. */
+export function pickOpen(sessions: Record<string, SessionRow>, shown: string[], last?: string): string | undefined {
+  if (last && sessions[last]) return last;
+  const rows = shown.map((c) => sessions[c]).filter((s): s is SessionRow => !!s);
+  return (rows.find((s) => s.ask) ?? [...rows].sort((a, b) => (b.last ?? b.since) - (a.last ?? a.since))[0])?.callsign;
+}
+
+/** Ширина списка «Работы»: ни список, ни разговор не схлопываются. */
+export const LIST_W = 280, LIST_MIN = 220, TALK_MIN = 420;
+export const clampList = (w: number, total: number): number => clampSplit(w, total, LIST_MIN, TALK_MIN);
+
 export function Work() {
   const { callsign } = useParams();
   const go = useNavigate();
@@ -86,6 +98,9 @@ export function Work() {
   const [nested, setNested] = useLocal("work.nested", true);
   // состав строки списка: что в ней показывать — помнит устройство
   const [parts, setParts] = useLocal<RowParts>("work.row", ROW_PARTS);
+  // последняя сессия, с которой человек работал, и ширина списка — помнит устройство
+  const [last, setLast] = useLocal<string>("work.last", "");
+  const split = useSplit({ key: "work.listw", initial: LIST_W, min: LIST_MIN, rest: TALK_MIN, cssVar: "--list", label: "Ширина списка" }, !!callsign && wide);
   const machineName = useMachineName();
   const [editFilters, setEditFilters] = useState(false);
   const [rename, setRename] = useState<{ id: string; name: string } | null>(null);
@@ -109,16 +124,15 @@ export function Work() {
     const wing = picture.sessions[c]?.spec.wing;
     go(`/work/${wing && picture.sessions[wing] && getLocal<Side>(pairKey(c), "lead") === "wing" ? wing : c}`);
   };
-  // на широком экране вход на «Работу» открывает первую сессию списка
-  const entered = useRef(false);
+  // открытая сессия запоминается; на широком экране «Работа» без сессии в адресе сразу открывает её — пустого разговора нет
   useEffect(() => {
-    if (entered.current || !picture.rev) return;
-    entered.current = true;
-    // сама открывается только прочитанная: открытие снимает пометку «непрочитано», а итоги человек разбирает в «Вам»
-    const me = picture.you?.person ?? "";
-    const first = flat.find((c) => !picture.sessions[c]?.unread?.includes(me));
-    if (wide && !callsign && view === "list" && first) open(first);
-  }, [picture.rev]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (callsign && picture.sessions[callsign] && callsign !== last) setLast(callsign);
+  }, [callsign, picture.rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!picture.rev || !wide || callsign || view !== "list") return;
+    const pick = pickOpen(picture.sessions, flat, last);
+    if (pick) go(`/work/${pick}`, { replace: true });
+  }, [picture.rev, wide, callsign, view]); // eslint-disable-line react-hooks/exhaustive-deps
   const move = (d: number) => {
     // открытый ведомый стоит в строке своего ведущего
     const at = callsign ? flat.indexOf(picture.sessions[callsign]?.lead && !flat.includes(callsign) ? picture.sessions[callsign]!.lead! : callsign) : -1;
@@ -149,7 +163,7 @@ export function Work() {
   const offline = (s: SessionRow) => picture.machines[machineOfCall(s.callsign)]?.online === false;
 
   return (
-    <div className={`panes${callsign ? " has-detail" : " solo"}`}>
+    <div ref={split.box} className={`panes${callsign ? " has-detail" : " solo"}${split.pulling ? " pulling" : ""}`} style={split.style}>
       <section className="pane list" aria-label="Работа">
         <div className="pane-head" style={{ flexWrap: "nowrap" }}>
           <h1>Работа</h1>
@@ -255,6 +269,7 @@ export function Work() {
           </div>
         )}
       </section>
+      {split.edge}
       {callsign && (
         <section className="pane detail">
           <Conversation callsign={callsign} onBack={() => go("/work")} />

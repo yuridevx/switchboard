@@ -6,7 +6,7 @@ import { toolLook } from "./chat/tools.ts";
 import { researchTurn, siteTurn } from "./mock/convo.ts";
 import { createMock } from "./mock/fleet.ts";
 import { mergeEvents } from "./session/talk.ts";
-import { applyFrame, emptyPicture, inboxOf, isMine, type Picture } from "./store/fleet.ts";
+import { applyFrame, emptyPicture, isMine, waitsYou, type Picture } from "./store/fleet.ts";
 
 const T = 1_800_000_000_000;
 const quiet = () => createMock({ now: () => T, live: false, latency: 0 });
@@ -85,12 +85,11 @@ describe("картина флота", () => {
     expect(next.sessions["docs@laptop"]).toBeUndefined();
     expect(next.rev).toBe(p.rev + 1);
   });
-  it("«Вам»: вопросы, законченное без меня, сбои; машина без связи — в сбоях, её вопросы не показаны", async () => {
-    const box = inboxOf(await snap());
-    expect(box.asks.map((i) => i.callsign).sort()).toEqual(["api@server", "deploy@server", "forms@anya-pc", "site-tests@laptop"]);
-    expect(box.done.map((i) => i.callsign).sort()).toEqual(["design@anya-pc", "docs@laptop"]);
-    // в сбоях — и сессия, которая ждёт сброса лимита
-    expect(box.fails.map((i) => i.key).sort()).toEqual(["f:hotfix@laptop", "m:base2", "w:nightcheck@server"]);
+  it("лампа «ждут вас»: горит, пока есть вопрос или непрочитанное; без них гаснет", async () => {
+    const p = await snap();
+    expect(waitsYou(p)).toBe(true);
+    const calm = Object.fromEntries(Object.entries(p.sessions).map(([k, s]) => [k, { ...s, ask: null, unread: [] }]));
+    expect(waitsYou({ ...p, sessions: calm as never })).toBe(false);
   });
   it("моя сессия: открыл я или сессия, которую открыл я", async () => {
     const p = await snap();
