@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
-import { diverge, dropFromQueues, limitWord, machineOrder, mergeAccounts } from "../lib/accounts.ts";
+import { diverge, dropFromQueues, machineOrder, mergeAccounts } from "../lib/accounts.ts";
 import { createMock, type Mock } from "../mock/fleet.ts";
 import { useFleet } from "../store/fleet.ts";
 import { archiveSummary, branches } from "./Archive.tsx";
@@ -112,11 +112,6 @@ describe("профили", () => {
 });
 
 describe("аккаунты", () => {
-  it("лимит старше часа подписан временем замера; свежий — нет", () => {
-    const now = T;
-    expect(limitWord({ used: 0.46, at: now - 5 * 60_000 }, now)).toBe("46%");
-    expect(limitWord({ used: 0.46, at: now - 95 * 60_000 }, now)).toMatch(/^46% · от \d\d:\d\d$/);
-  });
   it("расхождение машин: разный тариф или час сброса больше минуты — что говорит каждая; согласие — пусто", () => {
     const m = (a: Record<string, Account[]>) => mergeAccounts(a)[0]!;
     expect(diverge(m({ laptop: [acc("a@b.c", { plan: "max" })], server: [acc("a@b.c", { plan: "max" })] }))).toEqual([]);
@@ -126,7 +121,7 @@ describe("аккаунты", () => {
     expect(diverge(m({ laptop: [acc("a@b.c")] }))).toEqual([]);
   });
   it("убрать аккаунт из всех очередей всех машин; очереди без него не трогаются", () => {
-    const q = (name: string, order: string[]) => ({ name, order, sessions: 0 });
+    const q = (name: string, order: string[]) => ({ name, model: "fable" as const, order, sessions: 0 });
     const slots = { laptop: [q("main", ["a@b.c", "c@d.e"]), q("night", ["c@d.e"])], server: [q("main", ["c@d.e", "a@b.c"])] };
     expect(dropFromQueues(slots, ["a@b.c"])).toEqual([{ machine: "laptop", slot: "main", order: ["c@d.e"] }, { machine: "server", slot: "main", order: ["c@d.e"] }]);
     expect(dropFromQueues(slots, ["nobody"])).toEqual([]);

@@ -81,7 +81,7 @@ describe("инструменты: одна таблица для страниц�
     expect(slotSwap.input.safeParse({ to: "@laptop" }).success).toBe(false);
     expect(slotSwap.input.safeParse({ to: "@laptop", slot: "main", account: "a@b.c" }).success).toBe(true);
     expect(accountList.output.safeParse({ accounts: [] }).success).toBe(false);
-    expect(accountList.output.parse({ accounts: [], slots: [{ name: "main", order: ["a@b.c"], account: "a@b.c", sessions: 2 }] }).slots[0]).toEqual({ name: "main", order: ["a@b.c"], account: "a@b.c", sessions: 2 });
+    expect(accountList.output.parse({ accounts: [], slots: [{ name: "main", model: "other", order: ["a@b.c"], account: "a@b.c", sessions: 2 }] }).slots[0]).toEqual({ name: "main", model: "other", order: ["a@b.c"], account: "a@b.c", sessions: 2 });
     expect(contract.tools().map((d) => d.name)).toEqual(expect.arrayContaining(["slot.set", "slot.swap"]));
   });
   it("ведущая управляет ведомым инструментами: откат и действия session.call из закрытого списка; отката файлов отдельным методом и запроса сжатия нет", () => {

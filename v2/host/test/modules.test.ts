@@ -159,7 +159,7 @@ describe("accounts", () => {
     expect(loginDir(two.q)).toBe(folders(home).slotDir("review"));
     expect(st.link.rows("site@laptop").at(-1)!.row).toMatchObject({ account: A, spec: { slot: "main" } });
     expect(st.link.rows("reviewer@laptop").at(-1)!.row).toMatchObject({ account: B, spec: { slot: "review" } });
-    expect(await slotsOf()).toEqual([{ name: "main", order: [A, B], account: A, sessions: 1 }, { name: "review", order: [B, A], account: B, sessions: 1 }]);
+    expect(await slotsOf()).toEqual([{ name: "main", model: "fable", order: [A, B], account: A, sessions: 1 }, { name: "review", model: "fable", order: [B, A], account: B, sessions: 1 }]);
   });
 
   it("открытие без очереди: одна — в неё, имя записано в документ; две — slot_required с именами; ни одной — not_logged_in", async () => {
@@ -214,7 +214,7 @@ describe("accounts", () => {
     const r = await st.request("account.code", { to: "@laptop", login: "login", code: "code#state" });
     expect(r.why ?? r.error ?? "").toBe("");
     expect(folders(st.home).inSlot("main")).toBe(A);
-    expect(await slotsOf()).toEqual([{ name: "main", order: [A], account: A, sessions: 0 }]);
+    expect(await slotsOf()).toEqual([{ name: "main", model: "fable", order: [A], account: A, sessions: 0 }]);
   });
 
   it("отказ лимита у аккаунта очереди: очередь переходит на следующего, оборванная сессия продолжает", async () => {
@@ -349,7 +349,7 @@ describe("accounts", () => {
         { id: "a@example.com", kind: "claude", email: "a@example.com", plan: "max", limits: [{ name: "five_hour", used: 0.5, resets: (at + 600) * 1000, at: at * 1000 }], at: at * 1000, ok: true, sessions: 0 },
         { id: "team-key", kind: "key", ok: true, sessions: 0, provider: "anthropic", models: { fast: "orca/flash" } },
       ],
-      slots: [{ name: "main", order: ["a@example.com"], account: "a@example.com", sessions: 0 }],
+      slots: [{ name: "main", model: "fable", order: ["a@example.com"], account: "a@example.com", sessions: 0 }],
     });
   });
 });

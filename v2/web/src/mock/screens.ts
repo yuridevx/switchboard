@@ -161,7 +161,7 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
     "slot.swap": (f) => {
       const m = c.mach(f);
       const q = c.need(slots[m].find((x) => x.name === f.slot), `очереди ${f.slot} на ${m} нет`);
-      const good = q.order.filter((id) => { const a = accounts[m].find((x) => x.id === id); return a?.ok && a.wait === undefined; });
+      const good = q.order.filter((id) => { const a = accounts[m].find((x) => x.id === id); return a?.ok; });
       const next = f.account ? (good.includes(f.account) ? f.account : undefined) : good[(good.indexOf(q.account ?? "") + 1) % Math.max(1, good.length)];
       if (!next || (!f.account && next === q.account)) throw new Refusal("no_reserve", f.account ? `${f.account}: вход не годен` : "в очереди нет другого вошедшего аккаунта ниже порога");
       q.account = next;

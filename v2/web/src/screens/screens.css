@@ -74,21 +74,6 @@
 .queue.logins { border-style: dashed; }
 
 /* лимиты аккаунта: окна в ряд — имя, полоска, процент, сброс; full — обычный вид, без него — компактный */
-.lims { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; font-size: 12px; font-variant-numeric: tabular-nums; min-width: 0; }
-.lim { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.lim b { font-weight: 600; }
-.lim-name, .lim-reset { color: var(--muted); }
-.lim-bar { display: inline-block; width: 28px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
-.lim-bar i { display: block; height: 100%; background: var(--st-idle); }
-.lim.orange .lim-bar i { background: var(--st-waiting); }
-.lim.red .lim-bar i { background: var(--st-failed); }
-.lim.orange b { color: var(--st-waiting); }
-.lim.red b { color: var(--st-failed); }
-.lims.full { gap: 2px 20px; font-size: 13px; }
-.lims.full .lim-bar { width: 72px; height: 6px; border-radius: 3px; }
-.lims.full .lim b { min-width: 2.6em; text-align: right; }
-@media (min-width: 701px) { .lims.full .lim { min-width: 285px; } }
-@media (max-width: 700px) { .lim-left { display: none; } .lims.full .lim-bar { width: 48px; } }
 /* аккаунт одной строкой */
 .acct { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; font-size: 13px; }
 .acct-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }

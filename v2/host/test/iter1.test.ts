@@ -291,7 +291,7 @@ describe("chat: строка и лента", () => {
 });
 
 describe("accounts", () => {
-  it("лимит исчерпан: у аккаунта и у сессии очереди — час сброса; «сменить сейчас» ставит названный аккаунт, без запаса — отказ", async () => {
+  it("лимит исчерпан: у очереди и у её сессии — час сброса; «сменить сейчас» ставит названный аккаунт, без запаса — отказ", async () => {
     const at = Math.floor(Date.now() / 1000);
     const home = homeWithAccounts(["a@example.com", "b@example.com"], {
       "a@example.com": { five_hour: { utilization: 1, resetsAt: at + 600, at } },
@@ -300,8 +300,9 @@ describe("accounts", () => {
     st = await stand({ home, modules: [accounts()] });
     st.services.handlers["keys.list"] = () => ({ keys: [] });
     const list = (await st.request("account.list", { to: "@laptop" })).result as any;
-    expect(list.accounts[0]).toMatchObject({ id: "a@example.com", wait: (at + 600) * 1000 });
-    expect(list.slots).toEqual([{ name: "main", order: ["a@example.com", "b@example.com"], account: "a@example.com", wait: (at + 600) * 1000, sessions: 0 }]);
+    // «ждёт сброса» — у очереди: годность аккаунта зависит от её вида
+    expect(list.accounts[0].wait).toBeUndefined();
+    expect(list.slots).toEqual([{ name: "main", model: "fable", order: ["a@example.com", "b@example.com"], account: "a@example.com", wait: (at + 600) * 1000, sessions: 0 }]);
     await st.open("site");
     expect(st.link.rows(CS).at(-1)!.row).toMatchObject({ account: "a@example.com", wait: (at + 600) * 1000 });
     expect(await st.request("slot.swap", { to: "@laptop", slot: "main" })).toMatchObject({ ok: false, error: "no_reserve" });

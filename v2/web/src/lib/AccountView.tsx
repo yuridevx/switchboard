@@ -1,7 +1,7 @@
-// Один вид аккаунта и его лимитов на всей странице: компактный — в строке очереди, обычный (full) — в списке аккаунтов.
+// Один вид аккаунта и его лимитов на всей странице: компактный — в строке очереди и у сессии, обычный (full) — в списке аккаунтов.
 import { IconCalendarWeek, IconSparkles } from "@tabler/icons-react";
-import { limitTone, limitWord, meterOf, slotModelWord, sortLimits, type LimitRow } from "./accounts.ts";
-import { hhmm, leftWord, limitName, resetWord, untilWord } from "./time.ts";
+import { limitTone, meterOf, slotModelWord, type LimitRow } from "./accounts.ts";
+import { leftWord, resetWord } from "./time.ts";
 
 /** Два лимита аккаунта двумя полосками: общая неделя и Fable; рядом — сколько осталось до недельного сброса.
  *  fableOff — очередь за лимитом Fable не следит: его строка приглушена. */
@@ -30,31 +30,6 @@ export function Meter({ limits, full, fableOff }: { limits: LimitRow[]; full?: b
   );
 }
 
-/** Окна лимитов в ряд: имя, полоска, процент, сброс. Компактный вид называет сброс только у окна под порогом; обычный — всегда, с остатком времени. */
-export function Limits({ limits, full }: { limits: LimitRow[]; full?: boolean }) {
-  if (!limits.length) return null;
-  const now = Date.now();
-  // замер старше часа называется один раз на аккаунт — самым старым
-  const old = Math.min(...limits.map((l) => l.at ?? now));
-  return (
-    <span className={full ? "lims full" : "lims"}>
-      {sortLimits(limits).map((l) => {
-        const tone = limitTone(l.used);
-        return (
-          <span key={l.name} className={`lim ${tone}`} title={`${limitName(l.name)}: ${limitWord(l, now)}`}>
-            <span className="lim-name">{limitName(l.name)}</span>
-            <span className="lim-bar" aria-hidden><i style={{ width: `${Math.min(100, Math.round(l.used * 100))}%` }} /></span>
-            <b>{Math.round(l.used * 100)}%</b>
-            {l.resets !== undefined && l.resets > now && (full || tone !== "teal") && <span className="lim-reset">до {resetWord(l.resets, now)}{full && <span className="lim-left"> · {untilWord(l.resets, now)}</span>}</span>}
-          </span>
-        );
-      })}
-      {full && now - old > 3_600_000 && <span className="lim-reset">замер {hhmm(old)}</span>}
-    </span>
-  );
-}
-
-/** Аккаунт одной строкой: имя, тариф (в обычном виде), лимиты, ожидание сброса, беда входа. name — узел имени: текст или кнопка. */
 /** Очередь одной строкой: имя, модель и аккаунт, который стоит сейчас, с его лимитами — тот же вид, что на странице аккаунтов. */
 export function SlotLine({ slot, account }: { slot: { name: string; model: string; account?: string; wait?: number }; account?: { limits?: LimitRow[]; ok: boolean; why?: string } }) {
   return (

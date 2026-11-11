@@ -1,12 +1,9 @@
 // Аккаунты: один аккаунт на нескольких машинах — одна строка; лимиты, пороги, ожидание сброса.
 import type { Account, Slot } from "@sb/protocol";
-import { hhmm, resetWord } from "./time.ts";
+import { hhmm } from "./time.ts";
 
 export type Seat = { machine: string; account: Account };
 export type LimitRow = { name: string; used: number; resets?: number; /** время замера: своё у окна, иначе общее у аккаунта */ at?: number };
-/** Порядок окон: 5 часов, неделя, недельные окна моделей. */
-export const sortLimits = <T extends { name: string }>(l: T[]): T[] => [...l].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
-const rank = (n: string) => (n === "five_hour" ? 0 : n === "seven_day" ? 1 : 2);
 export type Merged = {
   id: string; kind: Account["kind"]; email?: string; plan?: string;
   /** где этот аккаунт вошёл */
@@ -17,8 +14,6 @@ export type Merged = {
   ok: boolean;
   /** сколько сессий идёт на нём по всем машинам */
   sessions: number;
-  /** когда снова годен, если лимит исчерпан на всех машинах */
-  wait?: number;
 };
 
 /** Два окна, которые показывает страница: общая неделя и недельный лимит Fable. Остальные окна не показываются. */
@@ -30,6 +25,14 @@ export const slotModelWord = (model: string) => (model === "fable" ? "fable" : "
 const isFable = (id: string) => /fable/i.test(id);
 /** Модели, которые даёт выбрать очередь: fable — только Fable, остальные — всё, кроме Fable. Очереди нет (ключ флота) — список как есть. */
 export const slotModels = <T extends { value: string }>(slot: { model: string } | undefined, options: T[]): T[] => (slot ? options.filter((o) => isFable(o.value) === (slot.model === "fable")) : options);
+
+/** Правка документа при переходе сессии в очередь: модель, которой новая очередь не даёт, меняется на первую из её моделей — одним запросом с очередью. */
+export function slotPatch(slot: string, slots: Array<{ name: string; model: string }> | undefined, model: string | undefined, options: Array<{ value: string }>): { slot: string; model?: string } {
+  const q = slots?.find((x) => x.name === slot);
+  if (!q || !model || slotModels(q, [{ value: model }]).length) return { slot };
+  const first = slotModels(q, options)[0]?.value;
+  return first ? { slot, model: first } : { slot };
+}
 
 export const WARN = 0.7, BAD = 0.9;
 export const limitTone = (used: number): "teal" | "orange" | "red" => (used > BAD ? "red" : used > WARN ? "orange" : "teal");
@@ -55,10 +58,6 @@ export function mergeAccounts(byMachine: Record<string, Account[]>): Merged[] {
       }
       out.set(key, m);
     }
-  }
-  for (const m of out.values()) {
-    const waits = m.seats.map((s) => s.account.wait);
-    if (waits.length && waits.every((w) => w !== undefined)) m.wait = Math.min(...(waits as number[]));
   }
   return [...out.values()].sort((a, b) => Number(a.kind === "key") - Number(b.kind === "key") || Number(a.ok) - Number(b.ok) || (a.email ?? a.id).localeCompare(b.email ?? b.id));
 }
@@ -88,11 +87,6 @@ export function pollPlan(byMachine: Record<string, Array<{ kind: string; email?:
   }
   return plan;
 }
-
-/** Подпись окна лимита: «46% · до 14:30» (сброс не сегодня — «до чт 14:30»); значение старше часа подписано временем замера — «от 09:12». */
-export const STALE_MS = 3_600_000;
-export const limitWord = (l: { used: number; resets?: number; at?: number }, now = Date.now()) =>
-  `${Math.round(l.used * 100)}%${l.resets ? ` · до ${resetWord(l.resets, now)}` : ""}${l.at !== undefined && now - l.at > STALE_MS ? ` · от ${hhmm(l.at)}` : ""}`;
 
 /** Машины говорят об аккаунте разное: тариф или час сброса окна расходятся больше чем на минуту. Ответ — что говорит каждая. */
 export function diverge(m: Merged): string[] {

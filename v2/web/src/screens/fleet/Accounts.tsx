@@ -140,7 +140,6 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
       <div ref={box} className="dragbox queues">
         {drag.line !== null && <div className="dragline" style={{ top: drag.line, ...(drag.span ? { left: drag.span.left, width: drag.span.width, right: "auto" } : {}) }} />}
         {slots.map((q) => {
-          const others = q.order.filter((m) => m !== q.account && byId[m]?.ok && byId[m]?.wait === undefined).length;
           return (
             <div key={q.name} className="queue" data-drop-group={q.name} data-queue={q.name}>
               <div className="queue-head">
@@ -155,7 +154,7 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
                     <Menu.Dropdown>{logins.filter((x) => x.ok && !q.order.includes(x.id)).map((x) => <Menu.Item key={x.id} onClick={() => void apply(queueMove(slots, null, q.name, x.id, null))}>{x.email ?? x.id}</Menu.Item>)}</Menu.Dropdown>
                   </Menu>
                 )}
-                {others > 0 && <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Сменить сейчас: ${q.name}`} title="Сменить сейчас" onClick={() => void swap(q.name)}><IconPlayerSkipForward size={14} /></ActionIcon>}
+                {q.order.length > 1 && <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Сменить сейчас: ${q.name}`} title="Сменить сейчас" onClick={() => void swap(q.name)}><IconPlayerSkipForward size={14} /></ActionIcon>}
                 <ActionIcon variant="subtle" color="red" size="sm" disabled={q.sessions > 0} title={q.sessions > 0 ? "На очереди идут сессии" : "Удалить очередь"} aria-label={`Удалить очередь ${q.name}`}
                   onClick={() => confirmDanger({ title: `Удалить очередь ${q.name} на ${machine}?`, body: "Входы аккаунтов останутся на машине.", confirm: "Удалить", onConfirm: async () => (await act(slotSet, { to: "@" + machine, slot: q.name, order: [] }, "Очередь удалена")) && refresh() })}><IconTrash size={14} /></ActionIcon>
               </div>

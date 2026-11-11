@@ -429,9 +429,10 @@ export function createMock(o: MockOptions = {}) {
     "session.update": (f) => {
       const { c, s } = sess(f);
       const patch = { ...f.patch };
-      // очередь диктует модель: при переходе в очередь другого вида модель встаёт на её — Fable или Opus
-      const toSlot = patch.slot ? slots[machineOf(c) ?? ""]?.find((q) => q.name === patch.slot) : undefined;
-      if (toSlot && /fable/.test(patch.model ?? s.spec.model ?? "") !== (toSlot.model === "fable")) patch.model = toSlot.model === "fable" ? "claude-fable-5-2" : "claude-opus-5-5";
+      // как Host: очередь диктует модель — чужая отказывается словом
+      const inSlot = slots[machineOf(c) ?? ""]?.find((q) => q.name === (patch.slot ?? s.spec.slot));
+      const model = patch.model ?? s.spec.model;
+      if (inSlot && model && /fable/.test(model) !== (inSlot.model === "fable")) throw new Refusal("model_not_in_slot", inSlot.model === "fable" ? `очередь ${inSlot.name} — только для Fable` : `очередь ${inSlot.name} — для моделей, кроме Fable`);
       let wing: string | undefined;
       if (patch.wing === null) {
         const was = s.spec.wing;

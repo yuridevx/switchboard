@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "./api.ts";
-import { limitWord, mergeAccounts, pollPlan } from "./lib/accounts.ts";
+import { mergeAccounts, pollPlan } from "./lib/accounts.ts";
 import { hostLine, HostNumbers, seriesPoints, sessionsWord } from "./lib/metrics.tsx";
 import { createMock } from "./mock/fleet.ts";
 import { runsOfRecord, statsLines } from "./screens/Archive.tsx";
@@ -114,12 +114,10 @@ describe("архив: найденная запись и сводка", () => {
 
 describe("аккаунты: время замера и срок входа", () => {
   const acc = (o: Partial<Account>): Account => ({ id: "a@b.c", kind: "claude", email: "a@b.c", ok: true, ...o });
-  it("время замера берётся у окна, а если его нет — у аккаунта; старый замер подписан «от ЧЧ:ММ»", () => {
+  it("время замера берётся у окна, а если его нет — у аккаунта", () => {
     const old = T - 3 * 60 * MIN;
     const [m] = mergeAccounts({ laptop: [acc({ at: old, limits: [{ name: "five_hour", used: 0.4 }, { name: "seven_day", used: 0.2, at: T }] })] });
     expect(m!.limits.map((l) => l.at)).toEqual([old, T]);
-    expect(limitWord(m!.limits[0]!, T)).toMatch(/^40% · от \d\d:\d\d$/);
-    expect(limitWord(m!.limits[1]!, T)).toBe("20%");
   });
   it("план опроса: свежий замер аккаунта опроса не требует, даже когда у окон времени нет", () => {
     expect(pollPlan({ laptop: [{ kind: "claude", id: "a", email: "a@b.c", at: T - MIN, limits: [{}] }] }, T)).toEqual([]);

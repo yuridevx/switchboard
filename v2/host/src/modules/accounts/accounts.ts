@@ -6,13 +6,13 @@ import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { keysList, keysValue, ledgerAdd, READ_MS, Refusal, within, type Account as AccountOut, type Slot as SlotOut } from "@sb/protocol";
 import type { HostApi, Module, SessionApi } from "../../core/contract.ts";
-import type { Account } from "./limits.ts";
-import { nextUp, over, shown, stale, usable, usableAt } from "./limits.ts";
+import type { Account, SlotModel } from "./limits.ts";
+import { DEFAULT_MODEL, fits, nextUp, over, shown, stale, usable, usableAt, watched } from "./limits.ts";
 import { envOf, folders, type Folders } from "./links.ts";
 import { signin, type SignedIn } from "./signin.ts";
 
-/** slots — очереди: имя → порядок аккаунтов; очередь есть, пока в ней есть аккаунт. */
-type Book = { accounts: Record<string, Account>; slots: Record<string, string[]> };
+/** slots — очереди: имя → порядок аккаунтов; очередь есть, пока в ней есть аккаунт. models — вид очереди; не назван — fable. */
+type Book = { accounts: Record<string, Account>; slots: Record<string, string[]>; models?: Record<string, SlotModel> };
 /** Настройки ключа флота без значения: models — имена моделей claude → модели провайдера; window — окно контекста, токены;
  *  env — окружение сессии; settings — настройки Claude. */
 type KeyConfig = { provider: string; base?: string; model?: string; models?: Record<string, string>; window?: number; env?: Record<string, string>; settings?: Record<string, unknown> };
@@ -41,7 +41,7 @@ const POLL_MS = READ_MS - 2_000;
 /** Один аккаунт на разных машинах: 17:59:59 и 18:00:00. */
 const RESET_DRIFT_S = 2;
 const CONTINUE = "Продолжай";
-const WINDOW_NAMES: Record<string, string> = { five_hour: "5 ч", seven_day: "нед." };
+const WINDOW_NAMES: Record<string, string> = { five_hour: "5 ч", seven_day: "нед.", seven_day_overage_included: "Fable" };
 const ANTHROPIC = "https://api.anthropic.com";
 /** Слово вместо ключа в окружении сессии на ключе флота: сам ключ ставит прокси. */
 const KEY_WORD = "fleet";
@@ -64,6 +64,8 @@ export function make(): Module {
   const polls = new Set<{ close(): void }>();
   /** идущие опросы лимитов: один на аккаунт, второй спросивший ждёт тот же */
   const polling = new Map<string, Promise<void>>();
+  /** сессии, чей отказ в этом ходе назвал окно, за которым их очередь не следит: аккаунт из-за него не меняется */
+  const foreign = new Set<string>();
   let auth: ReturnType<typeof signin>;
 
   const shelf = () => host.store<Book>();
@@ -71,6 +73,8 @@ export function make(): Module {
   const write = (fn: (b: Book) => void) => void shelf().update((b = { accounts: {}, slots: {} }) => (fn(b), b));
   const seatOf = (s: SessionApi) => s.store<Seat>();
   const slotNames = () => Object.keys(book().slots);
+  /** Вид очереди: какие модели идут в ней и за каким лимитом она следит. */
+  const modelOf = (slot: string): SlotModel => book().models?.[slot] ?? "fable";
   /** Кто стоит в очереди сейчас. */
   const current = (slot: string) => dirs.inSlot(slot);
   /** Очередь сессии: имя из её документа, если такая очередь есть на машине; иначе это ключ флота. Имя сначала ищется среди очередей. */
@@ -100,8 +104,9 @@ export function make(): Module {
     const order = slots[slot] ?? [];
     const cur = current(slot);
     const t = now();
-    if (!cur || !accounts[cur] || usable(accounts[cur], t) || nextUp(order, accounts, t, cur)) return null;
-    const times = order.filter((n) => accounts[n]?.login === "ok").map((n) => usableAt(accounts[n]!, t)).filter(Boolean);
+    const model = modelOf(slot);
+    if (!cur || !accounts[cur] || usable(accounts[cur], model, t) || nextUp(order, accounts, model, t, cur)) return null;
+    const times = order.filter((n) => accounts[n]?.login === "ok").map((n) => usableAt(accounts[n]!, model, t)).filter(Boolean);
     return times.length ? Math.min(...times) : null;
   }
 
@@ -179,19 +184,21 @@ export function make(): Module {
   /** Кого поставить в очередь: по её порядку, окна свежие у Claude; у порога — следующий. */
   async function reserve(slot: string, from: string | null): Promise<string | null> {
     for (const name of book().slots[slot] ?? []) {
-      if (name === from || !usable(book().accounts[name], now())) continue;
+      if (name === from || !usable(book().accounts[name], modelOf(slot), now())) continue;
       if (stale(book().accounts[name]!, FRESH_S, now())) await poll(name);
-      if (usable(book().accounts[name], now())) return name;
+      if (usable(book().accounts[name], modelOf(slot), now())) return name;
     }
     return null;
   }
 
   /** Подмена без человека: порог или отказ модели. Смена в каждой очереди, где аккаунт стоит сейчас, — свой шаг линии;
    *  шаг сначала смотрит, стоит ли очередь всё ещё на нём: о пороге говорят сессии всех очередей, а меняется каждая один раз. */
-  function swapFrom(from: string, why: string): void {
+  function swapFrom(from: string, why: string, told?: string): void {
     for (const slot of slotNames().filter((n) => current(n) === from)) {
       background(async () => {
         if (current(slot) !== from) return;
+        // told — очередь, чьей сессии Claude отказал; остальные меняются, только если аккаунт не годен их виду
+        if (slot !== told && usable(book().accounts[from], modelOf(slot), now())) return;
         const to = await reserve(slot, from);
         if (!to) {
           const w = waitAt(slot);
@@ -233,7 +240,7 @@ export function make(): Module {
   async function reset(slot: string): Promise<void> {
     if (!book().slots[slot]) return;
     const cur = current(slot);
-    if (cur && usable(book().accounts[cur], now())) {
+    if (cur && usable(book().accounts[cur], modelOf(slot), now())) {
       host.log.info("account_reset", { why: `очередь ${slot}: сброс ${cur} — продолжаю` });
       return settled(slot, true);
     }
@@ -267,10 +274,19 @@ export function make(): Module {
       host.log.info("account_late", { callsign: s.callsign, why: `поздний ответ ${owner}` });
       return plan();
     }
+    const model = modelOf(slot);
+    if (!watched(model, type)) {
+      // окно не её: число записано, аккаунт не меняется; отказ сессия видит словами
+      if (rejected) {
+        foreign.add(s.callsign);
+        seatOf(s).update((x) => ({ ...x, cut: undefined }));
+      }
+      return plan();
+    }
     if (rejected) seatOf(s).update((x) => ({ ...x, cut: cur }));
     const a = book().accounts[cur];
-    if (rejected) swapFrom(cur, "отказ");
-    else if (a && over(a, at)) swapFrom(cur, `${WINDOW_NAMES[type] ?? type} ${Math.round(utilization * 100)} %`);
+    if (rejected) swapFrom(cur, "отказ", slot);
+    else if (a && over(a, model, at)) swapFrom(cur, `${WINDOW_NAMES[type] ?? type} ${Math.round(utilization * 100)} %`);
     plan();
   }
 
@@ -312,8 +328,13 @@ export function make(): Module {
     if (a.login !== "ok") throw new Refusal("not_logged_in", `${email}: входа нет`);
   }
 
+  const dropSlot = (b: Book, slot: string) => {
+    delete b.slots[slot];
+    delete b.models?.[slot];
+  };
+
   /** Завести, изменить, удалить очередь: имени нет — заводится; пустой порядок удаляет очередь без сессий. */
-  async function slotSet(slot: string, order: string[]): Promise<void> {
+  async function slotSet(slot: string, order: string[], model?: SlotModel): Promise<void> {
     if (!SLOT_NAME.test(slot)) throw new Refusal("bad_input", `имя очереди ${JSON.stringify(slot)}: латиница, цифры, «-» и «_»`);
     const { accounts } = book();
     const ghost = order.find((n) => !accounts[n]);
@@ -321,8 +342,15 @@ export function make(): Module {
     if (!order.length) {
       if (queued(slot).length) throw new Refusal("has_sessions", `на очереди ${slot} есть сессии: ${queued(slot).map((s) => s.callsign).join(", ")}`);
       await dirs.unplace(slot);
-      write((b) => void delete b.slots[slot]);
+      write((b) => dropSlot(b, slot));
       return plan();
+    }
+    // вид: назван — он; у новой очереди не назван — fable; у существующей — прежний
+    const was = book().slots[slot] ? modelOf(slot) : undefined;
+    const next = model ?? was ?? "fable";
+    if (was && next !== was) {
+      const alien = queued(slot).filter((s) => s.spec.model && !fits(next, s.spec.model));
+      if (alien.length) throw new Refusal("has_sessions", `на очереди ${slot} сессии с моделью другого вида: ${alien.map((s) => `${s.callsign} (${s.spec.model})`).join(", ")} — сначала смените им модель или очередь`);
     }
     const cur = current(slot);
     if (!cur || !order.includes(cur)) {
@@ -330,7 +358,18 @@ export function make(): Module {
       if (!first) throw new Refusal("no_reserve", "в порядке нет вошедшего аккаунта");
       await put(slot, first, cur ? "новый порядок" : "новая очередь");
     }
-    write((b) => void (b.slots[slot] = order));
+    write((b) => {
+      b.slots[slot] = order;
+      (b.models ??= {})[slot] = next;
+    });
+    // новому виду аккаунт может быть не годен: очередь сразу идёт на следующего
+    const stays = current(slot);
+    if (stays && !usable(book().accounts[stays], next, now())) {
+      const to = await reserve(slot, stays);
+      if (to) await put(slot, to, "вид очереди");
+    }
+    // сессии без своей модели идут на модели очереди: новая вступает в силу с новым процессом
+    if (was && next !== was) for (const s of queued(slot)) if (!s.spec.model && s.state !== "stopped" && s.state !== "failed") void s.restart();
     settled(slot);
   }
 
@@ -354,7 +393,7 @@ export function make(): Module {
       write((b) => {
         const rest = b.slots[slot]!.filter((n) => n !== name);
         if (rest.length) b.slots[slot] = rest;
-        else delete b.slots[slot];
+        else dropSlot(b, slot);
       });
       if (book().slots[slot]) settled(slot);
       else await dirs.unplace(slot);
@@ -392,7 +431,6 @@ export function make(): Module {
   const measured = (a: Account) => Math.max(0, ...Object.values(a.limits).map((w) => w.at ?? 0));
 
   function rowOf(name: string, a: Account, t: number): AccountOut {
-    const back = a.login === "ok" && !usable(a, t) ? usableAt(a, t) : 0;
     // сколько сессий идёт на аккаунте сейчас — по всем очередям, где он стоит
     const sessions = host.sessions().filter((s) => { const slot = slotOf(s); return !!slot && current(slot) === name; }).length;
     return {
@@ -400,7 +438,6 @@ export function make(): Module {
       limits: Object.entries(shown(a, t).limits).map(([w, v]) => ({ name: w, used: v.utilization, ...(v.resetsAt ? { resets: v.resetsAt * 1000 } : {}), ...(v.at ? { at: v.at * 1000 } : {}) })),
       ...(measured(a) ? { at: measured(a) * 1000 } : {}), ...(a.expires ? { expires: a.expires * 1000 } : {}),
       ok: a.login === "ok", ...(a.login === "ok" ? {} : { why: "входа нет" }), sessions,
-      ...(back ? { wait: back * 1000 } : {}),
     };
   }
 
@@ -408,7 +445,7 @@ export function make(): Module {
   function slotRow(name: string): SlotOut {
     const account = current(name);
     const wait = waitAt(name);
-    return { name, order: book().slots[name]!, ...(account ? { account } : {}), ...(wait ? { wait: wait * 1000 } : {}), sessions: queued(name).length };
+    return { name, model: modelOf(name), order: book().slots[name]!, ...(account ? { account } : {}), ...(wait ? { wait: wait * 1000 } : {}), sessions: queued(name).length };
   }
 
   /** Ключ флота с таким именем есть; ни очереди, ни ключа — отказ no_slot с очередями машины. */
@@ -437,6 +474,14 @@ export function make(): Module {
         await keyOf(name);
       },
     },
+    /** Очередь диктует выбор модели: в fable — только Fable, в остальных — всё, кроме Fable. */
+    doc(spec) {
+      const name = spec.slot;
+      if (!name || !spec.model || !book().slots[name]) return;
+      const model = modelOf(name);
+      if (fits(model, spec.model)) return;
+      throw new Refusal("model_not_in_slot", model === "fable" ? `очередь ${name} — только для Fable: модель ${spec.model} идёт в очереди для остальных моделей; ${slotsWord()}` : `очередь ${name} — для моделей, кроме Fable: ${spec.model} идёт в очереди вида fable; ${slotsWord()}`);
+    },
     fill: {
       /** Очередь не названа: на машине одна — в неё, и её имя встаёт в документ; несколько — назвать; ни одной — входа нет. */
       slot() {
@@ -459,7 +504,8 @@ export function make(): Module {
       if (!name) throw new Refusal("no_slot", `у ${s.callsign} не названа очередь; ${slotsWord()}`);
       if (slotOf(s)) {
         if (!current(name)) throw new Refusal("not_logged_in", `очередь ${name} на ${host.machine} пуста: поставьте в неё аккаунт`);
-        return { env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: dirs.slotDir(name) } };
+        // модель не задана — модель очереди: Fable в fable, Opus в остальных
+        return { env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: dirs.slotDir(name), ...(s.spec.model ? {} : { ANTHROPIC_MODEL: DEFAULT_MODEL[modelOf(name)] }) } };
       }
       let config = seatOf(s).get()?.key;
       if (!config) {
@@ -489,10 +535,11 @@ export function make(): Module {
         if (!cur) return;
         const msg = m as { type: string; error?: string; rate_limit_info?: Parameters<typeof limitEvent>[3] };
         if (msg.type === "rate_limit_event" && msg.rate_limit_info) limitEvent(s, slot, cur, msg.rate_limit_info);
-        if (msg.type === "assistant" && msg.error === "rate_limit" && !seatOf(s).get()?.cut) seatOf(s).update((x) => ({ ...x, cut: cur }));
+        if (msg.type === "assistant" && msg.error === "rate_limit" && !foreign.has(s.callsign) && !seatOf(s).get()?.cut) seatOf(s).update((x) => ({ ...x, cut: cur }));
+        if (msg.type !== "result") return;
         const cut = seatOf(s).get()?.cut;
         // отказ без события лимита: подмена на конце хода
-        if (msg.type === "result" && cut && cut === current(slot)) swapFrom(cut, "отказ");
+        if (!foreign.delete(s.callsign) && cut && cut === current(slot)) swapFrom(cut, "отказ", slot);
       },
       state(s, state) {
         if (state === "idle") resume(s);
@@ -526,8 +573,8 @@ export function make(): Module {
         await serial(() => accountRemove(account));
         return {};
       },
-      async "slot.set"({ slot, order }: { slot: string; order: string[] }) {
-        await serial(() => slotSet(slot, order));
+      async "slot.set"({ slot, order, model }: { slot: string; order: string[]; model?: SlotModel }) {
+        await serial(() => slotSet(slot, order, model));
         return {};
       },
       async "slot.swap"({ slot, account }: { slot: string; account?: string }) {

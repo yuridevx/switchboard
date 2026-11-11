@@ -163,8 +163,8 @@ describe("мок флота", () => {
   it("записи видны сразу: документ сессии, проект человека, настройка заплаткой, приглашение и отзыв, сборка", async () => {
     const m = quiet();
     const api = createApi(m.transport);
-    await api.call(sessionUpdate, { to: "site@laptop", patch: { model: "claude-sonnet-5-5" } });
-    expect(m.state.sessions["site@laptop"].spec.model).toBe("claude-sonnet-5-5");
+    await api.call(sessionUpdate, { to: "site@laptop", patch: { effort: "low" } });
+    expect(m.state.sessions["site@laptop"].spec.effort).toBe("low");
     await api.call(peopleSet, { person: "~oleg@example.com", projects: ["infra", "site"] });
     expect((await api.call(peopleList, {})).projects.find((p) => p.id === "site")!.members).toContain("~oleg@example.com");
     await api.call(prefsSet, { scope: "fleet", name: "labels", patch: { "docs@laptop": "Документация", "site@laptop": null } });

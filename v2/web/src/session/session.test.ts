@@ -222,11 +222,11 @@ describe("мок отвечает в формах Host", () => {
     for (let i = 0; i < 260; i++) await api.call(message, { to: "site@laptop", text: "ещё " + i });
     expect((await api.call(sessionWatch, { to: "site@laptop", after: 0 })).gap).toBe(true);
   });
-  it("документ: посреди хода модель применится после хода, проект — сразу; пара открывает ведомого и снимается", async () => {
+  it("документ: посреди хода усилие применится после хода, проект — сразу; пара открывает ведомого и снимается", async () => {
     const m = quiet();
     const api = createApi(m.transport);
-    expect(await api.call(sessionUpdate, { to: "site@laptop", patch: { model: "claude-sonnet-5-5", project: "infra" } })).toMatchObject({ now: ["project"], later: ["model"] });
-    expect(await api.call(sessionUpdate, { to: "docs@laptop", patch: { model: "claude-sonnet-5-5" } })).toMatchObject({ now: ["model"], later: [] });
+    expect(await api.call(sessionUpdate, { to: "site@laptop", patch: { effort: "low", project: "infra" } })).toMatchObject({ now: ["project"], later: ["effort"] });
+    expect(await api.call(sessionUpdate, { to: "docs@laptop", patch: { effort: "low" } })).toMatchObject({ now: ["effort"], later: [] });
     const opened = await api.call(sessionOpen, { to: "@laptop", spec: { name: "duo", cwd: "~/projects/duo" }, pair: true, mkdir: true });
     expect(opened).toEqual({ callsign: "duo@laptop", wing: "duo-wing@laptop" });
     expect(m.state.sessions["duo-wing@laptop"]).toMatchObject({ lead: "duo@laptop", by: "duo@laptop" });

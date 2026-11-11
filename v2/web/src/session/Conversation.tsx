@@ -60,7 +60,7 @@ function DocValues({ s, running }: { s: SessionRow; running?: string }) {
       <Chip label="Режим" value={s.spec.mode ?? "all"} options={MODES} onPick={(mode) => patchDoc(s, { mode: mode as never })} />
       {on("model") && <Chip label="Модель" value={d.model.value} word={d.model.label} options={d.models.map((m) => [m.value, m.label] as const)} later={d.later.includes("model")} onPick={(model) => patchDoc(s, { model })} />}
       {on("effort") && <Chip label="Усилие" value={s.spec.effort} word={s.spec.effort ? undefined : "усилие модели"} options={d.efforts} later={d.later.includes("effort")} onPick={(effort) => patchDoc(s, { effort: effort as never })} />}
-      {on("account") && <Chip label="Очередь" value={s.spec.slot} options={d.accountOptions} render={d.slotLine} later={d.later.includes("slot")} onPick={(slot) => patchDoc(s, { slot })} />}
+      {on("account") && <Chip label="Очередь" value={s.spec.slot} options={d.accountOptions} render={d.slotLine} later={d.later.includes("slot")} onPick={(slot) => patchDoc(s, d.toSlot(slot))} />}
       {on("pieces") && <button type="button" className="docval" aria-label="Кусочки" title="Кусочки" onClick={() => setPiecesOpen(true)}>{picked.length ? picked.map(d.title).join(" + ") : "без кусочков"}<AfterTurn on={d.later.includes("pieces")} /></button>}
       {on("machine") && <Link className="docval" to={`/machine/${machineOfCall(s.callsign)}`} title="Машина">{machineName(machineOfCall(s.callsign))}</Link>}
       {on("owner") && <span className="docval still" title="Открыл">{personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</span>}

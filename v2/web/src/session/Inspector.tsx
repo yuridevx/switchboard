@@ -10,7 +10,7 @@ import { CONTEXT_PARTS, STATUS_LABELS } from "../chat/words.ts";
 import type { View } from "../chat/fold.ts";
 import { accountWord, AfterTurn, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels, useWide } from "../common.tsx";
 import { Sortable } from "../lib/Sortable.tsx";
-import { Limits, Meter } from "../lib/AccountView.tsx";
+import { Meter } from "../lib/AccountView.tsx";
 import { ago, bytesWord, count, day, duration, hhmm, kilo, nPoints, nTurns } from "../lib/time.ts";
 import { DeleteTyped } from "../lib/DeleteTyped.tsx";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
@@ -139,14 +139,12 @@ function Context({ s }: { s: SessionRow }) {
       )}
       <Section title="Расход" q={usage}>
         {(x) => {
-          const windows = Object.entries((x.rate_limits ?? {}) as Record<string, Any | null>).filter(([, w]) => w && w.utilization != null);
           const ses = x.session;
           return (
             <Stack gap={6}>
             <dl className="kv">
               {ses && <><dt>Этот запуск</dt><dd>${Number(ses.total_cost_usd ?? 0).toFixed(2).replace(".", ",")}</dd><dt>Время API</dt><dd>{duration(ses.total_api_duration_ms ?? 0)}</dd><dt>Строки</dt><dd className="stat-pm"><b className="plus">+{ses.total_lines_added ?? 0}</b> <b className="minus">−{ses.total_lines_removed ?? 0}</b></dd></>}
             </dl>
-            <Limits full limits={windows.map(([name, w]) => ({ name, used: Number(w!.utilization) / 100, ...(w!.resets_at ? { resets: Date.parse(w!.resets_at) } : {}) }))} />
             </Stack>
           );
         }}

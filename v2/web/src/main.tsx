@@ -79,8 +79,6 @@ window.addEventListener("unhandledrejection", (e) => report(String(e.reason?.mes
 
 // тестовая выкладка: комментарии к элементам страницы (Ctrl+C), пачкой — в журнал флота
 if (import.meta.env.VITE_COMMENTS && !isMock) void import("./lib/comments.ts").then((m) => m.startComments((def, input) => api.call(def, input)));
-// прототип на моке: пачка комментариев уходит серверу разработки, а не в журнал поддельного флота
-if (import.meta.env.VITE_COMMENTS && isMock) void import("./lib/comments.ts").then((m) => m.startComments(async (_def, input) => { const r = await fetch("/__comments", { method: "POST", body: JSON.stringify(input) }); if (!r.ok) throw new Error("сервер прототипа не принял комментарии: " + r.status); return {} as never; }));
 
 /** Экран согласия внешнего клиента живёт по пути /consent, а не в маршрутах после #. */
 const isConsent = location.pathname.replace(/\/+$/, "") === "/consent";

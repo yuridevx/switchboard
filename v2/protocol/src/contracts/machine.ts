@@ -18,8 +18,6 @@ export const Account = z.object({
   ok: z.boolean(),
   why: z.string().optional(),
   sessions: z.number().optional(),
-  /** лимит исчерпан: когда аккаунт снова годен, мс */
-  wait: z.number().optional(),
   /** у ключа флота: провайдер, адрес, модель по умолчанию */
   provider: z.string().optional(),
   base: z.string().optional(),

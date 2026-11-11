@@ -477,6 +477,8 @@ export class Kernel {
       if (!owner) throw new Refusal("bad_spec", `ключ ${key}: хозяина нет на этой машине`);
       await owner.spec![key]!(value, s ? s.facade(owner) : null);
     }
+    const whole = { ...s?.rec.spec, ...patch } as Spec;
+    for (const m of this.mods) await m.doc?.(whole);
   }
 
   folder(cwd: string): string {
