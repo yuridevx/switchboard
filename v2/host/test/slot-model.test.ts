@@ -80,6 +80,11 @@ describe("очереди по модели", () => {
     expect(await st.request("session.update", { to: "docs@laptop", patch: { slot: "main" } })).toMatchObject({ ok: false, error: "model_not_in_slot" });
     expect(s.rec.spec).toMatchObject({ slot: "rest", model: "claude-sonnet-5-5" });
     expect(await st.request("slot.set", { to: "@laptop", slot: "rest", model: "fable", order: [A] })).toMatchObject({ ok: false, error: "has_sessions", why: expect.stringMatching(/docs@laptop/) });
+    // прочие ключи документа правятся и у сессии, чья модель очереди уже не подходит
+    st.kernel.disk.section<any>("host-accounts").update((b: any) => ({ ...b, models: { ...b.models, rest: "fable" } }));
+    expect((await st.request("session.update", { to: "docs@laptop", patch: { effort: "low" } })).ok).toBe(true);
+    expect(await st.request("session.update", { to: "docs@laptop", patch: { model: "claude-haiku-5-5" } })).toMatchObject({ ok: false, error: "model_not_in_slot" });
+    st.kernel.disk.section<any>("host-accounts").update((b: any) => ({ ...b, models: { ...b.models, rest: "other" } }));
     // очередь и модель одним запросом — можно
     expect((await st.request("session.update", { to: "docs@laptop", patch: { slot: "main", model: "claude-fable-5-2" } })).ok).toBe(true);
   });

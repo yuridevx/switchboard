@@ -478,7 +478,8 @@ export class Kernel {
       await owner.spec![key]!(value, s ? s.facade(owner) : null);
     }
     const whole = { ...s?.rec.spec, ...patch } as Spec;
-    for (const m of this.mods) await m.doc?.(whole);
+    const keys = Object.keys(patch).filter((key) => patch[key] !== undefined);
+    for (const m of this.mods) await m.doc?.(whole, keys);
   }
 
   folder(cwd: string): string {

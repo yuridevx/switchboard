@@ -474,9 +474,10 @@ export function make(): Module {
         await keyOf(name);
       },
     },
-    /** Очередь диктует выбор модели: в fable — только Fable, в остальных — всё, кроме Fable. */
-    doc(spec) {
+    /** Очередь диктует выбор модели: в fable — только Fable, в остальных — всё, кроме Fable. Проверяется, когда меняется очередь или модель. */
+    doc(spec, keys) {
       const name = spec.slot;
+      if (!keys.includes("slot") && !keys.includes("model")) return;
       if (!name || !spec.model || !book().slots[name]) return;
       const model = modelOf(name);
       if (fits(model, spec.model)) return;
