@@ -60,8 +60,7 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
     p.online = !p.wait && (p.addr.startsWith("@") ? online(p.addr.slice(1)) : p.addr === MY_ADDR || (p.seen ?? 0) > T - 30 * MIN);
   }
   const devicesOf = (person: string) => passes.filter((p) => p.person === person).map((p) => ({ kid: p.kid, addr: p.addr, wait: p.wait, online: !!p.online, at: p.at, ...(p.seen ? { seen: p.seen } : {}) }));
-  accounts.laptop[1] = { ...accounts.laptop[1], wait: T + 2 * HOUR };
-  accounts.server.push({ id: "night@example.com", kind: "claude", email: "night@example.com", plan: "Max 5x", limits: [{ name: "five_hour", used: 0.02, resets: T + 4 * HOUR }, { name: "seven_day", used: 0.11, resets: T + 5 * DAY }], ok: true, sessions: 0 });
+  accounts.server.push({ id: "night@example.com", kind: "claude", email: "night@example.com", plan: "Max 5x", limits: [{ name: "seven_day", used: 0.11, resets: T + 5 * DAY }], ok: true, sessions: 0 });
   for (const list of Object.values(accounts)) for (const a of list) if (a.kind === "key") Object.assign(a, { provider: "openai-compatible", base: "https://api.orca.example/v1", model: "glm-abliterated" });
   Object.assign(keys[0], { models: { "claude-fable-5-2": "glm-5.3", "claude-haiku-5-5": "glm-5.3-flash" }, window: 128_000, env: { DISABLE_TELEMETRY: "1" }, sessions: 0 });
   Object.assign(keys[1], { sessions: 1 });
@@ -151,10 +150,11 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
         if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) throw new Refusal("bad_input", "имя очереди — латиница, цифры, дефис");
         if (keys.some((k) => k.name === name)) throw new Refusal("name_taken", `${name}: так зовут ключ флота`);
         if (!order.some(ok)) throw new Refusal("no_reserve", "в порядке нет вошедшего аккаунта");
-        slots[m].push({ name, order, account: order.find(ok), sessions: 0 });
+        slots[m].push({ name, model: f.model ?? "fable", order, account: order.find(ok), sessions: 0 });
         return {};
       }
       q.order = order;
+      if (f.model) q.model = f.model;
       if (!q.account || !order.includes(q.account)) q.account = order.find(ok);
       return {};
     },

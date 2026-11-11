@@ -1,9 +1,9 @@
 // «Флот → Аккаунты»: аккаунты Claude одной строкой на все машины с лимитами; машины строками, очереди аккаунтов машины — колонками; ключи флота.
 import { accountCode, accountList, accountLogin, accountRemove, keyCheck, keysList, keysRemove, keysSet, slotSet, slotSwap, type Account, type KeyRow, type Slot } from "@sb/protocol";
-import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, JsonInput, Menu, NumberInput, PasswordInput, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
+import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, JsonInput, Menu, NumberInput, PasswordInput, SegmentedControl, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { Page } from "../../shell/Page.tsx";
 import { notifications } from "@mantine/notifications";
-import { IconDots, IconGripVertical, IconX } from "@tabler/icons-react";
+import { IconDots, IconGripVertical, IconPlayerSkipForward, IconTrash, IconX } from "@tabler/icons-react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { act, api } from "../../api.ts";
@@ -61,7 +61,7 @@ function MergedRow({ m, marked, onMark, picked, onPick }: { m: Merged; marked: b
     <div className={`line${marked ? " marked" : ""}`} style={{ padding: "5px 0" }}>
       <Checkbox aria-label={`Выбрать ${m.email ?? m.id}`} checked={picked} onChange={(e) => onPick(e.currentTarget.checked)} />
       <div className="grow">
-        <AccountView full name={<button type="button" className="linklike" aria-pressed={marked} onClick={onMark}>{m.email ?? m.id}</button>} plan={m.plan} limits={m.limits} wait={m.wait}>
+        <AccountView full name={<button type="button" className="linklike" aria-pressed={marked} onClick={onMark}>{m.email ?? m.id}</button>} plan={m.plan} limits={m.limits}>
           {split.length > 0 && <button type="button" className="warnmark" aria-expanded={why} aria-label="Машины говорят разное" onClick={() => setWhy(!why)}>⚠</button>}
           {m.sessions > 0 && <Text size="xs" className="muted">{nSessions(m.sessions)}</Text>}
           <span className="seats">{m.seats.map((s) => <Badge key={s.machine} size="sm" variant={s.account.ok ? "default" : "light"} color={s.account.ok ? undefined : "red"} title={s.account.why}>{nameOf(s.machine)}{s.account.ok ? "" : " ⚠ " + (s.account.why ?? "вход не годен")}</Badge>)}</span>
@@ -74,6 +74,7 @@ function MergedRow({ m, marked, onMark, picked, onPick }: { m: Merged; marked: b
 
 /** Группа входов в коробке перетаскивания: строка, брошенная сюда, уходит из своей очереди. */
 const LOGINS = "~входы";
+const MODELS = ["fable", "opus"];
 const rowId = (queue: string, mail: string) => queue + "|" + mail;
 const partsOf = (id: string) => [id.slice(0, id.indexOf("|")), id.slice(id.indexOf("|") + 1)] as const;
 
@@ -81,10 +82,15 @@ const partsOf = (id: string) => [id.slice(0, id.indexOf("|")), id.slice(id.index
 function NewQueue({ machine, logins, taken, onDone }: { machine: string; logins: Account[]; taken: string[]; onDone: () => void }) {
   const [name, setName] = useState("");
   const [order, setOrder] = useState<string[]>([]);
+  const [model, setModel] = useState<Slot["model"]>("fable");
   const clash = taken.includes(name);
   return (
     <Stack gap="sm">
       <TextInput label="Имя очереди" className="mono" autoFocus value={name} onChange={(e) => setName(e.currentTarget.value.toLowerCase())} error={clash ? "Такая очередь уже есть" : undefined} />
+      <div>
+        <Text size="sm" fw={500} mb={4}>Модель</Text>
+        <SegmentedControl aria-label="Модель очереди" data={MODELS} value={model} onChange={(v) => setModel(v as Slot["model"])} />
+      </div>
       <div>
         <Text size="sm" fw={500} mb={4}>Аккаунты по порядку выбора</Text>
         <Stack gap={6}>
@@ -94,7 +100,7 @@ function NewQueue({ machine, logins, taken, onDone }: { machine: string; logins:
           ))}
         </Stack>
       </div>
-      <Button style={{ alignSelf: "flex-start" }} disabled={!name || clash || !order.length} onClick={async () => (await act(slotSet, { to: "@" + machine, slot: name, order }, `Очередь ${name} заведена`)) && onDone()}>Завести очередь</Button>
+      <Button style={{ alignSelf: "flex-start" }} disabled={!name || clash || !order.length} onClick={async () => (await act(slotSet, { to: "@" + machine, slot: name, model, order }, `Очередь ${name} заведена`)) && onDone()}>Завести очередь</Button>
     </Stack>
   );
 }
@@ -134,12 +140,13 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
             <div key={q.name} className="queue" data-drop-group={q.name} data-queue={q.name}>
               <div className="queue-head">
                 <Text fw={600} className="mono">{q.name}</Text>
+                <SegmentedControl size="xs" className="qmodel" aria-label={`Модель очереди ${q.name}`} data={MODELS} value={q.model} onChange={(model) => void act(slotSet, { to: "@" + machine, slot: q.name, model: model as Slot["model"], order: q.order }).then(refresh)} />
                 {q.sessions > 0 && <Text size="xs" className="muted">{nSessions(q.sessions)}</Text>}
                 {q.wait !== undefined && <Badge size="sm" color="orange" variant="light">ждёт до {resetWord(q.wait)}</Badge>}
                 <span className="grow" />
-                {others > 0 && <Button size="compact-xs" variant="subtle" onClick={() => void swap(q.name)}>Сменить сейчас</Button>}
-                <Button size="compact-xs" variant="subtle" color="red" disabled={q.sessions > 0} title={q.sessions > 0 ? "На очереди идут сессии" : undefined} aria-label={`Удалить очередь ${q.name}`}
-                  onClick={() => confirmDanger({ title: `Удалить очередь ${q.name} на ${machine}?`, body: "Входы аккаунтов останутся на машине.", confirm: "Удалить", onConfirm: async () => (await act(slotSet, { to: "@" + machine, slot: q.name, order: [] }, "Очередь удалена")) && refresh() })}>Удалить</Button>
+                {others > 0 && <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Сменить сейчас: ${q.name}`} title="Сменить сейчас" onClick={() => void swap(q.name)}><IconPlayerSkipForward size={14} /></ActionIcon>}
+                <ActionIcon variant="subtle" color="red" size="sm" disabled={q.sessions > 0} title={q.sessions > 0 ? "На очереди идут сессии" : "Удалить очередь"} aria-label={`Удалить очередь ${q.name}`}
+                  onClick={() => confirmDanger({ title: `Удалить очередь ${q.name} на ${machine}?`, body: "Входы аккаунтов останутся на машине.", confirm: "Удалить", onConfirm: async () => (await act(slotSet, { to: "@" + machine, slot: q.name, order: [] }, "Очередь удалена")) && refresh() })}><IconTrash size={14} /></ActionIcon>
               </div>
               {q.order.map((mail) => {
                 const a = byId[mail];
@@ -147,8 +154,7 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
                 return (
                   <div key={mail} className={`line${accountKey({ kind: "claude", id: mail, email: mail }) === marked ? " marked" : ""}${drag.dragging === rowId(q.name, mail) ? " dragging" : ""}`} data-drag-id={rowId(q.name, mail)} data-drag-group={q.name} onPointerDown={drag.onPointerDown(rowId(q.name, mail))} style={{ touchAction: "pan-y" }}>
                     <span className="grip" role="button" tabIndex={0} aria-label={`Порядок в ${q.name}: ${mail}`} title="Перетащите; с клавиатуры — Alt и стрелки" onKeyDown={(e) => { if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return; e.preventDefault(); void apply([{ slot: q.name, order: nudge(q.order, mail, e.key === "ArrowUp" ? -1 : 1) }]); }}><IconGripVertical size={14} /></span>
-                    <div className="grow"><AccountView name={mail} current={cur} limits={a?.limits ?? []} wait={a?.wait} bad={a && !a.ok ? a.why ?? "вход не годен" : undefined} /></div>
-                    {!cur && a?.ok && <Button size="compact-xs" variant="subtle" onClick={() => void swap(q.name, mail)}>Поставить</Button>}
+                    <div className="grow"><AccountView name={mail} current={cur} onPut={!cur && a?.ok ? () => void swap(q.name, mail) : undefined} fableOff={q.model !== "fable"} limits={a?.limits ?? []} bad={a && !a.ok ? a.why ?? "вход не годен" : undefined} /></div>
                     <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Убрать ${mail} из ${q.name}`} onClick={() => void apply([{ slot: q.name, order: q.order.filter((m) => m !== mail) }])}><IconX size={14} /></ActionIcon>
                   </div>
                 );

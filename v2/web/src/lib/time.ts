@@ -41,6 +41,12 @@ export function untilWord(t: number, now = Date.now()) {
   const min = Math.max(1, Math.round((t - now) / 60_000));
   return "через " + (min < 60 ? min + " мин" : min < 48 * 60 ? Math.round(min / 60) + " ч" : Math.round(min / 1440) + " дн");
 }
+/** Остаток до t коротко: «2д 5ч», «5ч 12м», «12м». */
+export function leftWord(t: number, now = Date.now()) {
+  const min = Math.max(0, Math.round((t - now) / 60_000));
+  const [d, h, m] = [Math.floor(min / 1440), Math.floor((min % 1440) / 60), min % 60];
+  return d ? `${d}д ${h}ч` : h ? `${h}ч ${m}м` : `${m}м`;
+}
 export const num = (n: number) => n.toLocaleString("ru-RU");
 export const kilo = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1).replace(".", ",")} млн` : n >= 1000 ? `${Math.round(n / 1000)} тыс` : String(n));
 

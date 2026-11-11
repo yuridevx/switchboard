@@ -140,25 +140,29 @@ export function createMock(o: MockOptions = {}) {
   startLive("wing@laptop", "поиск вызовов");
 
   /* ===== Остальные записи ===== */
-  const lim = (five: number, week: number) => [{ name: "five_hour", used: five, resets: T + 2 * HOUR }, { name: "seven_day", used: week, resets: T + 3 * DAY }];
+  // окна как у Claude: общая неделя, недельный лимит Fable (seven_day_overage_included) и прочие, которых страница не показывает
+  const lim = (week: number, fable: number, days = 3.2) => [{ name: "five_hour", used: 0.4, resets: T + 2 * HOUR }, { name: "seven_day", used: week, resets: T + days * DAY }, { name: "seven_day_overage_included", used: fable, resets: T + days * DAY }, { name: "iguana_necktie", used: 0, resets: T - DAY }];
+  /** Аккаунт у порога для очереди: общая неделя или лимит её модели. */
+  const outFor = (a: Account | undefined, model: string) => !a?.ok || (a.limits ?? []).some((l) => l.used >= 0.98 && (l.name === "seven_day" || (model === "fable" && l.name === "seven_day_overage_included")));
   const accounts: Record<string, Account[]> = {
     laptop: [
-      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.46, 0.38), ok: true, sessions: 4 },
-      { id: "work@example.com", kind: "claude", email: "work@example.com", plan: "Max 5x", limits: lim(0.93, 0.71), ok: false, why: "вход устарел: войдите заново", sessions: 1 },
+      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.38, 0.62), ok: true, sessions: 4 },
+      { id: "work@example.com", kind: "claude", email: "work@example.com", plan: "Max 5x", limits: lim(0.2, 0.99, 5.4), ok: true, sessions: 1 },
+      { id: "team@example.com", kind: "claude", email: "team@example.com", plan: "Max 5x", limits: lim(0.91, 0.75, 1.9), ok: false, why: "вход устарел: войдите заново", sessions: 0 },
       { id: "orca-glm", kind: "key", ok: true, sessions: 0 },
     ],
     server: [
-      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.46, 0.38), ok: true, sessions: 3 },
-      { id: "ops@example.com", kind: "claude", email: "ops@example.com", plan: "Max 5x", limits: lim(0.12, 0.2), ok: true, sessions: 2 },
+      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.38, 0.62), ok: true, sessions: 3 },
+      { id: "ops@example.com", kind: "claude", email: "ops@example.com", plan: "Max 5x", limits: lim(1, 0.44, 0.9), ok: true, sessions: 2 },
     ],
-    "anya-pc": [{ id: "anya@example.com", kind: "claude", email: "anya@example.com", plan: "Max 5x", limits: lim(0.64, 0.52), ok: true, sessions: 3 }],
+    "anya-pc": [{ id: "anya@example.com", kind: "claude", email: "anya@example.com", plan: "Max 5x", limits: lim(0.52, 0.99, 0.3), ok: true, sessions: 3 }],
     base2: [],
   };
   /** Очереди аккаунтов машин: один аккаунт может стоять в нескольких. */
   const slots: Record<string, Slot[]> = {
-    laptop: [{ name: "main", order: ["yuri@example.com", "work@example.com"], account: "yuri@example.com", sessions: 4 }, { name: "review", order: ["work@example.com", "yuri@example.com"], account: "yuri@example.com", sessions: 1 }],
-    server: [{ name: "main", order: ["yuri@example.com", "ops@example.com"], account: "yuri@example.com", sessions: 3 }, { name: "night", order: ["night@example.com", "ops@example.com"], account: "night@example.com", sessions: 2 }],
-    "anya-pc": [{ name: "main", order: ["anya@example.com"], account: "anya@example.com", sessions: 3 }],
+    laptop: [{ name: "main", model: "fable", order: ["work@example.com", "yuri@example.com", "team@example.com"], account: "yuri@example.com", sessions: 4 }, { name: "review", model: "opus", order: ["work@example.com", "yuri@example.com"], account: "work@example.com", sessions: 1 }],
+    server: [{ name: "main", model: "fable", order: ["yuri@example.com", "ops@example.com"], account: "yuri@example.com", sessions: 3 }, { name: "night", model: "opus", order: ["night@example.com", "ops@example.com"], account: "night@example.com", sessions: 2 }],
+    "anya-pc": [{ name: "main", model: "fable", order: ["anya@example.com"], account: "anya@example.com", sessions: 3 }],
     base2: [],
   };
   const pieces: Piece[] = [
@@ -588,7 +592,19 @@ export function createMock(o: MockOptions = {}) {
       return {};
     },
 
-    "account.list": (f) => ({ accounts: accounts[mach(f)] ?? [], slots: slots[mach(f)] ?? [] }),
+    // очередь стоит на первом по порядку аккаунте ниже порога; таких нет — ждёт недельного сброса
+    "account.list": (f) => {
+      const list = accounts[mach(f)] ?? [];
+      const by = (id: string) => list.find((a) => a.id === id);
+      for (const q of slots[mach(f)] ?? []) {
+        delete q.wait;
+        if (!outFor(by(q.account ?? ""), q.model)) continue;
+        const next = q.order.find((id) => !outFor(by(id), q.model));
+        if (next) q.account = next;
+        else q.wait = Math.min(...q.order.map((id) => by(id)?.limits?.find((l) => l.name === "seven_day")?.resets ?? Infinity));
+      }
+      return { accounts: list, slots: slots[mach(f)] ?? [] };
+    },
     "account.login": (f) => {
       const login = "l" + newId().slice(0, 6);
       logins.set(login, mach(f));
@@ -602,7 +618,7 @@ export function createMock(o: MockOptions = {}) {
       if (a) Object.assign(a, { ok: true, why: undefined, limits: lim(0.05, 0.71) });
       else list.push((a = { id: "new@example.com", kind: "claude", email: "new@example.com", plan: "Max 5x", limits: lim(0, 0), ok: true, sessions: 0 }));
       // первый вход на машине без очередей заводит main
-      if (!slots[m].length) slots[m].push({ name: "main", order: [a.id], account: a.id, sessions: 0 });
+      if (!slots[m].length) slots[m].push({ name: "main", model: "fable", order: [a.id], account: a.id, sessions: 0 });
       return { account: a };
     },
     "account.remove": (f) => {

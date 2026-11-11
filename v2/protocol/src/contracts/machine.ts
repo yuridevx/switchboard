@@ -33,8 +33,10 @@ export const Account = z.object({
 });
 export type Account = z.infer<typeof Account>;
 
-/** Очередь аккаунтов машины. order — порядок выбора; account — кто стоит сейчас; wait — все у порога: до какого времени очередь ждёт сброса, мс; sessions — сколько сессий идёт на очереди. */
-export const Slot = z.object({ name: z.string(), order: z.array(z.string()), account: z.string().optional(), wait: z.number().optional(), sessions: z.number() });
+/** Модель очереди: за её недельным лимитом очередь следит вместе с общей неделей; сессия без своей модели идёт на ней. */
+export const SlotModel = z.enum(["fable", "opus"]);
+/** Очередь аккаунтов машины. model — модель очереди; order — порядок выбора; account — кто стоит сейчас; wait — все у порога: до какого времени очередь ждёт сброса, мс; sessions — сколько сессий идёт на очереди. */
+export const Slot = z.object({ name: z.string(), model: SlotModel, order: z.array(z.string()), account: z.string().optional(), wait: z.number().optional(), sessions: z.number() });
 export type Slot = z.infer<typeof Slot>;
 
 export const accountList = request("account.list", {
@@ -57,8 +59,8 @@ export const accountRemove = request("account.remove", {
 /** Очередь аккаунтов: slot — её имя, order — порядок. Имени нет — очередь заводится; пустой order удаляет очередь без сессий. */
 export const slotSet = request("slot.set", {
   owner: "host-accounts", target: "machine",
-  tool: "Завести или изменить очередь аккаунтов на машине: slot — имя очереди, order — почты по порядку выбора; пустой order удаляет очередь без сессий.",
-  input: z.object({ to: MachineAddr, slot: z.string(), order: z.array(z.string()) }), output: Done,
+  tool: "Завести или изменить очередь аккаунтов на машине: slot — имя очереди, order — почты по порядку выбора, model — модель очереди (fable или opus; новая без model — fable); пустой order удаляет очередь без сессий.",
+  input: z.object({ to: MachineAddr, slot: z.string(), model: SlotModel.optional(), order: z.array(z.string()) }), output: Done,
 });
 /** «Сменить сейчас»: поставить в очередь slot этот аккаунт; без account — следующий годный по порядку. */
 export const slotSwap = request("slot.swap", {

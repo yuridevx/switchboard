@@ -21,6 +21,10 @@ export type Merged = {
   wait?: number;
 };
 
+/** Два окна, которые показывает страница: общая неделя и недельный лимит Fable. Остальные окна не показываются. */
+export const WEEK = "seven_day", FABLE = "seven_day_overage_included";
+export const meterOf = (limits: LimitRow[]) => ({ week: limits.find((l) => l.name === WEEK), fable: limits.find((l) => l.name === FABLE) });
+
 export const WARN = 0.7, BAD = 0.9;
 export const limitTone = (used: number): "teal" | "orange" | "red" => (used > BAD ? "red" : used > WARN ? "orange" : "teal");
 
@@ -127,7 +131,7 @@ export function queueMove(slots: Slot[], from: string | null, to: string | null,
 /** На чём пойдёт сессия: очереди машины с тем, кто в них стоит сейчас, затем ключи флота. Пустая очередь и негодный ключ не выбираются. */
 export function seatOptions(data?: { accounts: Account[]; slots: Slot[] }): Array<{ value: string; label: string; disabled?: boolean }> {
   return [
-    ...(data?.slots ?? []).map((q) => ({ value: q.name, label: `${q.name} · ${q.account ?? "пусто"}${q.wait ? ` · ждёт до ${hhmm(q.wait)}` : ""}`, ...(q.account ? {} : { disabled: true }) })),
+    ...(data?.slots ?? []).map((q) => ({ value: q.name, label: `${q.name} · ${q.model} · ${q.account ?? "пусто"}${q.wait ? ` · ждёт до ${hhmm(q.wait)}` : ""}`, ...(q.account ? {} : { disabled: true }) })),
     ...(data?.accounts ?? []).filter((a) => a.kind === "key").map((a) => ({ value: a.id, label: `ключ ${a.id}${a.model ? ` · ${a.model}` : ""}`, ...(a.ok ? {} : { disabled: true }) })),
   ];
 }

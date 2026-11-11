@@ -111,3 +111,28 @@
   .card.mrow { grid-template-columns: minmax(0, 1fr); }
   .mrow-head { flex-direction: row; align-items: center; justify-content: space-between; }
 }
+
+/* два лимита аккаунта: неделя и Fable — две полоски, число и остаток до сброса */
+.meter { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; flex: none; }
+.meter-rows { display: inline-flex; flex-direction: column; gap: 2px; }
+.meter-row { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.meter-row svg { flex: none; }
+.meter-bar { display: inline-block; width: 44px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.meter-bar i { display: block; height: 100%; background: var(--st-idle); }
+.meter-row b { font-weight: 600; min-width: 1.9em; text-align: right; color: var(--mantine-color-text); }
+.meter-row.orange .meter-bar i { background: var(--st-waiting); }
+.meter-row.red .meter-bar i { background: var(--st-failed); }
+.meter-row.orange b { color: var(--st-waiting); }
+.meter-row.red b { color: var(--st-failed); }
+.meter-row.off { opacity: .38; }
+.meter-left { color: var(--muted); white-space: nowrap; font-size: 12px; }
+.meter.full { font-size: 12px; gap: 12px; }
+.meter.full .meter-bar { width: 120px; height: 5px; }
+.acct { flex-wrap: nowrap; }
+.acct .acct-name { flex: 1 1 0; }
+.acct.full { flex-wrap: wrap; }
+.qmodel { flex: none; }
+@media (max-width: 700px) { .meter.full .meter-bar { width: 72px; } }
+.lamp.put { padding: 0; cursor: pointer; }
+.lamp.put:hover, .lamp.put:focus-visible { border-color: var(--st-idle); }
+.queues .queue-head { flex-wrap: nowrap; }
