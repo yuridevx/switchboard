@@ -211,8 +211,8 @@ await step("числа Host: машина отвечает на запрос, с
     await api.call(slotSet, { to: "@" + machine, slot: queue, order: [login] });
     const now = await slots();
     const mine = now.find((q) => q.name === queue);
-    if (!mine || mine.account !== login || mine.order.join() !== login) throw new Error("новая очередь: " + JSON.stringify(mine));
-    return now.map((q) => `${q.name} → ${q.account ?? "пусто"}`).join(" · ");
+    if (!mine || mine.lanes.fable.account !== login || mine.lanes.other.account !== login || mine.order.join() !== login) throw new Error("новая очередь: " + JSON.stringify(mine));
+    return now.map((q) => `${q.name} → ${q.lanes.fable.account ?? "пусто"}`).join(" · ");
   });
   await step("очереди: сессия во второй очереди идёт на её аккаунте; имя очереди — в документе", async () => {
     if (!login) later("нет входа Claude");
@@ -235,13 +235,13 @@ await step("числа Host: машина отвечает на запрос, с
   });
   await step("очереди: «Сменить сейчас» идёт в названную очередь и другую не трогает; неизвестная очередь — no_slot", async () => {
     if (!login) later("нет входа Claude");
-    const before = (await slots()).find((q) => q.name === "main")?.account;
+    const before = (await slots()).find((q) => q.name === "main")?.lanes.fable.account;
     // вход на машине один: запаса в очереди нет — отказ приходит от названной очереди
     const swap = await word(() => api.call(slotSwap, { to: "@" + machine, slot: queue, lane: "fable" }));
     if (!swap.startsWith("no_reserve") || !swap.includes(queue)) throw new Error("смена в очереди без запаса: " + swap);
     const ghost = await word(() => api.call(slotSwap, { to: "@" + machine, slot: "nope-" + tag, lane: "fable" }));
     if (!ghost.startsWith("no_slot")) throw new Error("неизвестная очередь: " + ghost);
-    const after = (await slots()).find((q) => q.name === "main")?.account;
+    const after = (await slots()).find((q) => q.name === "main")?.lanes.fable.account;
     if (after !== before) throw new Error(`main сменилась: ${before} → ${after}`);
     return `${queue}: no_reserve · main осталась на ${after}`;
   });
