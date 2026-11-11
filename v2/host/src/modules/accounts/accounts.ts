@@ -129,7 +129,9 @@ export function make(): Module {
     if (stopping) return;
     const { accounts, slots } = book();
     const t = now();
-    const at = Math.min(...[...new Set(Object.values(slots).flat())].map((n) => (accounts[n] ? nextReset(accounts[n]!, t) : Infinity)));
+    const queued = [...new Set(Object.values(slots).flat())];
+    // неделя сбросилась, пока служба стояла или побудка опоздала, — пересмотр сразу
+    const at = queued.some((n) => expired(accounts[n], t)) ? t : Math.min(...queued.map((n) => (accounts[n] ? nextReset(accounts[n]!, t) : Infinity)));
     if (!Number.isFinite(at)) return;
     wake = setTimeout(() => {
       const gone = Object.keys(book().accounts).filter((n) => expired(book().accounts[n], now()));
@@ -442,6 +444,8 @@ export function make(): Module {
       async slot(value) {
         const name = value as string;
         if (book().slots[name]) {
+          // места ещё не расставлены (старт службы, новая очередь) — запрос дожидается расстановки
+          if (!LANES.some((l) => current(name, l))) await serial(() => repick(name, "запуск"));
           const cur = current(name, "fable") ?? current(name, "other");
           if (!cur) throw new Refusal("not_logged_in", `очередь ${name} на ${host.machine} пуста: поставьте в неё аккаунт`);
           return assertLogin(cur);
@@ -478,6 +482,8 @@ export function make(): Module {
       if (!name) throw new Refusal("no_slot", `у ${s.callsign} не названа очередь; ${slotsWord()}`);
       if (slotOf(s)) {
         const lane = laneOfSession(s);
+        // места ещё не расставлены (старт службы, новая очередь) — сессия дожидается расстановки, а не падает
+        if (!current(name, lane)) await serial(() => repick(name, "запуск"));
         if (!current(name, lane)) throw new Refusal("not_logged_in", `очередь ${name} на ${host.machine} пуста: поставьте в неё аккаунт`);
         started.set(s.callsign, lane);
         return { env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: dirs.laneDir(name, lane), ...(s.spec.model ? {} : { ANTHROPIC_MODEL: DEFAULT_MODEL }) } };

@@ -191,6 +191,18 @@ describe("два места очереди", () => {
     expect(folders(dir).inLane("main", "other")).toBe(A);
   });
 
+  it("23. служба запустилась, а ссылок мест у очереди ещё нет: сессия дожидается расстановки и идёт, а не падает", async () => {
+    const dir = home([A]);
+    for (const lane of ["fable", "other"] as const) await folders(dir).unplace("main", lane);
+    // Claude отвечает о лимитах не сразу: расстановка на старте ещё идёт, когда сессия запускается
+    (FakeQuery.prototype as any)[USAGE] = () => new Promise((r) => setTimeout(() => r({}), 400));
+    st = await stand({ home: dir, modules: [accounts()] });
+    const { s } = await st.open("site", { model: "claude-opus-5-5" });
+    expect(s.state).not.toBe("failed");
+    expect(folders(dir).inLane("main", "other")).toBe(A);
+    expect(envOf("site@laptop").CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(folders(dir).laneDir("main", "other"));
+  });
+
   it("22. сбросилась неделя аккаунта: места выбирают заново — при равных решает порядок", async () => {
     const at = sec();
     const full = { seven_day: { utilization: 1, resetsAt: at + 1, at, fable: 0.2, hold: 0 }, fable: { utilization: 0.4, resetsAt: at + 1, at } };
