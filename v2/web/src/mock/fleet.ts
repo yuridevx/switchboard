@@ -155,8 +155,8 @@ export function createMock(o: MockOptions = {}) {
     const week = limOf(a, "seven_day");
     return lane === "fable" ? (limOf(a, "fable")?.used ?? 0) < NEAR && (week?.used ?? 0) < NEAR : (week?.used ?? 0) + (week?.hold ?? 0) < NEAR;
   };
-  /** Места очереди, как их ставит Host. Fable — первый по порядку с запасом Fable. Остальные — первый с неделей сверх запаса Fable;
-   *  таких нет — берут запас Fable, с конца порядка. Годного нет — место ждёт недельного сброса. Место не уходит с аккаунта, пока он ему годен. */
+  /** Места очереди, как их ставит Host. Fable — годный с ближним сбросом недели. Остальные — так же, с неделей сверх запаса Fable;
+   *  таких нет — берут запас Fable, тоже у ближнего сброса. Годного нет — место ждёт недельного сброса. Место не уходит с аккаунта, пока он ему годен. */
   const place = (q: Slot, list: Account[]) => {
     const by = (id?: string) => list.find((a) => a.id === id);
     const stay = (lane: LaneName, as: LaneName = lane) => { const was = q.lanes[lane].account; return was && q.order.includes(was) && fits(by(was), as) ? was : undefined; };
@@ -164,9 +164,12 @@ export function createMock(o: MockOptions = {}) {
       const was = q.lanes[lane].account, wait = Math.min(...q.order.map((id) => limOf(by(id), "seven_day")?.resets ?? Infinity));
       return { ...(was && q.order.includes(was) ? { account: was } : {}), ...(Number.isFinite(wait) ? { wait } : {}) };
     };
-    const fable = stay("fable") ?? q.order.find((id) => fits(by(id), "fable"));
-    const other = stay("other") ?? q.order.find((id) => fits(by(id), "other"));
-    const spare = other ? undefined : [...q.order].reverse().find((id) => fits(by(id), "fable"));
+    // выбор — годный с ближним сбросом недели; при равных и без сброса — по порядку человека
+    const resets = (id: string) => limOf(by(id), "seven_day")?.resets ?? Infinity;
+    const near = (lane: LaneName) => q.order.filter((id) => fits(by(id), lane)).reduce<string | undefined>((best, id) => (best === undefined || resets(id) < resets(best) ? id : best), undefined);
+    const fable = stay("fable") ?? near("fable");
+    const other = stay("other") ?? near("other");
+    const spare = other ? undefined : near("fable");
     q.lanes = { fable: fable ? { account: fable } : idle("fable"), other: other ? { account: other } : spare ? { account: spare, over: true } : idle("other") };
   };
   const accounts: Record<string, Account[]> = {
