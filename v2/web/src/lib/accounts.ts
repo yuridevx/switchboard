@@ -1,9 +1,9 @@
 // Аккаунты: один аккаунт на нескольких машинах — одна строка; лимиты, пороги, ожидание сброса.
-import type { Account, Slot } from "@sb/protocol";
+import type { Account, Lane, Slot } from "@sb/protocol";
 import { hhmm } from "./time.ts";
 
 export type Seat = { machine: string; account: Account };
-export type LimitRow = { name: string; used: number; resets?: number; /** время замера: своё у окна, иначе общее у аккаунта */ at?: number };
+export type LimitRow = { name: string; used: number; resets?: number; /** время замера: своё у окна, иначе общее у аккаунта */ at?: number; /** у недели: доля Fable в ней и запас, который держится для Fable */ fable?: number; hold?: number };
 export type Merged = {
   id: string; kind: Account["kind"]; email?: string; plan?: string;
   /** где этот аккаунт вошёл */
@@ -16,23 +16,12 @@ export type Merged = {
   sessions: number;
 };
 
-/** Два недельных запаса аккаунта, как их считает Host: Fable и остальные модели — каждый от 0 до 100 % своей доли недели. */
-export const FABLE = "fable", OTHER = "other";
-export const meterOf = (limits: LimitRow[]) => ({ fable: limits.find((l) => l.name === FABLE), other: limits.find((l) => l.name === OTHER) });
+/** Два числа аккаунта, те же, что на странице Claude: неделя целиком и лимит Fable. */
+export const WEEK = "seven_day", FABLE = "fable";
+export const meterOf = (limits: LimitRow[]) => ({ week: limits.find((l) => l.name === WEEK), fable: limits.find((l) => l.name === FABLE) });
 
-/** Слово модели очереди на экране. */
-export const slotModelWord = (model: string) => (model === "fable" ? "fable" : "остальные");
-const isFable = (id: string) => /fable/i.test(id);
-/** Модели, которые даёт выбрать очередь: fable — только Fable, остальные — всё, кроме Fable. Очереди нет (ключ флота) — список как есть. */
-export const slotModels = <T extends { value: string }>(slot: { model: string } | undefined, options: T[]): T[] => (slot ? options.filter((o) => isFable(o.value) === (slot.model === "fable")) : options);
-
-/** Правка документа при переходе сессии в очередь: модель, которой новая очередь не даёт, меняется на первую из её моделей — одним запросом с очередью. */
-export function slotPatch(slot: string, slots: Array<{ name: string; model: string }> | undefined, model: string | undefined, options: Array<{ value: string }>): { slot: string; model?: string } {
-  const q = slots?.find((x) => x.name === slot);
-  if (!q || !model || slotModels(q, [{ value: model }]).length) return { slot };
-  const first = slotModels(q, options)[0]?.value;
-  return first ? { slot, model: first } : { slot };
-}
+/** Место очереди, на котором идёт сессия: Fable и сессия без названной модели — на месте fable, остальные модели — на месте other. */
+export const laneOf = (model?: string | null): Lane => (!model || /fable/i.test(model) ? "fable" : "other");
 
 export const WARN = 0.7, BAD = 0.9;
 export const limitTone = (used: number): "teal" | "orange" | "red" => (used > BAD ? "red" : used > WARN ? "orange" : "teal");
@@ -128,10 +117,11 @@ export function queueMove(slots: Slot[], from: string | null, to: string | null,
   return out;
 }
 
-/** На чём пойдёт сессия: очереди машины с тем, кто в них стоит сейчас, затем ключи флота. Пустая очередь и негодный ключ не выбираются. */
-export function seatOptions(data?: { accounts: Account[]; slots: Slot[] }): Array<{ value: string; label: string; disabled?: boolean }> {
+/** На чём пойдёт сессия с такой моделью: очереди машины с тем, кто стоит на её месте сейчас, затем ключи флота. Пустая очередь и негодный ключ не выбираются. */
+export function seatOptions(data?: { accounts: Account[]; slots: Slot[] }, model?: string | null): Array<{ value: string; label: string; disabled?: boolean }> {
+  const lane = laneOf(model);
   return [
-    ...(data?.slots ?? []).map((q) => ({ value: q.name, label: `${q.name} · ${slotModelWord(q.model)} · ${q.account ?? "пусто"}${q.wait ? ` · ждёт до ${hhmm(q.wait)}` : ""}`, ...(q.account ? {} : { disabled: true }) })),
+    ...(data?.slots ?? []).map((q) => ({ value: q.name, label: `${q.name} · ${q.lanes[lane].account ?? "пусто"}${q.lanes[lane].wait ? ` · ждёт до ${hhmm(q.lanes[lane].wait!)}` : ""}`, ...(q.lanes[lane].account ? {} : { disabled: true }) })),
     ...(data?.accounts ?? []).filter((a) => a.kind === "key").map((a) => ({ value: a.id, label: `ключ ${a.id}${a.model ? ` · ${a.model}` : ""}`, ...(a.ok ? {} : { disabled: true }) })),
   ];
 }

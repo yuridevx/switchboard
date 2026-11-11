@@ -140,29 +140,56 @@ export function createMock(o: MockOptions = {}) {
   startLive("wing@laptop", "поиск вызовов");
 
   /* ===== Остальные записи ===== */
-  // запасы, как их считает Host: Fable и остальные модели — каждый от своей доли недели
-  const lim = (fable: number, other: number, days = 3.2) => [{ name: "five_hour", used: 0.4, resets: T + 2 * HOUR }, { name: "fable", used: fable, resets: T + days * DAY }, { name: "other", used: other, resets: T + days * DAY }];
-  /** Аккаунт у порога для очереди: запас её вида. */
-  const outFor = (a: Account | undefined, model: string) => !a?.ok || (a.limits ?? []).some((l) => l.used >= 0.98 && l.name === model);
+  // числа как у Claude: неделя целиком и лимит Fable; у недели — доля Fable в ней и запас для него. fable и other — сколько недели потратили Fable и остальные модели.
+  const CAP = 0.5, NEAR = 0.98;
+  const lim = (fable: number, other: number, days = 3.2) => {
+    const week = Math.min(1, fable + other), hold = Math.max(0, Math.min(CAP - fable, 1 - week));
+    return [{ name: "five_hour", used: 0.4, resets: T + 2 * HOUR }, { name: "seven_day", used: week, fable, hold, resets: T + days * DAY }, { name: "fable", used: Math.min(1, fable / CAP), resets: T + days * DAY }];
+  };
+  type LaneName = "fable" | "other";
+  const laneOf = (model?: string): LaneName => (!model || /fable/i.test(model) ? "fable" : "other");
+  const limOf = (a: Account | undefined, name: string) => a?.limits?.find((l) => l.name === name);
+  /** Аккаунт годен месту: Fable — пока не выбран ни его лимит, ни неделя; остальным моделям — пока есть неделя сверх запаса Fable. */
+  const fits = (a: Account | undefined, lane: LaneName) => {
+    if (!a?.ok) return false;
+    const week = limOf(a, "seven_day");
+    return lane === "fable" ? (limOf(a, "fable")?.used ?? 0) < NEAR && (week?.used ?? 0) < NEAR : (week?.used ?? 0) + (week?.hold ?? 0) < NEAR;
+  };
+  /** Места очереди, как их ставит Host. Fable — первый по порядку с запасом Fable. Остальные — первый с неделей сверх запаса Fable;
+   *  таких нет — берут запас Fable, с конца порядка. Годного нет — место ждёт недельного сброса. Место не уходит с аккаунта, пока он ему годен. */
+  const place = (q: Slot, list: Account[]) => {
+    const by = (id?: string) => list.find((a) => a.id === id);
+    const stay = (lane: LaneName, as: LaneName = lane) => { const was = q.lanes[lane].account; return was && q.order.includes(was) && fits(by(was), as) ? was : undefined; };
+    const idle = (lane: LaneName) => {
+      const was = q.lanes[lane].account, wait = Math.min(...q.order.map((id) => limOf(by(id), "seven_day")?.resets ?? Infinity));
+      return { ...(was && q.order.includes(was) ? { account: was } : {}), ...(Number.isFinite(wait) ? { wait } : {}) };
+    };
+    const fable = stay("fable") ?? q.order.find((id) => fits(by(id), "fable"));
+    const other = stay("other") ?? q.order.find((id) => fits(by(id), "other"));
+    const spare = other ? undefined : ((q.lanes.other.over ? stay("other", "fable") : undefined) ?? [...q.order].reverse().find((id) => fits(by(id), "fable")));
+    q.lanes = { fable: fable ? { account: fable } : idle("fable"), other: other ? { account: other } : spare ? { account: spare, over: true } : idle("other") };
+  };
   const accounts: Record<string, Account[]> = {
     laptop: [
-      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.62, 0.14), ok: true, sessions: 4 },
-      { id: "work@example.com", kind: "claude", email: "work@example.com", plan: "Max 5x", limits: lim(0.99, 0.31, 5.4), ok: true, sessions: 1 },
-      { id: "team@example.com", kind: "claude", email: "team@example.com", plan: "Max 5x", limits: lim(0.75, 0.86, 1.9), ok: false, why: "вход устарел: войдите заново", sessions: 0 },
+      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.37, 0.1), ok: true, sessions: 4 },
+      { id: "work@example.com", kind: "claude", email: "work@example.com", plan: "Max 5x", limits: lim(0.495, 0.43, 5.4), ok: true, sessions: 1 },
+      { id: "team@example.com", kind: "claude", email: "team@example.com", plan: "Max 5x", limits: lim(0.36, 0.64, 1.9), ok: false, why: "вход устарел: войдите заново", sessions: 0 },
       { id: "orca-glm", kind: "key", ok: true, sessions: 0 },
     ],
     server: [
-      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.62, 0.14), ok: true, sessions: 3 },
-      { id: "ops@example.com", kind: "claude", email: "ops@example.com", plan: "Max 5x", limits: lim(0.44, 1, 0.9), ok: true, sessions: 2 },
+      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.37, 0.1), ok: true, sessions: 3 },
+      { id: "ops@example.com", kind: "claude", email: "ops@example.com", plan: "Max 5x", limits: lim(0.23, 0.49, 0.9), ok: true, sessions: 2 },
     ],
-    "anya-pc": [{ id: "anya@example.com", kind: "claude", email: "anya@example.com", plan: "Max 5x", limits: lim(0.99, 0.05, 0.3), ok: true, sessions: 3 }],
+    "anya-pc": [{ id: "anya@example.com", kind: "claude", email: "anya@example.com", plan: "Max 5x", limits: lim(0.2, 0.49, 0.3), ok: true, sessions: 3 }],
     base2: [],
   };
   /** Очереди аккаунтов машин: один аккаунт может стоять в нескольких. */
   const slots: Record<string, Slot[]> = {
-    laptop: [{ name: "main", model: "fable", order: ["work@example.com", "yuri@example.com", "team@example.com"], account: "yuri@example.com", sessions: 4 }, { name: "review", model: "other", order: ["work@example.com", "yuri@example.com"], account: "work@example.com", sessions: 1 }],
-    server: [{ name: "main", model: "fable", order: ["yuri@example.com", "ops@example.com"], account: "yuri@example.com", sessions: 3 }, { name: "night", model: "other", order: ["night@example.com", "ops@example.com"], account: "night@example.com", sessions: 2 }],
-    "anya-pc": [{ name: "main", model: "fable", order: ["anya@example.com"], account: "anya@example.com", sessions: 3 }],
+    // main на laptop: Fable стоит на yuri (у work его лимит выбран), остальные модели — на work; review — из одного work: Fable ждёт сброса
+    laptop: [{ name: "main", order: ["work@example.com", "yuri@example.com", "team@example.com"], lanes: { fable: { account: "yuri@example.com" }, other: { account: "work@example.com" } }, sessions: 4 }, { name: "review", order: ["work@example.com"], lanes: { fable: { account: "work@example.com" }, other: { account: "work@example.com" } }, sessions: 1 }],
+    server: [{ name: "main", order: ["yuri@example.com", "ops@example.com"], lanes: { fable: { account: "yuri@example.com" }, other: { account: "yuri@example.com" } }, sessions: 3 }, { name: "night", order: ["night@example.com", "ops@example.com"], lanes: { fable: { account: "night@example.com" }, other: { account: "night@example.com" } }, sessions: 2 }],
+    // anya-pc: остальные модели выбрали свою половину на единственном аккаунте и идут из запаса Fable
+    "anya-pc": [{ name: "main", order: ["anya@example.com"], lanes: { fable: { account: "anya@example.com" }, other: { account: "anya@example.com", over: true } }, sessions: 3 }],
     base2: [],
   };
   const pieces: Piece[] = [
@@ -409,7 +436,7 @@ export function createMock(o: MockOptions = {}) {
       if (sessions[c]) throw new Refusal("name_taken", `сессия ${c} уже есть`);
       if (!f.mkdir && /nope|нет-такой/.test(String(f.spec.cwd))) throw new Refusal("bad_input", `spec.cwd: папка не найдена — ${f.spec.cwd}`);
       const wing = f.pair ? `${name}-wing@${m}` : undefined;
-      sessions[c] = { callsign: c, state: "starting", spec: { mode: "all", slot: "main", pieces: ["base"], backup: true, ...f.spec, name, ...(wing ? { wing } : {}) }, by: MY_ADDR, since: now(), last: now(), account: slots[m]?.find((q) => q.name === (f.spec.slot ?? "main"))?.account, context: 0.02, ...(f.prompt ? { title: String(f.prompt).slice(0, 60) } : {}) };
+      sessions[c] = { callsign: c, state: "starting", spec: { mode: "all", slot: "main", pieces: ["base"], backup: true, ...f.spec, name, ...(wing ? { wing } : {}) }, by: MY_ADDR, since: now(), last: now(), account: slots[m]?.find((q) => q.name === (f.spec.slot ?? "main"))?.lanes[laneOf(f.spec.model)].account, context: 0.02, ...(f.prompt ? { title: String(f.prompt).slice(0, 60) } : {}) };
       if (f.resume) talks.set(c, [...shortTurn(now() - 30 * MIN, "Продолжим с прошлого раза.", `Разговор ${f.resume} продолжен${f.fork ? " копией" : ""}.`)]);
       delta({ sessions: [{ callsign: c, row: sessions[c] }] });
       if (wing) {
@@ -429,10 +456,9 @@ export function createMock(o: MockOptions = {}) {
     "session.update": (f) => {
       const { c, s } = sess(f);
       const patch = { ...f.patch };
-      // как Host: очередь диктует модель — чужая отказывается словом
+      // как Host: сессия идёт на месте своей модели — сменилась модель или очередь, аккаунт берётся с нового места
       const inSlot = slots[machineOf(c) ?? ""]?.find((q) => q.name === (patch.slot ?? s.spec.slot));
-      const model = patch.model ?? s.spec.model;
-      if (inSlot && model && /fable/.test(model) !== (inSlot.model === "fable")) throw new Refusal("model_not_in_slot", inSlot.model === "fable" ? `очередь ${inSlot.name} — только для Fable` : `очередь ${inSlot.name} — для моделей, кроме Fable`);
+      if (inSlot && ("model" in patch || "slot" in patch)) setRow(c, { account: inSlot.lanes[laneOf(patch.model ?? s.spec.model)].account });
       let wing: string | undefined;
       if (patch.wing === null) {
         const was = s.spec.wing;
@@ -596,18 +622,9 @@ export function createMock(o: MockOptions = {}) {
       return {};
     },
 
-    // очередь стоит на первом по порядку аккаунте ниже порога; таких нет — ждёт недельного сброса
     "account.list": (f) => {
       const list = accounts[mach(f)] ?? [];
-      for (const s of Object.values(sessions)) { const q = slots[machineOf(s.callsign) ?? ""]?.find((x) => x.name === s.spec.slot); if (q && q.model !== "fable" && /fable/.test(s.spec.model ?? "")) s.spec.model = "claude-opus-5-5"; }
-      const by = (id: string) => list.find((a) => a.id === id);
-      for (const q of slots[mach(f)] ?? []) {
-        delete q.wait;
-        if (!outFor(by(q.account ?? ""), q.model)) continue;
-        const next = q.order.find((id) => !outFor(by(id), q.model));
-        if (next) q.account = next;
-        else q.wait = Math.min(...q.order.map((id) => by(id)?.limits?.find((l) => l.name === q.model)?.resets ?? Infinity));
-      }
+      for (const q of slots[mach(f)] ?? []) place(q, list);
       return { accounts: list, slots: slots[mach(f)] ?? [] };
     },
     "account.login": (f) => {
@@ -620,10 +637,10 @@ export function createMock(o: MockOptions = {}) {
       if (String(f.code).length < 6) throw new Refusal("bad_code", "код не подошёл");
       const list = accounts[m];
       let a = list.find((x) => !x.ok);
-      if (a) Object.assign(a, { ok: true, why: undefined, limits: lim(0.71, 0.05) });
+      if (a) Object.assign(a, { ok: true, why: undefined, limits: lim(0.05, 0.02) });
       else list.push((a = { id: "new@example.com", kind: "claude", email: "new@example.com", plan: "Max 5x", limits: lim(0, 0), ok: true, sessions: 0 }));
       // первый вход на машине без очередей заводит main
-      if (!slots[m].length) slots[m].push({ name: "main", model: "fable", order: [a.id], account: a.id, sessions: 0 });
+      if (!slots[m].length) slots[m].push({ name: "main", order: [a.id], lanes: { fable: { account: a.id }, other: { account: a.id } }, sessions: 0 });
       return { account: a };
     },
     "account.remove": (f) => {
@@ -632,7 +649,7 @@ export function createMock(o: MockOptions = {}) {
       list.splice(list.findIndex((a) => a.id === f.account), 1);
       for (const q of slots[m]) {
         q.order = q.order.filter((x) => x !== f.account);
-        if (q.account === f.account) q.account = q.order.find((x) => list.find((a) => a.id === x)?.ok);
+        place(q, list);
       }
       slots[m] = slots[m].filter((q) => q.order.length);
       return {};

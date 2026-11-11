@@ -8,7 +8,7 @@ import { act, sayError } from "../api.ts";
 import { EFFORTS, MODELS, MODES, useCall, useMyPrefs } from "../common.tsx";
 import { ago } from "../lib/time.ts";
 import { RoutePage } from "./Page.tsx";
-import { seatOptions, slotModels } from "../lib/accounts.ts";
+import { seatOptions } from "../lib/accounts.ts";
 import { useFleet } from "../store/fleet.ts";
 
 export const nameOf = (cwd: string) => (cwd.split(/[\\/]/).filter(Boolean).pop() ?? "session").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "session";
@@ -120,11 +120,10 @@ export function NewForm() {
   const from = (key: string, none: string) => (given[key] ? `${String(given[key]!.value)} — из кусочков` : none);
   const finalName = name || freeName(nameOf(cwd), machine, sessions);
   // на машине нет ни входа Claude, ни ключа флота — сессии не на чем идти
-  const seats = seatOptions(accounts.data);
+  const seats = seatOptions(accounts.data, model);
   // очередь новой сессии: выбранная, иначе первая годная очередь машины, иначе первый годный ключ
   const account = seat && seats.some((o) => o.value === seat && !o.disabled) ? seat : (seats.find((o) => !o.disabled)?.value ?? "");
-  /** Модели, которые даёт выбрать очередь: fable — только Fable, остальные — всё, кроме Fable. */
-  const seatModels = slotModels(accounts.data?.slots.find((q) => q.name === account), MODELS.map(([value, label]) => ({ value, label })));
+  const seatModels = MODELS.map(([value, label]) => ({ value, label }));
   const noAccount = !!accounts.data && !account;
   const start = async () => {
     if (!machine || !cwd) return;

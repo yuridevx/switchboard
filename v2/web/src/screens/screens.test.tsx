@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
-import { limitTone, mergeAccounts, meterOf, otherMail, queueMove, seatOptions, slotModels, slotPatch } from "../lib/accounts.ts";
+import { laneOf, limitTone, mergeAccounts, meterOf, otherMail, queueMove, seatOptions } from "../lib/accounts.ts";
 import { getLocal, setLocal } from "../lib/local.ts";
 import { deviceLabel, keyBytes, pushStateOf, subscriptionFields } from "../lib/push.ts";
 import { byDay, dayWord, leftWord, limitName, resetWord } from "../lib/time.ts";
@@ -250,24 +250,15 @@ describe("аккаунты и ключи", () => {
     expect(a.sessions).toBe(5);
     expect(m[0]!.ok).toBe(false);
   });
-  it("страница показывает два запаса — Fable и остальные модели; остаток до сброса коротко", () => {
-    const limits = [{ name: "five_hour", used: 0.4 }, { name: "fable", used: 0.99, resets: 9 }, { name: "other", used: 0.2, resets: 9 }];
-    expect(meterOf(limits)).toEqual({ fable: limits[1], other: limits[2] });
-    expect(meterOf([{ name: "five_hour", used: 1 }])).toEqual({ fable: undefined, other: undefined });
+  it("страница показывает два числа Claude — неделю и Fable; остаток до сброса коротко", () => {
+    const limits = [{ name: "five_hour", used: 0.4 }, { name: "seven_day", used: 0.47, fable: 0.37, hold: 0.13, resets: 9 }, { name: "fable", used: 0.74, resets: 9 }];
+    expect(meterOf(limits)).toEqual({ week: limits[1], fable: limits[2] });
+    expect(meterOf([{ name: "five_hour", used: 1 }])).toEqual({ week: undefined, fable: undefined });
     const now = new Date(2026, 0, 1, 8, 0).getTime();
     expect([3 * 86_400_000 + 4 * 3_600_000, 7 * 3_600_000 + 12 * 60_000, 12 * 60_000].map((d) => leftWord(now + d, now))).toEqual(["3д 4ч", "7ч 12м", "12м"]);
   });
-  it("очередь диктует выбор модели: fable — только Fable, остальные — всё, кроме Fable; переход в очередь другого вида несёт её модель", () => {
-    const all = [{ value: "claude-fable-5-2" }, { value: "claude-opus-5-5" }, { value: "claude-haiku-5-5" }];
-    expect(slotModels({ model: "fable" }, all).map((o) => o.value)).toEqual(["claude-fable-5-2"]);
-    expect(slotModels({ model: "other" }, all).map((o) => o.value)).toEqual(["claude-opus-5-5", "claude-haiku-5-5"]);
-    expect(slotModels(undefined, all)).toEqual(all);
-    const slots = [{ name: "main", model: "fable" }, { name: "rest", model: "other" }];
-    expect(slotPatch("rest", slots, "claude-fable-5-2", all)).toEqual({ slot: "rest", model: "claude-opus-5-5" });
-    expect(slotPatch("main", slots, "claude-haiku-5-5", all)).toEqual({ slot: "main", model: "claude-fable-5-2" });
-    expect(slotPatch("rest", slots, "claude-haiku-5-5", all)).toEqual({ slot: "rest" });
-    expect(slotPatch("rest", slots, undefined, all)).toEqual({ slot: "rest" });
-    expect(slotPatch("orca-key", slots, "claude-fable-5-2", all)).toEqual({ slot: "orca-key" });
+  it("сессия идёт на месте своей модели: Fable и модель без имени — на месте fable, остальные — на месте other", () => {
+    expect(["claude-fable-5-2", "fable", undefined, null, "claude-opus-5-5", "haiku", "opusplan"].map(laneOf)).toEqual(["fable", "fable", "fable", "fable", "other", "other", "other"]);
   });
   it("пороги цвета 70 и 90; имя окна — из одной таблицы; сброс не сегодня — с днём недели", () => {
     expect([0.5, 0.71, 0.91].map(limitTone)).toEqual(["teal", "orange", "red"]);
@@ -277,24 +268,25 @@ describe("аккаунты и ключи", () => {
     expect(["five_hour", "seven_day", "seven_day_overage_included", "seven_day_opus"].map(limitName)).toEqual(["5 ч", "неделя", "неделя Fable", "неделя opus"]);
   });
   it("перенос аккаунта: порядок в очереди, из входов в очередь, между очередями, вон из очереди; вход под другой почтой замечен", () => {
-    const slots = [{ name: "main", model: "fable" as const, order: ["a", "b", "c"], sessions: 0 }, { name: "night", model: "other" as const, order: ["c"], sessions: 0 }];
+    const slots = [{ name: "main", order: ["a", "b", "c"], lanes: { fable: {}, other: {} }, sessions: 0 }, { name: "night", order: ["c"], lanes: { fable: {}, other: {} }, sessions: 0 }];
     expect(queueMove(slots, "main", "main", "c", "a")).toEqual([{ slot: "main", order: ["c", "a", "b"] }]);
     expect(queueMove(slots, "main", "main", "a", "b")).toEqual([]);
     expect(queueMove(slots, null, "night", "a", null)).toEqual([{ slot: "night", order: ["c", "a"] }]);
     expect(queueMove(slots, "main", "night", "b", "c")).toEqual([{ slot: "main", order: ["a", "c"] }, { slot: "night", order: ["b", "c"] }]);
     expect(queueMove(slots, "main", "night", "c", null)).toEqual([{ slot: "main", order: ["a", "b"] }]);
     expect(queueMove(slots, "night", null, "c", null)).toEqual([{ slot: "night", order: [] }]);
-    expect(seatOptions({ slots: [{ name: "main", model: "fable", order: ["a"], account: "a", sessions: 1 }, { name: "empty", model: "other", order: ["b"], sessions: 0 }], accounts: [{ id: "orca", kind: "key", ok: true, model: "glm" }] }))
-      .toEqual([{ value: "main", label: "main · fable · a" }, { value: "empty", label: "empty · остальные · пусто", disabled: true }, { value: "orca", label: "ключ orca · glm" }]);
+    const seats = { slots: [{ name: "main", order: ["a", "b"], lanes: { fable: { account: "a" }, other: { account: "b" } }, sessions: 1 }, { name: "empty", order: ["b"], lanes: { fable: {}, other: {} }, sessions: 0 }], accounts: [{ id: "orca", kind: "key" as const, ok: true, model: "glm" }] };
+    expect(seatOptions(seats)).toEqual([{ value: "main", label: "main · a" }, { value: "empty", label: "empty · пусто", disabled: true }, { value: "orca", label: "ключ orca · glm" }]);
+    expect(seatOptions(seats, "claude-opus-5-5")[0]).toEqual({ value: "main", label: "main · b" });
     expect(otherMail("a@x.io", acc("B@x.io"))).toBe(true);
     expect(otherMail("a@x.io", acc("A@X.io"))).toBe(false);
     expect(otherMail(undefined, acc("b@x.io"))).toBe(false);
   });
   it("«сменить сейчас»: названный аккаунт или следующий годный; негодный — отказ", async () => {
     const api = ask(quiet());
-    await expect(api.call(slotSwap, { to: "@server", slot: "main" })).resolves.toEqual({ account: "ops@example.com" });
-    await expect(api.call(slotSwap, { to: "@server", slot: "night" })).resolves.toEqual({ account: "ops@example.com" });
-    await expect(api.call(slotSwap, { to: "@laptop", slot: "main", account: "team@example.com" })).rejects.toMatchObject({ word: "no_reserve" });
+    await expect(api.call(slotSwap, { to: "@server", slot: "main", lane: "fable" })).resolves.toEqual({ account: "ops@example.com" });
+    await expect(api.call(slotSwap, { to: "@server", slot: "night", lane: "other" })).resolves.toEqual({ account: "ops@example.com" });
+    await expect(api.call(slotSwap, { to: "@laptop", slot: "main", lane: "fable", account: "team@example.com" })).rejects.toMatchObject({ word: "no_reserve" });
     await expect(api.call(slotSet, { to: "@laptop", slot: "orca-glm", order: ["yuri@example.com"] })).rejects.toMatchObject({ word: "name_taken" });
     await api.call(slotSet, { to: "@laptop", slot: "docs", order: ["yuri@example.com"] });
     expect((await api.call(accountList, { to: "@laptop" })).slots.map((q) => q.name)).toEqual(["main", "review", "docs"]);

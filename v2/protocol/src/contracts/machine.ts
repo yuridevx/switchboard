@@ -6,7 +6,8 @@ const toMachine = z.object({ to: MachineAddr });
 /* ===== Аккаунты (host-accounts) ===== */
 
 /** at — когда окно замерено, мс: старый замер страница подписывает «от ЧЧ:ММ». */
-export const Limit = z.object({ name: z.string(), used: z.number(), resets: z.number().optional(), at: z.number().optional() });
+/** У недели (seven_day): fable — сколько из неё потратил Fable; hold — сколько свободной недели держится для Fable. Доли 0..1. */
+export const Limit = z.object({ name: z.string(), used: z.number(), resets: z.number().optional(), at: z.number().optional(), fable: z.number().optional(), hold: z.number().optional() });
 export const Account = z.object({
   id: z.string(),
   /** claude — вход Claude; key — ключ флота */
@@ -31,10 +32,13 @@ export const Account = z.object({
 });
 export type Account = z.infer<typeof Account>;
 
-/** Модель очереди диктует выбор модели её сессий: fable — только Fable, очередь следит за общей неделей и лимитом Fable; other — все остальные модели, очередь следит только за общей неделей. */
-export const SlotModel = z.enum(["fable", "other"]);
-/** Очередь аккаунтов машины. model — модель очереди; order — порядок выбора; account — кто стоит сейчас; wait — все у порога: до какого времени очередь ждёт сброса, мс; sessions — сколько сессий идёт на очереди. */
-export const Slot = z.object({ name: z.string(), model: SlotModel, order: z.array(z.string()), account: z.string().optional(), wait: z.number().optional(), sessions: z.number() });
+/** Место очереди: fable — сессии на Fable (и без названной модели), other — на остальных моделях. */
+export const Lane = z.enum(["fable", "other"]);
+export type Lane = z.infer<typeof Lane>;
+/** Кто стоит на месте: account — аккаунт; wait — годного нет: до какого времени место ждёт сброса, мс; over — остальные модели идут из запаса Fable. */
+export const LaneRow = z.object({ account: z.string().optional(), wait: z.number().optional(), over: z.boolean().optional() });
+/** Очередь аккаунтов машины: order — один порядок выбора; lanes — два места на нём; sessions — сколько сессий идёт на очереди. */
+export const Slot = z.object({ name: z.string(), order: z.array(z.string()), lanes: z.object({ fable: LaneRow, other: LaneRow }), sessions: z.number() });
 export type Slot = z.infer<typeof Slot>;
 
 export const accountList = request("account.list", {
@@ -57,14 +61,14 @@ export const accountRemove = request("account.remove", {
 /** Очередь аккаунтов: slot — её имя, order — порядок. Имени нет — очередь заводится; пустой order удаляет очередь без сессий. */
 export const slotSet = request("slot.set", {
   owner: "host-accounts", target: "machine",
-  tool: "Завести или изменить очередь аккаунтов на машине: slot — имя очереди, order — почты по порядку выбора, model — модель очереди (fable — сессии только на Fable, other — на остальных моделях; новая без model — fable); пустой order удаляет очередь без сессий.",
-  input: z.object({ to: MachineAddr, slot: z.string(), model: SlotModel.optional(), order: z.array(z.string()) }), output: Done,
+  tool: "Завести или изменить очередь аккаунтов на машине: slot — имя очереди, order — почты по порядку выбора; пустой order удаляет очередь без сессий.",
+  input: z.object({ to: MachineAddr, slot: z.string(), order: z.array(z.string()) }), output: Done,
 });
 /** «Сменить сейчас»: поставить в очередь slot этот аккаунт; без account — следующий годный по порядку. */
 export const slotSwap = request("slot.swap", {
   owner: "host-accounts", target: "machine",
-  tool: "Сменить аккаунт очереди на машине сейчас: slot — имя очереди, account — почта аккаунта; без него — следующий годный по порядку.",
-  input: z.object({ to: MachineAddr, slot: z.string(), account: z.string().optional() }), output: z.object({ account: z.string() }),
+  tool: "Сменить аккаунт места очереди на машине сейчас: slot — имя очереди, lane — место (fable или other), account — почта аккаунта; без него — следующий годный по порядку.",
+  input: z.object({ to: MachineAddr, slot: z.string(), lane: Lane, account: z.string().optional() }), output: z.object({ account: z.string() }),
 });
 export const keyCheck = request("key.check", {
   owner: "host-proxy", target: "machine",

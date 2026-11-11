@@ -2,7 +2,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
-/* раскладка: сверху неделя аккаунта одной полосой, ниже — кто за чем следит, доказательства, проверка */
+/* раскладка: неделя одного аккаунта → очередь из аккаунтов с двумя местами → кто кого просит → крайние случаи → доказательства и проверка */
 :root {
   --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
   --accent: #1f7a63; --accent-soft: #dcefe8; --fable: #6b4bc4; --fable-soft: #e9e2fa; --new: #b8590f; --new-soft: #fbe9d7; --bad: #b3362b; --bad-soft: #f7e1de; --code: #f0eee7;
@@ -18,59 +18,76 @@ main { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column;
 h1, h2 { font-family: "Space Grotesk", Inter, sans-serif; text-wrap: balance; margin: 0; }
 h1 { font-size: 34px; line-height: 1.1; }
 h2 { font-size: 21px; }
-.lead { color: var(--muted); max-width: 62ch; margin: 8px 0 0; }
+.lead { color: var(--muted); max-width: 66ch; margin: 8px 0 0; }
 section { display: flex; flex-direction: column; gap: 14px; border-radius: 14px; }
 section.read > h2::after { content: " ✓ прочитал"; font: 500 12px Inter, sans-serif; color: var(--accent); }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
-.chg { background: #fff3a8; color: #1c211f; border-radius: 4px; padding: 0 3px; }
+.chg { background: #fff3a8; color: #1c211f; border-radius: 4px; padding: 0 4px; }
+button { font: 500 13px Inter, sans-serif; color: var(--fg); background: var(--soft); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer; }
+button.on { background: var(--accent-soft); border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input[type=range]:focus-visible, [data-i]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
 
-/* неделя аккаунта */
-.week { display: flex; flex-direction: column; gap: 14px; }
-.presets { display: flex; gap: 8px; flex-wrap: wrap; }
-.presets button { font: 500 13px Inter, sans-serif; color: var(--fg); background: var(--soft); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer; }
-.presets button.on { background: var(--accent-soft); border-color: var(--accent); }
-.presets button:focus-visible, input[type=range]:focus-visible, [data-i]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.bar { position: relative; display: flex; height: 44px; border-radius: 10px; overflow: hidden; background: var(--soft); border: 1px solid var(--line); }
-.bar i { display: block; height: 100%; }
-.bar .f { background: var(--fable); }
-.bar .o { background: var(--accent); }
-.bar .r { background: repeating-linear-gradient(135deg, var(--fable-soft) 0 6px, var(--fable) 6px 8px); }
-.scale { display: flex; justify-content: space-between; font: 11.5px "JetBrains Mono", monospace; color: var(--muted); }
-.key { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+/* аккаунт: неделя в два тона со штрихом запаса и лимит Fable — как на странице Claude */
+.q { display: flex; flex-direction: column; gap: 10px; }
+.acc { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: center; }
+.acc .nm { font: 600 13px "Space Grotesk", sans-serif; color: var(--muted); white-space: nowrap; display: flex; gap: 6px; align-items: center; }
+.acc .tag { font: 500 10.5px Inter, sans-serif; color: var(--bad); background: var(--bad-soft); border-radius: 4px; padding: 0 5px; }
+.bars { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.br { display: grid; grid-template-columns: 14px minmax(0, 1fr) 2.4em; gap: 8px; align-items: center; }
+.br b { font: 600 13px "Space Grotesk", sans-serif; text-align: right; font-variant-numeric: tabular-nums; }
+.wk, .fb { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--soft); border: 1px solid var(--line); }
+.wk i, .fb i { display: block; height: 100%; flex: none; }
+.wk .f { background: var(--fable); opacity: .55; }
+.wk .o { background: var(--accent); }
+.wk .sp { flex: 1 1 0; }
+.wk .h { background: repeating-linear-gradient(135deg, var(--fable-soft) 0 4px, var(--fable) 4px 5.5px); }
+.fb i { background: var(--fable); }
+.pin { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--line); }
+.pin.f.on { background: var(--fable); border-color: var(--fable); }
+.pin.o.on { background: var(--accent); border-color: var(--accent); }
+.q.big .wk, .q.big .fb { height: 18px; border-radius: 9px; }
+.q.big .pin { width: 14px; height: 14px; }
+.q.mini .wk, .q.mini .fb { height: 8px; border-radius: 4px; }
+.q.mini .br b { font-size: 11.5px; }
+.q.mini .acc .nm { font-size: 11.5px; }
+.key { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
 .key i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
-.key .f { background: var(--fable); } .key .o { background: var(--accent); } .key .z { background: var(--soft); border: 1px solid var(--line); }
-.key .r { background: repeating-linear-gradient(135deg, var(--fable-soft) 0 3px, var(--fable) 3px 5px); }
+.key .f { background: var(--fable); opacity: .55; } .key .o { background: var(--accent); }
+.key .h { background: repeating-linear-gradient(135deg, var(--fable-soft) 0 3px, var(--fable) 3px 4.5px); }
+.key .pf { background: var(--fable); border-radius: 50%; } .key .po { background: var(--accent); border-radius: 50%; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { font-size: 13px; border-radius: 8px; padding: 5px 10px; background: var(--soft); }
+.chip.f { background: var(--fable-soft); } .chip.o { background: var(--accent-soft); }
+.chip.warn { background: var(--new-soft); color: var(--new); } .chip.stop { background: var(--bad-soft); color: var(--bad); }
 .knobs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 24px; }
 .knobs label { display: grid; grid-template-columns: minmax(0, 1fr) 3.2em; gap: 2px 10px; font-size: 13px; color: var(--muted); align-items: center; }
 .knobs label span { grid-column: 1 / -1; }
 .knobs output { font: 600 14px "Space Grotesk", sans-serif; color: var(--fg); text-align: right; font-variant-numeric: tabular-nums; }
 .knobs input { width: 100%; accent-color: var(--accent); }
 .knobs .kf input { accent-color: var(--fable); }
-.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
-.res { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.res h3 { margin: 0; font: 600 13px Inter, sans-serif; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-.res h3 b { font: 600 26px "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
-.res .m { height: 8px; border-radius: 4px; background: var(--soft); overflow: hidden; }
-.res .m i { display: block; height: 100%; background: var(--accent); }
-.res.rf .m i { background: var(--fable); }
-.res .q { font-size: 13px; border-radius: 8px; padding: 6px 10px; background: var(--accent-soft); }
-.res .q.stop { background: var(--bad-soft); color: var(--bad); }
+.simrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.simrow button { padding: 4px 10px; }
 
 /* диаграмма */
 .dia { overflow-x: auto; }
-.dia svg { display: block; min-width: 760px; width: 100%; height: auto; }
+.dia svg { display: block; min-width: 780px; width: 100%; height: auto; }
 .dia text { font: 500 13px Inter, sans-serif; fill: var(--fg); }
 .dia text.s { font-size: 11.5px; fill: var(--muted); font-weight: 400; }
 .n rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
 .n.new rect { fill: var(--new-soft); stroke: var(--new); }
-.n.fb rect { fill: var(--fable-soft); stroke: var(--fable); }
-.n.ot rect { fill: var(--accent-soft); stroke: var(--accent); }
+.n.fbn rect { fill: var(--fable-soft); stroke: var(--fable); }
+.n.otn rect { fill: var(--accent-soft); stroke: var(--accent); }
+.n.frame rect { fill: transparent; stroke: var(--line); stroke-dasharray: 5 4; }
 .a path { stroke: var(--muted); stroke-width: 1.6; fill: none; }
 .a.new path { stroke: var(--new); }
+.a.fba path { stroke: var(--fable); } .a.ota path { stroke: var(--accent); }
 .a text { fill: var(--muted); font-size: 11.5px; font-weight: 400; }
 .a.new text { fill: var(--new); }
-.dia marker path { fill: var(--muted); stroke: none; }
-.dia marker.mn path { fill: var(--new); }
+.dia marker path { stroke: none; }
+#ar path { fill: var(--muted); } #arn path { fill: var(--new); } #arf path { fill: var(--fable); } #aro path { fill: var(--accent); }
 [data-i] { cursor: pointer; }
 [data-i]:hover rect, [data-i].on rect { stroke-width: 2.6; }
 [data-i]:hover path, [data-i].on path { stroke-width: 3; }
@@ -81,24 +98,27 @@ pre { font: 12.5px/1.45 "JetBrains Mono", monospace; background: var(--code); bo
 .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid var(--line); background: var(--card); }
 .legend i.new { background: var(--new-soft); border-color: var(--new); }
 
-/* доказательства */
+/* крайние случаи и замеры */
+.cases { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+.case { display: flex; flex-direction: column; gap: 10px; }
+.case h3 { margin: 0; font: 600 14px Inter, sans-serif; text-wrap: balance; }
+.case .out { font-size: 13px; border-radius: 8px; padding: 6px 10px; background: var(--accent-soft); }
+.case small { color: var(--muted); font-size: 11.5px; }
+.flow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12.5px; }
+.flow span { background: var(--soft); border-radius: 8px; padding: 4px 8px; }
+.flow i { color: var(--muted); font-style: normal; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
 .tile b { display: block; font: 600 26px "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
 .tile span { color: var(--muted); font-size: 13px; }
 .tile code { display: block; margin-top: 8px; font: 11.5px "JetBrains Mono", monospace; color: var(--muted); overflow-wrap: anywhere; }
+.meas { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 24px; }
+.meas .lost { font-size: 12.5px; color: var(--bad); margin-top: 4px; }
+.meas .fine { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
 .shots { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 12px; align-items: start; }
-.shots figure { margin: 0; }
-.shots img { width: 100%; border: 1px solid var(--line); border-radius: 10px; display: block; }
-.shots figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
-.et { display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr); gap: 8px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
-.et:first-child { border-top: 0; }
-.et .in, .et .out { font-size: 13.5px; border-radius: 8px; padding: 8px 10px; background: var(--soft); min-width: 0; overflow-wrap: anywhere; }
-.et .out { background: var(--accent-soft); }
-.et .ar { text-align: center; color: var(--muted); }
-.et small { display: block; color: var(--muted); font-size: 11.5px; }
-.mini { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--card); margin-top: 6px; }
-.mini i { display: block; height: 100%; }
-.mini .f { background: var(--fable); } .mini .o { background: var(--accent); }
+.shots2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; align-items: start; }
+figure { margin: 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: 10px; display: block; }
+figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
 .gate { font: 13px/1.7 "JetBrains Mono", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fork { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .fork div { border-radius: 10px; padding: 10px 12px; border: 1px solid var(--line); font-size: 13.5px; }
@@ -110,165 +130,214 @@ pre { font: 12.5px/1.45 "JetBrains Mono", monospace; background: var(--code); bo
 .steps .card::before { counter-increment: st; content: counter(st); font: 600 20px "Space Grotesk", sans-serif; color: var(--accent); grid-row: span 2; }
 .steps .done { font-size: 13px; color: var(--muted); }
 .steps .done b { color: var(--accent); font-weight: 600; }
-@media (max-width: 620px) { h1 { font-size: 27px; } .et { grid-template-columns: 1fr; } .et .ar { display: none; } .shots { grid-template-columns: 1fr; } .shots .ph img { max-width: 260px; } }
+@media (max-width: 620px) { h1 { font-size: 27px; } .shots { grid-template-columns: 1fr; } .shots .ph img { max-width: 260px; } }
 </style>
 
 <main>
 <header>
   <h1>Два запаса недели</h1>
-  <p class="lead">Неделя аккаунта Claude делится на два запаса: Fable и остальные модели. Очередь следит за своим запасом и не трогает чужой — Fable выбирается до конца на каждом аккаунте, остальное достаётся Opus. Работа: маленькая.</p>
+  <p class="lead">Очередь — один порядок аккаунтов, без вида. В ней два места: на одном идут сессии Fable, на другом — остальные модели. Fable выбирается до конца на каждом аккаунте. Остальные тратят свою половину недели, а когда она кончилась везде — берут запас Fable, чтобы работа шла. Работа: большая — меняет договор очередей.</p>
 </header>
 
 <section id="b-week" data-block>
-  <h2>Неделя аккаунта</h2>
-  <div class="card week">
-    <div class="presets" id="presets"></div>
-    <div>
-      <div class="bar" id="bar" role="img" aria-label="Неделя аккаунта"><i class="f"></i><i class="o"></i><i class="r"></i></div>
-      <div class="scale"><span>0</span><span>50 % недели — потолок Fable</span><span>100</span></div>
-    </div>
-    <div class="key"><span><i class="f"></i>потратил Fable</span><span><i class="o"></i>потратили остальные</span><span><i class="r"></i>держим для Fable</span><span><i class="z"></i>свободно остальным</span></div>
+  <h2>Неделя одного аккаунта</h2>
+  <div class="card stack">
+    <div class="btns" id="presets"></div>
+    <div class="q big" id="one"></div>
+    <div class="key"><span><i class="f"></i>потратил Fable</span><span><i class="o"></i>потратили остальные</span><span><i class="h"></i>держим для Fable</span></div>
     <div class="knobs">
-      <label class="kf"><span>Fable потратил, % недели</span><input id="kf" type="range" min="0" max="50" value="48"><output id="of">48</output></label>
-      <label><span>Остальные потратили, % недели</span><input id="ko" type="range" min="0" max="100" value="43"><output id="oo">43</output></label>
+      <label class="kf"><span>Fable потратил, % недели</span><input id="kf" type="range" min="0" max="50" value="37"><output id="of">37</output></label>
+      <label><span>Остальные потратили, % недели</span><input id="ko" type="range" min="0" max="100" value="10"><output id="oo">10</output></label>
     </div>
-    <div class="two">
-      <div class="res rf"><h3>Запас Fable <b id="nf">96</b></h3><div class="m"><i id="mf"></i></div><div class="q" id="qf"></div></div>
-      <div class="res"><h3>Запас остальных <b id="no">86</b></h3><div class="m"><i id="mo"></i></div><div class="q" id="qo"></div></div>
+    <div class="chips" id="verdict"></div>
+  </div>
+</section>
+
+<section id="b-queue" data-block>
+  <h2><span class="chg" data-chg="queue">Очередь: один порядок, два места</span></h2>
+  <div class="card stack">
+    <div class="btns">
+      <button type="button" id="goF">Fable работает</button>
+      <button type="button" id="goO">Остальные работают</button>
+      <button type="button" id="again">Сначала</button>
     </div>
+    <div id="sim" class="stack"></div>
+    <div class="key"><span><i class="pf"></i>место Fable</span><span><i class="po"></i>место остальных моделей</span><span><i class="h"></i>запас Fable</span></div>
+    <div class="chips" id="simsay"></div>
   </div>
 </section>
 
 <section id="b-flow" data-block>
-  <h2>Кто за чем следит</h2>
+  <h2>Кто кого о чём просит</h2>
   <div class="card dia">
-    <svg viewBox="0 0 920 330" role="img" aria-label="Путь числа лимита от Claude до очереди">
+    <svg viewBox="0 0 940 350" role="img" aria-label="Сессии, места очереди, аккаунты и путь чисел лимита">
       <defs>
         <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z"/></marker>
-        <marker id="arn" class="mn" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z"/></marker>
+        <marker id="arn" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z"/></marker>
+        <marker id="arf" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z"/></marker>
+        <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z"/></marker>
       </defs>
-      <g class="n" data-i="turn"><rect x="20" y="28" width="170" height="54" rx="10"/><text x="105" y="52" text-anchor="middle">Сессия</text><text class="s" x="105" y="70" text-anchor="middle">ход закончился</text></g>
-      <g class="n" data-i="page"><rect x="20" y="248" width="170" height="54" rx="10"/><text x="105" y="272" text-anchor="middle">Страница аккаунтов</text><text class="s" x="105" y="290" text-anchor="middle">две полоски</text></g>
-      <g class="n new" data-i="host"><rect x="290" y="128" width="190" height="74" rx="10"/><text x="385" y="156" text-anchor="middle">Аккаунты машины</text><text class="s" x="385" y="175" text-anchor="middle">считает два запаса</text><text class="s" x="385" y="191" text-anchor="middle">из одного ответа</text></g>
-      <g class="n" data-i="claude"><rect x="300" y="14" width="170" height="54" rx="10"/><text x="385" y="38" text-anchor="middle">Claude</text><text class="s" x="385" y="56" text-anchor="middle">лимиты аккаунта</text></g>
-      <g class="n fb" data-i="qf"><rect x="600" y="62" width="150" height="54" rx="10"/><text x="675" y="86" text-anchor="middle">Очередь fable</text><text class="s" x="675" y="104" text-anchor="middle">запас Fable</text></g>
-      <g class="n ot" data-i="qo"><rect x="600" y="214" width="150" height="54" rx="10"/><text x="675" y="238" text-anchor="middle">Очередь остальных</text><text class="s" x="675" y="256" text-anchor="middle">запас остальных</text></g>
-      <g class="n" data-i="next"><rect x="800" y="138" width="104" height="54" rx="10"/><text x="852" y="162" text-anchor="middle">Следующий</text><text class="s" x="852" y="180" text-anchor="middle">или ждёт сброса</text></g>
+      <g class="n frame" data-i="q"><rect x="262" y="12" width="196" height="172" rx="12"/><text class="s" x="274" y="30">очередь main</text></g>
+      <g class="n frame" data-i="acc"><rect x="572" y="12" width="196" height="172" rx="12"/><text class="s" x="584" y="30">порядок аккаунтов</text></g>
+      <g class="n" data-i="sf"><rect x="20" y="42" width="170" height="50" rx="10"/><text x="105" y="64" text-anchor="middle">Сессия на Fable</text><text class="s" x="105" y="81" text-anchor="middle">или без модели</text></g>
+      <g class="n" data-i="so"><rect x="20" y="116" width="170" height="50" rx="10"/><text x="105" y="138" text-anchor="middle">Сессия на Opus</text><text class="s" x="105" y="155" text-anchor="middle">и любой другой</text></g>
+      <g class="n fbn" data-i="pf"><rect x="280" y="44" width="160" height="46" rx="10"/><text x="360" y="72" text-anchor="middle">Место Fable</text></g>
+      <g class="n otn" data-i="po"><rect x="280" y="118" width="160" height="46" rx="10"/><text x="360" y="146" text-anchor="middle">Место остальных</text></g>
+      <g class="n" data-i="acc"><rect x="592" y="40" width="156" height="36" rx="8"/><text x="670" y="63" text-anchor="middle">1 · work@</text></g>
+      <g class="n" data-i="acc"><rect x="592" y="86" width="156" height="36" rx="8"/><text x="670" y="109" text-anchor="middle">2 · yuri@</text></g>
+      <g class="n" data-i="acc"><rect x="592" y="132" width="156" height="36" rx="8"/><text x="670" y="155" text-anchor="middle">3 · team@</text></g>
+      <g class="n new" data-i="host"><rect x="270" y="252" width="200" height="66" rx="10"/><text x="370" y="278" text-anchor="middle">Аккаунты машины</text><text class="s" x="370" y="296" text-anchor="middle">считает запас, ставит места</text></g>
+      <g class="n" data-i="claude"><rect x="600" y="258" width="170" height="54" rx="10"/><text x="685" y="281" text-anchor="middle">Claude</text><text class="s" x="685" y="298" text-anchor="middle">лимиты аккаунта</text></g>
+      <g class="n" data-i="page"><rect x="20" y="258" width="170" height="54" rx="10"/><text x="105" y="281" text-anchor="middle">Страница аккаунтов</text><text class="s" x="105" y="298" text-anchor="middle">полоски и лампы</text></g>
 
-      <g class="a new" data-i="a-turn"><path d="M190,62 C250,70 270,120 296,140" marker-end="url(#arn)"/><text x="112" y="124">числа старше 2 мин</text></g>
-      <g class="a new" data-i="a-ask"><path d="M385,128 L385,70" marker-end="url(#arn)"/><text x="394" y="104">спросить</text></g>
-      <g class="a" data-i="a-page"><path d="M190,268 C250,262 270,214 296,194" marker-end="url(#ar)"/><text x="118" y="218">список аккаунтов</text></g>
-      <g class="a new" data-i="a-qf"><path d="M480,150 C530,140 560,104 598,94" marker-end="url(#arn)"/><text x="486" y="104">Fable ≥ 98 %</text></g>
-      <g class="a new" data-i="a-qo"><path d="M480,180 C530,190 560,226 598,236" marker-end="url(#arn)"/><text x="462" y="248">остальные ≥ 98 %</text></g>
-      <g class="a" data-i="a-next"><path d="M750,96 C790,104 810,120 838,136" marker-end="url(#ar)"/></g>
-      <g class="a" data-i="a-next"><path d="M750,234 C790,226 810,210 838,194" marker-end="url(#ar)"/></g>
+      <g class="a" data-i="a-sf"><path d="M190,67 L278,67" marker-end="url(#ar)"/></g>
+      <g class="a" data-i="a-so"><path d="M190,141 L278,141" marker-end="url(#ar)"/></g>
+      <g class="a fba" data-i="a-pf"><path d="M440,67 C500,67 520,104 590,104" marker-end="url(#arf)"/></g>
+      <g class="a ota" data-i="a-po"><path d="M440,141 C500,141 520,58 590,58" marker-end="url(#aro)"/></g>
+      <g class="a new" data-i="a-put"><path d="M360,252 L360,188" marker-end="url(#arn)"/><text x="368" y="226">ставит места</text></g>
+      <g class="a new" data-i="a-ask"><path d="M470,285 L598,285" marker-end="url(#arn)"/><text x="498" y="276">спросить</text></g>
+      <g class="a new" data-i="a-tick"><path d="M105,166 C105,214 200,236 268,268" marker-end="url(#arn)"/><text x="22" y="226">работает, числа старше 2 мин</text></g>
+      <g class="a" data-i="a-page"><path d="M190,296 L268,296" marker-end="url(#ar)"/><text x="196" y="330">список · поставить</text></g>
     </svg>
   </div>
   <div class="legend"><span><i class="new"></i>меняется</span><span><i></i>как сейчас</span></div>
   <div class="say" aria-live="polite">Нажмите на блок или стрелку.</div>
 </section>
 
+<section id="b-cases" data-block>
+  <h2><span class="chg" data-chg="cases">Крайние случаи — они же эталоны</span></h2>
+  <div class="cases" id="cases"></div>
+</section>
+
 <section id="b-proof" data-block>
-  <h2>Замеры</h2>
+  <h2><span class="chg" data-chg="proof">Сверка с Claude</span></h2>
   <div class="grid">
-    <div class="card tile"><b>50 %</b><span>недели — потолок Fable, его называет сам Claude</span><code>allowance_percent_of_weekly: 50</code></div>
-    <div class="card tile"><b>48 → 95 %</b><span>Fable потратил 48 % недели — это 95 % его лимита</span><code>used_percent_of_weekly: 48 · Fable: 95</code></div>
-    <div class="card tile"><b>75 против 95</b><span>один аккаунт в одну минуту: флот и Claude. Число флота — от последней сессии Fable на этой машине</span><code>замер 11 нояб., 8 машин</code></div>
-    <div class="card tile"><b>3 из 5</b><span>аккаунтов у 98–100 % недели — Fable на них закрыт, сколько бы его лимита ни осталось</span><code>замер 11 нояб.</code></div>
+    <div class="card tile"><b>47 = 47 · 73 ≈ 74</b><span>неделя и Fable: ваша страница Claude и ответ Claude нашему опросу, с разницей в минуты. Флот показывал 44 и 95</span><code>замер 11 нояб.</code></div>
+    <div class="card tile"><b>37 %</b><span>светлая часть недельной полоски Claude — доля Fable: 74 % от его половины недели</span><code>used_percent_of_weekly: 37 · allowance_percent_of_weekly: 50</code></div>
+    <div class="card tile"><b>14 и 27 %</b><span>недели — столько Fable пропало на двух аккаунтах: остальные модели выбрали неделю раньше</span><code>неделя 100, Fable 72 · неделя 98, Fable 45</code></div>
+    <div class="card tile"><b>без вопроса</b><span>сессия флота сверх лимита Fable идёт на платные кредиты, если они включены. Поэтому порог — 98 %</span><code>документация Claude Code</code></div>
   </div>
+  <div class="card"><div class="meas" id="meas"></div></div>
 </section>
 
 <section id="b-shots" data-block>
   <h2>Экран аккаунтов — снимки живого прототипа</h2>
   <div class="shots">
-    <figure><img src="shots/accounts-1280-light.png" alt="Экран аккаунтов: у каждого аккаунта полоски Fable и остальных моделей"><figcaption>Верхняя полоска — Fable, нижняя — остальные. В очереди ярче та, за которой она следит.</figcaption></figure>
+    <figure><img src="shots/accounts-1280-light.png" alt="Экран аккаунтов: очереди без вида, у каждого аккаунта неделя в два тона и Fable, лампы двух мест"><figcaption>Лампа у полоски недели — место остальных моделей, у полоски Fable — место Fable. Пустая лампа — кнопка «поставить».</figcaption></figure>
     <figure class="ph"><img src="shots/accounts-390-dark.png" alt="Тот же экран на телефоне, тёмная тема"><figcaption>Телефон</figcaption></figure>
   </div>
-</section>
-
-<section id="b-etalons" data-block>
-  <h2>Эталоны — чем проверяем</h2>
-  <div class="card">
-    <div class="et"><div class="in">Fable 48, остальные 43<div class="mini"><i class="f" style="width:48%"></i><i class="o" style="width:43%"></i></div><small>факт: замер 11 нояб.</small></div><div class="ar">→</div><div class="out">запас Fable 96 %, остальных 86 %</div></div>
-    <div class="et"><div class="in">Очередь остальных; у аккаунта Fable 20, остальные 49<div class="mini"><i class="f" style="width:20%"></i><i class="o" style="width:49%"></i></div><small>слово пользователя: Opus не съедает долю Fable</small></div><div class="ar">→</div><div class="out">очередь уходит на следующий аккаунт; 30 % недели остаются Fable</div></div>
-    <div class="et"><div class="in">Очередь fable; у аккаунта Fable 49, остальные 10<div class="mini"><i class="f" style="width:49%"></i><i class="o" style="width:10%"></i></div><small>слово пользователя: Fable — до 100 %</small></div><div class="ar">→</div><div class="out">очередь уходит на следующий; очередь остальных на этом аккаунте работает дальше</div></div>
-    <div class="et"><div class="in">Fable выбран: 50, остальные 20<div class="mini"><i class="f" style="width:50%"></i><i class="o" style="width:20%"></i></div><small>слово пользователя: «а потом и Opus»</small></div><div class="ar">→</div><div class="out">запас остальных 40 % — им открыта вся оставшаяся неделя</div></div>
-    <div class="et"><div class="in">Остальные потратили 69, Fable 30<div class="mini"><i class="f" style="width:30%"></i><i class="o" style="width:69%"></i></div><small>факт: Claude не даёт больше недели</small></div><div class="ar">→</div><div class="out">запас Fable 98 %: ему остался 1 % недели, а не 20</div></div>
-    <div class="et"><div class="in">На тарифе нет Fable<small>факт: в ответе Claude нет доли Fable</small></div><div class="ar">→</div><div class="out">запас остальных — вся неделя; очередь fable этот аккаунт не берёт</div></div>
-    <div class="et"><div class="in">Ход закончился, числа аккаунта старше 2 минут<small>слово пользователя: число как на странице аккаунта</small></div><div class="ar">→</div><div class="out">один вопрос Claude; запас у порога — смена аккаунта</div></div>
-    <div class="et"><div class="in">Машина, где Fable не запускали<small>факт: 75 против 95</small></div><div class="ar">→</div><div class="out">число Fable — то же, что у Claude</div></div>
+  <div class="shots2">
+    <figure><img src="shots/over-1280-light.png" alt="Очередь, где остальные модели идут из запаса Fable"><figcaption>Остальные выбрали свою половину на всех аккаунтах очереди</figcaption></figure>
+    <figure><img src="shots/put-1280-light.png" alt="Место Fable переставлено лампой на второй аккаунт"><figcaption>Место Fable переставлено лампой; место остальных не сдвинулось</figcaption></figure>
   </div>
 </section>
 
 <section id="b-forks" data-block>
-  <h2>Развилки вам</h2>
+  <h2>Развилка вам</h2>
   <div class="card">
-    <p class="fork-q">Fable выбран на всех аккаунтах очереди fable</p>
-    <div class="fork"><div class="rec"><small>рекомендую</small>Очередь ждёт сброса. Модель выбирает человек.</div><div><small>иначе</small>Сессии очереди идут на Opus до сброса и возвращаются на Fable сами.</div></div>
-  </div>
-  <div class="card">
-    <p class="fork-q">Fable на аккаунте никто не тратит</p>
-    <div class="fork"><div class="rec"><small>рекомендую</small>Его половина держится до сброса: полоска видна на странице, аккаунт ставится в очередь fable.</div><div><small>иначе</small>Перед сбросом половина отдаётся остальным.</div></div>
+    <p class="fork-q">Fable выбран на всех аккаунтах очереди</p>
+    <div class="fork"><div class="rec"><small>рекомендую</small>Место Fable ждёт сброса. Сессию переводит на Opus человек или агент — одним полем «Модель», очередь менять не нужно.</div><div><small>иначе</small>Сессии Fable сами идут на Opus и сами возвращаются после сброса.</div></div>
   </div>
 </section>
 
 <section id="b-gate" data-block>
   <h2>Гейт</h2>
-  <div class="card gate">Гейт (18 строк реестров): дубликаты ответственности 0 → 0 · состояния 1 → 0 · логики 0 → 0 · смысла 2 → 0 · других 1 → 0 · лишние коммуникации 0 → 0 · циклы 0 → 0
-Числа: модули 0 новых · запросы 0 новых · имена окон в ответе 2 → 2 (seven_day, seven_day_overage_included → fable, other) · окон в записи аккаунта ~25 → 3 · окон под присмотром очереди 3 и 2 → 2 и 2 · источников числа лимита 2 → 1 · настройки 0 · секреты 0 · эталоны 8
-Работа: маленькая — форма ответа та же, меняются имена двух окон и правило годности аккаунта
+  <div class="card gate" id="gate">Гейт (31 строка реестров): дубликаты ответственности 1 → 0 · состояния 2 → 0 · логики 0 → 0 · смысла 2 → 0 · других 2 → 0 · лишние коммуникации 0 → 0 · циклы 0 → 0
+Числа: модули 0 новых · запросы 0 новых · поля очереди в ответе 6 → 4 (уходят вид, «кто стоит», «ждёт»; приходят два места) · поля запросов: у «завести очередь» −1 (вид), у «сменить сейчас» +1 (место) · поля недели +2 (доля Fable, запас) · слова отказа −1 («модель не для этой очереди») · настройки −1 (вид очереди) · ссылок на диске на очередь 1 → 2 · окон в записи аккаунта ~25 → 3 · источников числа лимита 2 → 1 · эталоны 19
+Работа: большая — меняет договор очередей (два места вместо вида) и раскладку ссылок на диске
 Сделано:
-  1. Дубликат состояния · число Fable · бралось из событий сессий и расходилось с Claude; теперь одно — из ответа Claude об аккаунте · выигрыш: расхождение 20 п. п. → 0
-  2. Второй путь · числа лимитов · событие сессии и конец хода — только повод спросить Claude, чисел не несут · выигрыш: источников 2 → 1
-  3. Одно имя — один смысл · «неделя» · для очереди остальных значила всю неделю, хотя половина — Fable; теперь у каждого вида свой запас · выигрыш: смыслов 2 → 1
-  4. Явное · имя окна Fable · чужое имя seven_day_overage_included в четырёх местах заменено своим fable; правило считает одно место, страница получает результат · выигрыш: мест, знающих имя Claude, 4 → 1
-  5. Удаление раньше добавления · окна, которые никто не читает · в записи остаются три: 5 часов, Fable, остальные
-Проверено и оставлено: вид очереди и «очередь диктует модель» — слово пользователя 11 нояб.; порядок аккаунтов в очереди — все аккаунты сейчас у порога, выбирать по часу сброса нечего; порог 98 % — прежний.
-Не трогал как редакторское: слова подсказок у полосок.</div>
+  1. Дубликат ответственности · модель сессии · её выбирали и сессия, и очередь; теперь только сессия, очередь лишь ставит её на место модели · выигрыш: владельцев 2 → 1, отказов −1, настроек −1
+  2. Дубликат состояния · порядок аккаунтов · для Fable и остальных моделей заводились две очереди с одним порядком; теперь один порядок, два места · выигрыш: копий порядка 2 → 1
+  3. Дубликат состояния · число Fable · бралось из событий сессий и расходилось с Claude до 22 п. п.; теперь одно — из ответа Claude об аккаунте · выигрыш: расхождение → 0
+  4. Второй путь · числа лимитов · событие сессии и работа сессии — только повод спросить Claude, чисел не несут · выигрыш: источников 2 → 1
+  5. Одно имя — один смысл · «неделя» · для остальных моделей значила всю неделю, хотя половина — Fable; теперь у недели назван запас Fable · выигрыш: смыслов 2 → 1
+  6. Явное · имя окна Fable · чужое имя seven_day_overage_included в четырёх местах заменено своим fable; запас считает одно место, страница получает готовые доли · выигрыш: мест, знающих имя Claude, 4 → 1
+  7. Удаление раньше добавления · кнопка «Сменить сейчас» у очереди и окна, которые никто не читает · место ставится лампой; в записи три окна: 5 часов, неделя, Fable
+Решено архитектором: запас Fable остальные берут с конца порядка — Fable идёт с начала, они встречаются последними; сессия без модели идёт на Fable — как умолчание очереди сегодня; место не уходит с аккаунта, пока он годен, — без метаний между равными.
+Проверено и оставлено: порядок аккаунтов задаёт человек; пороги 98 % у недели и Fable и 95 % у пяти часов; несколько очередей на машине; ожидание сброса и «Продолжай» после отказа.
+Не трогал как редакторское: слова подсказок у ламп и полосок.</div>
 </section>
 
 <section id="b-order" data-block>
   <h2>Порядок реализации</h2>
   <div class="steps">
-    <div class="card"><div><b>Правило.</b> Два запаса из ответа Claude; очередь следит за пятью часами и своим запасом.</div><div class="done">Готово: <b>тесты Host 197 → 203</b> — шесть эталонов правила.</div></div>
-    <div class="card"><div><b>Опрос.</b> Числа — только из ответа Claude; событие сессии и конец хода с числами старше 2 минут — повод спросить.</div><div class="done">Готово: <b>тесты Host 203 → 205</b> — два эталона опроса.</div></div>
-    <div class="card"><div><b>Страница.</b> Полоски Fable и остальных — из прототипа.</div><div class="done">Готово: <b>тесты страницы 252 → 252</b> (один заменён), <b>сценарий в браузере 8 из 8</b>.</div></div>
-    <div class="card"><div><b>Тестовый флот.</b> Выкладка и живая сверка.</div><div class="done">Готово: <b>расхождение числа Fable с ответом Claude 20 → 0 п. п.</b>; <b>живая проверка 2 из 2</b>: очередь остальных меняет аккаунт у своего порога, очередь fable на нём остаётся.</div></div>
-    <div class="card"><div><b>Прод.</b> По вашему слову.</div><div class="done">Готово: <b>8 машин на новой сборке</b>, сессий столько же, сколько до выкладки.</div></div>
+    <div class="card"><div><b>Договор.</b> У очереди два места вместо вида; у недели — доля Fable и запас; «сменить сейчас» называет место.</div><div class="done">Готово: <b>тесты договора 12 из 12</b>, гейт имён чист.</div></div>
+    <div class="card"><div><b>Правило.</b> Запас недели, годность аккаунта месту, выбор аккаунта — чистые функции.</div><div class="done">Готово: <b>тесты Host 197 → 210</b> — тринадцать эталонов с картинкой (оценка по их числу).</div></div>
+    <div class="card"><div><b>Аккаунты машины.</b> Два места очереди на диске; числа только из ответа Claude; места пересматриваются по числам, сбросу и отказу; вид очереди убран; смена модели переводит сессию на другое место.</div><div class="done">Готово: <b>тесты Host 210 → 216</b> — шесть эталонов сессий и опроса.</div></div>
+    <div class="card"><div><b>Страница.</b> Из прототипа.</div><div class="done">Готово: <b>тесты страницы 252 из 252</b>, <b>сценарий в браузере 24 из 24</b> на 1280 и 390.</div></div>
+    <div class="card"><div><b>Тестовый флот.</b> Выкладка и живая сверка.</div><div class="done">Готово: <b>расхождение недели и Fable с ответом Claude 22 → 0 п. п.</b>; сессия Fable и сессия Opus одной очереди стоят на разных аккаунтах — <b>живая проверка 3 из 3</b>, третий шаг — ответ Claude на свежей неделе.</div></div>
+    <div class="card"><div><b>Прод.</b> По вашему слову; прежние ссылки очередей убирает агент.</div><div class="done">Готово: <b>8 машин на новой сборке</b>, сессий столько же, сколько до выкладки.</div></div>
   </div>
 </section>
 </main>
 
 <script>
-// неделя аккаунта: два запаса из двух чисел
+// ── правило: запас недели, годность аккаунта месту, выбор аккаунта. s — сколько недели потратил Fable, o — остальные, в процентах
+const A = 50, NEAR = 98, HOT = 95;
+const week = (a) => a.s + a.o;
+const hold = (a) => Math.max(0, Math.min(A - a.s, 100 - week(a)));
+const fableUsed = (a) => a.u ?? Math.round((a.s / A) * 100);
+const alive = (a) => !a.out && !(a.h >= HOT);
+const fitF = (a) => alive(a) && (a.s / A) * 100 < NEAR && week(a) < NEAR;
+const fitO = (a) => alive(a) && week(a) + hold(a) < NEAR;
+function place(accs, was = {}) {
+  const keep = (i, fit) => (i != null && accs[i] && fit(accs[i]) ? i : undefined);
+  const first = (fit) => { const i = accs.findIndex(fit); return i < 0 ? undefined : i; };
+  const last = (fit) => { for (let i = accs.length - 1; i >= 0; i--) if (fit(accs[i])) return i; };
+  const f = keep(was.f, fitF) ?? first(fitF);
+  let o = keep(was.over ? undefined : was.o, fitO) ?? first(fitO), over = false;
+  if (o === undefined) { o = keep(was.over ? was.o : undefined, fitF) ?? last(fitF); over = o !== undefined; }
+  return { f, o, over };
+}
+
+// ── рисунок аккаунта и очереди
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+function accRow(a, i, lanes, name) {
+  const row = el("div", "acc");
+  const nm = el("span", "nm", name ?? String(i + 1));
+  for (const t of [a.out && "входа нет", a.h >= HOT && "5 ч у порога", a.nos && "нет доли Fable"]) if (t) nm.append(el("span", "tag", t));
+  const bars = el("div", "bars");
+  const line = (pin, bar, num) => { const br = el("div", "br"); br.append(pin, bar, el("b", "", String(num))); return br; };
+  const pin = (lane, on) => el("span", "pin " + lane + (on ? " on" : ""));
+  const wk = el("div", "wk");
+  const seg = (cls, w) => { const s = el("i", cls); s.style.width = Math.max(0, w) + "%"; return s; };
+  wk.append(seg("f", a.s), seg("o", a.o), el("i", "sp"), seg("h", hold(a)));
+  const fb = el("div", "fb"); fb.append(seg("", fableUsed(a)));
+  bars.append(line(pin("o", !!lanes && lanes.o === i), wk, week(a)), line(pin("f", !!lanes && lanes.f === i), fb, fableUsed(a)));
+  row.append(nm, bars);
+  return row;
+}
+function drawQueue(box, accs, lanes) { box.textContent = ""; accs.forEach((a, i) => box.append(accRow(a, i, lanes))); }
+const chip = (cls, text) => el("span", "chip " + cls, text);
+function laneChips(lanes) {
+  return [
+    lanes.f != null ? chip("f", `Fable — на аккаунте ${lanes.f + 1}`) : chip("stop", "Fable ждёт сброса"),
+    lanes.o == null ? chip("stop", "Остальные ждут сброса") : lanes.over ? chip("warn", `Остальные — из запаса Fable, аккаунт ${lanes.o + 1}`) : chip("o", `Остальные — на аккаунте ${lanes.o + 1}`),
+  ];
+}
+
+// ── неделя одного аккаунта
 (() => {
-  const A = 50, LIMIT = 98;
   const $ = (id) => document.getElementById(id);
   const kf = $("kf"), ko = $("ko");
-  const PRESETS = [["Замер 11 нояб.", 48, 43], ["Свежая неделя", 0, 0], ["Opus съел неделю", 12, 87], ["Fable выбран", 50, 20], ["Остальные у порога", 20, 49]];
-  const reserves = (s, o) => {
-    const w = Math.min(100, s + o), free = 100 - w, hold = Math.min(Math.max(0, A - s), free);
-    return { w, free, hold, fable: Math.round((1 - hold / A) * 100), other: Math.round((1 - (free - hold) / (100 - A)) * 100) };
-  };
-  const word = (n, kind) => (n >= LIMIT ? [`Очередь ${kind} уходит на следующий аккаунт`, true] : [`Очередь ${kind} работает`, false]);
+  const PRESETS = [["Ваш замер: 47 и 74", 37, 10], ["Свежая неделя", 0, 0], ["Остальные съели неделю", 36, 64], ["Fable выбран", 50, 20], ["Остальные у своей половины", 20, 49]];
   function draw() {
     const s = +kf.value;
     ko.max = String(100 - s);
-    const o = Math.min(+ko.value, 100 - s);
-    const r = reserves(s, o);
-    $("of").textContent = s; $("oo").textContent = o;
-    const [f, oth, hold] = $("bar").children;
-    f.style.width = s + "%"; oth.style.width = o + "%"; hold.style.width = r.hold + "%";
-    for (const [id, n, kind] of [["f", r.fable, "fable"], ["o", r.other, "остальных"]]) {
-      $("n" + id).textContent = n; $("m" + id).style.width = n + "%";
-      const [text, stop] = word(n, kind);
-      $("q" + id).textContent = text; $("q" + id).classList.toggle("stop", stop);
-    }
-    for (const b of $("presets").children) b.classList.toggle("on", +b.dataset.s === s && +b.dataset.o === o);
+    const a = { s, o: Math.min(+ko.value, 100 - s) };
+    $("of").textContent = a.s; $("oo").textContent = a.o;
+    $("one").textContent = ""; $("one").append(accRow(a, 0, null, "аккаунт"));
+    const h = hold(a), free = 100 - week(a) - h;
+    $("verdict").textContent = "";
+    $("verdict").append(
+      fitF(a) ? chip("f", `Fable: можно, запас ${h} % недели`) : chip("stop", (a.s / A) * 100 >= NEAR ? "Fable: лимит выбран" : "Fable: неделя кончилась"),
+      fitO(a) ? chip("o", `Остальные: можно, свободно ${free} % недели`) : fitF(a) ? chip("warn", "Остальные: только из запаса Fable") : chip("stop", "Остальные: неделя кончилась"),
+    );
+    for (const b of $("presets").children) b.classList.toggle("on", +b.dataset.s === a.s && +b.dataset.o === a.o);
   }
   for (const [name, s, o] of PRESETS) {
-    const b = document.createElement("button");
-    b.type = "button"; b.textContent = name; b.dataset.s = s; b.dataset.o = o;
+    const b = el("button", "", name);
+    b.type = "button"; b.dataset.s = s; b.dataset.o = o;
     b.addEventListener("click", () => { kf.value = s; ko.max = String(100 - s); ko.value = o; draw(); });
     $("presets").append(b);
   }
@@ -276,48 +345,131 @@ pre { font: 12.5px/1.45 "JetBrains Mono", monospace; background: var(--code); bo
   draw();
 })();
 
-// пояснения к блокам и стрелкам диаграммы
+// ── очередь: три аккаунта, два места
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const START = () => [{ s: 30, o: 20 }, { s: 10, o: 30 }, { s: 0, o: 5 }];
+  const STEP = 8;
+  let accs, lanes;
+  function draw() {
+    lanes = place(accs, lanes);
+    const box = $("sim"); box.textContent = "";
+    accs.forEach((a, i) => {
+      const row = el("div", "simrow"), q = el("div", "q big");
+      q.append(accRow(a, i, lanes, "аккаунт " + (i + 1)));
+      const b = el("button", "", "сброс недели"); b.type = "button";
+      b.addEventListener("click", () => { accs[i] = { s: 0, o: 0 }; draw(); });
+      row.append(q, b); box.append(row);
+    });
+    $("simsay").textContent = ""; $("simsay").append(...laneChips(lanes));
+    $("goF").disabled = lanes.f == null; $("goO").disabled = lanes.o == null;
+  }
+  $("goF").addEventListener("click", () => { const a = accs[lanes.f]; a.s += Math.min(STEP, A - a.s, 100 - week(a)); draw(); });
+  $("goO").addEventListener("click", () => { const a = accs[lanes.o], free = 100 - week(a) - hold(a); a.o += Math.min(STEP, lanes.over || free <= 0 ? 100 - week(a) : free); draw(); });
+  $("again").addEventListener("click", () => { accs = START(); lanes = {}; draw(); });
+  accs = START(); lanes = {}; draw();
+})();
+
+// ── крайние случаи: картинку ставит то же правило, что и симулятор
+const CASES = [
+  { t: "Свежая очередь", accs: [{ s: 10, o: 5 }, { s: 0, o: 0 }], out: "Оба места — на первом аккаунте порядка.", src: "чьё: код" },
+  { t: "Fable на аккаунте выбран", accs: [{ s: 49, o: 20 }, { s: 5, o: 5 }], was: { f: 0, o: 0 }, out: "Fable уходит на следующий аккаунт. Остальные остаются.", src: "слово пользователя: Fable — до 100 % на каждом" },
+  { t: "Остальные выбрали свою половину", accs: [{ s: 20, o: 49 }, { s: 5, o: 5 }], was: { f: 0, o: 0 }, out: "Остальные уходят на следующий. Запас Fable цел, Fable остаётся.", src: "слово пользователя: Opus сверх половины отнимает Fable" },
+  { t: "Fable выбран — остальным вся неделя", accs: [{ s: 50, o: 20 }], was: { f: 0, o: 0 }, out: "Запаса для Fable больше нет: остальные идут до конца недели.", src: "слово пользователя: «а потом и Opus»" },
+  { t: "Остальные выбрали половину на всех", accs: [{ s: 30, o: 49 }, { s: 10, o: 49 }, { s: 0, o: 49 }], was: { f: 0, o: 2 }, out: "Работа не встаёт: остальные берут запас Fable — с конца порядка. Fable идёт с начала.", src: "слово пользователя 11 нояб.: «Opus поверх этих 50, если надо продолжить работу»" },
+  { t: "…и у одного аккаунта сбросилась неделя", accs: [{ s: 30, o: 49 }, { s: 0, o: 0 }, { s: 10, o: 60 }], was: { f: 0, o: 2, over: true }, out: "Остальные возвращаются на свою половину: запас Fable берётся, только когда иначе не продолжить.", src: "слово пользователя 11 нояб." },
+  { t: "Fable выбран на всех", accs: [{ s: 50, o: 10 }, { s: 49, o: 20 }], was: { f: 1, o: 0 }, out: "Место Fable ждёт ближайшего сброса. Остальные работают.", src: "развилка — рекомендованный вариант" },
+  { t: "Выбрано всё", accs: [{ s: 50, o: 49 }, { s: 40, o: 59 }], was: { f: 0, o: 0 }, out: "Оба места ждут ближайшего сброса; сессии продолжат сами.", src: "чьё: код" },
+  { t: "Неделя кончилась раньше лимита Fable", accs: [{ s: 23, o: 75, u: 45 }, { s: 5, o: 5 }], was: { f: 0, o: 0 }, out: "Аккаунт закрыт обоим местам, хотя Fable на нём — 45 %.", src: "факт: замер 98 и 45" },
+  { t: "Пять часов у порога", accs: [{ s: 10, o: 10, h: 96 }, { s: 5, o: 5 }], was: { f: 0, o: 0 }, out: "Оба места уходят на следующий и не возвращаются, пока он годен.", src: "чьё: код" },
+  { t: "Вход аккаунта пропал", accs: [{ s: 10, o: 10, out: true }, { s: 5, o: 5 }], was: { f: 0, o: 0 }, out: "Оба места уходят на следующий вошедший аккаунт.", src: "чьё: код" },
+  { t: "Человек поставил место лампой", accs: [{ s: 10, o: 10 }, { s: 5, o: 5 }, { s: 0, o: 0 }], was: { f: 2, o: 0 }, out: "Место стоит, где поставили, пока аккаунт ему годен.", src: "чьё: код" },
+  { t: "В ответе Claude нет доли Fable", accs: [{ s: 0, o: 30, nos: true }], out: "Fable считается целым, потолок — половина недели. Откажет Claude — место уйдёт дальше.", src: "факт: правило Claude «до 50 % недели»; свежая неделя сверяется при выкладке" },
+  { t: "Сессия сменила модель", flow: ["Fable · место Fable", "Opus · место остальных"], out: "Тот же разговор; процесс Claude перезапускается на аккаунте другого места.", src: "чьё: код — как смена очереди сегодня" },
+  { t: "Сессия без модели", flow: ["модель не названа", "Fable · место Fable"], out: "Идёт на Fable.", src: "чьё: код — умолчание очереди сегодня" },
+  { t: "Помощники на Opus у сессии Fable", flow: ["сессия Fable + помощники Opus", "один аккаунт — место Fable"], out: "Помощники тратят неделю того же аккаунта: у процесса один вход. Числа Claude это уже учитывают.", src: "факт: один процесс — один вход" },
+  { t: "Числа устарели", flow: ["сессия работает, числам больше 2 мин", "один вопрос Claude", "места пересмотрены"], out: "Расход с других машин виден не позже двух минут работы.", src: "слово пользователя: числа как на странице аккаунта" },
+  { t: "Отказ Claude посреди хода", flow: ["отказ по лимиту", "место — на следующий аккаунт", "«Продолжай»"], out: "Сессия продолжает на новом аккаунте.", src: "чьё: код" },
+  { t: "Перезапуск службы на машине", flow: ["две ссылки очереди на диске", "места те же"], out: "Кто где стоит, знает диск; после запуска всё на прежних местах.", src: "чьё: код" },
+];
+(() => {
+  const box = document.getElementById("cases");
+  for (const c of CASES) {
+    const card = el("div", "card case");
+    card.append(el("h3", "", c.t));
+    if (c.accs) {
+      const lanes = place(c.accs, c.was);
+      const q = el("div", "q mini"); drawQueue(q, c.accs, lanes);
+      const chips = el("div", "chips"); chips.append(...laneChips(lanes));
+      card.append(q, chips);
+    } else {
+      const f = el("div", "flow");
+      c.flow.forEach((x, i) => { if (i) f.append(el("i", "", "→")); f.append(el("span", "", x)); });
+      card.append(f);
+    }
+    card.append(el("div", "out", c.out), el("small", "", c.src));
+    box.append(card);
+  }
+})();
+
+// ── замеры четырёх аккаунтов прода, 11 нояб.
+(() => {
+  const M = [
+    [{ s: 37, o: 10, u: 74 }, "fine", "ваш скриншот: 47 и 73"],
+    [{ s: 48, o: 43, u: 95 }, "fine", "Fable почти выбран, запас цел"],
+    [{ s: 36, o: 64, u: 72 }, "lost", "Fable закрыт: пропало 14 % недели"],
+    [{ s: 23, o: 75, u: 45 }, "lost", "Fable закрыт: пропало 27 % недели"],
+  ];
+  const box = document.getElementById("meas");
+  M.forEach(([a, cls, text], i) => { const d = el("div", "q mini"); d.append(accRow(a, i, null, "аккаунт " + (i + 1)), el("div", cls, text)); box.append(d); });
+})();
+
+// ── пояснения к блокам и стрелкам диаграммы
 const INFO = {
-  turn: ["Сессия", "Ход закончился — модуль аккаунтов смотрит, сколько лет числам аккаунта этой очереди."],
-  page: ["Страница аккаунтов", "У аккаунта две полоски: Fable и остальные модели, каждая от 0 до 100 % своего запаса. В строке очереди ярче та, за которой она следит."],
-  host: ["Аккаунты машины", "Из одного ответа Claude считает два запаса. Запас Fable: сколько осталось от его половины недели и от самой недели — что меньше. Запас остальных: свободная неделя минус то, что держим для Fable."],
-  claude: ["Claude", "На вопрос о лимитах аккаунта отдаёт неделю целиком, лимит Fable и его долю в неделе. Это те же числа, что на странице аккаунта у Claude.",
+  sf: ["Сессия на Fable", "Сессия, у которой модель Fable или модель не названа. В очереди идёт на месте Fable. Её помощники на других моделях тратят неделю того же аккаунта: у процесса Claude один вход."],
+  so: ["Сессия на Opus", "Любая модель, кроме Fable. В очереди идёт на месте остальных моделей."],
+  q: ["Очередь", "Именованный порядок аккаунтов. Вида у очереди нет: в неё встают сессии с любой моделью. У очереди два места — каждое стоит на своём аккаунте из одного и того же порядка."],
+  pf: ["Место Fable", "Стоит на первом по порядку аккаунте, где не выбраны ни лимит Fable, ни неделя, ни пять часов. Такого нет — ждёт ближайшего сброса. С годного аккаунта не уходит."],
+  po: ["Место остальных", "Сначала — первый по порядку аккаунт, где есть неделя сверх запаса Fable. Таких нет — берёт запас Fable, с конца порядка: Fable идёт с начала, встретятся они последними. Появилась своя половина (сброс недели) — возвращается на неё. Нет ничего — ждёт сброса."],
+  acc: ["Порядок аккаунтов", "Один на очередь, задаёт человек перетаскиванием. Аккаунт может стоять в нескольких очередях и на нескольких машинах: его числа у Claude общие."],
+  host: ["Аккаунты машины", "Часть службы на машине. Из одного ответа Claude берёт неделю, лимит Fable и долю Fable в неделе, считает запас для Fable — сколько свободной недели оставить ему, — и ставит оба места каждой очереди. Пересматривает места, когда пришли свежие числа, наступил сброс, Claude отказал, изменился порядок или вход."],
+  claude: ["Claude", "На вопрос о лимитах аккаунта отдаёт те же числа, что его страница: неделю, лимит Fable и долю Fable в неделе — светлую часть недельной полоски.",
     { ask: "лимиты аккаунта" },
-    { rate_limits: { five_hour: null, seven_day: { utilization: 91, resets_at: "2026-11-13T09:59:59Z" }, model_scoped: [{ display_name: "Fable", utilization: 95, resets_at: "2026-11-13T09:59:59Z" }], weekly_scoped_shares: [{ used_percent_of_weekly: 48, allowance_percent_of_weekly: 50 }] } }],
-  qf: ["Очередь fable", "В ней только сессии на Fable. Следит за пятью часами и запасом Fable. Запас остальных её не останавливает."],
-  qo: ["Очередь остальных", "Opus и прочие модели. Следит за пятью часами и запасом остальных — половину Fable не трогает, пока Fable её не выбрал сам."],
-  next: ["Следующий аккаунт", "Первый по порядку очереди, чей запас этого вида ниже порога. Таких нет — очередь ждёт ближайшего сброса. Как сейчас."],
-  "a-turn": ["Ход закончился", "Числа аккаунта старше двух минут — повод спросить Claude. Свежие — ничего не происходит. Событие лимита от Claude в сессии — такой же повод, чисел из него не берём."],
-  "a-ask": ["Вопрос Claude", "Один вопрос на аккаунт, одновременно — один. Ответ пишется в запись аккаунта: пять часов, запас Fable, запас остальных."],
-  "a-page": ["Список аккаунтов", "Страница получает готовые запасы и ничего не считает.",
-    { type: "account.list", to: "@laptop" },
-    { accounts: [{ id: "yuri@example.com", kind: "claude", ok: true, limits: [{ name: "five_hour", used: 0.4 }, { name: "fable", used: 0.96, resets: 1794650399000 }, { name: "other", used: 0.86, resets: 1794650399000 }] }], slots: [{ name: "main", model: "fable", order: ["yuri@example.com"], account: "yuri@example.com", sessions: 4 }] }],
-  "a-qf": ["Порог Fable", "Запас Fable аккаунта дошёл до 98 % — очереди fable, которые на нём стоят, меняют аккаунт."],
-  "a-qo": ["Порог остальных", "Запас остальных дошёл до 98 % — очереди остальных меняют аккаунт. На этом аккаунте остаётся нетронутая половина Fable."],
-  "a-next": ["Смена аккаунта", "Очередь переходит на следующий аккаунт, её сессии продолжают без перезапуска."],
+    { rate_limits: { five_hour: null, seven_day: { utilization: 47, resets_at: "2026-11-17T10:00:00Z" }, model_scoped: [{ display_name: "Fable", utilization: 74 }], weekly_scoped_shares: [{ used_percent_of_weekly: 37, allowance_percent_of_weekly: 50 }] } }],
+  page: ["Страница аккаунтов", "У аккаунта две полоски, как у Claude: неделя в два тона (светлее — Fable, плотнее — остальные, штрих в конце — запас для Fable) и лимит Fable. В строке очереди у полосок лампы мест. Выбора вида у очереди нет."],
+  "a-sf": ["Сессия Fable → место Fable", "Сессия встаёт на место своей модели при запуске процесса. Сменили модель с Fable на другую или обратно — процесс Claude перезапускается на аккаунте другого места, разговор тот же."],
+  "a-so": ["Сессия Opus → место остальных", "То же правило: место определяет модель сессии, очередь модель не ограничивает."],
+  "a-pf": ["Место Fable → аккаунт", "Сейчас Fable стоит на втором аккаунте: на первом его лимит выбран."],
+  "a-po": ["Место остальных → аккаунт", "Остальные стоят на первом аккаунте: его половина недели ещё не выбрана. Два места одной очереди — на разных аккаунтах."],
+  "a-put": ["Ставит места", "Смена аккаунта места — как смена аккаунта очереди сегодня: сессии места продолжают без перезапуска. Сессия, чей ход оборвал отказ, продолжает словом «Продолжай»."],
+  "a-ask": ["Вопрос Claude", "Один вопрос на аккаунт, одновременно — один, с пределом ожидания. Числа лимитов берутся только отсюда."],
+  "a-tick": ["Повод спросить", "Сессия работает, а числам её аккаунта больше двух минут — один вопрос Claude. Событие лимита от Claude в сессии — такой же повод; чисел из него не берём."],
+  "a-page": ["Список и лампа", "Страница получает готовые числа и места и ничего не считает. Нажатие на пустую лампу ставит место на этот аккаунт.",
+    { type: "slot.swap", to: "@laptop", slot: "main", lane: "fable", account: "yuri@example.com" },
+    { slots: [{ name: "main", order: ["work@example.com", "yuri@example.com"], lanes: { fable: { account: "yuri@example.com" }, other: { account: "work@example.com" } }, sessions: 4 }], accounts: [{ id: "yuri@example.com", kind: "claude", ok: true, limits: [{ name: "five_hour", used: 0.4 }, { name: "seven_day", used: 0.47, fable: 0.37, hold: 0.13 }, { name: "fable", used: 0.74 }] }] }],
 };
 for (const sec of document.querySelectorAll("section")) {
   const say = sec.querySelector(".say");
   if (!say) continue;
-  for (const el of sec.querySelectorAll("[data-i]")) {
-    el.setAttribute("tabindex", "0");
+  for (const node of sec.querySelectorAll("[data-i]")) {
+    node.setAttribute("tabindex", "0");
     const show = () => {
-      const [title, text, ask, reply] = INFO[el.dataset.i];
+      const [title, text, ask, reply] = INFO[node.dataset.i];
       for (const x of sec.querySelectorAll("[data-i].on")) x.classList.remove("on");
-      el.classList.add("on");
+      node.classList.add("on");
       say.textContent = "";
       const b = document.createElement("b"); b.textContent = title + ". "; say.append(b, text);
       for (const j of [ask, reply]) if (j) { const pre = document.createElement("pre"); pre.textContent = JSON.stringify(j, null, 2); say.append(pre); }
     };
-    el.addEventListener("click", show);
-    el.addEventListener("keydown", (e) => e.key === "Enter" && show());
+    node.addEventListener("click", show);
+    node.addEventListener("keydown", (e) => e.key === "Enter" && show());
   }
 }
 </script>
 <script>
 // метки «прочитал»: клавиша A (латинская или русская) над блоком
 (() => {
-  const KEY = "v2-limits.read";
+  const KEY = "v2-limits.read.2";
   let read = [];
   try { read = JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch {}
   let over = null;

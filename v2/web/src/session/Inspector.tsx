@@ -11,6 +11,7 @@ import type { View } from "../chat/fold.ts";
 import { accountWord, AfterTurn, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels, useWide } from "../common.tsx";
 import { Sortable } from "../lib/Sortable.tsx";
 import { Meter } from "../lib/AccountView.tsx";
+import { laneOf } from "../lib/accounts.ts";
 import { ago, bytesWord, count, day, duration, hhmm, kilo, nPoints, nTurns } from "../lib/time.ts";
 import { DeleteTyped } from "../lib/DeleteTyped.tsx";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
@@ -96,7 +97,7 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
         {!other ? <><dt>Очередь</dt><dd><span className="mono">{accountWord(s.spec.slot)}</span>{s.account && s.account !== s.spec.slot ? ` · ${s.account}` : ""}{mine?.plan ? ` · ${mine.plan}` : ""}</dd></> : mine?.plan ? <><dt>План</dt><dd>{mine.plan}</dd></> : null}
       </dl>
       <Meter full limits={mine?.limits ?? []} />
-      {auto && !off && <Button size="xs" variant="default" w="fit-content" onClick={async () => (await act(slotSwap, { to: "@" + machine, slot: s.spec.slot ?? "" }, "Аккаунт очереди сменён")) && qc.invalidateQueries({ queryKey: ["account.list"] })}>Сменить аккаунт сейчас</Button>}
+      {auto && !off && <Button size="xs" variant="default" w="fit-content" onClick={async () => (await act(slotSwap, { to: "@" + machine, slot: s.spec.slot ?? "", lane: laneOf(s.spec.model) }, "Аккаунт очереди сменён")) && qc.invalidateQueries({ queryKey: ["account.list"] })}>Сменить аккаунт сейчас</Button>}
     </Stack>
   );
 }

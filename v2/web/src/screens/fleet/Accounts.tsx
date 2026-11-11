@@ -1,9 +1,9 @@
 // «Флот → Аккаунты»: аккаунты Claude одной строкой на все машины с лимитами; машины строками, очереди аккаунтов машины — колонками; ключи флота.
-import { accountCode, accountList, accountLogin, accountRemove, keyCheck, keysList, keysRemove, keysSet, slotSet, slotSwap, type Account, type KeyRow, type Slot } from "@sb/protocol";
-import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, JsonInput, Menu, NumberInput, PasswordInput, SegmentedControl, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
+import { accountCode, accountList, accountLogin, accountRemove, keyCheck, keysList, keysRemove, keysSet, slotSet, slotSwap, type Account, type KeyRow, type Lane, type Slot } from "@sb/protocol";
+import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, JsonInput, Menu, NumberInput, PasswordInput, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { Page } from "../../shell/Page.tsx";
 import { notifications } from "@mantine/notifications";
-import { IconDots, IconGripVertical, IconPlayerSkipForward, IconPlus, IconTrash, IconX } from "@tabler/icons-react";
+import { IconDots, IconGripVertical, IconPlus, IconTrash, IconX } from "@tabler/icons-react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { act, api } from "../../api.ts";
@@ -79,8 +79,6 @@ function MergedRow({ m, marked, onMark, picked, onPick, onLogin, onRemove }: { m
   );
 }
 
-/** Группа входов в коробке перетаскивания: строка, брошенная сюда, уходит из своей очереди. */
-const MODELS = [{ value: "fable", label: "fable" }, { value: "other", label: "остальные" }];
 const rowId = (queue: string, mail: string) => queue + "|" + mail;
 const partsOf = (id: string) => [id.slice(0, id.indexOf("|")), id.slice(id.indexOf("|") + 1)] as const;
 
@@ -88,15 +86,10 @@ const partsOf = (id: string) => [id.slice(0, id.indexOf("|")), id.slice(id.index
 function NewQueue({ machine, logins, taken, onDone }: { machine: string; logins: Account[]; taken: string[]; onDone: () => void }) {
   const [name, setName] = useState("");
   const [order, setOrder] = useState<string[]>([]);
-  const [model, setModel] = useState<Slot["model"]>("fable");
   const clash = taken.includes(name);
   return (
     <Stack gap="sm">
       <TextInput label="Имя очереди" className="mono" autoFocus value={name} onChange={(e) => setName(e.currentTarget.value.toLowerCase())} error={clash ? "Такая очередь уже есть" : undefined} />
-      <div>
-        <Text size="sm" fw={500} mb={4}>Модель</Text>
-        <SegmentedControl aria-label="Модель очереди" data={MODELS} value={model} onChange={(v) => setModel(v as Slot["model"])} />
-      </div>
       <div>
         <Text size="sm" fw={500} mb={4}>Аккаунты по порядку выбора</Text>
         <Stack gap={6}>
@@ -106,7 +99,7 @@ function NewQueue({ machine, logins, taken, onDone }: { machine: string; logins:
           ))}
         </Stack>
       </div>
-      <Button style={{ alignSelf: "flex-start" }} disabled={!name || clash || !order.length} onClick={async () => (await act(slotSet, { to: "@" + machine, slot: name, model, order }, `Очередь ${name} заведена`)) && onDone()}>Завести очередь</Button>
+      <Button style={{ alignSelf: "flex-start" }} disabled={!name || clash || !order.length} onClick={async () => (await act(slotSet, { to: "@" + machine, slot: name, order }, `Очередь ${name} заведена`)) && onDone()}>Завести очередь</Button>
     </Stack>
   );
 }
@@ -124,9 +117,10 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
     refresh();
   };
   const drag = useRowDrag({ box, onDrop: ({ id, before, group }) => { const [from, mail] = partsOf(id); void apply(queueMove(slots, from || null, group, mail, before ? partsOf(before)[1] : null)); } });
-  const swap = async (slot: string, account?: string) => {
-    const r = await act(slotSwap, { to: "@" + machine, slot, ...(account ? { account } : {}) });
-    if (r) { notifications.show({ message: `${slot} на ${nameOf(machine)}: теперь ${r.account}`, color: "teal" }); refresh(); }
+  /** Поставить место очереди на этот аккаунт: лампа у полоски Fable — место Fable, у недели — место остальных моделей. */
+  const swap = async (slot: string, lane: Lane, account: string) => {
+    const r = await act(slotSwap, { to: "@" + machine, slot, lane, account });
+    if (r) { notifications.show({ message: `${slot} на ${nameOf(machine)}: ${lane === "fable" ? "Fable" : "остальные модели"} — на ${r.account}`, color: "teal" }); refresh(); }
   };
   return (
     <div className="card mrow">
@@ -144,9 +138,10 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
             <div key={q.name} className="queue" data-drop-group={q.name} data-queue={q.name}>
               <div className="queue-head">
                 <Text fw={600} className="mono">{q.name}</Text>
-                <SegmentedControl size="xs" className="qmodel" aria-label={`Модель очереди ${q.name}`} data={MODELS} value={q.model} onChange={(model) => void act(slotSet, { to: "@" + machine, slot: q.name, model: model as Slot["model"], order: q.order }).then(refresh)} />
                 {q.sessions > 0 && <Text size="xs" className="muted">{nSessions(q.sessions)}</Text>}
-                {q.wait !== undefined && <Badge size="sm" color="orange" variant="light">ждёт до {resetWord(q.wait)}</Badge>}
+                {q.lanes.fable.wait !== undefined && <Badge size="sm" color="orange" variant="light" data-chip="fable-wait">Fable ждёт до {resetWord(q.lanes.fable.wait)}</Badge>}
+                {q.lanes.other.wait !== undefined && <Badge size="sm" color="orange" variant="light" data-chip="other-wait">остальные ждут до {resetWord(q.lanes.other.wait)}</Badge>}
+                {q.lanes.other.over && <Badge size="sm" color="orange" variant="light" data-chip="over">остальные — из запаса Fable</Badge>}
                 <span className="grow" />
                 {logins.some((x) => x.ok && !q.order.includes(x.id)) && (
                   <Menu withinPortal position="bottom-end">
@@ -154,17 +149,16 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
                     <Menu.Dropdown>{logins.filter((x) => x.ok && !q.order.includes(x.id)).map((x) => <Menu.Item key={x.id} onClick={() => void apply(queueMove(slots, null, q.name, x.id, null))}>{x.email ?? x.id}</Menu.Item>)}</Menu.Dropdown>
                   </Menu>
                 )}
-                {q.order.length > 1 && <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Сменить сейчас: ${q.name}`} title="Сменить сейчас" onClick={() => void swap(q.name)}><IconPlayerSkipForward size={14} /></ActionIcon>}
                 <ActionIcon variant="subtle" color="red" size="sm" disabled={q.sessions > 0} title={q.sessions > 0 ? "На очереди идут сессии" : "Удалить очередь"} aria-label={`Удалить очередь ${q.name}`}
                   onClick={() => confirmDanger({ title: `Удалить очередь ${q.name} на ${machine}?`, body: "Входы аккаунтов останутся на машине.", confirm: "Удалить", onConfirm: async () => (await act(slotSet, { to: "@" + machine, slot: q.name, order: [] }, "Очередь удалена")) && refresh() })}><IconTrash size={14} /></ActionIcon>
               </div>
               {q.order.map((mail) => {
                 const a = byId[mail];
-                const cur = q.account === mail;
+                const stands = { fable: q.lanes.fable.account === mail && q.lanes.fable.wait === undefined, other: q.lanes.other.account === mail && q.lanes.other.wait === undefined };
                 return (
                   <div key={mail} className={`line${accountKey({ kind: "claude", id: mail, email: mail }) === marked ? " marked" : ""}${drag.dragging === rowId(q.name, mail) ? " dragging" : ""}`} data-drag-id={rowId(q.name, mail)} data-drag-group={q.name} onPointerDown={drag.onPointerDown(rowId(q.name, mail))} style={{ touchAction: "pan-y" }}>
                     <span className="grip" role="button" tabIndex={0} aria-label={`Порядок в ${q.name}: ${mail}`} title="Перетащите; с клавиатуры — Alt и стрелки" onKeyDown={(e) => { if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return; e.preventDefault(); void apply([{ slot: q.name, order: nudge(q.order, mail, e.key === "ArrowUp" ? -1 : 1) }]); }}><IconGripVertical size={14} /></span>
-                    <div className="grow"><AccountView name={mail} current={cur} onPut={!cur && a?.ok ? () => void swap(q.name, mail) : undefined} watch={q.model} limits={a?.limits ?? []} bad={a && !a.ok ? a.why ?? "вход не годен" : undefined} /></div>
+                    <div className="grow"><AccountView name={mail} stands={stands} onPut={a?.ok ? (lane) => void swap(q.name, lane, mail) : undefined} limits={a?.limits ?? []} bad={a && !a.ok ? a.why ?? "вход не годен" : undefined} /></div>
                     {a && !a.ok && <Button size="compact-xs" variant="default" onClick={() => setLogin({ expect: a.email })}>Войти</Button>}
                     <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Убрать ${mail} из ${q.name}`} onClick={() => void apply([{ slot: q.name, order: q.order.filter((m) => m !== mail) }])}><IconX size={14} /></ActionIcon>
                   </div>

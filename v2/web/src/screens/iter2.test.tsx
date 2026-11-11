@@ -121,7 +121,7 @@ describe("аккаунты", () => {
     expect(diverge(m({ laptop: [acc("a@b.c")] }))).toEqual([]);
   });
   it("убрать аккаунт из всех очередей всех машин; очереди без него не трогаются", () => {
-    const q = (name: string, order: string[]) => ({ name, model: "fable" as const, order, sessions: 0 });
+    const q = (name: string, order: string[]) => ({ name, order, lanes: { fable: {}, other: {} }, sessions: 0 });
     const slots = { laptop: [q("main", ["a@b.c", "c@d.e"]), q("night", ["c@d.e"])], server: [q("main", ["c@d.e", "a@b.c"])] };
     expect(dropFromQueues(slots, ["a@b.c"])).toEqual([{ machine: "laptop", slot: "main", order: ["c@d.e"] }, { machine: "server", slot: "main", order: ["c@d.e"] }]);
     expect(dropFromQueues(slots, ["nobody"])).toEqual([]);
