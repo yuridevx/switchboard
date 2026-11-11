@@ -82,7 +82,13 @@ await page.getByText("Работа", { exact: true }).first().waitFor({ timeout:
 
 await screen("Флот: машины", "/fleet/machines");
 await screen("Машина", "/machine/" + machine);
-await screen("Флот: аккаунты", "/fleet/accounts");
+await screen("Флот: аккаунты", "/fleet/accounts", async () => {
+  // у аккаунта — два лимита полосками, у очереди — её вид
+  // Host перед ответом опрашивает лимиты у Claude: ответ приходит не сразу
+  await page.locator(".meter").first().waitFor({ timeout: 20_000 }).catch(() => {});
+  const meters = await page.locator(".meter").count(), kinds = await page.locator(".qmodel").count();
+  return meters && kinds ? "" : `лимитов ${meters}, переключателей вида ${kinds}`;
+});
 await screen("Флот: профили", "/fleet/profiles");
 await screen("Флот: выпуски", "/fleet/releases");
 await screen("Флот: инциденты", "/fleet/incidents");
