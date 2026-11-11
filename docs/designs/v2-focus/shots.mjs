@@ -64,6 +64,23 @@ for (const [w, h] of [[1280, 900], [390, 844]]) for (const theme of ["light", "d
     await page.getByRole("button", { name: "Завести очередь" }).click();
     await queue("server", "docs").locator(".meter-row.off").first().waitFor();
   });
+  await step("очередь сессии — той же строкой: имя, модель, аккаунт, два лимита, остаток", async () => {
+    await page.goto(base + "/?mock&still#/work/site@laptop");
+    const chip = page.getByRole("button", { name: "Очередь", exact: true });
+    await chip.locator(".meter-row").first().waitFor();
+    await chip.click();
+    await page.getByRole("menuitem").locator(".slotline").nth(1).waitFor();
+    await page.waitForTimeout(400);
+    await shot("chip");
+  });
+  await step("колонки «Входы» нет; аккаунт добавляется в очередь кнопкой у очереди", async () => {
+    await page.goto(base + "/?mock&still#/fleet/accounts");
+    await queue("server", "night").waitFor();
+    if (await page.locator(".queue.logins").count()) throw new Error("колонка входов на месте");
+    await queue("server", "night").getByRole("button", { name: /Добавить аккаунт/ }).click();
+    await page.getByRole("menuitem", { name: "yuri@example.com" }).click();
+    await queue("server", "night").locator("[data-drag-id$=\"|yuri@example.com\"]").waitFor();
+  });
   await page.close();
 }
 await browser.close();

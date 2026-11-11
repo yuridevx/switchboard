@@ -3,7 +3,7 @@ import { accountCode, accountList, accountLogin, accountRemove, keyCheck, keysLi
 import { ActionIcon, Badge, Button, Checkbox, CopyButton, Group, JsonInput, Menu, NumberInput, PasswordInput, SegmentedControl, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { Page } from "../../shell/Page.tsx";
 import { notifications } from "@mantine/notifications";
-import { IconDots, IconGripVertical, IconPlayerSkipForward, IconTrash, IconX } from "@tabler/icons-react";
+import { IconDots, IconGripVertical, IconPlayerSkipForward, IconPlus, IconTrash, IconX } from "@tabler/icons-react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { act, api } from "../../api.ts";
@@ -12,7 +12,7 @@ import { AccountView } from "../../lib/AccountView.tsx";
 import { accountKey, diverge, dropFromQueues, machineOrder, mergeAccounts, otherMail, pollPlan, queueMove, type Merged } from "../../lib/accounts.ts";
 import { useRowDrag } from "../../lib/drag.ts";
 import { nudge } from "../../lib/Sortable.tsx";
-import { ago, day, nSessions, resetWord } from "../../lib/time.ts";
+import { ago, nSessions, resetWord } from "../../lib/time.ts";
 import { useFleet } from "../../store/fleet.ts";
 
 /** «a = b» построчно ⇄ запись. Пустые строки и строки без «=» пропускаются. */
@@ -53,7 +53,7 @@ function Login({ machine, expect, onDone }: { machine: string; expect?: string; 
 }
 
 /** Строка аккаунта на все машины: лимиты и где он вошёл. Нажатие на имя подсвечивает его во всех очередях. */
-function MergedRow({ m, marked, onMark, picked, onPick }: { m: Merged; marked: boolean; onMark: () => void; picked: boolean; onPick: (on: boolean) => void }) {
+function MergedRow({ m, marked, onMark, picked, onPick, onLogin, onRemove }: { m: Merged; marked: boolean; onMark: () => void; picked: boolean; onPick: (on: boolean) => void; onLogin: (machine: string) => void; onRemove: (machine: string) => void }) {
   const nameOf = useMachineName();
   const [why, setWhy] = useState(false);
   const split = diverge(m);
@@ -64,7 +64,15 @@ function MergedRow({ m, marked, onMark, picked, onPick }: { m: Merged; marked: b
         <AccountView full name={<button type="button" className="linklike" aria-pressed={marked} onClick={onMark}>{m.email ?? m.id}</button>} plan={m.plan} limits={m.limits}>
           {split.length > 0 && <button type="button" className="warnmark" aria-expanded={why} aria-label="Машины говорят разное" onClick={() => setWhy(!why)}>⚠</button>}
           {m.sessions > 0 && <Text size="xs" className="muted">{nSessions(m.sessions)}</Text>}
-          <span className="seats">{m.seats.map((s) => <Badge key={s.machine} size="sm" variant={s.account.ok ? "default" : "light"} color={s.account.ok ? undefined : "red"} title={s.account.why}>{nameOf(s.machine)}{s.account.ok ? "" : " ⚠ " + (s.account.why ?? "вход не годен")}</Badge>)}</span>
+          <span className="seats">{m.seats.filter((s) => !s.account.ok).map((s) => <Badge key={s.machine} size="sm" variant="light" color="red">{nameOf(s.machine)} ⚠ {s.account.why ?? "вход не годен"}</Badge>)}</span>
+          <span className="grow" />
+          <Menu withinPortal position="bottom-end">
+            <Menu.Target><ActionIcon variant="subtle" size="sm" aria-label={`Действия: ${m.email ?? m.id}`}><IconDots size={16} /></ActionIcon></Menu.Target>
+            <Menu.Dropdown>
+              {m.seats.map((s) => <Menu.Item key={"in" + s.machine} onClick={() => onLogin(s.machine)}>Войти заново на {nameOf(s.machine)}</Menu.Item>)}
+              {m.seats.map((s) => <Menu.Item key={"rm" + s.machine} color="red" onClick={() => onRemove(s.machine)}>Убрать с {nameOf(s.machine)}</Menu.Item>)}
+            </Menu.Dropdown>
+          </Menu>
         </AccountView>
         {why && split.map((w) => <Text key={w} size="xs" c="orange" className="mono" style={{ overflowWrap: "anywhere" }}>{w}</Text>)}
       </div>
@@ -73,7 +81,6 @@ function MergedRow({ m, marked, onMark, picked, onPick }: { m: Merged; marked: b
 }
 
 /** Группа входов в коробке перетаскивания: строка, брошенная сюда, уходит из своей очереди. */
-const LOGINS = "~входы";
 const MODELS = ["fable", "opus"];
 const rowId = (queue: string, mail: string) => queue + "|" + mail;
 const partsOf = (id: string) => [id.slice(0, id.indexOf("|")), id.slice(id.indexOf("|") + 1)] as const;
@@ -110,7 +117,6 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
   const nameOf = useMachineName();
   const [login, setLogin] = useState<{ expect?: string } | null>(null);
   const [adding, setAdding] = useState(false);
-  const [fresh, setFresh] = useState("");
   const box = useRef<HTMLDivElement>(null);
   const logins = list.filter((a) => a.kind === "claude");
   const byId = Object.fromEntries(logins.map((a) => [a.id, a]));
@@ -118,7 +124,7 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
     for (const c of changes) if (!(await act(slotSet, { to: "@" + machine, ...c }))) break;
     refresh();
   };
-  const drag = useRowDrag({ box, onDrop: ({ id, before, group }) => { const [from, mail] = partsOf(id); void apply(queueMove(slots, from || null, group === LOGINS ? null : group, mail, before ? partsOf(before)[1] : null)); } });
+  const drag = useRowDrag({ box, onDrop: ({ id, before, group }) => { const [from, mail] = partsOf(id); void apply(queueMove(slots, from || null, group, mail, before ? partsOf(before)[1] : null)); } });
   const swap = async (slot: string, account?: string) => {
     const r = await act(slotSwap, { to: "@" + machine, slot, ...(account ? { account } : {}) });
     if (r) { notifications.show({ message: `${slot} на ${nameOf(machine)}: теперь ${r.account}`, color: "teal" }); refresh(); }
@@ -144,6 +150,12 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
                 {q.sessions > 0 && <Text size="xs" className="muted">{nSessions(q.sessions)}</Text>}
                 {q.wait !== undefined && <Badge size="sm" color="orange" variant="light">ждёт до {resetWord(q.wait)}</Badge>}
                 <span className="grow" />
+                {logins.some((x) => x.ok && !q.order.includes(x.id)) && (
+                  <Menu withinPortal position="bottom-end">
+                    <Menu.Target><ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Добавить аккаунт в ${q.name}`} title="Добавить аккаунт"><IconPlus size={14} /></ActionIcon></Menu.Target>
+                    <Menu.Dropdown>{logins.filter((x) => x.ok && !q.order.includes(x.id)).map((x) => <Menu.Item key={x.id} onClick={() => void apply(queueMove(slots, null, q.name, x.id, null))}>{x.email ?? x.id}</Menu.Item>)}</Menu.Dropdown>
+                  </Menu>
+                )}
                 {others > 0 && <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Сменить сейчас: ${q.name}`} title="Сменить сейчас" onClick={() => void swap(q.name)}><IconPlayerSkipForward size={14} /></ActionIcon>}
                 <ActionIcon variant="subtle" color="red" size="sm" disabled={q.sessions > 0} title={q.sessions > 0 ? "На очереди идут сессии" : "Удалить очередь"} aria-label={`Удалить очередь ${q.name}`}
                   onClick={() => confirmDanger({ title: `Удалить очередь ${q.name} на ${machine}?`, body: "Входы аккаунтов останутся на машине.", confirm: "Удалить", onConfirm: async () => (await act(slotSet, { to: "@" + machine, slot: q.name, order: [] }, "Очередь удалена")) && refresh() })}><IconTrash size={14} /></ActionIcon>
@@ -155,6 +167,7 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
                   <div key={mail} className={`line${accountKey({ kind: "claude", id: mail, email: mail }) === marked ? " marked" : ""}${drag.dragging === rowId(q.name, mail) ? " dragging" : ""}`} data-drag-id={rowId(q.name, mail)} data-drag-group={q.name} onPointerDown={drag.onPointerDown(rowId(q.name, mail))} style={{ touchAction: "pan-y" }}>
                     <span className="grip" role="button" tabIndex={0} aria-label={`Порядок в ${q.name}: ${mail}`} title="Перетащите; с клавиатуры — Alt и стрелки" onKeyDown={(e) => { if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return; e.preventDefault(); void apply([{ slot: q.name, order: nudge(q.order, mail, e.key === "ArrowUp" ? -1 : 1) }]); }}><IconGripVertical size={14} /></span>
                     <div className="grow"><AccountView name={mail} current={cur} onPut={!cur && a?.ok ? () => void swap(q.name, mail) : undefined} fableOff={q.model !== "fable"} limits={a?.limits ?? []} bad={a && !a.ok ? a.why ?? "вход не годен" : undefined} /></div>
+                    {a && !a.ok && <Button size="compact-xs" variant="default" onClick={() => setLogin({ expect: a.email })}>Войти</Button>}
                     <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Убрать ${mail} из ${q.name}`} onClick={() => void apply([{ slot: q.name, order: q.order.filter((m) => m !== mail) }])}><IconX size={14} /></ActionIcon>
                   </div>
                 );
@@ -162,37 +175,8 @@ function MachineQueues({ machine, list, slots, refresh, marked }: { machine: str
             </div>
           );
         })}
-        {!slots.length && logins.length > 0 && <Text size="sm" className="muted" w="100%">Очередей нет: сессии на этой машине идут только на ключах флота</Text>}
-        <div className="queue logins" data-drop-group={LOGINS}>
-          <div className="queue-head"><Text size="sm" fw={600}>Входы</Text></div>
-          {logins.map((a) => {
-            const inQ = slots.filter((q) => q.order.includes(a.id)).map((q) => q.name);
-            return (
-              <div key={a.id} className={`line${a.id === fresh ? " fresh" : ""}${accountKey(a) === marked ? " marked" : ""}${drag.dragging === rowId("", a.id) ? " dragging" : ""}`} data-drag-id={rowId("", a.id)} data-drag-group={LOGINS} onPointerDown={a.ok ? drag.onPointerDown(rowId("", a.id)) : undefined} style={{ touchAction: "pan-y" }}>
-                {a.ok ? <span className="grip" aria-hidden><IconGripVertical size={14} /></span> : <span style={{ width: 14 }} />}
-                <div className="grow">
-                  <Group gap={6} wrap="wrap">
-                    <Text size="sm" className="trunc">{a.email ?? a.id}</Text>
-                    {inQ.map((n) => <Badge key={n} variant="default" className="mono">{n}</Badge>)}
-                    {a.expires !== undefined && <Text size="xs" c={a.expires < Date.now() ? "red" : undefined} className={a.expires < Date.now() ? undefined : "muted"}>{a.expires < Date.now() ? "вход истёк" : "вход до"} {day(a.expires)}</Text>}
-                  </Group>
-                  {!a.ok && <Text size="xs" c="red">{a.why}</Text>}
-                </div>
-                {!a.ok && <Button size="compact-xs" variant="default" onClick={() => setLogin({ expect: a.email })}>Войти заново</Button>}
-                <Menu withinPortal position="bottom-end">
-                  <Menu.Target><ActionIcon variant="subtle" size="sm" aria-label={`Действия: ${a.email ?? a.id}`}><IconDots size={16} /></ActionIcon></Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Item onClick={() => setLogin({ expect: a.email })}>Войти заново</Menu.Item>
-                    <Menu.Item color="red" onClick={() => confirmDanger({ title: `Убрать ${a.email ?? a.id} с ${machine}?`, body: inQ.length ? `Аккаунт уйдёт из очередей: ${inQ.join(", ")}. Сессии на них перейдут на следующий аккаунт очереди.` : "Вход на этой машине будет стёрт.", confirm: "Убрать", onConfirm: async () => (await act(accountRemove, { to: "@" + machine, account: a.id }, "Аккаунт убран")) && refresh() })}>Убрать с машины</Menu.Item>
-                  </Menu.Dropdown>
-                </Menu>
-              </div>
-            );
-          })}
-          {!logins.length && <Text size="sm" className="muted">Входов Claude нет</Text>}
-        </div>
       </div>
-      <Page name="login" opened={!!login} onClose={() => setLogin(null)} title={`Вход Claude на ${machine}`}>{login && <Login machine={machine} expect={login.expect} onDone={(id) => (setLogin(null), setFresh(id ?? ""), refresh())} />}</Page>
+      <Page name="login" opened={!!login} onClose={() => setLogin(null)} title={`Вход Claude на ${machine}`}>{login && <Login machine={machine} expect={login.expect} onDone={() => (setLogin(null), refresh())} />}</Page>
       <Page name="queue" opened={adding} onClose={() => setAdding(false)} title={`Новая очередь на ${machine}`}>{adding && <NewQueue machine={machine} logins={logins} taken={slots.map((q) => q.name)} onDone={() => (setAdding(false), refresh())} />}</Page>
     </div>
   );
@@ -296,6 +280,7 @@ export function Accounts() {
   /** подсвеченный аккаунт: виден во всех очередях машин */
   const [marked, setMarked] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
+  const [relogin, setRelogin] = useState<{ machine: string; expect?: string } | null>(null);
   const gone = Object.values(machines).filter((m) => !m.online).sort((a, b) => a.name.localeCompare(b.name));
   /** Выбранные аккаунты — из всех очередей на всех машинах. */
   const drop = async () => {
@@ -320,7 +305,10 @@ export function Accounts() {
             }}>Опросить лимиты</Button>
           </Group>
         </Group>
-        {merged.map((m) => { const key = accountKey(m); return <MergedRow key={key} m={m} marked={marked === key} onMark={() => setMarked(marked === key ? "" : key)} picked={picked.includes(key)} onPick={(on) => setPicked(on ? [...picked, key] : picked.filter((x) => x !== key))} />; })}
+        {merged.map((m) => { const key = accountKey(m); return <MergedRow key={key} m={m} marked={marked === key} onMark={() => setMarked(marked === key ? "" : key)} picked={picked.includes(key)} onPick={(on) => setPicked(on ? [...picked, key] : picked.filter((x) => x !== key))}
+          onLogin={(machine) => setRelogin({ machine, expect: m.email })}
+          onRemove={(machine) => confirmDanger({ title: `Убрать ${m.email ?? m.id} с ${machine}?`, body: "Аккаунт уйдёт из очередей этой машины; сессии на них перейдут на следующий аккаунт очереди.", confirm: "Убрать", onConfirm: async () => (await act(accountRemove, { to: "@" + machine, account: m.id }, "Аккаунт убран")) && refresh() })} />; })}
+        <Page name="relogin" opened={!!relogin} onClose={() => setRelogin(null)} title={`Вход Claude на ${relogin?.machine}`}>{relogin && <Login machine={relogin.machine} expect={relogin.expect} onDone={() => (setRelogin(null), refresh())} />}</Page>
         {!merged.length && <Text size="sm" className="muted">Входов нет. Войдите в аккаунт на машине ниже.</Text>}
       </div>
       <div className="rows">

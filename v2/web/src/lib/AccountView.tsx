@@ -25,7 +25,7 @@ export function Meter({ limits, full, fableOff }: { limits: LimitRow[]; full?: b
         {row(week, <IconCalendarWeek size={11} aria-label="неделя, все модели" />, "неделя, все модели")}
         {row(fable, <IconSparkles size={11} aria-label="неделя Fable" />, "неделя Fable", fableOff)}
       </span>
-      {reset !== undefined && reset > now && <span className="meter-left" title={`сброс ${resetWord(reset, now)}`}>{leftWord(reset, now)}{full && <span className="lim-left"> · {resetWord(reset, now)}</span>}</span>}
+      {reset !== undefined && reset > now && <span className="meter-left" title={`сброс ${resetWord(reset, now)}`}>{leftWord(reset, now)}</span>}
     </span>
   );
 }
@@ -55,6 +55,18 @@ export function Limits({ limits, full }: { limits: LimitRow[]; full?: boolean })
 }
 
 /** Аккаунт одной строкой: имя, тариф (в обычном виде), лимиты, ожидание сброса, беда входа. name — узел имени: текст или кнопка. */
+/** Очередь одной строкой: имя, модель и аккаунт, который стоит сейчас, с его лимитами — тот же вид, что на странице аккаунтов. */
+export function SlotLine({ slot, account }: { slot: { name: string; model: string; account?: string; wait?: number }; account?: { limits?: LimitRow[]; ok: boolean; why?: string } }) {
+  return (
+    <span className="slotline">
+      <span className="mono slot-name">{slot.name}</span>
+      <span className="slot-model">{slot.model}</span>
+      <AccountView name={slot.account ?? "пусто"} limits={account?.limits ?? []} fableOff={slot.model !== "fable"} bad={account && !account.ok ? account.why ?? "вход не годен" : undefined} />
+      {slot.wait !== undefined && <span className="acct-wait">ждёт до {resetWord(slot.wait)}</span>}
+    </span>
+  );
+}
+
 export function AccountView({ name, plan, limits, bad, current, onPut, full, fableOff, children }: { name: React.ReactNode; plan?: string; limits: LimitRow[]; bad?: string; current?: boolean; /** поставить этот аккаунт в очередь: пустая лампа — кнопка */ onPut?: () => void; full?: boolean; fableOff?: boolean; children?: React.ReactNode }) {
   return (
     <div className={full ? "acct full" : "acct"}>

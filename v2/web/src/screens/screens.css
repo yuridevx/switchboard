@@ -136,3 +136,7 @@
 .lamp.put { padding: 0; cursor: pointer; }
 .lamp.put:hover, .lamp.put:focus-visible { border-color: var(--st-idle); }
 .queues .queue-head { flex-wrap: nowrap; }
+.slotline { display: inline-flex; align-items: center; gap: 8px; min-width: 0; vertical-align: middle; }
+.slotline .slot-model { color: var(--muted); font-size: 12px; }
+.slotline .acct { gap: 8px; }
+.slotline .acct .acct-name { flex: 0 1 auto; }

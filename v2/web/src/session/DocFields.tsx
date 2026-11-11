@@ -3,6 +3,7 @@ import { accountList, profileList, type SessionRow } from "@sb/protocol";
 import { MultiSelect, Select, Stack } from "@mantine/core";
 import { EFFORTS, MODES, useCall } from "../common.tsx";
 import { seatOptions } from "../lib/accounts.ts";
+import { SlotLine } from "../lib/AccountView.tsx";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { effectiveModel, modelsFor, patchDoc, useLater, useModels } from "./doc.ts";
 
@@ -22,7 +23,9 @@ export function useDoc(s: SessionRow, running?: string) {
   const list = pieces.data?.pieces ?? [];
   const title = (id: string) => list.find((p) => p.id === id)?.title ?? id;
   const efforts = model.efforts ? EFFORTS.filter(([e]) => model.efforts!.includes(e)) : EFFORTS;
-  return { accountOptions, pieces: list, title, models, model, efforts, later: useLater(s) };
+  /** Очередь той же строкой, что на странице аккаунтов; ключ флота — словом. */
+  const slotLine = (name: string) => { const q = accounts.data?.slots.find((x) => x.name === name); return q ? <SlotLine slot={q} account={accounts.data?.accounts.find((x) => x.id === q.account)} /> : undefined; };
+  return { accountOptions, slotLine, pieces: list, title, models, model, efforts, later: useLater(s) };
 }
 
 /** Документ сессии полями: на телефоне — в листе инспектора, при паре — в окошке шапки. */
