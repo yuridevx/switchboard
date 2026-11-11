@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   accountList, consent, createApi, fleetList, invite, keysRemove, ledgerRead, obsHealth, obsRecent, obsReport, passes, peopleList, pointsCalls, pointsDelete, pointsHistory, pointsList,
   pointsRaise, profileList, profileSync, profileView, ProxyRule, reachBot, reachSubscribe, rulesTest, sessionStop, slotSet, slotSwap, type Account, type ArchSession, type SessionRow,
+  laneOf,
 } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { Steps } from "../shell/Page.tsx";
@@ -14,7 +15,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
-import { laneOf, limitTone, mergeAccounts, meterOf, otherMail, queueMove, seatOptions } from "../lib/accounts.ts";
+import { limitTone, mergeAccounts, meterOf, otherMail, queueMove, seatOptions } from "../lib/accounts.ts";
 import { getLocal, setLocal } from "../lib/local.ts";
 import { deviceLabel, keyBytes, pushStateOf, subscriptionFields } from "../lib/push.ts";
 import { byDay, dayWord, leftWord, limitName, resetWord } from "../lib/time.ts";

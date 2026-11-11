@@ -1,5 +1,5 @@
 // Аккаунты: один аккаунт на нескольких машинах — одна строка; лимиты, пороги, ожидание сброса.
-import type { Account, Lane, Slot } from "@sb/protocol";
+import { laneOf, type Account, type Slot } from "@sb/protocol";
 import { hhmm } from "./time.ts";
 
 export type Seat = { machine: string; account: Account };
@@ -20,8 +20,6 @@ export type Merged = {
 export const WEEK = "seven_day", FABLE = "fable";
 export const meterOf = (limits: LimitRow[]) => ({ week: limits.find((l) => l.name === WEEK), fable: limits.find((l) => l.name === FABLE) });
 
-/** Место очереди, на котором идёт сессия: Fable и сессия без названной модели — на месте fable, остальные модели — на месте other. */
-export const laneOf = (model?: string | null): Lane => (!model || /fable/i.test(model) ? "fable" : "other");
 
 export const WARN = 0.7, BAD = 0.9;
 export const limitTone = (used: number): "teal" | "orange" | "red" => (used > BAD ? "red" : used > WARN ? "orange" : "teal");

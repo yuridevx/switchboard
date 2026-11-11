@@ -3,6 +3,7 @@
 import {
   type Account, type Slot, type ArchPoint, type ArchSession, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type MachineRow, type ObsRow, type PassRow,
   type PersonRow, type Piece, type Project, type ProxyRule, type RepoClone, type SessionRow, machineOf, newId, Refusal,
+  laneOf,
 } from "@sb/protocol";
 
 type Ev = Record<string, any>;
@@ -165,7 +166,7 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
       const next = f.account ? (good.includes(f.account) ? f.account : undefined) : good[(good.indexOf(cur ?? "") + 1) % Math.max(1, good.length)];
       if (!next || (!f.account && next === cur)) throw new Refusal("no_reserve", f.account ? `${f.account}: вход не годен` : "в очереди нет другого вошедшего аккаунта ниже порога");
       q.lanes[lane] = { account: next };
-      for (const s of Object.values(sessions)) if (s.callsign.endsWith("@" + m) && s.spec.slot === q.name && (!s.spec.model || /fable/i.test(s.spec.model) ? "fable" : "other") === lane) c.setRow(s.callsign, { account: next });
+      for (const s of Object.values(sessions)) if (s.callsign.endsWith("@" + m) && s.spec.slot === q.name && laneOf(s.spec.model) === lane) c.setRow(s.callsign, { account: next });
       return { account: next };
     },
     "keys.list": () => ({ keys }),

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { socketLink } from "./client.ts";
-import { accountList, contract, createApi, fail, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, sessionOpen, slotSet, slotSwap, Spec, TOOL_METHODS, z, type Transport } from "./index.ts";
+import { accountList, contract, createApi, fail, kindOf, laneOf, machineOf, ok, parseFrame, parsePass, personOf, request, sessionOpen, slotSet, slotSwap, Spec, TOOL_METHODS, z, type Transport } from "./index.ts";
 
 describe("protocol", () => {
   it("адреса по форме; голое имя — не адрес", () => {
@@ -79,9 +79,14 @@ describe("инструменты: одна таблица для страниц�
     expect(slotSet.input.safeParse({ to: "@laptop", order: ["a@b.c"] }).success).toBe(false);
     expect(slotSet.input.safeParse({ to: "@laptop", slot: "review", order: [] }).success).toBe(true);
     expect(slotSwap.input.safeParse({ to: "@laptop" }).success).toBe(false);
-    expect(slotSwap.input.safeParse({ to: "@laptop", slot: "main", account: "a@b.c" }).success).toBe(true);
+    // «сменить сейчас» называет место очереди: без него запрос не принят
+    expect(slotSwap.input.safeParse({ to: "@laptop", slot: "main", account: "a@b.c" }).success).toBe(false);
+    expect(slotSwap.input.safeParse({ to: "@laptop", slot: "main", lane: "fable", account: "a@b.c" }).success).toBe(true);
     expect(accountList.output.safeParse({ accounts: [] }).success).toBe(false);
-    expect(accountList.output.parse({ accounts: [], slots: [{ name: "main", model: "other", order: ["a@b.c"], account: "a@b.c", sessions: 2 }] }).slots[0]).toEqual({ name: "main", model: "other", order: ["a@b.c"], account: "a@b.c", sessions: 2 });
+    // у очереди нет вида: один порядок и два места на нём
+    const queue = { name: "main", order: ["a@b.c", "c@d.e"], lanes: { fable: { account: "c@d.e" }, other: { account: "a@b.c", over: true } }, sessions: 2 };
+    expect(accountList.output.parse({ accounts: [], slots: [{ ...queue, model: "other" }] }).slots[0]).toEqual(queue);
+    expect(["claude-fable-5-2", undefined, null, "claude-opus-5-5", "haiku"].map(laneOf)).toEqual(["fable", "fable", "fable", "other", "other"]);
     expect(contract.tools().map((d) => d.name)).toEqual(expect.arrayContaining(["slot.set", "slot.swap"]));
   });
   it("ведущая управляет ведомым инструментами: откат и действия session.call из закрытого списка; отката файлов отдельным методом и запроса сжатия нет", () => {

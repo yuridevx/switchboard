@@ -2,7 +2,8 @@
 import { accountList, profileList, type SessionRow } from "@sb/protocol";
 import { MultiSelect, Select, Stack } from "@mantine/core";
 import { EFFORTS, MODES, useCall } from "../common.tsx";
-import { laneOf, seatOptions } from "../lib/accounts.ts";
+import { seatOptions } from "../lib/accounts.ts";
+import { laneOf } from "@sb/protocol";
 import { SlotLine } from "../lib/AccountView.tsx";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { effectiveModel, modelsFor, patchDoc, useLater, useModels } from "./doc.ts";

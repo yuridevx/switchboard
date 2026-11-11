@@ -35,6 +35,8 @@ export type Account = z.infer<typeof Account>;
 /** Место очереди: fable — сессии на Fable (и без названной модели), other — на остальных моделях. */
 export const Lane = z.enum(["fable", "other"]);
 export type Lane = z.infer<typeof Lane>;
+/** Место, на котором идёт сессия с такой моделью: Fable и сессия без названной модели — fable, остальные модели — other. Одно определение для Host и страницы. */
+export const laneOf = (model?: string | null): Lane => (!model || /fable/i.test(model) ? "fable" : "other");
 /** Кто стоит на месте: account — аккаунт; wait — годного нет: до какого времени место ждёт сброса, мс; over — остальные модели идут из запаса Fable. */
 export const LaneRow = z.object({ account: z.string().optional(), wait: z.number().optional(), over: z.boolean().optional() });
 /** Очередь аккаунтов машины: order — один порядок выбора; lanes — два места на нём; sessions — сколько сессий идёт на очереди. */

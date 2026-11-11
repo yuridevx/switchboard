@@ -2,6 +2,7 @@
 import {
   type Account, type Slot, type ArchPoint, type ArchSession, type Ask, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type Link, type MachineRow,
   type ObsRow, type PassRow, type PersonRow, type Piece, type Project, type Reply, type SessionRow, type Span, type Transport, fail, machineOf, newId, ok, Refusal,
+  laneOf,
 } from "@sb/protocol";
 import { iter2Handlers } from "./iter2.ts";
 import { iter4Handlers } from "./iter4.ts";
@@ -147,7 +148,6 @@ export function createMock(o: MockOptions = {}) {
     return [{ name: "five_hour", used: 0.4, resets: T + 2 * HOUR }, { name: "seven_day", used: week, fable, hold, resets: T + days * DAY }, { name: "fable", used: Math.min(1, fable / CAP), resets: T + days * DAY }];
   };
   type LaneName = "fable" | "other";
-  const laneOf = (model?: string): LaneName => (!model || /fable/i.test(model) ? "fable" : "other");
   const limOf = (a: Account | undefined, name: string) => a?.limits?.find((l) => l.name === name);
   /** Аккаунт годен месту: Fable — пока не выбран ни его лимит, ни неделя; остальным моделям — пока есть неделя сверх запаса Fable. */
   const fits = (a: Account | undefined, lane: LaneName) => {
@@ -166,7 +166,7 @@ export function createMock(o: MockOptions = {}) {
     };
     const fable = stay("fable") ?? q.order.find((id) => fits(by(id), "fable"));
     const other = stay("other") ?? q.order.find((id) => fits(by(id), "other"));
-    const spare = other ? undefined : ((q.lanes.other.over ? stay("other", "fable") : undefined) ?? [...q.order].reverse().find((id) => fits(by(id), "fable")));
+    const spare = other ? undefined : [...q.order].reverse().find((id) => fits(by(id), "fable"));
     q.lanes = { fable: fable ? { account: fable } : idle("fable"), other: other ? { account: other } : spare ? { account: spare, over: true } : idle("other") };
   };
   const accounts: Record<string, Account[]> = {

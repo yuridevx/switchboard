@@ -11,7 +11,7 @@ import type { View } from "../chat/fold.ts";
 import { accountWord, AfterTurn, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels, useWide } from "../common.tsx";
 import { Sortable } from "../lib/Sortable.tsx";
 import { Meter } from "../lib/AccountView.tsx";
-import { laneOf } from "../lib/accounts.ts";
+import { laneOf } from "@sb/protocol";
 import { ago, bytesWord, count, day, duration, hhmm, kilo, nPoints, nTurns } from "../lib/time.ts";
 import { DeleteTyped } from "../lib/DeleteTyped.tsx";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
