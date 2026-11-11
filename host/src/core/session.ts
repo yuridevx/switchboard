@@ -412,14 +412,15 @@ export class Session {
     return ended;
   }
 
-  /** Откат разговора до записи at включительно: процесс снимается и поднимается на том же разговоре — его обрезает SDK при запуске. */
+  /** Откат разговора до записи at включительно: процесс снимается и поднимается на том же разговоре — его обрезает SDK при запуске.
+   *  Ход уже прерван halt(): итог хода пришёл, а состояние idle может прийти следующим сообщением — второго прерывания нет. */
   async rewind(at: string): Promise<void> {
     const run = this.run;
     this.rec.upto = at;
     this.k.save();
     // ждавшие сообщения были к разговору, которого больше нет
     this.inbox.length = 0;
-    if (run) await this.shut(run, isBusy(this.state));
+    if (run) await this.shut(run, false);
     await this.launch("resume");
   }
 
