@@ -7,7 +7,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionLine } from "./common.tsx";
-import { pollPlan } from "./lib/accounts.ts";
 import { browserLacks } from "./lib/browser.ts";
 import { nudge, Sortable } from "./lib/Sortable.tsx";
 import { createMock } from "./mock/fleet.ts";
@@ -109,20 +108,6 @@ describe("HTML-документ в ответе", () => {
   });
 });
 
-describe("опрос лимитов", () => {
-  const acc = (email: string, at?: number) => ({ kind: "claude", id: email, email, limits: [{ at }] });
-  it("одна машина на почту с замером старше двух минут; свежие и ключи флота не опрашиваются; машин — минимум", () => {
-    const plan = pollPlan({
-      laptop: [acc("a@x.com", T - 300_000), acc("b@x.com", T - 300_000)],
-      server: [acc("a@x.com", T - 300_000), acc("c@x.com", T - 10_000)],
-      wsl: [acc("b@x.com", T - 300_000), { kind: "key", id: "deepseek" }],
-    }, T);
-    expect(plan).toEqual(["laptop"]);
-    expect(pollPlan({ laptop: [acc("a@x.com", T - 1000)] }, T)).toEqual([]);
-    // без времени замера — опросить
-    expect(pollPlan({ server: [acc("a@x.com")] }, T)).toEqual(["server"]);
-  });
-});
 
 describe("проверка правил на вызове из архива", () => {
   it("части вызова: промпт и последние сообщения, у каждой — где её ищут правила", () => {

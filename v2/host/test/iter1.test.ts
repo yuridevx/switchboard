@@ -57,7 +57,7 @@ function homeWithAccounts(names: string[], limits: Record<string, unknown> = {},
   const dirs = folders(home);
   for (const n of names) mkdirSync(dirs.accDir(n), { recursive: true });
   // у каждой очереди на диске — ссылка на первого по порядку
-  for (const [slot, order] of Object.entries(slots)) symlinkSync(dirs.accDir(order[0]!), (mkdirSync(join(home, "slots"), { recursive: true }), dirs.slotDir(slot)), process.platform === "win32" ? "junction" : "dir");
+  for (const [slot, order] of Object.entries(slots)) for (const lane of ["fable", "other"] as const) symlinkSync(dirs.accDir(order[0]!), (mkdirSync(join(home, "slots"), { recursive: true }), dirs.laneDir(slot, lane)), process.platform === "win32" ? "junction" : "dir");
   return home;
 }
 
@@ -302,15 +302,15 @@ describe("accounts", () => {
     const list = (await st.request("account.list", { to: "@laptop" })).result as any;
     // «ждёт сброса» — у очереди: годность аккаунта зависит от её вида
     expect(list.accounts[0].wait).toBeUndefined();
-    expect(list.slots).toEqual([{ name: "main", model: "fable", order: ["a@example.com", "b@example.com"], account: "a@example.com", wait: (at + 600) * 1000, sessions: 0 }]);
+    expect(list.slots).toEqual([{ name: "main", order: ["a@example.com", "b@example.com"], lanes: { fable: { account: "a@example.com", wait: (at + 600) * 1000 }, other: { account: "a@example.com", wait: (at + 600) * 1000 } }, sessions: 0 }]);
     await st.open("site");
     expect(st.link.rows(CS).at(-1)!.row).toMatchObject({ account: "a@example.com", wait: (at + 600) * 1000 });
-    expect(await st.request("slot.swap", { to: "@laptop", slot: "main" })).toMatchObject({ ok: false, error: "no_reserve" });
-    expect((await st.request("slot.swap", { to: "@laptop", slot: "main", account: "b@example.com" })).result).toEqual({ account: "b@example.com" });
-    expect(folders(home).inSlot("main")).toBe("b@example.com");
+    expect(await st.request("slot.swap", { to: "@laptop", slot: "main", lane: "fable" })).toMatchObject({ ok: false, error: "no_reserve" });
+    expect((await st.request("slot.swap", { to: "@laptop", slot: "main", lane: "fable", account: "b@example.com" })).result).toEqual({ account: "b@example.com" });
+    expect(folders(home).inLane("main", "fable")).toBe("b@example.com");
     expect(st.link.rows(CS).at(-1)!.row).toMatchObject({ account: "b@example.com" });
     expect(st.services.of("ledger.add").some((f) => f.what === "account.swapped")).toBe(true);
-    expect(await st.request("slot.swap", { to: "@laptop", slot: "main", account: "nope@example.com" })).toMatchObject({ ok: false, error: "no_account" });
+    expect(await st.request("slot.swap", { to: "@laptop", slot: "main", lane: "fable", account: "nope@example.com" })).toMatchObject({ ok: false, error: "no_account" });
   });
 
   it("ключ флота: переменные и настройки ключа идут в запуск сессии; провайдер и адрес — в списке", async () => {

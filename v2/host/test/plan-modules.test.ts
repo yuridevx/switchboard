@@ -36,7 +36,7 @@ function homeWithAccounts(names: Record<string, "ok" | "none">, slots: Record<st
   writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: book }));
   const dirs = folders(home);
   for (const n of Object.keys(names)) mkdirSync(dirs.accDir(n), { recursive: true });
-  for (const [slot, order] of Object.entries(slots)) symlinkSync(dirs.accDir(order[0]!), (mkdirSync(join(home, "slots"), { recursive: true }), dirs.slotDir(slot)), process.platform === "win32" ? "junction" : "dir");
+  for (const [slot, order] of Object.entries(slots)) for (const lane of ["fable", "other"] as const) symlinkSync(dirs.accDir(order[0]!), (mkdirSync(join(home, "slots"), { recursive: true }), dirs.laneDir(slot, lane)), process.platform === "win32" ? "junction" : "dir");
   return home;
 }
 
@@ -255,7 +255,7 @@ describe("план v2: обращения", () => {
 
 describe("план v2: очереди и правила", () => {
   const A = "a@example.com", B = "b@example.com", C = "c@example.com";
-  const slots = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).slots as Array<{ name: string; account?: string }>;
+  const slots = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).slots.map(({ lanes, ...q }: any) => ({ ...q, ...lanes.fable })) as Array<{ name: string; account?: string }>;
 
   // чьё: код
   it("slot.set: в новом порядке нет того, кто стоит сейчас, — очередь идёт на первого вошедшего; строка сессии называет его; в журнале account_swap", async () => {
@@ -471,7 +471,7 @@ describe("план v2: вход Claude и ключи", () => {
     const r = await st.request("account.list", { to: "@laptop" });
     expect(r.ok).toBe(true);
     expect((r.result as any).accounts.map((a: any) => a.id)).toEqual(["a@example.com"]);
-    expect((r.result as any).slots).toMatchObject([{ name: "main", account: "a@example.com" }]);
+    expect((r.result as any).slots).toMatchObject([{ name: "main", lanes: { fable: { account: "a@example.com" }, other: { account: "a@example.com" } } }]);
   });
 
   const keyStand = async (out: string, code = 0) => {
@@ -654,7 +654,7 @@ describe("план v2: точки сами", () => {
 describe("план v2: такт проверки входов", () => {
   const A = "a@example.com", B = "b@example.com";
   const accountsOf = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).accounts as Array<{ id: string; ok: boolean; why?: string }>;
-  const slotsOf = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).slots as Array<{ name: string; account?: string }>;
+  const slotsOf = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).slots.map(({ lanes, ...q }: any) => ({ ...q, ...lanes.fable })) as Array<{ name: string; account?: string }>;
   /** Ждать, пока вход аккаунта не станет таким. */
   const login = async (id: string, ok: boolean, ms: number) => {
     const end = Date.now() + ms;

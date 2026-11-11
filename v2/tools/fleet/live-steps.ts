@@ -237,9 +237,9 @@ await step("числа Host: машина отвечает на запрос, с
     if (!login) later("нет входа Claude");
     const before = (await slots()).find((q) => q.name === "main")?.account;
     // вход на машине один: запаса в очереди нет — отказ приходит от названной очереди
-    const swap = await word(() => api.call(slotSwap, { to: "@" + machine, slot: queue }));
+    const swap = await word(() => api.call(slotSwap, { to: "@" + machine, slot: queue, lane: "fable" }));
     if (!swap.startsWith("no_reserve") || !swap.includes(queue)) throw new Error("смена в очереди без запаса: " + swap);
-    const ghost = await word(() => api.call(slotSwap, { to: "@" + machine, slot: "nope-" + tag }));
+    const ghost = await word(() => api.call(slotSwap, { to: "@" + machine, slot: "nope-" + tag, lane: "fable" }));
     if (!ghost.startsWith("no_slot")) throw new Error("неизвестная очередь: " + ghost);
     const after = (await slots()).find((q) => q.name === "main")?.account;
     if (after !== before) throw new Error(`main сменилась: ${before} → ${after}`);

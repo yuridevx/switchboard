@@ -57,7 +57,7 @@ function homeWithAccounts(names: string[], limits: Record<string, unknown> = {},
   const dirs = folders(home);
   for (const n of names) mkdirSync(dirs.accDir(n), { recursive: true });
   // у каждой очереди на диске — ссылка на первого по порядку
-  for (const [slot, order] of Object.entries(slots)) symlinkSync(dirs.accDir(order[0]!), (mkdirSync(join(home, "slots"), { recursive: true }), dirs.slotDir(slot)), process.platform === "win32" ? "junction" : "dir");
+  for (const [slot, order] of Object.entries(slots)) for (const lane of ["fable", "other"] as const) symlinkSync(dirs.accDir(order[0]!), (mkdirSync(join(home, "slots"), { recursive: true }), dirs.laneDir(slot, lane)), process.platform === "win32" ? "junction" : "dir");
   return home;
 }
 
@@ -140,7 +140,8 @@ describe("accounts", () => {
   const sec = () => Math.floor(Date.now() / 1000);
   const fresh = () => ({ five_hour: { utilization: 0.1, resetsAt: 0, at: sec() } });
   const full = (resetsAt: number) => ({ five_hour: { utilization: 1, resetsAt, at: sec() } });
-  const slotsOf = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).slots as Array<{ name: string; order: string[]; account?: string; wait?: number; sessions: number }>;
+  /** Очереди глазами места Fable: на нём идут сессии без названной модели. */
+  const slotsOf = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).slots.map(({ lanes, ...q }: any) => ({ ...q, ...lanes.fable })) as Array<{ name: string; order: string[]; account?: string; wait?: number; sessions: number }>;
   const loginDir = (q: { options: unknown }) => (q.options as any).env.CLAUDE_SECURESTORAGE_CONFIG_DIR as string;
   const reject = (proc: { send(m: unknown): void }, resetsAt = sec() + 3600) => {
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
@@ -155,11 +156,11 @@ describe("accounts", () => {
     st.services.handlers["keys.list"] = () => ({ keys: [] });
     const one = await st.open("site", { slot: "main" });
     const two = await st.open("reviewer", { slot: "review" });
-    expect(loginDir(one.q)).toBe(folders(home).slotDir("main"));
-    expect(loginDir(two.q)).toBe(folders(home).slotDir("review"));
+    expect(loginDir(one.q)).toBe(folders(home).laneDir("main", "fable"));
+    expect(loginDir(two.q)).toBe(folders(home).laneDir("review", "fable"));
     expect(st.link.rows("site@laptop").at(-1)!.row).toMatchObject({ account: A, spec: { slot: "main" } });
     expect(st.link.rows("reviewer@laptop").at(-1)!.row).toMatchObject({ account: B, spec: { slot: "review" } });
-    expect(await slotsOf()).toEqual([{ name: "main", model: "fable", order: [A, B], account: A, sessions: 1 }, { name: "review", model: "fable", order: [B, A], account: B, sessions: 1 }]);
+    expect(await slotsOf()).toEqual([{ name: "main", order: [A, B], account: A, sessions: 1 }, { name: "review", order: [B, A], account: B, sessions: 1 }]);
   });
 
   it("открытие без очереди: одна — в неё, имя записано в документ; две — slot_required с именами; ни одной — not_logged_in", async () => {
@@ -167,7 +168,7 @@ describe("accounts", () => {
     st = await stand({ home, modules: [accounts()] });
     const { s, q } = await st.open("site");
     expect(s.rec.spec.slot).toBe("main");
-    expect(loginDir(q)).toBe(folders(home).slotDir("main"));
+    expect(loginDir(q)).toBe(folders(home).laneDir("main", "fable"));
     expect((await st.request("slot.set", { to: "@laptop", slot: "review", order: [B] })).ok).toBe(true);
     expect(await st.request("session.open", { to: "@laptop", spec: { name: "x", cwd: st.dir } })).toMatchObject({ ok: false, error: "slot_required", why: expect.stringMatching(/main, review/) });
     await st.stop();
@@ -183,7 +184,7 @@ describe("accounts", () => {
     };
     expect(await st.request("session.open", { to: "@laptop", spec: { name: "x", cwd: st.dir, slot: B } })).toMatchObject({ ok: false, error: "no_slot", why: expect.stringMatching(/main, review/) });
     expect(await st.request("session.open", { to: "@laptop", spec: { name: "y", cwd: st.dir, slot: "ghost" } })).toMatchObject({ ok: false, error: "no_slot", why: expect.stringMatching(/main, review/) });
-    expect(await st.request("slot.swap", { to: "@laptop", slot: "ghost" })).toMatchObject({ ok: false, error: "no_slot" });
+    expect(await st.request("slot.swap", { to: "@laptop", slot: "ghost", lane: "fable" })).toMatchObject({ ok: false, error: "no_slot" });
   });
 
   it("slot.set: новое имя заводит очередь; пустой порядок удаляет её; пустой порядок при сессиях — has_sessions", async () => {
@@ -191,14 +192,14 @@ describe("accounts", () => {
     st = await stand({ home, modules: [accounts()] });
     st.services.handlers["keys.list"] = () => ({ keys: [] });
     expect((await st.request("slot.set", { to: "@laptop", slot: "review", order: [B, A] })).ok).toBe(true);
-    expect(folders(home).inSlot("review")).toBe(B);
+    expect(folders(home).inLane("review", "fable")).toBe(B);
     expect((await slotsOf()).map((q) => [q.name, q.order, q.account])).toEqual([["main", [A], A], ["review", [B, A], B]]);
     await st.open("reviewer", { slot: "review" });
     expect(await st.request("slot.set", { to: "@laptop", slot: "review", order: [] })).toMatchObject({ ok: false, error: "has_sessions" });
-    expect(folders(home).inSlot("review")).toBe(B);
+    expect(folders(home).inLane("review", "fable")).toBe(B);
     await st.request("session.remove", { to: "reviewer@laptop" });
     expect((await st.request("slot.set", { to: "@laptop", slot: "review", order: [] })).ok).toBe(true);
-    expect(folders(home).inSlot("review")).toBeNull();
+    expect(folders(home).inLane("review", "fable")).toBeNull();
     expect((await slotsOf()).map((q) => q.name)).toEqual(["main"]);
     expect(await st.request("slot.set", { to: "@laptop", slot: "Плохое имя", order: [A] })).toMatchObject({ ok: false, error: "bad_input" });
     expect(await st.request("slot.set", { to: "@laptop", slot: "x", order: ["nope@example.com"] })).toMatchObject({ ok: false, error: "no_account" });
@@ -213,8 +214,8 @@ describe("accounts", () => {
     writeFileSync(join(fresh, ".credentials.json"), "{}");
     const r = await st.request("account.code", { to: "@laptop", login: "login", code: "code#state" });
     expect(r.why ?? r.error ?? "").toBe("");
-    expect(folders(st.home).inSlot("main")).toBe(A);
-    expect(await slotsOf()).toEqual([{ name: "main", model: "fable", order: [A], account: A, sessions: 0 }]);
+    expect(folders(st.home).inLane("main", "fable")).toBe(A);
+    expect(await slotsOf()).toEqual([{ name: "main", order: [A], account: A, sessions: 0 }]);
   });
 
   it("отказ лимита у аккаунта очереди: очередь переходит на следующего, оборванная сессия продолжает", async () => {
@@ -222,7 +223,7 @@ describe("accounts", () => {
     st = await stand({ home, modules: [accounts()] });
     const { proc } = await st.open("site");
     reject(proc);
-    await until(() => folders(home).inSlot("main") === B, 5000, "подмена");
+    await until(() => folders(home).inLane("main", "fable") === B, 5000, "подмена");
     await until(() => proc.inputs.some((i) => i.message.content === "Продолжай"), 5000, "продолжение");
     expect(st.link.rows("site@laptop").at(-1)!.row).toMatchObject({ account: B });
     expect(st.services.of("ledger.add").some((f) => f.what === "account.swapped")).toBe(true);
@@ -236,13 +237,13 @@ describe("accounts", () => {
     // о пороге говорят сессии обеих очередей
     reject(one.proc);
     reject(two.proc);
-    await until(() => folders(home).inSlot("main") === B && folders(home).inSlot("docs") === C, 5000, "смена в двух очередях");
+    await until(() => folders(home).inLane("main", "fable") === B && folders(home).inLane("docs", "fable") === C, 5000, "смена в двух очередях");
     await tick(20);
-    expect(folders(home).inSlot("review")).toBe(B);
+    expect(folders(home).inLane("review", "fable")).toBe(B);
     const swaps = st.services.of("ledger.add").filter((f) => f.what === "account.swapped").map((f) => String(f.text));
-    expect(swaps.filter((t) => t.startsWith("очередь main:"))).toHaveLength(1);
-    expect(swaps.filter((t) => t.startsWith("очередь docs:"))).toHaveLength(1);
-    expect(swaps.filter((t) => t.startsWith("очередь review:"))).toHaveLength(0);
+    expect(swaps.filter((t) => t.startsWith("очередь main · Fable:"))).toHaveLength(1);
+    expect(swaps.filter((t) => t.startsWith("очередь docs · Fable:"))).toHaveLength(1);
+    expect(swaps.filter((t) => t.startsWith("очередь review ·"))).toHaveLength(0);
   });
 
   it("в очереди один аккаунт у порога: она ждёт сброса и её сессия стоит с часом сброса; сессии другой очереди идут", async () => {
@@ -257,7 +258,7 @@ describe("accounts", () => {
     const slots = await slotsOf();
     expect(slots.find((q) => q.name === "review")).toMatchObject({ account: B, wait: (at + 600) * 1000 });
     expect(slots.find((q) => q.name === "main")!.wait).toBeUndefined();
-    expect(await st.request("slot.swap", { to: "@laptop", slot: "review" })).toMatchObject({ ok: false, error: "no_reserve" });
+    expect(await st.request("slot.swap", { to: "@laptop", slot: "review", lane: "fable" })).toMatchObject({ ok: false, error: "no_reserve" });
   });
 
   it("час сброса очереди: её сессия с оборванным ходом получает «Продолжай»; сессиям другой очереди ничего не шлётся", async () => {
@@ -268,7 +269,7 @@ describe("accounts", () => {
     // отказ с часом сброса через секунду: запаса у review нет — она ждёт; одна побудка машины будит её
     reject(review.proc, sec() + 1);
     await until(() => review.proc.inputs.some((i) => i.message.content === "Продолжай"), 8000, "продолжение после сброса");
-    expect(folders(home).inSlot("review")).toBe(B);
+    expect(folders(home).inLane("review", "fable")).toBe(B);
     expect(main.proc.inputs.some((i) => i.message.content === "Продолжай")).toBe(false);
   });
 
@@ -278,7 +279,7 @@ describe("accounts", () => {
     const { s } = await st.open("site", { slot: "main" });
     const sid = s.rec.sessionId;
     expect((await st.request("session.update", { to: "site@laptop", patch: { slot: "review" } })).ok).toBe(true);
-    await until(() => st!.sdk.of("site@laptop").length === 2 && loginDir(st!.sdk.last("site@laptop")!) === folders(home).slotDir("review"), 5000, "перезапуск на новой очереди");
+    await until(() => st!.sdk.of("site@laptop").length === 2 && loginDir(st!.sdk.last("site@laptop")!) === folders(home).laneDir("review", "fable"), 5000, "перезапуск на новой очереди");
     expect(s.rec.sessionId).toBe(sid);
     await until(() => (st!.link.rows("site@laptop").at(-1)!.row as any).account === B, 5000, "аккаунт новой очереди в строке");
   });
@@ -294,7 +295,7 @@ describe("accounts", () => {
     await st.request("session.remove", { to: "held@laptop" });
     expect((await st.request("account.remove", { to: "@laptop", account: A })).ok).toBe(true);
     expect((await slotsOf()).map((q) => [q.name, q.order, q.account])).toEqual([["main", [B], B], ["review", [C], C]]);
-    expect(folders(home).inSlot("solo")).toBeNull();
+    expect(folders(home).inLane("solo", "fable")).toBeNull();
     expect(existsSync(folders(home).accDir(A))).toBe(false);
   });
 
@@ -307,18 +308,18 @@ describe("accounts", () => {
     mkdirSync(lock);
     reject(one.proc);
     await tick(30);
-    expect(folders(home).inSlot("main")).toBe(A);
+    expect(folders(home).inLane("main", "fable")).toBe(A);
     const stopping = st.stop();
     await tick(10);
     rmdirSync(lock);
     await stopping;
-    expect(folders(home).inSlot("main")).toBe(B);
+    expect(folders(home).inLane("main", "fable")).toBe(B);
     // шаг очереди docs стоял в линии за первым: остановка его не начала
-    expect(folders(home).inSlot("docs")).toBe(A);
-    expect(st.journal().filter((l) => l.msg === "account_swap").map((l) => String((l as any).why).split(":")[0])).toEqual(["очередь main"]);
+    expect(folders(home).inLane("docs", "fable")).toBe(A);
+    expect(st.journal().filter((l) => l.msg === "account_swap").map((l) => String((l as any).why).split(" · ")[0]).filter((x, i, a) => a.indexOf(x) === i)).toEqual(["очередь main"]);
     st = await stand({ home, modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => ({ keys: [] });
-    expect((await slotsOf()).map((q) => [q.name, q.account])).toEqual([["main", B], ["docs", A]]);
+    // кто где стоит, знает диск: до первого пересмотра места те же
+    expect([folders(home).inLane("main", "fable"), folders(home).inLane("docs", "fable"), folders(home).inLane("docs", "other")]).toEqual([B, A, A]);
   });
 
   it("ключ флота: значение только в памяти, сессии — слово fleet; кадр «изменилось» — значение забыто и берётся заново", async () => {
@@ -349,7 +350,7 @@ describe("accounts", () => {
         { id: "a@example.com", kind: "claude", email: "a@example.com", plan: "max", limits: [{ name: "five_hour", used: 0.5, resets: (at + 600) * 1000, at: at * 1000 }], at: at * 1000, ok: true, sessions: 0 },
         { id: "team-key", kind: "key", ok: true, sessions: 0, provider: "anthropic", models: { fast: "orca/flash" } },
       ],
-      slots: [{ name: "main", model: "fable", order: ["a@example.com"], account: "a@example.com", sessions: 0 }],
+      slots: [{ name: "main", order: ["a@example.com"], lanes: { fable: { account: "a@example.com" }, other: { account: "a@example.com" } }, sessions: 0 }],
     });
   });
 });

@@ -9,7 +9,7 @@ import { useRef, useState } from "react";
 import { act, api } from "../../api.ts";
 import { confirmDanger, Failed, useCall, useMachineName } from "../../common.tsx";
 import { AccountView } from "../../lib/AccountView.tsx";
-import { accountKey, diverge, dropFromQueues, machineOrder, mergeAccounts, otherMail, pollPlan, queueMove, type Merged } from "../../lib/accounts.ts";
+import { accountKey, diverge, dropFromQueues, machineOrder, mergeAccounts, otherMail, queueMove, type Merged } from "../../lib/accounts.ts";
 import { useRowDrag } from "../../lib/drag.ts";
 import { nudge } from "../../lib/Sortable.tsx";
 import { ago, nSessions, resetWord } from "../../lib/time.ts";
@@ -290,11 +290,7 @@ export function Accounts() {
           <Text fw={600}>Аккаунты Claude</Text>
           <Group gap={6} wrap="wrap">
             {picked.length > 0 && <Button size="compact-xs" variant="default" onClick={() => void drop()}>Убрать из очередей</Button>}
-            <Button size="compact-xs" variant="subtle" onClick={() => {
-              // один опрос на почту с устаревшим замером, на минимуме машин; свежее не трогаем
-              const plan = pollPlan(byMachine);
-              for (const m of plan.length ? plan : online) void qc.invalidateQueries({ queryKey: ["account.list", { to: "@" + m }] });
-            }}>Опросить лимиты</Button>
+            <Button size="compact-xs" variant="subtle" onClick={refresh}>Опросить лимиты</Button>
           </Group>
         </Group>
         {merged.map((m) => { const key = accountKey(m); return <MergedRow key={key} m={m} marked={marked === key} onMark={() => setMarked(marked === key ? "" : key)} picked={picked.includes(key)} onPick={(on) => setPicked(on ? [...picked, key] : picked.filter((x) => x !== key))}

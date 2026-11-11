@@ -1,18 +1,19 @@
 // Аккаунты машины: входы Claude с лимитами, именованные очереди аккаунтов и ключи флота. Имя аккаунта — его почта.
-// Очередь — порядок аккаунтов в записи и ссылка на диске на папку того, кто стоит сейчас: кто в ней, знает только ссылка.
+// Очередь — один список аккаунтов и два места на нём: на месте fable идут сессии Fable, на месте other — остальные модели.
+// Место — ссылка на диске на папку того, кто стоит сейчас: кто на нём, знает только ссылка. Числа лимитов — только из ответа Claude об аккаунте.
 // Сессия стоит в очереди или на ключе флота (поле slot её документа). Все изменения всех очередей машины идут одной линией.
 // Значение ключа флота — только в памяти; настройки ключа — в записи сессии: подъём читает их без связи.
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { keysList, keysValue, ledgerAdd, READ_MS, Refusal, within, type Account as AccountOut, type Slot as SlotOut } from "@sb/protocol";
+import { keysList, keysValue, laneOf, ledgerAdd, READ_MS, Refusal, within, type Account as AccountOut, type Lane, type Slot as SlotOut } from "@sb/protocol";
 import type { HostApi, Module, SessionApi } from "../../core/contract.ts";
-import type { Account, SlotModel } from "./limits.ts";
-import { DEFAULT_MODEL, fits, nextUp, over, shown, stale, usable, usableAt, watched } from "./limits.ts";
+import type { Account } from "./limits.ts";
+import { expired, FABLE, fits, nextReset, place, read, shown, stale, usableAt, WEEK, windowOf } from "./limits.ts";
 import { envOf, folders, type Folders } from "./links.ts";
 import { signin, type SignedIn } from "./signin.ts";
 
-/** slots — очереди: имя → порядок аккаунтов; очередь есть, пока в ней есть аккаунт. models — вид очереди; не назван — fable. */
-type Book = { accounts: Record<string, Account>; slots: Record<string, string[]>; models?: Record<string, SlotModel> };
+/** slots — очереди: имя → аккаунты по порядку; очередь есть, пока в ней есть аккаунт. */
+type Book = { accounts: Record<string, Account>; slots: Record<string, string[]> };
 /** Настройки ключа флота без значения: models — имена моделей claude → модели провайдера; window — окно контекста, токены;
  *  env — окружение сессии; settings — настройки Claude. */
 type KeyConfig = { provider: string; base?: string; model?: string; models?: Record<string, string>; window?: number; env?: Record<string, string>; settings?: Record<string, unknown> };
@@ -33,15 +34,18 @@ export type AccountsApi = { route(sessionId: string): Promise<Route>; keyRoute(n
 const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
 /** Очередь, которую заводит первый вход на машине без очередей. */
 const MAIN = "main";
-/** Имя очереди — оно же имя ссылки на диске. */
+/** Имя очереди — оно же начало имени ссылок её мест. */
 const SLOT_NAME = /^[a-z0-9][a-z0-9_-]*$/;
-/** Окна запасного старше этого — спросить у Claude: расход на других машинах видно только там. */
+const LANES: Lane[] = ["fable", "other"];
+const LANE_WORD: Record<Lane, string> = { fable: "Fable", other: "остальные" };
+/** Числа аккаунта старше этого — спросить у Claude: расход на других машинах видно только там. Чаще аккаунт не спрашивается. */
 const FRESH_S = 120;
 const POLL_MS = READ_MS - 2_000;
 /** Один аккаунт на разных машинах: 17:59:59 и 18:00:00. */
 const RESET_DRIFT_S = 2;
 const CONTINUE = "Продолжай";
-const WINDOW_NAMES: Record<string, string> = { five_hour: "5 ч", seven_day: "нед.", seven_day_overage_included: "Fable" };
+/** Модель сессии, у которой своя не названа. */
+const DEFAULT_MODEL = "fable";
 const ANTHROPIC = "https://api.anthropic.com";
 /** Слово вместо ключа в окружении сессии на ключе флота: сам ключ ставит прокси. */
 const KEY_WORD = "fleet";
@@ -64,8 +68,10 @@ export function make(): Module {
   const polls = new Set<{ close(): void }>();
   /** идущие опросы лимитов: один на аккаунт, второй спросивший ждёт тот же */
   const polling = new Map<string, Promise<void>>();
-  /** сессии, чей отказ в этом ходе назвал окно, за которым их очередь не следит: аккаунт из-за него не меняется */
+  /** сессии, чей отказ в этом ходе назвал окно, которое аккаунт не закрывает: место из-за него не уходит */
   const foreign = new Set<string>();
+  /** место, на котором запущен процесс сессии: смена модели через границу Fable — перезапуск на другом месте */
+  const started = new Map<string, Lane>();
   let auth: ReturnType<typeof signin>;
 
   const shelf = () => host.store<Book>();
@@ -73,14 +79,18 @@ export function make(): Module {
   const write = (fn: (b: Book) => void) => void shelf().update((b = { accounts: {}, slots: {} }) => (fn(b), b));
   const seatOf = (s: SessionApi) => s.store<Seat>();
   const slotNames = () => Object.keys(book().slots);
-  /** Вид очереди: какие модели идут в ней и за каким лимитом она следит. */
-  const modelOf = (slot: string): SlotModel => book().models?.[slot] ?? "fable";
-  /** Кто стоит в очереди сейчас. */
-  const current = (slot: string) => dirs.inSlot(slot);
+  /** Кто стоит на месте очереди сейчас. */
+  const current = (slot: string, lane: Lane) => dirs.inLane(slot, lane);
   /** Очередь сессии: имя из её документа, если такая очередь есть на машине; иначе это ключ флота. Имя сначала ищется среди очередей. */
   const slotOf = (s: SessionApi): string | null => (s.spec.slot && book().slots[s.spec.slot] ? s.spec.slot : null);
-  /** Сессии очереди. */
-  const queued = (slot: string) => host.sessions().filter((s) => slotOf(s) === slot);
+  /** Место сессии — по её модели: одно определение в договоре. */
+  const laneOfSession = (s: SessionApi) => laneOf(s.spec.model);
+  /** Сессии очереди; с местом — только его. */
+  const queued = (slot: string, lane?: Lane) => host.sessions().filter((s) => slotOf(s) === slot && (!lane || laneOfSession(s) === lane));
+  /** Аккаунт, на котором сессия идёт сейчас. */
+  const accountOf = (s: SessionApi) => { const slot = slotOf(s); return slot ? current(slot, laneOfSession(s)) : null; };
+  /** Очереди, где аккаунт стоит сейчас хотя бы на одном месте. */
+  const standsIn = (account: string) => slotNames().filter((n) => LANES.some((l) => current(n, l) === account));
   const slotsWord = () => (slotNames().length ? `очереди машины: ${slotNames().join(", ")}` : "очередей на машине нет");
 
   /** Изменения очередей — по одному, одной линией на машину: аккаунт и его лимиты у очередей общие. */
@@ -98,36 +108,45 @@ export function make(): Module {
       if (!(e instanceof Refusal)) host.log.error("accounts", { why: say(e) });
     });
 
-  /** Очередь ждёт сброса: в ней аккаунт у порога и запаса нет. Нигде не записано — считается из порядка и лимитов. */
-  function waitAt(slot: string): number | null {
+  /** Место ждёт сброса: его аккаунт не годен и годного в очереди нет. Нигде не записано — считается из списка и лимитов.
+   *  Остальные модели без своей половины идут из запаса Fable, поэтому ждут, только когда нет и его. */
+  function waitAt(slot: string, lane: Lane): number | null {
     const { accounts, slots } = book();
     const order = slots[slot] ?? [];
-    const cur = current(slot);
+    const cur = current(slot, lane);
     const t = now();
-    const model = modelOf(slot);
-    if (!cur || !accounts[cur] || usable(accounts[cur], model, t) || nextUp(order, accounts, model, t, cur)) return null;
-    const times = order.filter((n) => accounts[n]?.login === "ok").map((n) => usableAt(accounts[n]!, model, t)).filter(Boolean);
+    if (!cur || place(order, accounts, { [lane]: cur }, t)[lane]) return null;
+    const soon = (a: Account) => (lane === "fable" ? [usableAt(a, "fable", t)] : [usableAt(a, "other", t), usableAt(a, "fable", t)]).filter(Boolean);
+    const times = order.filter((n) => accounts[n]?.login === "ok").flatMap((n) => soon(accounts[n]!));
     return times.length ? Math.min(...times) : null;
   }
 
-  /** Побудка одна на машину: на ближайший сброс среди ждущих очередей. */
+  /** Побудка одна на машину: на ближайший сброс окна у аккаунтов очередей. По ней места пересматриваются;
+   *  где сбросилась неделя — выбирают заново: ближний сброс теперь у другого аккаунта. */
   function plan(): void {
     clearTimeout(wake);
     wake = undefined;
     if (stopping) return;
-    const waiting = slotNames().filter((n) => waitAt(n));
-    if (!waiting.length) return;
-    // в час сброса каждая ждущая очередь проверяется своим шагом линии
-    wake = setTimeout(() => { for (const slot of waiting) background(() => reset(slot)); }, Math.max(0, Math.min(...waiting.map((n) => waitAt(n)!)) * 1000 - Date.now()));
+    const { accounts, slots } = book();
+    const t = now();
+    const at = Math.min(...[...new Set(Object.values(slots).flat())].map((n) => (accounts[n] ? nextReset(accounts[n]!, t) : Infinity)));
+    if (!Number.isFinite(at)) return;
+    wake = setTimeout(() => {
+      const gone = Object.keys(book().accounts).filter((n) => expired(book().accounts[n], now()));
+      for (const slot of slotNames()) background(() => repick(slot, "сброс", { fresh: book().slots[slot]!.some((n) => gone.includes(n)), sameToo: true }));
+      // прошедшая неделя снята с записи: побудка по ней — один раз
+      background(async () => write((b) => { for (const n of gone) { delete b.accounts[n]?.limits[WEEK]; delete b.accounts[n]?.limits[FABLE]; } }));
+      background(async () => plan());
+    }, Math.max(0, at * 1000 - Date.now()));
     wake.unref();
   }
 
-  /** Единственная смена аккаунта очереди: ссылка, строки сессий, журнал машины и флота. */
-  async function put(slot: string, to: string, why: string): Promise<void> {
-    const from = current(slot);
-    await dirs.place(slot, to);
+  /** Единственная смена аккаунта места: ссылка, строки сессий, журнал машины и флота. */
+  async function put(slot: string, lane: Lane, to: string, why: string): Promise<void> {
+    const from = current(slot, lane);
+    await dirs.place(slot, lane, to);
     for (const s of queued(slot)) s.sync();
-    const text = `очередь ${slot}: ${from ?? "—"} → ${to} · ${why}`;
+    const text = `очередь ${slot} · ${LANE_WORD[lane]}: ${from ?? "—"} → ${to} · ${why}`;
     host.log.info("account_swap", { why: text });
     void host.call(ledgerAdd, { what: "account.swapped", machine: host.machine, text }).catch(() => {});
   }
@@ -137,12 +156,12 @@ export function make(): Module {
     const seat = seatOf(s).get();
     const slot = slotOf(s);
     if (!seat?.cut || s.state !== "idle" || !slot) return;
-    if (seat.cut === current(slot) && !sameToo) return;
+    if (seat.cut === current(slot, laneOfSession(s)) && !sameToo) return;
     seatOf(s).update((x) => ({ ...x, cut: undefined }));
     s.input(CONTINUE);
   }
 
-  /** После смены очереди: строки её сессий, побудка, оборванные. */
+  /** После пересмотра очереди: строки её сессий, побудка, оборванные. */
   function settled(slot: string, sameToo = false): void {
     for (const s of queued(slot)) {
       s.sync();
@@ -162,17 +181,14 @@ export function make(): Module {
 
   async function pollOnce(name: string): Promise<void> {
     if (stopping) return;
+    // время вопроса пишется до ответа: Claude молчит — следующий вопрос всё равно не раньше порога свежести
+    write((b) => { if (b.accounts[name]) b.accounts[name]!.asked = now(); });
     const probe = host.probe({ env: envOf(dirs.accDir(name)) });
     polls.add(probe);
     try {
-      const u = (await within(probe.sdk(USAGE, { skipBehaviors: true }), POLL_MS, `не ответил за ${POLL_MS / 1000} с`)) as { rate_limits?: Record<string, { utilization?: number | null; resets_at?: string | null } | null> | null };
-      const at = now();
-      write((b) => {
-        const a = b.accounts[name];
-        if (!a) return;
-        // неактивное окно приходит null, а в extra_usage utilization — null
-        for (const [w, v] of Object.entries(u?.rate_limits ?? {})) if (typeof v?.utilization === "number") a.limits[w] = { utilization: v.utilization / 100, resetsAt: v.resets_at ? Math.floor(Date.parse(v.resets_at) / 1000) : 0, at };
-      });
+      const u = await within(probe.sdk(USAGE, { skipBehaviors: true }), POLL_MS, `не ответил за ${POLL_MS / 1000} с`);
+      const fresh = read(u, now());
+      write((b) => { if (b.accounts[name]) Object.assign(b.accounts[name]!.limits, fresh); });
     } catch (e) {
       host.log.warn("poll", { why: `${name}: опрос лимитов — ${say(e)}` });
     } finally {
@@ -181,42 +197,52 @@ export function make(): Module {
     }
   }
 
-  /** Кого поставить в очередь: по её порядку, окна свежие у Claude; у порога — следующий. */
-  async function reserve(slot: string, from: string | null): Promise<string | null> {
-    for (const name of book().slots[slot] ?? []) {
-      if (name === from || !usable(book().accounts[name], modelOf(slot), now())) continue;
-      if (stale(book().accounts[name]!, FRESH_S, now())) await poll(name);
-      if (usable(book().accounts[name], modelOf(slot), now())) return name;
+  /** Пересмотр мест очереди — шаг линии. Место стоит, пока его аккаунт годен; иначе берёт годный с ближним сбросом недели.
+   *  fresh — у аккаунта очереди сбросилась неделя: места выбирают заново. bar — пара, которой Claude только что отказал. */
+  async function repick(slot: string, why: string, opts: { fresh?: boolean; sameToo?: boolean; bar?: { lane: Lane; account: string } } = {}): Promise<void> {
+    const order = book().slots[slot];
+    if (!order) return;
+    const pick = () => place(order, book().accounts, opts.fresh ? {} : { fable: current(slot, "fable"), other: current(slot, "other") }, now(), opts.bar);
+    let p = pick();
+    // новый аккаунт места — только со свежими числами: расход на других машинах видно у Claude; вопросов — не больше, чем аккаунтов
+    for (let i = 0; i < order.length; i++) {
+      const ask = [...new Set(LANES.flatMap((l) => (p[l] && p[l] !== current(slot, l) && stale(book().accounts[p[l]!]!, FRESH_S, now()) ? [p[l]!] : [])))];
+      if (!ask.length) break;
+      await Promise.all(ask.map(poll));
+      p = pick();
     }
-    return null;
+    try {
+      for (const lane of LANES) {
+        const cur = current(slot, lane);
+        const stays = cur && order.includes(cur) ? cur : undefined;
+        // годного нет — место стоит, где стояло; ссылки ещё нет — на первом вошедшем: сессии нужен вход, чтобы дождаться сброса
+        const to = p[lane] ?? stays ?? order.find((n) => book().accounts[n]?.login === "ok");
+        if (to && to !== cur) await put(slot, lane, to, why);
+        if (!p[lane] && queued(slot, lane).length && (opts.bar?.lane === lane || to !== cur)) {
+          const w = waitAt(slot, lane);
+          host.log.info("account_wait", { why: `очередь ${slot} · ${LANE_WORD[lane]}: годного аккаунта нет — жду сброса${w ? ` ${clock(w)}` : ""}` });
+        }
+      }
+    } finally {
+      settled(slot, opts.sameToo);
+    }
   }
 
-  /** Подмена без человека: порог или отказ модели. Смена в каждой очереди, где аккаунт стоит сейчас, — свой шаг линии;
-   *  шаг сначала смотрит, стоит ли очередь всё ещё на нём: о пороге говорят сессии всех очередей, а меняется каждая один раз. */
-  function swapFrom(from: string, why: string, told?: string): void {
-    for (const slot of slotNames().filter((n) => current(n) === from)) {
-      background(async () => {
-        if (current(slot) !== from) return;
-        // told — очередь, чьей сессии Claude отказал; остальные меняются, только если аккаунт не годен их виду
-        if (slot !== told && usable(book().accounts[from], modelOf(slot), now())) return;
-        const to = await reserve(slot, from);
-        if (!to) {
-          const w = waitAt(slot);
-          host.log.info("account_wait", { why: `очередь ${slot}: все аккаунты у порога — жду сброса${w ? ` ${clock(w)}` : ""}` });
-          return settled(slot);
-        }
-        try {
-          await put(slot, to, why);
-        } finally {
-          settled(slot);
-        }
-      });
-    }
+  /** Числа аккаунта изменились или он выбыл: очереди, где он стоит, пересматриваются — каждая своим шагом линии. */
+  function moved(account: string, why: string, bar?: { lane: Lane; account: string }, told?: string): void {
+    for (const slot of standsIn(account)) background(() => repick(slot, why, slot === told ? { bar } : {}));
+  }
+
+  /** Сессия работает, а числам её аккаунта больше порога свежести — один вопрос Claude и пересмотр очередей, где аккаунт стоит. */
+  function tick(account: string): void {
+    const a = book().accounts[account];
+    if (!a || stopping || polling.has(account) || !stale(a, FRESH_S, now())) return;
+    void poll(account).then(() => moved(account, "порог"));
   }
 
   /** Вход перестал быть годным: очереди, где он стоит, идут на следующего. */
   function lost(email: string): void {
-    swapFrom(email, "вход пропал");
+    moved(email, "вход пропал");
     plan();
   }
 
@@ -229,65 +255,42 @@ export function make(): Module {
         b.accounts[email] = { ...(b.accounts[email] ?? { limits: {} }), ...info, login: "ok" };
         if (first) b.slots[MAIN] = [email];
       });
-      if (first) await put(MAIN, email, "первый вход");
+      // вход вернулся: очереди, где аккаунт в списке, пересматриваются
+      for (const slot of slotNames().filter((n) => book().slots[n]!.includes(email))) await repick(slot, first ? "первый вход" : "вход");
       plan();
       host.log.info("account_login", { why: `${email}: вход` });
       void host.call(ledgerAdd, { what: "account.login", machine: host.machine, text: `вход ${email} на ${host.machine}` }).catch(() => {});
     });
   }
 
-  /** Час сброса очереди: её аккаунт снова годен или в запасе появился годный. */
-  async function reset(slot: string): Promise<void> {
-    if (!book().slots[slot]) return;
-    const cur = current(slot);
-    if (cur && usable(book().accounts[cur], modelOf(slot), now())) {
-      host.log.info("account_reset", { why: `очередь ${slot}: сброс ${cur} — продолжаю` });
-      return settled(slot, true);
+  /** Отказ Claude по окну лимита: окно закрыто до сброса — это факт, он пишется сразу; числа следом уточняет опрос.
+   *  Сброс совпал с окном другого аккаунта очереди — это поздний ответ прежнего. */
+  function rejected(s: SessionApi, slot: string, lane: Lane, cur: string, info: { rateLimitType?: string; resetsAt?: number }): void {
+    const name = info.rateLimitType ? windowOf(info.rateLimitType) : undefined;
+    if (!name) {
+      // окно не закрывает аккаунт: место не уходит; отказ сессия видит словами
+      foreign.add(s.callsign);
+      seatOf(s).update((x) => ({ ...x, cut: undefined }));
+      return;
     }
-    const to = await reserve(slot, cur);
-    if (to) {
-      await put(slot, to, "сброс");
-      settled(slot);
-    } else plan();
-  }
-  /** Окно из сообщения сессии. Сброс совпал с окном другого аккаунта порядка — это поздний ответ прежнего. */
-  function limitEvent(s: SessionApi, slot: string, cur: string, info: { status?: string; rateLimitType?: string; utilization?: number; resetsAt?: number }): void {
-    const type = info.rateLimitType;
-    if (!type) return;
-    const rejected = info.status === "rejected";
-    const utilization = rejected ? 1 : info.utilization;
-    if (utilization === undefined) return;
     const resetsAt = info.resetsAt ?? 0;
     const { accounts, slots } = book();
-    const order = slots[slot] ?? [];
     const same = (n: string) => {
-      const known = accounts[n]?.limits[type]?.resetsAt;
+      const known = accounts[n]?.limits[name]?.resetsAt;
       return known !== undefined && Math.abs(known - resetsAt) <= RESET_DRIFT_S;
     };
-    const owner = same(cur) ? cur : (order.find((n) => n !== cur && same(n)) ?? cur);
+    const owner = same(cur) ? cur : ((slots[slot] ?? []).find((n) => n !== cur && same(n)) ?? cur);
     const at = now();
     write((b) => {
       const a = b.accounts[owner];
-      if (a && !((a.limits[type]?.at ?? 0) > at)) a.limits[type] = { utilization, resetsAt, at };
+      if (a) a.limits[name] = { ...a.limits[name], utilization: 1, resetsAt, at };
     });
+    seatOf(s).update((x) => ({ ...x, cut: owner }));
     if (owner !== cur) {
       host.log.info("account_late", { callsign: s.callsign, why: `поздний ответ ${owner}` });
       return plan();
     }
-    const model = modelOf(slot);
-    if (!watched(model, type)) {
-      // окно не её: число записано, аккаунт не меняется; отказ сессия видит словами
-      if (rejected) {
-        foreign.add(s.callsign);
-        seatOf(s).update((x) => ({ ...x, cut: undefined }));
-      }
-      return plan();
-    }
-    if (rejected) seatOf(s).update((x) => ({ ...x, cut: cur }));
-    const a = book().accounts[cur];
-    if (rejected) swapFrom(cur, "отказ", slot);
-    else if (a && over(a, model, at)) swapFrom(cur, `${WINDOW_NAMES[type] ?? type} ${Math.round(utilization * 100)} %`);
-    plan();
+    void poll(cur).then(() => moved(cur, "отказ", { lane, account: cur }, slot));
   }
 
   /** Свежий ключ: значение — в память, настройки — ответом. Ключа нет — как нет такого аккаунта. */
@@ -328,75 +331,47 @@ export function make(): Module {
     if (a.login !== "ok") throw new Refusal("not_logged_in", `${email}: входа нет`);
   }
 
-  const dropSlot = (b: Book, slot: string) => {
-    delete b.slots[slot];
-    delete b.models?.[slot];
-  };
+  /** Снять очередь: ссылки обоих мест и запись. */
+  async function dropSlot(slot: string): Promise<void> {
+    for (const lane of LANES) await dirs.unplace(slot, lane);
+    write((b) => void delete b.slots[slot]);
+  }
 
-  /** Завести, изменить, удалить очередь: имени нет — заводится; пустой порядок удаляет очередь без сессий. */
-  async function slotSet(slot: string, order: string[], model?: SlotModel): Promise<void> {
+  /** Завести, изменить, удалить очередь: имени нет — заводится; пустой список удаляет очередь без сессий. */
+  async function slotSet(slot: string, order: string[]): Promise<void> {
     if (!SLOT_NAME.test(slot)) throw new Refusal("bad_input", `имя очереди ${JSON.stringify(slot)}: латиница, цифры, «-» и «_»`);
     const { accounts } = book();
     const ghost = order.find((n) => !accounts[n]);
     if (ghost) throw new Refusal("no_account", `${ghost}: такого аккаунта на машине нет`);
     if (!order.length) {
       if (queued(slot).length) throw new Refusal("has_sessions", `на очереди ${slot} есть сессии: ${queued(slot).map((s) => s.callsign).join(", ")}`);
-      await dirs.unplace(slot);
-      write((b) => dropSlot(b, slot));
+      await dropSlot(slot);
       return plan();
     }
-    // вид: назван — он; у новой очереди не назван — fable; у существующей — прежний
-    const was = book().slots[slot] ? modelOf(slot) : undefined;
-    const next = model ?? was ?? "fable";
-    if (was && next !== was) {
-      const alien = queued(slot).filter((s) => s.spec.model && !fits(next, s.spec.model));
-      if (alien.length) throw new Refusal("has_sessions", `на очереди ${slot} сессии с моделью другого вида: ${alien.map((s) => `${s.callsign} (${s.spec.model})`).join(", ")} — сначала смените им модель или очередь`);
-    }
-    const cur = current(slot);
-    if (!cur || !order.includes(cur)) {
-      const first = order.find((n) => accounts[n]!.login === "ok");
-      if (!first) throw new Refusal("no_reserve", "в порядке нет вошедшего аккаунта");
-      await put(slot, first, cur ? "новый порядок" : "новая очередь");
-    }
-    write((b) => {
-      b.slots[slot] = order;
-      (b.models ??= {})[slot] = next;
-    });
-    // новому виду аккаунт может быть не годен: очередь сразу идёт на следующего
-    const stays = current(slot);
-    if (stays && !usable(book().accounts[stays], next, now())) {
-      const to = await reserve(slot, stays);
-      if (to) await put(slot, to, "вид очереди");
-    }
-    // сессии без своей модели идут на модели очереди: новая вступает в силу с новым процессом
-    if (was && next !== was) for (const s of queued(slot)) if (!s.spec.model && s.state !== "stopped" && s.state !== "failed") void s.restart();
-    settled(slot);
+    if (!order.some((n) => accounts[n]!.login === "ok")) throw new Refusal("no_reserve", "в списке нет вошедшего аккаунта");
+    const existed = !!book().slots[slot];
+    write((b) => void (b.slots[slot] = order));
+    // место, чей аккаунт ушёл из списка, выбирает заново
+    await repick(slot, existed ? "новый порядок" : "новая очередь");
   }
 
-  /** Удаление одним запросом: сначала видно, что каждой очереди с сессиями есть кого поставить, потом шаги. */
+  /** Удаление одним запросом: сначала видно, что каждому месту с сессиями есть куда встать, потом шаги. */
   async function accountRemove(name: string): Promise<void> {
     if (!book().accounts[name]) throw new Refusal("no_account", `аккаунта ${name} на машине нет`);
     const inside = slotNames().filter((n) => book().slots[n]!.includes(name));
-    const next = new Map<string, string | null>();
     for (const slot of inside) {
-      const to = current(slot) === name ? await reserve(slot, name) : current(slot);
-      if (!to && queued(slot).length) throw new Refusal("no_reserve", `очередь ${slot}: в запасе нет вошедшего аккаунта ниже порога — на ней остались бы сессии без аккаунта`);
-      next.set(slot, to);
+      const rest = book().slots[slot]!.filter((n) => n !== name);
+      const p = place(rest, book().accounts, { fable: current(slot, "fable"), other: current(slot, "other") }, now());
+      const stuck = LANES.find((l) => current(slot, l) === name && !p[l] && queued(slot, l).length);
+      if (stuck) throw new Refusal("no_reserve", `очередь ${slot}: годного вошедшего аккаунта в списке нет — на ней остались бы сессии без аккаунта`);
     }
     for (const slot of inside) {
-      const to = next.get(slot)!;
-      if (current(slot) === name) {
-        if (to) await put(slot, to, "удаление аккаунта");
-        else await dirs.unplace(slot);
-      }
+      const rest = book().slots[slot]!.filter((n) => n !== name);
       // очередь есть, пока в ней есть аккаунт
-      write((b) => {
-        const rest = b.slots[slot]!.filter((n) => n !== name);
-        if (rest.length) b.slots[slot] = rest;
-        else dropSlot(b, slot);
-      });
-      if (book().slots[slot]) settled(slot);
-      else await dirs.unplace(slot);
+      if (!rest.length) { await dropSlot(slot); continue; }
+      write((b) => void (b.slots[slot] = rest));
+      await repick(slot, "удаление аккаунта");
+      for (const lane of LANES) if (current(slot, lane) === name) await dirs.unplace(slot, lane);
     }
     plan();
     try {
@@ -408,44 +383,46 @@ export function make(): Module {
     host.log.info("account_remove", { why: `${name}: аккаунт удалён` });
   }
 
-  /** «Сменить сейчас» в названной очереди: названный аккаунт или следующий годный по её порядку. */
-  async function slotSwap(slot: string, account: string | undefined): Promise<string> {
+  /** «Сменить сейчас» у места очереди: названный аккаунт или следующий годный. Место стоит на нём, пока он годен и пока не сбросилась неделя. */
+  async function slotSwap(slot: string, lane: Lane, account: string | undefined): Promise<string> {
     if (!book().slots[slot]) throw new Refusal("no_slot", `очереди ${slot} на ${host.machine} нет; ${slotsWord()}`);
-    const cur = current(slot);
+    const cur = current(slot, lane);
     if (account) {
       assertLogin(account);
       if (account === cur) return account;
       if (!book().slots[slot]!.includes(account)) write((b) => void b.slots[slot]!.push(account));
-      await put(slot, account, "по запросу");
-      settled(slot);
-      return account;
     }
-    const to = await reserve(slot, cur);
+    const to = account ?? place(book().slots[slot]!, book().accounts, {}, now(), cur ? { lane, account: cur } : undefined)[lane];
     if (!to) throw new Refusal("no_reserve", `в очереди ${slot} нет другого вошедшего аккаунта ниже порога`);
-    await put(slot, to, "по запросу");
+    await put(slot, lane, to, "по запросу");
     settled(slot);
     return to;
   }
 
-  /** Когда лимиты аккаунта замерены последний раз, секунды; замеров нет — 0. */
-  const measured = (a: Account) => Math.max(0, ...Object.values(a.limits).map((w) => w.at ?? 0));
-
   function rowOf(name: string, a: Account, t: number): AccountOut {
-    // сколько сессий идёт на аккаунте сейчас — по всем очередям, где он стоит
-    const sessions = host.sessions().filter((s) => { const slot = slotOf(s); return !!slot && current(slot) === name; }).length;
+    // сколько сессий идёт на аккаунте сейчас — по всем местам, где он стоит
+    const sessions = host.sessions().filter((s) => accountOf(s) === name).length;
+    const at = Math.max(0, ...Object.values(a.limits).map((w) => w.at ?? 0));
     return {
       id: name, kind: "claude", email: name, ...(a.plan ? { plan: a.plan } : {}),
-      limits: Object.entries(shown(a, t).limits).map(([w, v]) => ({ name: w, used: v.utilization, ...(v.resetsAt ? { resets: v.resetsAt * 1000 } : {}), ...(v.at ? { at: v.at * 1000 } : {}) })),
-      ...(measured(a) ? { at: measured(a) * 1000 } : {}), ...(a.expires ? { expires: a.expires * 1000 } : {}),
+      limits: Object.entries(shown(a, t).limits).map(([w, v]) => ({
+        name: w, used: v.utilization, ...(v.resetsAt ? { resets: v.resetsAt * 1000 } : {}), ...(v.at ? { at: v.at * 1000 } : {}),
+        ...(v.fable !== undefined ? { fable: v.fable } : {}), ...(v.hold !== undefined ? { hold: v.hold } : {}),
+      })),
+      ...(at ? { at: at * 1000 } : {}), ...(a.expires ? { expires: a.expires * 1000 } : {}),
       ok: a.login === "ok", ...(a.login === "ok" ? {} : { why: "входа нет" }), sessions,
     };
   }
 
-  /** Очередь наружу: порядок, кто стоит сейчас, час сброса у ждущей, сколько на ней сессий. */
+  /** Очередь наружу: список, кто стоит на каждом месте, час сброса у ждущего места, идут ли остальные из запаса Fable, сколько на ней сессий. */
   function slotRow(name: string): SlotOut {
-    const account = current(name);
-    const wait = waitAt(name);
-    return { name, model: modelOf(name), order: book().slots[name]!, ...(account ? { account } : {}), ...(wait ? { wait: wait * 1000 } : {}), sessions: queued(name).length };
+    const t = now();
+    const lane = (l: Lane) => {
+      const account = current(name, l), wait = waitAt(name, l), a = account ? book().accounts[account] : undefined;
+      const over = l === "other" && !wait && !!a && !fits(a, "other", t) && fits(a, "fable", t);
+      return { ...(account ? { account } : {}), ...(wait ? { wait: wait * 1000 } : {}), ...(over ? { over } : {}) };
+    };
+    return { name, order: book().slots[name]!, lanes: { fable: lane("fable"), other: lane("other") }, sessions: queued(name).length };
   }
 
   /** Ключ флота с таким именем есть; ни очереди, ни ключа — отказ no_slot с очередями машины. */
@@ -465,7 +442,7 @@ export function make(): Module {
       async slot(value) {
         const name = value as string;
         if (book().slots[name]) {
-          const cur = current(name);
+          const cur = current(name, "fable") ?? current(name, "other");
           if (!cur) throw new Refusal("not_logged_in", `очередь ${name} на ${host.machine} пуста: поставьте в неё аккаунт`);
           return assertLogin(cur);
         }
@@ -473,15 +450,6 @@ export function make(): Module {
         if (EMAIL.test(name)) throw new Refusal("no_slot", `${name} — почта, а не очередь; ${slotsWord()}`);
         await keyOf(name);
       },
-    },
-    /** Очередь диктует выбор модели: в fable — только Fable, в остальных — всё, кроме Fable. Проверяется, когда меняется очередь или модель. */
-    doc(spec, keys) {
-      const name = spec.slot;
-      if (!keys.includes("slot") && !keys.includes("model")) return;
-      if (!name || !spec.model || !book().slots[name]) return;
-      const model = modelOf(name);
-      if (fits(model, spec.model)) return;
-      throw new Refusal("model_not_in_slot", model === "fable" ? `очередь ${name} — только для Fable: модель ${spec.model} идёт в очереди для остальных моделей; ${slotsWord()}` : `очередь ${name} — для моделей, кроме Fable: ${spec.model} идёт в очереди вида fable; ${slotsWord()}`);
     },
     fill: {
       /** Очередь не названа: на машине одна — в неё, и её имя встаёт в документ; несколько — назвать; ни одной — входа нет. */
@@ -493,21 +461,28 @@ export function make(): Module {
       },
     },
     async applied(s, keys) {
-      if (!keys.includes("slot")) return;
-      if (slotOf(s)) seatOf(s).set(undefined);
-      else seatOf(s).set({ key: await takeKey(s.spec.slot!) });
-      // новый аккаунт вступает в силу с новым процессом
-      if (s.state !== "stopped" && s.state !== "failed") void s.restart();
+      const live = s.state !== "stopped" && s.state !== "failed";
+      if (keys.includes("slot")) {
+        if (slotOf(s)) seatOf(s).set(undefined);
+        else seatOf(s).set({ key: await takeKey(s.spec.slot!) });
+        // новый аккаунт вступает в силу с новым процессом
+        if (live) void s.restart();
+        return;
+      }
+      // модель перешла границу Fable: сессия идёт на другом месте очереди — вход другой, процесс новый
+      if (keys.includes("model") && slotOf(s) && live && started.has(s.callsign) && started.get(s.callsign) !== laneOfSession(s)) void s.restart();
     },
     // подъём настройки ключа берёт из записи сессии и флот не спрашивает: на старте связи ещё нет
     async compose(s) {
       const name = s.spec.slot;
       if (!name) throw new Refusal("no_slot", `у ${s.callsign} не названа очередь; ${slotsWord()}`);
       if (slotOf(s)) {
-        if (!current(name)) throw new Refusal("not_logged_in", `очередь ${name} на ${host.machine} пуста: поставьте в неё аккаунт`);
-        // модель не задана — модель очереди: Fable в fable, Opus в остальных
-        return { env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: dirs.slotDir(name), ...(s.spec.model ? {} : { ANTHROPIC_MODEL: DEFAULT_MODEL[modelOf(name)] }) } };
+        const lane = laneOfSession(s);
+        if (!current(name, lane)) throw new Refusal("not_logged_in", `очередь ${name} на ${host.machine} пуста: поставьте в неё аккаунт`);
+        started.set(s.callsign, lane);
+        return { env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: dirs.laneDir(name, lane), ...(s.spec.model ? {} : { ANTHROPIC_MODEL: DEFAULT_MODEL }) } };
       }
+      started.delete(s.callsign);
       let config = seatOf(s).get()?.key;
       if (!config) {
         config = await keyOf(name);
@@ -522,9 +497,9 @@ export function make(): Module {
     },
     row(s) {
       const slot = slotOf(s);
-      const account = slot ? current(slot) : s.spec.slot;
-      // очередь ждёт сброса лимита — сессия на ней стоит до этого часа
-      const wait = slot ? waitAt(slot) : null;
+      const account = slot ? current(slot, laneOfSession(s)) : s.spec.slot;
+      // место ждёт сброса лимита — сессия на нём стоит до этого часа
+      const wait = slot ? waitAt(slot, laneOfSession(s)) : null;
       return { ...(account ? { account } : {}), ...(wait ? { wait: wait * 1000 } : {}) };
     },
     on: {
@@ -532,18 +507,24 @@ export function make(): Module {
         // у ключа флота нет окон и запасных: 429 — обычная ошибка хода, сессия видит её словами
         const slot = slotOf(s);
         if (!slot) return;
-        const cur = current(slot);
+        const lane = laneOfSession(s);
+        const cur = current(slot, lane);
         if (!cur) return;
-        const msg = m as { type: string; error?: string; rate_limit_info?: Parameters<typeof limitEvent>[3] };
-        if (msg.type === "rate_limit_event" && msg.rate_limit_info) limitEvent(s, slot, cur, msg.rate_limit_info);
+        const msg = m as { type: string; error?: string; rate_limit_info?: { status?: string; rateLimitType?: string; resetsAt?: number } };
+        if (msg.type === "rate_limit_event" && msg.rate_limit_info?.status === "rejected") rejected(s, slot, lane, cur, msg.rate_limit_info);
         if (msg.type === "assistant" && msg.error === "rate_limit" && !foreign.has(s.callsign) && !seatOf(s).get()?.cut) seatOf(s).update((x) => ({ ...x, cut: cur }));
+        // сессия работает: числа её аккаунта не старше порога свежести
+        tick(cur);
         if (msg.type !== "result") return;
         const cut = seatOf(s).get()?.cut;
-        // отказ без события лимита: подмена на конце хода
-        if (!foreign.delete(s.callsign) && cut && cut === current(slot)) swapFrom(cut, "отказ", slot);
+        // отказ без события лимита: место уходит на конце хода
+        if (!foreign.delete(s.callsign) && cut && cut === current(slot, lane)) moved(cut, "отказ", { lane, account: cut }, slot);
       },
       state(s, state) {
         if (state === "idle") resume(s);
+      },
+      removed(callsign) {
+        started.delete(callsign);
       },
       changed(what) {
         // ключи флота сменили: значения забыты, следующий вызов возьмёт новые
@@ -554,6 +535,8 @@ export function make(): Module {
       async "account.list"() {
         const stale_ = Object.entries(book().accounts).filter(([, a]) => a.login === "ok" && stale(a, FRESH_S, now())).map(([n]) => n);
         await Promise.all(stale_.map((n) => poll(n)));
+        // свежие числа — повод пересмотреть места
+        if (stale_.length) for (const slot of slotNames()) background(() => repick(slot, "порог"));
         const t = now();
         const accounts = Object.entries(book().accounts).map(([n, a]) => rowOf(n, a, t));
         // ключи флота: список у службы; не ответила — только входы
@@ -574,12 +557,12 @@ export function make(): Module {
         await serial(() => accountRemove(account));
         return {};
       },
-      async "slot.set"({ slot, order, model }: { slot: string; order: string[]; model?: SlotModel }) {
-        await serial(() => slotSet(slot, order, model));
+      async "slot.set"({ slot, order }: { slot: string; order: string[] }) {
+        await serial(() => slotSet(slot, order));
         return {};
       },
-      async "slot.swap"({ slot, account }: { slot: string; account?: string }) {
-        return { account: await serial(() => slotSwap(slot, account)) };
+      async "slot.swap"({ slot, lane, account }: { slot: string; lane: Lane; account?: string }) {
+        return { account: await serial(() => slotSwap(slot, lane, account)) };
       },
     },
     start(h) {
@@ -597,6 +580,8 @@ export function make(): Module {
         landed,
       });
       auth.start();
+      // очередь без ссылки места (новая раскладка, новая машина) встаёт по правилу
+      for (const slot of slotNames()) if (LANES.some((l) => !current(slot, l))) background(() => repick(slot, "запуск"));
       plan();
     },
     async stop() {

@@ -1,7 +1,7 @@
-// Папки аккаунтов и ссылки слотов. Имя папки — почта. Кто в слоте, знает только ссылка на диске. Новый вход идёт в пустой папке .new и ложится в папку почты, когда она известна.
+// Папки аккаунтов и ссылки мест очередей. Имя папки — почта. У очереди два места — fable и other; кто стоит на месте, знает только ссылка на диске. Новый вход идёт в пустой папке .new и ложится в папку почты, когда она известна.
 import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { Refusal } from "@sb/protocol";
+import { Refusal, type Lane } from "@sb/protocol";
 
 /** Имена самого claude: файл входа и блокировка его обновления (опыт 1 нояб.). */
 const CREDENTIALS = ".credentials.json";
@@ -17,11 +17,12 @@ export function folders(home: string) {
   const newDir = join(home, "accounts", ".new");
   /** Пустая папка конфига проверки, каждый раз новая: в прежней могла остаться почта другого аккаунта. */
   const whoDir = (n: number) => join(home, "accounts", `.who-${n}`);
-  const slotDir = (slot: string) => join(home, "slots", slot);
+  /** Ссылка места очереди: имя очереди точек не содержит, поэтому места двух очередей не совпадут. */
+  const laneDir = (slot: string, lane: Lane) => join(home, "slots", `${slot}.${lane}`);
 
-  /** Кто в слоте: битая ссылка, обычная папка и пустое место — никто. */
-  function inSlot(slot: string): string | null {
-    const dir = slotDir(slot);
+  /** Кто стоит на месте: битая ссылка, обычная папка и пустое место — никто. */
+  function inLane(slot: string, lane: Lane): string | null {
+    const dir = laneDir(slot, lane);
     try {
       const target = basename(readlinkSync(dir));
       return existsSync(dir) ? target : null;
@@ -61,11 +62,11 @@ export function folders(home: string) {
     rmdirSync(dir);
   }
 
-  /** Поставить аккаунт в слот; блокировка — того, кто уходит. Вошёл ли он, знает его запись. */
-  async function place(slot: string, name: string): Promise<void> {
-    const dir = slotDir(slot);
+  /** Поставить аккаунт на место очереди; блокировка — того, кто уходит. Вошёл ли он, знает его запись. */
+  async function place(slot: string, lane: Lane, name: string): Promise<void> {
+    const dir = laneDir(slot, lane);
     try {
-      await locked(inSlot(slot), () => {
+      await locked(inLane(slot, lane), () => {
         clear(dir);
         mkdirSync(dirname(dir), { recursive: true });
         symlinkSync(accDir(name), dir, process.platform === "win32" ? "junction" : "dir");
@@ -73,7 +74,7 @@ export function folders(home: string) {
     } catch (e) {
       const r = e as { word?: string; why?: string };
       if (r.word !== "slot_dir_busy") throw e;
-      throw new Refusal(r.word, `${slot}: ${name} не встал в слот — ${r.why}`);
+      throw new Refusal(r.word, `${slot}: ${name} не встал на место ${lane} — ${r.why}`);
     }
   }
 
@@ -97,9 +98,9 @@ export function folders(home: string) {
     for (const name of readdirSync(all)) if (name.startsWith(".who-")) rmSync(join(all, name), { recursive: true, force: true, maxRetries: 3 });
   }
 
-  const unplace = (slot: string) => locked(inSlot(slot), () => clear(slotDir(slot)));
+  const unplace = (slot: string, lane: Lane) => locked(inLane(slot, lane), () => clear(laneDir(slot, lane)));
 
-  return { accDir, newDir, whoDir, slotDir, inSlot, place, unplace, settle, clearNew, clearWho };
+  return { accDir, newDir, whoDir, laneDir, inLane, place, unplace, settle, clearNew, clearWho };
 }
 
 /** Окружение короткого процесса Claude: обе папки заданы явно, вход и конфиг — в одной. */
