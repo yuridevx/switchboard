@@ -32,7 +32,7 @@ const session = (s: S): SessionRecord => ({
   slot: { name: s.slot ?? "main", wait: null },
   account: "dev@mail.ru",
   mode: "bypassPermissions",
-  ...(s.cs === "refactor@win" ? { r2: {} } : {}),
+  ...(s.cs === "refactor@win" ? { archive: {} } : {}),
   ...(s.prof ? { profile: [{ id: `team/profiles/${s.prof}`, state: "ok" }] } : {}),
   ...(s.fail ? { failed: { start: s.fail } } : {}),
   ...(s.inc ? { incident: { type: s.inc, key: "switchboard#main" } } : {}),
@@ -54,6 +54,11 @@ relay.scoped.global = {
   "fleet.profiles.repos": ["team/profiles"],
   "fleet.projects": order.map((id) => ({ id, name: id, sessions: F.ss.filter((s) => !s.wing && project(s) === id).map((s) => s.cs).sort() })),
   "fleet.labels": big ? {} : { machines: { win: "Домашний ПК", wsl: "Ubuntu дома" }, sessions: { "refactor@win": "Переделка списка" } },
+  "proxy.rules": [
+    { name: "Имя агента", scopes: ["system"], kind: "literal", unit: "paragraph", action: "replace", pattern: "You are a Claude agent, built on Anthropic's Claude Agent SDK.", replacement: "You are a coding agent of the ops fleet." },
+    { name: "Тикеты", scopes: ["user", "tool_result"], kind: "regex", unit: "match", action: "replace", pattern: "ticket ([A-Z]+-\\d+)", replacement: "(ticket $1 redacted)" },
+    { name: "Безопасность", on: false, scopes: ["system"], kind: "regex", unit: "paragraph", action: "delete", pattern: "^IMPORTANT: Assist with authorized security testing" },
+  ],
 };
 relay.values["web-board.filters"] = big
   ? [
@@ -65,10 +70,10 @@ relay.values["web-board.filters"] = big
 
 Object.assign(window, { relay });
 
-/** Пропуска экрана настроек — у обработчика стенда; список машин (role: host) — у подделки. */
+/** Пропуска экранов «Люди» и настроек — у обработчика стенда; список машин клиента флота (kind: machine) — у подделки. */
 const askGate: typeof fetch = async (url, init) => {
   const f = JSON.parse(String(init?.body));
-  return f.type === "keys.list" && !f.role ? Response.json({ type: "reply", id: f.id, ...relay.handlers["keys.list"](f) }) : relay.fetch(url, init);
+  return f.type === "keys.list" && !f.kind ? Response.json({ type: "reply", id: f.id, ...relay.handlers["keys.list"](f) }) : relay.fetch(url, init);
 };
 
 startApp({

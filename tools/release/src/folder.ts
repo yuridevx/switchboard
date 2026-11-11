@@ -5,7 +5,10 @@ import { WEB_FILE } from "./build.ts";
 import { sha256hex } from "./sign.ts";
 import { MANIFEST, pack, type TarFile } from "./tar.ts";
 
-export type ModuleJson = { name: string; type: string; version: string; workers?: Record<string, string> };
+type Tool = { about: string; type: string; omit?: string[]; input?: Record<string, unknown> };
+export type ModuleJson = { name: string; type: string; version: string; workers?: Record<string, string>; tools?: Record<string, Tool> };
+/** Схема входа инструмента из типа запроса в contract.ts папки модуля. */
+export type SchemaOf = (dir: string, type: string, omit?: string[]) => Record<string, unknown>;
 export type PackedModule = { name: string; version: string; tgz: Buffer; sha: string };
 
 const NOT_PACKAGE = /^(\.|node_modules$|dist$|tests?$|tsconfig\.json$|vitest\.config\.ts$)|\.test\./;
@@ -32,8 +35,8 @@ function workersOf(dir: string): Record<string, string> {
   return { test: name, ...Object.fromEntries(Object.entries(env).map(([fleet, c]) => [fleet, c.name ?? `${name}-${fleet}`])) };
 }
 
-/** bundle — файл модуля страницы от вызывающего; без него у страницы должен быть готовый module.js. */
-export function packModule(dir: string, o: { bundle?: (dir: string) => Buffer } = {}): PackedModule {
+/** bundle — файл модуля страницы от вызывающего; без него у страницы должен быть готовый module.js. schema — схемы входа инструментов MCP Worker-модуля. */
+export function packModule(dir: string, o: { bundle?: (dir: string) => Buffer; schema?: SchemaOf } = {}): PackedModule {
   if (!existsSync(join(dir, MANIFEST))) throw new Error(`no_module_json: в ${dir} нет module.json`);
   const manifest = readFileSync(join(dir, MANIFEST));
   const m = JSON.parse(manifest.toString("utf8")) as ModuleJson;
@@ -41,10 +44,16 @@ export function packModule(dir: string, o: { bundle?: (dir: string) => Buffer } 
     throw new Error(`${m.name}: ${why}`);
   };
   if (m.workers) stop("workers в module.json пишет упаковка из wrangler-настройки, не рука");
+  if (Object.values(m.tools ?? {}).some((t) => t.input)) stop("input инструмента пишет упаковка из типа запроса, не рука");
+  const tools = () => {
+    if (!m.tools) return {};
+    if (!o.schema) stop("у модуля есть tools — упаковке нужна схема входа (schema)");
+    return { tools: Object.fromEntries(Object.entries(m.tools).map(([name, t]) => [name, { ...t, input: o.schema!(dir, t.type, t.omit) }])) };
+  };
   const has = (path: string) => existsSync(join(dir, path));
   const named = (): TarFile => {
     if (!has(WRANGLER)) stop(`у модуля типа ${m.type} нет ${WRANGLER}`);
-    return { path: MANIFEST, data: Buffer.from(`${JSON.stringify({ ...m, workers: workersOf(dir) }, null, 2)}\n`) };
+    return { path: MANIFEST, data: Buffer.from(`${JSON.stringify({ ...m, workers: workersOf(dir), ...tools() }, null, 2)}\n`) };
   };
   const os = (): TarFile[] => {
     if (!has("dist/app.json") && !has("app.json")) throw new Error(`no_app_json: у приложения ОС ${m.name} нет app.json — ни в dist/, ни в корне`);

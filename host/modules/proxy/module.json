@@ -1,0 +1,17 @@
+{
+  "name": "host-proxy",
+  "type": "sdk",
+  "version": "1.0.0",
+  "into": ["host"],
+  "provides": {
+    "machine.key_check": 1
+  },
+  "uses": {
+    "host.module@host": 1,
+    "route@host-logins": 1,
+    "prefs.get@prefs": 1,
+    "prefs.changed@prefs": 1,
+    "rules.apply@rules": 1
+  },
+  "config": {}
+}

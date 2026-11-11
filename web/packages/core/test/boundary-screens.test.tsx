@@ -83,6 +83,15 @@ describe("адрес и on.current", () => {
     expect(t.root.textContent).toContain("список");
   });
 
+  it("адрес снаружи без #: ?open=<экран> — этот экран с остальными параметрами query (точка authorize OAuth); при # — экран из #", async () => {
+    const m = part();
+    await stand([m.p], { url: "/?open=b&client_id=https%3A%2F%2Fclaude.ai%2Fx&state=s1" });
+    expect(m.box.app.current()).toMatchObject({ screen: "b", params: { client_id: "https://claude.ai/x", state: "s1" } });
+    const n = part();
+    await stand([n.p], { url: "/?open=b&x=1#a" });
+    expect(n.box.app.current()).toMatchObject({ screen: "a", params: {} });
+  });
+
   it("6842 · назад без истории: домашний раздел, запись истории не добавлена", async () => {
     const m = part();
     await stand([m.p], { url: "/#b?x=1" });

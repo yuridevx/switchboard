@@ -1,10 +1,13 @@
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import type { Host, Module, Session } from "@switchboard/host";
-import { kindOf } from "@switchboard/protocol";
+import type { Host, McpServerConfig, Module, Session } from "@switchboard/host";
+import { kindOf, READ_MS, withLimit } from "@switchboard/protocol";
 import { FLEET_PREFIX, settings } from "@switchboard/records";
 import type { Settings } from "@switchboard/records";
 import { prompt } from "./prompt.ts";
 import { toolsOf } from "./tools.ts";
+
+/** Пропуск сессии для сервера MCP флота: раздел сессии модуля fleet. */
+type Pass = { kid: string; key: string };
 
 type TurnEnd = { type: string; subtype?: string; is_error?: boolean; result?: string };
 
@@ -53,6 +56,49 @@ export function make() {
     tell(s, parent, `ход ведомого ${s.info.callsign} оборвался: процесс вышел, ход не повторяется`, `слово об обрыве родителю ${parent} не доставлено`);
   }
 
+  /**
+   * Пропуск сессии — один раз: keys.invite с адресом сессии и сразу gate.redeem, тот же путь, что у любого устройства; дальше — из раздела,
+   * без сети. Отказ — строка журнала, сессия идёт без сервера switchboard.
+   */
+  async function passOf(s: Session): Promise<Pass | null> {
+    const store = s.store<Pass>();
+    const had = store.get();
+    if (had) return had;
+    const { callsign } = s.info;
+    const refused = (step: string, r: { error: string; why?: unknown }) => {
+      host.log({ kind: "refuse", ev: "session.pass", word: r.error, callsign, why: `${step}: ${r.why ?? r.error}` });
+      return null;
+    };
+    const inv = await host.request("keys.invite", { addr: callsign });
+    if (!inv.ok) return refused("keys.invite", inv as { error: string; why?: unknown });
+    const { invite, kid } = inv.result as { invite: string; kid: string };
+    const got = await host.request("gate.redeem", { invite });
+    if (!got.ok) return refused("gate.redeem", got as { error: string; why?: unknown });
+    const pass = { kid, key: (got.result as { key: string }).key };
+    store.set(pass);
+    host.log({ kind: "note", ev: "session.pass", callsign, why: `пропуск ${kid}` });
+    return pass;
+  }
+
+  /** Сервер MCP флота в mcpServers сессии: документированная опция SDK, HTTP с заголовком; имя fleet уже у своего сервера. */
+  async function switchboard(s: Session): Promise<Record<string, McpServerConfig>> {
+    const mcp = host.worker("mcp");
+    // предел меньше предела вклада ядра: молчание gate не выключает fleet в сессии, сессия идёт без сервера switchboard
+    const late = () => (host.log({ kind: "refuse", ev: "session.pass", word: "timeout", callsign: s.info.callsign, why: `пропуск не выдан за ${READ_MS / 1000} с` }), null);
+    const pass = mcp ? await withLimit(passOf(s), READ_MS, late) : null;
+    return mcp && pass ? { switchboard: { type: "http" as const, url: `${mcp.replace(/\/$/, "")}/mcp`, headers: { Authorization: `Bearer ${pass.key}` } } } : {};
+  }
+
+  /** Сессию убрали — её пропуск отозван. */
+  function revoke(s: Session): void {
+    const pass = s.store<Pass>().get();
+    if (!pass) return;
+    const { callsign } = s.info;
+    void host.request("keys.revoke", { kid: pass.kid }).then((r) => {
+      if (!r.ok) host.log({ kind: "refuse", ev: "session.pass", word: r.error, callsign, why: `отзыв ${pass.kid}: ${r.error}` });
+    });
+  }
+
   const module: Module = {
     start(h) {
       host = h;
@@ -63,13 +109,13 @@ export function make() {
       // просмотр профиля не знает сессии: в тексте имя-пример
       "fleet.prompt": () => ({ text: prompt(`сессия@${host.machine}`) }),
     },
-    session(s) {
+    async session(s) {
       const { callsign } = s.info;
       // сессии говорят друг с другом только через fleet (слово пользователя 1 нояб.)
       const env = { CLAUDE_CODE_HARBOR_KITE: "0" };
       // ведомый снаружи не виден: задача приходит вводом, итог уходит сам, инструменты вынесли бы его адрес наружу
       if (s.field("wing")) return { env };
-      return { mcpServers: { fleet: createSdkMcpServer({ name: "fleet", tools: tools(callsign) }) }, append: prompt(callsign), env };
+      return { mcpServers: { fleet: createSdkMcpServer({ name: "fleet", tools: tools(callsign) }), ...(await switchboard(s)) }, append: prompt(callsign), env };
     },
     on: {
       event(s, msg) {
@@ -77,6 +123,7 @@ export function make() {
       },
       open: introduce,
       close: broken,
+      remove: revoke,
     },
   };
 

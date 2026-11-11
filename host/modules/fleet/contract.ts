@@ -9,7 +9,8 @@
 // Пара: ведомый виден и адресуем только своему ведущему и только в list, send, answer, history; остальным — pair_inside, а в list ведущий несёт поле pair с настройками ведомого без адреса.
 //   open и update + wing { profile, model, effort, slot }; update wing: null снимает ведомого. Ведомому нет сервера fleet и добавки к промпту.
 //   Ведущему запросом message с report: true — весть о ведомом (on.open при start spawn) и слово об обрыве (on.close посреди хода, начатого ведущим).
-// Хранить нечего.
+// Сервер MCP флота: пропуск сессии — один раз, keys.invite с адресом сессии и gate.redeem; лежит в разделе сессии; mcpServers.switchboard —
+//   HTTP к Worker mcp с этим пропуском (ведомому нет). session.remove — keys.revoke пропуска. Хранит: раздел сессии — {kid, key} пропуска.
 import { make } from "./src/fleet.ts";
 
 export { make };

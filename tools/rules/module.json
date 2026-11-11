@@ -1,0 +1,10 @@
+{
+  "name": "rules",
+  "type": "tool",
+  "version": "1.0.0",
+  "provides": {
+    "rules.apply": 1
+  },
+  "uses": {},
+  "config": {}
+}

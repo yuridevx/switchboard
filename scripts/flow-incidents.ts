@@ -55,9 +55,10 @@ async function post(machine: string, body: Record<string, unknown>): Promise<{ s
     encoding: "utf8",
     input: JSON.stringify(body),
     env: { ...process.env, MSYS_NO_PATHCONV: "1" },
+    timeout: 30_000,
   });
   const at = r.stdout.lastIndexOf("HTTP");
-  if (at < 0) throw new Error(`curl на ${machine}: ${r.stderr.trim() || "пустой ответ"}`);
+  if (at < 0) throw new Error(`curl на ${machine}: ${r.stderr.trim() || r.error?.message || "пустой ответ"}`);
   return { status: Number(r.stdout.slice(at + 4)), body: JSON.parse(r.stdout.slice(0, at)) as Record<string, unknown> };
 }
 

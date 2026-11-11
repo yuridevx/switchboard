@@ -1,7 +1,7 @@
 {
   "name": "web-core",
   "type": "web",
-  "version": "3.2.7",
+  "version": "3.2.10",
   "into": [
     "pult",
     "phone"
@@ -15,7 +15,7 @@
     "ui@web-ui": 1,
     "hello@relay": 1,
     "roster@relay": 1,
-    "keys.list@gate": 1,
+    "keys.list@gate": 2,
     "gate.redeem@gate": 1,
     "manifest.check@manifest-gate": 1,
     "release.format@release": 1

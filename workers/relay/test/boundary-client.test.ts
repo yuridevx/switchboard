@@ -1,7 +1,7 @@
 // Леса границы «транслятор рации», среда Node: клиенты link и fleet через контракт на поддельном WebSocket и fetch,
 // и насквозь: Node 24 (глобальный WebSocket) → relay в miniflare → настоящий gate по привязке.
 // Номер — эталон-источник; свойства без пометки — чьё: код.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSync } from "esbuild";
@@ -387,7 +387,7 @@ describe("клиент на подделках", () => {
       const body = JSON.parse(String(init.body));
       calls.push({ url, body, method: init.method });
       heads.push(init.headers);
-      if (url === "https://gate.test/") return Response.json({ type: "reply", id: body.id, ok: true, result: { passes: machines.map((name) => ({ name })), you } });
+      if (url === "https://gate.test/") return Response.json({ type: "reply", id: body.id, ok: true, result: { passes: machines.map((name) => ({ kid: name, addr: `@${name}`, owner: null, wait: false })), you } });
       const a = answers[url];
       if (!a) throw new Error("сеть");
       return new Promise<Response>((res, rej) => {
@@ -421,7 +421,7 @@ describe("клиент на подделках", () => {
       await tick();
       expect(c.addr).toBe("@win");
       // суффикс id -list — договор со стендом Host: по нему он отличает список самого клиента от keys.list модулей
-      expect(s.calls[0]).toMatchObject({ url: "https://gate.test/", method: "POST", body: { type: "keys.list", id: expect.stringMatching(/-list$/), v: 1, role: "host", key: "host.win.k7f2.S" } });
+      expect(s.calls[0]).toMatchObject({ url: "https://gate.test/", method: "POST", body: { type: "keys.list", id: expect.stringMatching(/-list$/), v: 2, kind: "machine", key: "host.win.k7f2.S" } });
       expect(FakeWs.all.map((w) => w.url).sort()).toEqual(["wss://relay.test/m/win", "wss://relay.test/m/wsl"]);
       // POST без заголовков: страница шлёт простой запрос без предзапроса (контракт gate); адрес при обрыве заново не спрашивается
       expect(s.heads).toEqual([undefined]);
@@ -849,8 +849,11 @@ describe("насквозь через relay и gate", () => {
     url = (await mf.ready).href.replace(/^http/, "ws") + "m/laptop";
     // схема базы gate: пропуска стенда кладутся прямо в неё
     db = await mf.getD1Database("DB", "switchboard-gate");
-    const sql = readFileSync(join(here, "..", "..", "gate", "migrations", "0001_passes.sql"), "utf8").replace(/--.*$/gm, "");
-    for (const s of sql.split(";").map((x) => x.trim()).filter(Boolean)) await db.prepare(s).run();
+    const dir = join(here, "..", "..", "gate", "migrations");
+    for (const file of readdirSync(dir).sort()) {
+      const sql = readFileSync(join(dir, file), "utf8").replace(/--.*$/gm, "");
+      for (const s of sql.split(";").map((x) => x.trim()).filter(Boolean)) await db.prepare(s).run();
+    }
   }, 60_000);
 
   afterAll(async () => {

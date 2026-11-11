@@ -1,11 +1,11 @@
-// Контракт pult-points — точки сессий, перенос, копия, откат, смена папки и «пожар» (свой пакет пульта).
-// Экраны: points (#points, раздел «Точки») — обзор реестра (points.list): сессии в R2, «только в R2»
-// (удаление — points.delete после ввода имени, сразу и без отмены), «пожар» — машина хозяина не в roster
-// (когда ушла — ledger.read), перенос её сессий по одной из последних точек; session.points — вкладка «Точки»
-// в карточке сессии: пометка «в R2» (session.r2 у host-points), линия точек и ветки (points.list с sid,
-// первые слова — points.get), «Сохранить точку», перенос, копия, смена папки и откат — шагами, каждый запрос
-// после ответа предыдущего: points.save со стопом → points.raise → (смена папки) session.remove прежней.
-// session.points встаёт в место card.tab карточки (card.tab@web-card в uses). Метка fire — машины с сессиями в R2, которых нет в roster; реестр читается один раз при первом roster.
+// Контракт pult-points — «Сессии»: архив сессий флота (свой пакет пульта, раздел группы «Флот»).
+// Экран points (#points) — список архива (points.list с периодом и порядком; проект — метка project.of доски, «идёт» — roster), поиск по
+// переписке (points.list с q; хранилище без поиска — search: false, поля нет), «пожар» — машина хозяина не в roster, перенос её сессий
+// по одной; с sid — страница сессии: шапка, разговор на выбранной точке — экран chat.view web-chat (points.history), линия точек и ветки
+// (points.list с sid), у точки — подъём, копия, откат (points.save → points.raise), «На свой компьютер» — команда switchboard pull, вызовы модели
+// с переходом к проверке правил (settings, tab rules, call sid/uuid); без живой копии — подъём и удаление (points.delete).
+// session.points — та же страница во вкладке «Архив» карточки (место card.tab) и переключатель «Хранить в архиве» (session.archive).
+// Метка fire — машины с сессиями в архиве, которых нет в roster; каталог читается один раз при первом roster.
 import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createPoints } from "./src/module.tsx";

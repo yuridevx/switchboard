@@ -5,9 +5,10 @@ import { buildSync } from "esbuild";
 
 const web = import.meta.dirname;
 
-export function buildShell(name) {
+/** out — папка вывода, по умолчанию dist/ приложения: тест собирает в свою, чтобы не делить dist/ с упаковщиком модулей. */
+export function buildShell(name, out) {
   const app = join(web, name);
-  const dist = join(app, "dist");
+  const dist = out ?? join(app, "dist");
   const script = (entry, file, external) => buildSync({ entryPoints: [entry], outfile: join(dist, file), bundle: true, minify: true, external });
   rmSync(dist, { recursive: true, force: true });
   cpSync(join(app, "public"), dist, { recursive: true });

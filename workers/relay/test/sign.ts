@@ -25,8 +25,8 @@ export async function standPass(db: Db, role: "host" | "client", name: string, k
     return `${role}.${name}.${kid}.${code(secret)}`;
   }
   await db
-    .prepare("INSERT OR REPLACE INTO passes (id, role, name, person, state, hash, by, at) VALUES (?, ?, ?, ?, ?, ?, 'test', ?)")
-    .bind(kid, role, name, role === "client" ? person : null, "ok", await sha256(code(SECRET)), Date.now())
+    .prepare("INSERT OR REPLACE INTO passes (id, addr, state, hash, by, at) VALUES (?, ?, ?, ?, 'test', ?)")
+    .bind(kid, role === "host" ? `@${name}` : `${name}~${person}`, "ok", await sha256(code(SECRET)), Date.now())
     .run();
   return `${role}.${name}.${kid}.${code(secret)}`;
 }

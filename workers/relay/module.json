@@ -1,18 +1,25 @@
 {
   "name": "relay",
   "type": "worker",
-  "version": "1.2.4",
+  "version": "1.3.0",
   "provides": {
     "hello": 1,
     "roster": 1,
     "session.state": 1,
     "keys.revoke": 1,
-    "relay.deliver": 1
+    "relay.deliver": 1,
+    "relay.broadcast": 1
+  },
+  "tools": {
+    "keys.revoke": {
+      "about": "Отозвать пропуск или непринятое приглашение по номеру: строка у gate удалена, соединения с этим номером закрыты на всех машинах.",
+      "type": "KeysRevoke"
+    }
   },
   "uses": {
     "gate.verify@gate": 1,
     "gate.revoke@gate": 1,
-    "gate.list@gate": 1,
+    "keys.list@gate": 2,
     "ledger.add@ledger": 1
   },
   "config": {

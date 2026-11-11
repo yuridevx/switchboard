@@ -328,7 +328,7 @@ export function ReleasesTab({ machine }: { machine?: string }) {
   const s = useModule<SettingsState>();
   const present = !!app.worker("releases");
   const list = useLoad<Catalog | null>(() => (present ? app.read<Catalog>("releases.list") : Promise.resolve({ ok: true, result: null })), []);
-  const hosts = useLoad(() => app.read<{ passes: Array<{ name: string; role: string }> }>("keys.list", { role: "host" }), []);
+  const hosts = useLoad(() => app.read<{ passes: Array<{ addr: string; wait: boolean }> }>("keys.list", { kind: "machine" }), []);
   const answers = app.use(() => s.answers.get());
   const online = app.use(() => (app.roster()?.machines ?? []).map((m) => m.machine));
   const local = app.use(() => s.local.get());
@@ -338,7 +338,7 @@ export function ReleasesTab({ machine }: { machine?: string }) {
   const set = usePlan(list.reload);
   if (!present) return <Note>«Выпусков» во флоте нет</Note>;
   const catalog = list.data ?? undefined;
-  const machines = [...new Set([...online, ...(hosts.data?.passes ?? []).map((p) => p.name)])].sort();
+  const machines = [...new Set([...online, ...(hosts.data?.passes ?? []).filter((p) => !p.wait).map((p) => p.addr.slice(1))])].sort();
   const plans = Object.fromEntries((catalog?.machines ?? []).map((m) => [m.machine, m.plan]));
   const setCatalog = (on: boolean) => s.local.set((l) => void (l.catalog = on));
   return (

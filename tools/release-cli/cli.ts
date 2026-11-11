@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-// CLI выпуска: упаковка из монорепо и загрузка в каталог пропуском программы; check до push называет, чей номер поднять.
+// Общий CLI switchboard. release — упаковка из монорепо и загрузка в каталог пропуском программы; check до push называет, чей номер поднять.
+// pull — сессия из архива на свой компьютер: команда живёт в пакете pointfiles, здесь только вход.
 import { randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRepo } from "@switchboard/manifest-gate";
+import { pull, PULL_USAGE } from "@switchboard/pointfiles";
 import { CALL_MS } from "@switchboard/protocol";
 import { differs, download, shaLine, upload, type Answer, type Net, type PackedModule } from "@switchboard/release";
 import { buildCore, coreArchive, type Exec } from "./src/core.ts";
@@ -14,7 +16,7 @@ import { run } from "./src/spawn.ts";
 
 export type Fetch = (url: string, init: { method: string; body?: string | Uint8Array; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown>; arrayBuffer?(): Promise<ArrayBuffer> }>;
 
-const USAGE = "вызов: switchboard release core | keeper | modules [--out <папка>] [--dry-run] | check";
+const USAGE = `вызов: switchboard release core | keeper | modules [--out <папка>] [--dry-run] | check\n       ${PULL_USAGE.slice("вызов: ".length)}`;
 const NO_ENV = "нет SWITCHBOARD_RELEASES или SWITCHBOARD_PASS в окружении: адрес «Выпусков» и пропуск программы";
 const ROOT = join(import.meta.dirname, "..", "..");
 
@@ -83,14 +85,15 @@ async function check(net: Net): Promise<number> {
     console.error(`подними номер: ${label}: ${paths.join(", ")}`);
     n.raise++;
   };
-  for (const m of catalogued()) await compare(packFromRepo(join(ROOT, m.dir)));
-  await compare(coreArchive(ROOT));
+  // запросы к каталогу и R2 — разом: по одному сверка ждала сеть 58 раз подряд (45 с, из них 32 с простоя)
+  await Promise.all([...catalogued().map((m) => compare(packFromRepo(join(ROOT, m.dir)))), compare(coreArchive(ROOT))]);
   console.log(`каталог: как в коде ${n.same}, новых номеров ${n.fresh}, поднять ${n.raise}`);
   return n.raise ? 1 : 0;
 }
 
 export async function main(argv: string[], env: Record<string, string | undefined>, exec: Exec = run, go: Go = (args, cwd, vars) => run("go", args, cwd, { env: { ...process.env, ...vars } }), f: Fetch = (url, init) => fetch(url, init as RequestInit)): Promise<number> {
   const [command, what, ...rest] = argv;
+  if (command === "pull") return pull(argv.slice(1), env);
   if (command !== "release" || !["core", "keeper", "modules", "check"].includes(what)) throw new Error(USAGE);
   const o = options(rest);
   if ((!o.dry || what === "check") && !(env.SWITCHBOARD_RELEASES && env.SWITCHBOARD_PASS)) throw new Error(NO_ENV);

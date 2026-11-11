@@ -267,3 +267,17 @@
 }
 .chat-tb[aria-pressed="true"]{color:var(--ink);background:var(--surface2)}
 .chat-last{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* лента из архива: страница прокручивается целиком; точки — на своих местах, после выбранной разговор приглушён;
+   найденная запись — рамкой по своему пузырю, найденные слова — подсветкой */
+.chat-archive{flex:none;min-height:auto}
+.chat-archive .chat-col{max-width:none;margin:0}
+.chat-at{display:flex;flex-direction:column;min-width:0}
+.chat-at.after{opacity:.42}
+.chat-at.hit>*{outline:2px solid var(--accent);outline-offset:4px;border-radius:12px}
+::highlight(chat-q){background-color:var(--wait-weak);color:var(--ink)}
+.chat-pt{display:flex;align-items:center;gap:10px;width:100%;margin:2px 0;padding:2px 0;background:none;border:0;font:600 11.5px var(--mono);color:var(--muted);cursor:pointer}
+.chat-pt::before,.chat-pt::after{content:"";flex:1;border-top:1px dashed var(--line)}
+@media (hover:hover){button.chat-pt:hover{color:var(--ink)}}
+.chat-pt[aria-pressed="true"]{color:var(--accent)}
+.chat-pt[aria-pressed="true"]::before,.chat-pt[aria-pressed="true"]::after{border-top:1.5px solid var(--accent)}

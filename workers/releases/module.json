@@ -1,21 +1,22 @@
 {
   "name": "releases",
   "type": "worker",
-  "version": "1.11.1",
+  "version": "1.12.0",
   "provides": {
     "releases.plan": 1,
     "releases.list": 1,
     "releases.upload": 1,
     "releases.deploy": 1,
     "releases.set": 1,
-    "releases.fetch": 1
+    "releases.fetch": 1,
+    "releases.tools": 1
   },
   "uses": {
     "ledger.add@ledger": 1,
     "release.format@release": 1,
     "gate.verify@gate": 1,
     "relay.deliver@relay": 1,
-    "gate.list@gate": 1,
+    "keys.list@gate": 2,
     "manifest.check@manifest-gate": 1
   },
   "config": {

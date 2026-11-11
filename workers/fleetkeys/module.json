@@ -1,7 +1,7 @@
 {
   "name": "fleetkeys",
   "type": "worker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "provides": {
     "fleetkeys.list": 1,
     "fleetkeys.set": 1,
@@ -9,10 +9,22 @@
     "fleetkeys.key": 1,
     "fleetkeys.changed": 1
   },
+  "tools": {
+    "fleetkeys.list": {
+      "about": "Ключи API флота: имя, адрес и модели (env), настройки; значений ключей в ответе нет.",
+      "type": "FleetKeysList"
+    },
+    "fleetkeys.set": {
+      "about": "Адрес и модели ключа флота (env), настройки. Значение ключа задаётся в пульте и в разговор не попадает.",
+      "type": "FleetKeysSet",
+      "omit": [
+        "value"
+      ]
+    }
+  },
   "uses": {
     "gate.verify@gate": 1,
-    "gate.list@gate": 1,
-    "relay.deliver@relay": 1
+    "relay.broadcast@relay": 1
   },
   "config": {
     "GATE": "binding",

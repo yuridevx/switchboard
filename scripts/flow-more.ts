@@ -90,7 +90,7 @@ for (const cs of [PM, PM2]) await req({ type: "session.remove", callsign: cs });
 await req({ type: "session.open", v: 2, machine: M1, name: "pm", dir, model: "claude-haiku-4-5" });
 await state(PM, "idle");
 await turn(PM, "Повтори дословно одно слово: «маяк». Ничего не сохраняй в память.");
-const mark = await req({ type: "session.r2", callsign: PM, on: true });
+const mark = await req({ type: "session.archive", callsign: PM, on: true });
 check("пометка «в R2» — первая точка", mark.ok && typeof mark.result.point === "number", mark.result ?? mark.error);
 const p1 = mark.result.point as number;
 await turn(PM, "Повтори дословно одно слово: «волна». Ничего не сохраняй в память.");
@@ -115,7 +115,7 @@ check("откат к первой точке", rb.ok, rb.result ?? rb.error);
 await state(moved, "idle");
 const after = await turn(moved, "Какие слова ты повторял в этом разговоре? Через запятую, ничего не придумывай.");
 check("после отката разговор — до второго слова", /маяк/i.test(after) && !/волна/i.test(after), after);
-const off = await req({ type: "session.r2", callsign: moved, on: false });
+const off = await req({ type: "session.archive", callsign: moved, on: false });
 check("снятие пометки удаляет точки из R2", off.ok && off.result.deleted > 0, off.result ?? off.error);
 await req({ type: "session.remove", callsign: moved });
 

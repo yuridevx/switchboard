@@ -92,12 +92,12 @@ export function fleet(o: FleetOptions): FleetClient {
   }
 
   async function listMachines() {
-    const r = await post(workers.gate, { type: "keys.list", id: `${newId()}-list`, v: 1, role: "host" }, READ_MS);
+    const r = await post(workers.gate, { type: "keys.list", id: `${newId()}-list`, v: 2, kind: "machine" }, READ_MS);
     if (closed) return;
     if (r.ok) {
-      const { passes, you } = r.result as { passes: Array<{ name: string }>; you?: string };
+      const { passes, you } = r.result as { passes: Array<{ addr: string; wait: boolean }>; you?: string };
       addr = you ?? null;
-      for (const p of passes) open(p.name);
+      for (const p of passes) if (!p.wait) open(p.addr.slice(1));
       if (!links.size) o.onState?.("", "open");
     } else if (r.error === "bad_key") o.onState?.("", "stopped", r.error);
     else {

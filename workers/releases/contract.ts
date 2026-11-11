@@ -6,6 +6,12 @@
 
 export const CONTRACT = { "releases.plan": 1, "releases.list": 1, "releases.upload": 1, "releases.deploy": 1, "releases.set": 1, "releases.fetch": 1 } as const;
 
+/**
+ * releases.tools — привязка Participant: инструменты MCP флота из манифестов Worker-модулей каталога (новейшие версии):
+ * имя — запрос через _ вместо точки, схема входа — из типа запроса, url — адрес владельца в этом флоте, v — версия запроса.
+ */
+export type McpTool = { name: string; description: string; inputSchema: Record<string, unknown>; request: string; v: number; url: string };
+
 /** Запись плана машины: только отличия от «за stable, включено». */
 export type PlanEntry = { pin?: string; on?: boolean; force?: boolean; env?: Record<string, string> };
 

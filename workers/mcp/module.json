@@ -1,0 +1,17 @@
+{
+  "name": "mcp",
+  "type": "worker",
+  "version": "1.0.0",
+  "provides": {
+    "mcp": 1
+  },
+  "uses": {
+    "gate.verify@gate": 1,
+    "releases.tools@releases": 1
+  },
+  "config": {
+    "GATE": "binding",
+    "RELEASES": "binding",
+    "GATE_URL": "var"
+  }
+}

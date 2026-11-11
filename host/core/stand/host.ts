@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { nameOf, type Frame } from "@switchboard/protocol";
+import { nameOf, READ_MS, type Frame } from "@switchboard/protocol";
 import type { Host, Manifest, Module, Session } from "../contract.ts";
 import { Kernel, Mod, StartError } from "../src/kernel.ts";
 import type { HostConfig } from "../src/kernel.ts";
@@ -52,6 +52,8 @@ export type StandOptions = {
   machine?: string;
   /** relay в host.json; по умолчанию есть */
   relay?: boolean;
+  /** Worker'ы сверх стандартных в списке сборки: модуль включает своё по наличию адреса */
+  workers?: Record<string, string>;
   /** core.json до старта: сессии прежнего Host */
   sessions?: Array<Partial<CoreRecord> & { callsign: string }>;
   /** папка ~/.switchboard — та же между перезапусками Host */
@@ -101,6 +103,30 @@ export type Stand = {
 };
 
 const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+
+/** Настоящий предел open и start стенда. Пределы ядра идут по поддельным часам и без clock.tick не наступают: модуль, который ждёт то,
+ *  чего стенд не даёт, падает словом, а не висит до testTimeout. Вдвое выше предела чтения: модуль вправе ждать по настоящим часам READ_MS
+ *  (fleet ждёт пропуск у gate); ниже testTimeout 30 с. Замер 10 нояб.: open не дольше 423 мс, start — 118 мс. */
+const STAND_MS = 2 * READ_MS;
+function real<T>(p: Promise<T>, what: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const why = `стенд: ${what} не кончился за ${STAND_MS / 1000} с по настоящим часам — ждёт то, чего стенд не даёт; пределы ядра идут по поддельным часам (clock.tick)`;
+    const t = realSetTimeout(() => reject(new Error(why)), STAND_MS);
+    p.then(resolve, reject).finally(() => realClearTimeout(t));
+  });
+}
+
+/** Процесс мёртв: его нет. На Linux kill(pid, 0) успешен и у зомби, которого не подобрал родитель, и у получившего SIGKILL в первые миллисекунды:
+ *  зомби — мёртв, остальное ждут until. */
+export function isDead(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return process.platform !== "win32" && readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /, "")[0] === "Z";
+  } catch {
+    return true;
+  }
+}
 
 /** Дождаться условия: опрос по настоящим часам (поддельные таймеры vitest его не останавливают). */
 export async function until<T>(fn: () => T | undefined | null | false, ms = 15_000): Promise<T> {
@@ -141,7 +167,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     config,
     core: CORE,
     // адреса флота — в списке сборки: relay: false — сборка без relay
-    release: { version: o.version ?? "1.4.0", sdk: sdk.version, modules: o.modules ?? [], workers: o.relay === false ? {} : FakeRelay.WORKERS },
+    release: { version: o.version ?? "1.4.0", sdk: sdk.version, modules: o.modules ?? [], workers: o.relay === false ? {} : { ...FakeRelay.WORKERS, ...o.workers } },
     sdk,
     holders,
     relayKey: `host.${machine}.k7f3.stand`,
@@ -164,7 +190,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     startError: null,
     async start() {
       try {
-        await kernel.start();
+        await real(kernel.start(), "start Host");
       } catch (e) {
         if (!(e instanceof StartError)) throw e;
         st.startError = e;
@@ -179,7 +205,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
       return st.host(name).session(callsign);
     },
     async open(callsign, oo = {}) {
-      const s = await kernel.open({ callsign, cwd: oo.cwd ?? join(home, "work", nameOf(callsign)), ...(oo.opening ? { opening: oo.opening } : {}), ...(oo.mkdir ? { mkdir: true } : {}) });
+      const s = await real(kernel.open({ callsign, cwd: oo.cwd ?? join(home, "work", nameOf(callsign)), ...(oo.opening ? { opening: oo.opening } : {}), ...(oo.mkdir ? { mkdir: true } : {}) }), `open ${callsign}`);
       const m = oo.module ? kernel.byName.get(oo.module) : undefined;
       return s.facade(m ?? standMod);
     },

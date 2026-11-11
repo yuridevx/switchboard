@@ -138,19 +138,20 @@ const HANDLERS: Record<keyof typeof CONTRACT, (f: Frame, env: Env) => Promise<un
     const { results } = await env.DB.prepare("SELECT client, endpoint, p256dh, auth, kid FROM subs WHERE substr(client, -length(?1)) = ?1").bind(to).all<Sub>();
     const targets = results.filter((s) => reaches(to, s.client) && !skip.includes(s.client));
     const kids = targets.flatMap((s) => (s.kid ? [s.kid] : []));
-    const revoked = new Set(kids.length ? await within(env.GATE.revoked(kids), "gate не ответил на revoked") : []);
+    const known = new Set(kids.length ? (await within(env.GATE.list({ ids: kids }), "gate не ответил на keys.list")).map((p) => p.kid) : []);
+    const revoked = new Set(kids.filter((k) => !known.has(k)));
     for (const s of targets.filter((x) => x.kid && revoked.has(x.kid))) {
       await env.DB.prepare("DELETE FROM subs WHERE client = ? AND kid = ?").bind(s.client, s.kid).run();
       log({ kind: "refuse", ev: "push.send", word: "gone", why: `пропуск ${s.kid} отозван: подписка удалена`, client: s.client, type });
     }
-    const live = targets.filter((s) => !(s.kid && revoked.has(s.kid)));
-    const fitted = live.length ? fit({ type, from: asker, notify }) : null;
+    const kept = targets.filter((s) => !(s.kid && revoked.has(s.kid)));
+    const fitted = kept.length ? fit({ type, from: asker, notify }) : null;
     const jwk = JSON.parse(env.VAPID_PRIVATE) as JsonWebKey;
-    const outcomes = fitted ? await Promise.all(live.map((s) => deliver(env, jwk, s, fitted.plain, { ...line, cut: fitted.cut }))) : [];
+    const outcomes = fitted ? await Promise.all(kept.map((s) => deliver(env, jwk, s, fitted.plain, { ...line, cut: fitted.cut }))) : [];
     const { sent, word, why } = await chats;
     if (sent || outcomes.includes("sent")) return undefined;
     if (word) throw new Refusal(word, why ?? "", { client: to, type }, true);
-    if (live.length && !fitted) refuse("bad_frame", "уведомление не влезает в 4 096 Б и без notify.body", { client: to, type });
+    if (kept.length && !fitted) refuse("bad_frame", "уведомление не влезает в 4 096 Б и без notify.body", { client: to, type });
     if (outcomes.length) return refuse(outcomes.includes("push_failed") ? "push_failed" : "gone", "");
     return refuse("gone", kindOf(to) === "user" ? "пушить некому: подписок нет или все на связи" : "подписки нет", { client: to, type });
   },

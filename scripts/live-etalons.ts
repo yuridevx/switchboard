@@ -22,8 +22,8 @@ const url = "wss://switchboard.yuridevx1608.workers.dev";
 const api = (path: string) =>
   fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}${path}`, { headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` } }).then((r) => r.json() as Promise<{ result: unknown }>);
 const wrangler = (dir: string, args: string[]) => {
-  const r = spawnSync(process.execPath, [join(root, "node_modules/wrangler/bin/wrangler.js"), ...args], { cwd: join(root, "workers", dir), env: { ...process.env, CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID }, encoding: "utf8" });
-  if (r.status !== 0) throw new Error(`wrangler ${args.join(" ")} в ${dir}: ${r.stderr.slice(-500)}`);
+  const r = spawnSync(process.execPath, [join(root, "node_modules/wrangler/bin/wrangler.js"), ...args], { cwd: join(root, "workers", dir), env: { ...process.env, CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID }, encoding: "utf8", timeout: 300_000 });
+  if (r.status !== 0) throw new Error(`wrangler ${args.join(" ")} в ${dir}: ${r.error?.message ?? r.stderr.slice(-500)}`);
 };
 const fails: string[] = [];
 const check = (n: string, ok: boolean, detail?: unknown) => {
@@ -54,12 +54,12 @@ const gateUrl = "https://switchboard-gate.yuridevx1608.workers.dev/";
 const relayUrl = "https://switchboard.yuridevx1608.workers.dev/";
 const post = (u: string, f: Record<string, unknown>) =>
   fetch(u, { method: "POST", body: JSON.stringify({ id: "e", v: 1, ...f }) }).then((r) => r.json() as Promise<{ ok: boolean; result?: any; error?: string }>);
-const seeded = spawnSync(process.execPath, [join(root, "workers/gate/seed.ts"), "client", "etalon-agent", "etalon@example.com"], { encoding: "utf8" });
+const seeded = spawnSync(process.execPath, [join(root, "workers/gate/seed.ts"), "etalon-agent~etalon@example.com"], { encoding: "utf8", timeout: 60_000 });
 wrangler("gate", ["d1", "execute", "switchboard-gate", "--remote", "--command", seeded.stdout.trim()]);
 const agent = (await post(gateUrl, { type: "gate.redeem", invite: seeded.stderr.trim() })).result.key as string;
-const mine: string[] = [agent.split(".")[2]];
+const mine: string[] = [agent.split(".").at(-2)!];
 const pass = async (role: "host" | "client", name: string) => {
-  const inv = await post(gateUrl, { type: "keys.invite", key: agent, role, name, ...(role === "client" ? { person: "etalon@example.com" } : {}) });
+  const inv = await post(gateUrl, { type: "keys.invite", v: 2, key: agent, addr: role === "host" ? `@${name}` : `${name}~etalon@example.com` });
   mine.push(inv.result.kid);
   return (await post(gateUrl, { type: "gate.redeem", invite: inv.result.invite })).result.key as string;
 };
@@ -103,7 +103,7 @@ again.close();
 mHost.close(1000, "done");
 // живых пропусков эталона после прогона — 0: отзыв своих, последним — пропуск агента
 for (const kid of mine.reverse()) await post(relayUrl, { type: "keys.revoke", key: agent, kid });
-const left = (await post(gateUrl, { type: "keys.list", key: agent })).error;
+const left = (await post(gateUrl, { type: "keys.list", v: 2, key: agent })).error;
 check("живых пропусков эталона после прогона 0", left === "bad_key", left);
 
 for (const l of [host, phone, phone2, victim]) l.close(1000, "done");

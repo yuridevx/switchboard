@@ -13,25 +13,19 @@ const SESSION = "site@laptop";
 const SECRET = "sk-test-значение";
 
 type Answer = { type: string; id: string; ok: boolean; error?: string; to?: string; result?: Record<string, unknown> };
-type Sent = { type: string; to: string; from: string; name: string; v: number };
+type Sent = { type: string; from: string; name: string; v: number };
 
 let sent: Sent[] = [];
-let machines: string[] = [];
-let gateDown = false;
 let relayDown = false;
 const stubs = {
   GATE: {
     verify: async (key: string) => ({ role: "client", name: "стенд", kid: "k1", addr: key }),
-    list: async () => {
-      if (gateDown) throw new Error("gate лежит");
-      return machines.map((name) => ({ name }));
-    },
   },
   RELAY: {
-    deliver: async (f: Sent) => {
-      if (relayDown && f.to === "@down") throw new Error("relay лежит");
+    broadcast: async (f: Sent) => {
+      if (relayDown) throw new Error("relay лежит");
       sent.push(f);
-      return 1;
+      return 2;
     },
   },
 };
@@ -48,8 +42,6 @@ beforeEach(async () => {
   await applyD1Migrations(DB, MIGRATIONS);
   await DB.prepare("DELETE FROM keys").run();
   sent = [];
-  machines = ["laptop", "rog"];
-  gateDown = false;
   relayDown = false;
 });
 afterEach(() => vi.restoreAllMocks());
@@ -98,13 +90,12 @@ describe("кто может", () => {
     }
   });
 
-  it("set и remove только человеку: машина и сессия — not_user", async () => {
-    await set({ value: SECRET });
+  it("42 · права — мок: машина и сессия ставят и убирают ключ, как человек (слово пользователя 9 нояб.)", async () => {
     for (const from of [MACHINE, SESSION]) {
-      expect((await set({ value: "чужой" }, from)).error).toBe("not_user");
-      expect((await ask(from, "fleetkeys.remove", { name: "orca" })).error).toBe("not_user");
+      expect((await set({ value: SECRET }, from)).ok).toBe(true);
+      expect((await ask(MACHINE, "fleetkeys.key", { name: "orca" })).result?.key).toBe(SECRET);
+      expect((await ask(from, "fleetkeys.remove", { name: "orca" })).ok).toBe(true);
     }
-    expect((await ask(MACHINE, "fleetkeys.key", { name: "orca" })).result?.key).toBe(SECRET);
   });
 });
 
@@ -129,31 +120,26 @@ describe("поля", () => {
 describe("кадр смены ключа", () => {
   it("set и remove шлют fleetkeys.changed каждой машине: без значения ключа, от .fleetkeys", async () => {
     await set({ value: SECRET });
-    expect(sent).toEqual(["laptop", "rog"].map((m) => ({ type: "fleetkeys.changed", v: 1, to: `@${m}`, from: ".fleetkeys", name: "orca" })));
+    expect(sent).toEqual([{ type: "fleetkeys.changed", v: 1, from: ".fleetkeys", name: "orca" }]);
     sent = [];
     await ask(PULT, "fleetkeys.remove", { name: "orca" });
-    expect(sent.map((f) => f.to)).toEqual(["@laptop", "@rog"]);
+    expect(sent.map((f) => f.name)).toEqual(["orca"]);
     expect(JSON.stringify(sent)).not.toContain(SECRET);
   });
 
-  it("отказ кадра не шлёт: нет права, нет ключа", async () => {
-    await set({ value: SECRET }, MACHINE);
+  it("отказ кадра не шлёт: нет ключа", async () => {
     await ask(PULT, "fleetkeys.remove", { name: "нет" });
     expect(sent).toEqual([]);
   });
 
-  it("gate или relay не ответили — запись стоит, ответ ok, причина в журнале, значения ключа в журнале нет", async () => {
+  it("relay не ответил — запись стоит, ответ ok, причина в журнале, значения ключа в журнале нет", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    gateDown = true;
-    expect((await set({ value: SECRET })).ok).toBe(true);
-    gateDown = false;
     relayDown = true;
-    machines = ["down", "rog"];
+    expect((await set({ value: SECRET })).ok).toBe(true);
     expect((await set({ value: "новое" })).ok).toBe(true);
-    expect(sent.map((f) => f.to)).toEqual(["@rog"]);
+    expect(sent).toEqual([]);
     const lines = log.mock.calls.flat().join("\n");
-    expect(lines).toContain("gate.list");
-    expect(lines).toContain("relay.deliver → @down");
+    expect(lines).toContain("relay.broadcast");
     expect(lines).not.toContain(SECRET);
     expect(lines).not.toContain("новое");
     expect((await ask(MACHINE, "fleetkeys.key", { name: "orca" })).result?.key).toBe("новое");

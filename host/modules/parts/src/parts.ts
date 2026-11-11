@@ -30,9 +30,9 @@ export function make() {
   const net: Net = { ask: (type, frame) => host.request(type, { v: 1, ...frame }), fetch: (url, init) => fetch(url, init as RequestInit) };
 
   async function list({ part }: { part?: string }) {
-    const keys = await host.read("keys.list", { v: 1, role: "host" });
+    const keys = await host.read("keys.list", { v: 2, kind: "machine" });
     if (!keys.ok) return text(`список машин неизвестен: keys.list — ${keys.error}`, true);
-    const names = (keys.result as { passes: Array<{ name: string }> }).passes.map((p) => p.name);
+    const names = (keys.result as { passes: Array<{ addr: string; wait: boolean }> }).passes.filter((p) => !p.wait).map((p) => p.addr.slice(1));
     const [catalog, ...states] = await Promise.all([host.read("releases.list", { v: 1, ...(part && { part }) }), ...names.map((m) => host.read("keeper.state", { v: 1, to: `.keeper@${m}` }))]);
     const listed = catalog.ok ? (catalog.result as Listed) : null;
     const machines = names.map((machine, i) => {

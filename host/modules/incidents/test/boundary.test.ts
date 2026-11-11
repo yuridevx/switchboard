@@ -37,14 +37,6 @@ afterEach(async () => {
 const TO = "phone~you@example.com";
 const PNG = { name: "screen.png", media_type: "image/png", data: "iVBORw0KGgo=" };
 
-function freePort(): Promise<number> {
-  return new Promise((ok) => {
-    const s = createServer().listen(0, "127.0.0.1", () => {
-      const p = (s.address() as { port: number }).port;
-      s.close(() => ok(p));
-    });
-  });
-}
 
 /** Ход взял обращение i из ввода процесса: его uuid — в user_message_uuids кадров хода. */
 const take = (p: stand.FakeProc, i = 0) => turn(p, "принято", { user_message_uuids: [p.inputs[i].uuid] });
@@ -88,8 +80,8 @@ const profiles = (hold?: Promise<void>) =>
 const push = () => module("host-push", { requests: { notify: () => ({ pushed: [] }) } });
 
 /** Host win: incidents с типами disk-full, build-red, nodir (папки нет), noprof (профиля нет), named (слот), plain. */
+/** port не задан — 0: порт выбирает ОС, тест узнаёт его из строки incident_listen (порт, взятый и закрытый заранее, успевал занять соседний прогон). */
 async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: number; start?: boolean; slots?: string[]; hold?: Promise<void> } = {}) {
-  const port = o.port ?? (await freePort());
   const work = mkdtempSync(join(tmpdir(), "switchboard-incidents-"));
   const st = await standHost({
     machine: "win",
@@ -99,7 +91,7 @@ async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: num
     config: {
       modules: {
         "host-incidents": {
-          port,
+          port: o.port ?? 0,
           to: TO,
           types: {
             "disk-full": { profile: ["you/profiles/disk-full"], dir: work },
@@ -123,15 +115,16 @@ async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: num
     ],
   });
   stands.push(st);
+  const portOf = () => Number(/:(\d+)\/incident$/.exec(st.journal().findLast((l) => l.ev === "incident_listen")!.why)![1]);
   const post = async (body: unknown, headers: Record<string, string> = {}) => {
-    const r = await fetch(`http://127.0.0.1:${port}/incident`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) });
+    const r = await fetch(`http://127.0.0.1:${portOf()}/incident`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) });
     return { status: r.status, body: (await r.json()) as Record<string, unknown> };
   };
   /** системный промпт и папка сессии — что ушло в query() */
   const options = (cs: string) => st.query(cs).options as { cwd?: string; systemPrompt: { append?: string } };
   /** обращения на диске Host: раздел машины — формат хранилища, контракт */
   const disk = () => st.host("host-incidents").store<Array<{ id: string; callsign?: string }>>().get() ?? [];
-  return { st, port, work, post, options, disk };
+  return { st, get port() { return portOf(); }, work, post, options, disk };
 }
 
 /** Первое живое ожидание процесса с вводом. */
@@ -267,11 +260,10 @@ describe("инцидент: приём", () => {
 
   it("341 · порт занят — модуль выключен на машине, причина в журнале, failed в roster сессий; Host и сессии работают", async () => {
     // источник: устав — ошибку модуля ловит ядро
-    const port = await freePort();
-    const busy = createServer().listen(port, "127.0.0.1");
+    const busy = createServer().listen(0, "127.0.0.1");
     sockets.push(busy);
     await new Promise((r) => busy.once("listening", r));
-    const { st } = await bench({ port });
+    const { st } = await bench({ port: (busy.address() as { port: number }).port });
     expect(st.startError).toBeNull();
     expect(st.journal().find((l) => l.ev === "module_failed" && l.module === "host-incidents")!.why).toContain("EADDRINUSE");
     const s = await st.open("docs@win");

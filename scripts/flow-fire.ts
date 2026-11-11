@@ -33,7 +33,7 @@ const turn = async (cs: string, text: string) => {
 };
 
 await wait(() => l.state === "open", 15000);
-if (!rec(CS)?.r2) await req({ type: "session.r2", callsign: CS, on: true });
+if (!rec(CS)?.archive) await req({ type: "session.archive", callsign: CS, on: true });
 const headOf = async () => ((await req({ type: "points.list", to: ".points" })).result.sessions as any[]).find((s) => s.callsign === CS);
 const before = (await headOf())?.head?.id;
 console.log("до пожара:", await turn(CS, "Повтори дословно одно слово: «уголь». Ничего не сохраняй в память."));
@@ -43,7 +43,7 @@ check("ход «уголь» лёг в точку", await wait(async () => ((awa
 const sid = (await headOf())?.sid;
 check("у помеченной сессии есть точки в R2", !!sid);
 
-execSync(process.env.FIRE_STOP!, { stdio: "inherit" });
+execSync(process.env.FIRE_STOP!, { stdio: "inherit", timeout: 120_000 });
 check(`машина ${DEAD} ушла из roster`, await wait(() => !roster()?.machines.some((m) => m.machine === DEAD), 60000));
 const off = await req({ type: "session.prompt", callsign: CS, text: "x" });
 check("сессия умершей машины — offline", !off.ok && off.error === "offline", off.error);
@@ -58,12 +58,12 @@ check("разговор цел на новой машине", /уголь/i.test
 const owner = ((await req({ type: "points.list", to: ".points" })).result.sessions as any[]).find((s) => s.sid === sid)?.owner;
 check("хозяин в реестре — новая машина", owner === TO, owner);
 
-execSync(process.env.FIRE_START!, { stdio: "inherit" });
+execSync(process.env.FIRE_START!, { stdio: "inherit", timeout: 120_000 });
 check(`машина ${DEAD} вернулась`, await wait(() => !!roster()?.machines.some((m) => m.machine === DEAD), 120000));
 check("вернувшаяся машина уступила сессию: прежней копии нет в roster", await wait(() => !rec(CS), 180000), rec(CS));
 check("новая копия жива", rec(NEW)?.state === "idle", rec(NEW)?.state);
 
-await req({ type: "session.r2", callsign: NEW, on: false });
+await req({ type: "session.archive", callsign: NEW, on: false });
 await req({ type: "session.remove", callsign: NEW });
 l.close(1000, "done");
 console.log(fails.length ? `fire: ${fails.length} провалов` : "fire: ok");

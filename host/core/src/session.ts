@@ -389,6 +389,7 @@ export class Session {
 
   async remove(): Promise<void> {
     await this.stop();
+    this.k.each(this, "on.remove", (mod, view) => mod.on?.remove?.(view));
     this.k.forget(this);
   }
 }

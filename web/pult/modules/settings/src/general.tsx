@@ -5,7 +5,7 @@ import { ProfileRepos } from "./repos.tsx";
 import { isMine, wordFor } from "./rules.ts";
 
 type GithubAnswer = { app: { slug: string } | null; repos?: string[]; install?: string; form?: { action: string; manifest: unknown } };
-type Pass = { role: string; name: string; addr: string; state: string };
+type Pass = { kid: string; addr: string; owner: string | null; wait: boolean };
 
 const PUSH: Record<string, string> = { on: "включены", ask: "выключены", error: "не включились", working: "включаю…", denied: "запрещены в браузере", off: "браузер не умеет" };
 
@@ -118,8 +118,8 @@ function Device() {
         <span>
           {pass ? "действует" : "—"}
           {app.wide && (
-            <Btn className="st-ml8" onClick={() => app.open("settings", { tab: "passes" })}>
-              Пропуска
+            <Btn className="st-ml8" onClick={() => app.open("people")}>
+              Люди
             </Btn>
           )}
         </span>

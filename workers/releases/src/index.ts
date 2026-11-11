@@ -2,11 +2,12 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { entrance } from "@switchboard/gate";
 import { accepts, type Frame } from "@switchboard/protocol";
-import { CONTRACT, type Listed, type PlanEntry } from "../contract.ts";
+import { CONTRACT, type Listed, type McpTool, type PlanEntry } from "../contract.ts";
 import { catalog, isBuild, isVersion, NAME, type Catalog, type Part } from "./catalog.ts";
 import { deploy } from "./deploy.ts";
 import { line, refuse, Refusal, type Env } from "./env.ts";
 import { EVERYWHERE, planOf, readRow, sendPlans, writeRow, type Row } from "./fleet.ts";
+import { toolsOf } from "./tools.ts";
 
 const SHOWN = 10;
 const SHA = /^[0-9a-f]{64}$/;
@@ -140,6 +141,11 @@ async function answer(env: Env, f: Frame): Promise<Frame[]> {
 export class Participant extends WorkerEntrypoint<Env> {
   frame(f: Frame): Promise<Frame[]> {
     return answer(this.env, f);
+  }
+
+  /** releases.tools — инструменты MCP флота: сервер mcp спрашивает на tools/list и tools/call. */
+  async tools(): Promise<McpTool[]> {
+    return toolsOf(this.env, catalog(this.env, await readRow(this.env)));
   }
 
   fetch(req: Request): Promise<Response> {

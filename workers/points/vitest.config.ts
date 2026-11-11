@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
+import { blocksStand } from "@switchboard/blocks";
 import { gateStand } from "@switchboard/gate";
 
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
@@ -12,6 +13,8 @@ export default defineConfig({
       miniflare: {
         workers: [
           gateStand(),
+          // хранилище блоков: стенд контракта blocks в памяти
+          blocksStand(),
           // журнал стенда: строки по привязке
           {
             name: "switchboard-ledger",
@@ -27,11 +30,10 @@ export class Participant extends WorkerEntrypoint {
 export default { fetch: () => new Response(null, { status: 404 }) };`,
           },
         ],
-        // ключ ссылок и аккаунт — поддельные: ссылки подписываются на месте, в сеть служба не ходит
-        bindings: { CF_ACCOUNT_ID: "acc0", R2_KEY_ID: "kid0", R2_KEY_SECRET: "ksec0", TEST_MIGRATIONS: await readD1Migrations(here("./migrations")) },
+        bindings: { TEST_MIGRATIONS: await readD1Migrations(here("./migrations")) },
       },
     }),
   ],
-  // сотни объектов R2 и точек: на Linux тест идёт 5–7 с и на прежнем коде
+  // сотни блоков и точек: на Linux тест идёт 5–7 с
   test: { include: ["test/**/*.test.ts"], testTimeout: 30_000 },
 });
