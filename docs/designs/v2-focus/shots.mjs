@@ -52,13 +52,13 @@ for (const [w, h] of [[1280, 900], [390, 844]]) for (const theme of ["light", "d
     await queue("laptop", "review").locator(".meter-row.off").first().waitFor({ state: "detached" });
     await shot("review-fable");
     // обратно: аккаунт годен и для opus — очередь остаётся на нём, лимит Fable снова приглушён
-    await queue("laptop", "review").locator(".qmodel").getByText("opus").click();
+    await queue("laptop", "review").locator(".qmodel").getByText("остальные").click();
     await queue("laptop", "review").locator(".meter-row.off").first().waitFor();
   });
   await step("новая очередь: модель выбирается в форме", async () => {
     await card("server").getByRole("button", { name: "+ очередь" }).click();
     await page.getByLabel("Имя очереди").fill("docs");
-    await page.getByRole("radiogroup", { name: "Модель очереди" }).getByText("opus").click();
+    await page.getByRole("radiogroup", { name: "Модель очереди" }).getByText("остальные").click();
     await page.getByRole("checkbox", { name: /ops@example\.com/ }).check();
     await shot("new-queue");
     await page.getByRole("button", { name: "Завести очередь" }).click();
@@ -72,6 +72,26 @@ for (const [w, h] of [[1280, 900], [390, 844]]) for (const theme of ["light", "d
     await page.getByRole("menuitem").locator(".slotline").nth(1).waitFor();
     await page.waitForTimeout(400);
     await shot("chip");
+    await page.keyboard.press("Escape");
+    await page.getByRole("menuitem").first().waitFor({ state: "detached" });
+  });
+  await step("очередь диктует модель: в fable — только Fable; переход в «остальные» ставит Opus и убирает Fable из выбора", async () => {
+    await page.goto(base + "/?mock&still#/work/site@laptop");
+    const model = page.getByRole("button", { name: "Модель", exact: true });
+    await model.click();
+    await page.getByRole("menuitem").first().waitFor();
+    const inFable = await page.getByRole("menuitem").allTextContents();
+    if (inFable.length !== 1 || !/Fable/.test(inFable[0])) throw new Error("в очереди fable выбор: " + inFable.join(", "));
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Очередь", exact: true }).click();
+    await page.getByRole("menuitem").filter({ hasText: "review" }).click();
+    await page.getByRole("button", { name: "Модель", exact: true }).filter({ hasText: "Opus" }).waitFor();
+    await page.getByRole("button", { name: "Модель", exact: true }).click();
+    await page.getByRole("menuitem").first().waitFor();
+    await page.waitForTimeout(400);
+    const inOther = await page.getByRole("menuitem").allTextContents();
+    if (inOther.some((x) => /Fable/.test(x)) || inOther.length < 2) throw new Error("в очереди «остальные» выбор: " + inOther.join(", "));
+    await shot("model");
   });
   await step("колонки «Входы» нет; аккаунт добавляется в очередь кнопкой у очереди", async () => {
     await page.goto(base + "/?mock&still#/fleet/accounts");

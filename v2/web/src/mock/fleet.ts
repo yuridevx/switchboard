@@ -160,8 +160,8 @@ export function createMock(o: MockOptions = {}) {
   };
   /** Очереди аккаунтов машин: один аккаунт может стоять в нескольких. */
   const slots: Record<string, Slot[]> = {
-    laptop: [{ name: "main", model: "fable", order: ["work@example.com", "yuri@example.com", "team@example.com"], account: "yuri@example.com", sessions: 4 }, { name: "review", model: "opus", order: ["work@example.com", "yuri@example.com"], account: "work@example.com", sessions: 1 }],
-    server: [{ name: "main", model: "fable", order: ["yuri@example.com", "ops@example.com"], account: "yuri@example.com", sessions: 3 }, { name: "night", model: "opus", order: ["night@example.com", "ops@example.com"], account: "night@example.com", sessions: 2 }],
+    laptop: [{ name: "main", model: "fable", order: ["work@example.com", "yuri@example.com", "team@example.com"], account: "yuri@example.com", sessions: 4 }, { name: "review", model: "other", order: ["work@example.com", "yuri@example.com"], account: "work@example.com", sessions: 1 }],
+    server: [{ name: "main", model: "fable", order: ["yuri@example.com", "ops@example.com"], account: "yuri@example.com", sessions: 3 }, { name: "night", model: "other", order: ["night@example.com", "ops@example.com"], account: "night@example.com", sessions: 2 }],
     "anya-pc": [{ name: "main", model: "fable", order: ["anya@example.com"], account: "anya@example.com", sessions: 3 }],
     base2: [],
   };
@@ -429,6 +429,9 @@ export function createMock(o: MockOptions = {}) {
     "session.update": (f) => {
       const { c, s } = sess(f);
       const patch = { ...f.patch };
+      // очередь диктует модель: при переходе в очередь другого вида модель встаёт на её — Fable или Opus
+      const toSlot = patch.slot ? slots[machineOf(c) ?? ""]?.find((q) => q.name === patch.slot) : undefined;
+      if (toSlot && /fable/.test(patch.model ?? s.spec.model ?? "") !== (toSlot.model === "fable")) patch.model = toSlot.model === "fable" ? "claude-fable-5-2" : "claude-opus-5-5";
       let wing: string | undefined;
       if (patch.wing === null) {
         const was = s.spec.wing;
@@ -595,6 +598,7 @@ export function createMock(o: MockOptions = {}) {
     // очередь стоит на первом по порядку аккаунте ниже порога; таких нет — ждёт недельного сброса
     "account.list": (f) => {
       const list = accounts[mach(f)] ?? [];
+      for (const s of Object.values(sessions)) { const q = slots[machineOf(s.callsign) ?? ""]?.find((x) => x.name === s.spec.slot); if (q && q.model !== "fable" && /fable/.test(s.spec.model ?? "")) s.spec.model = "claude-opus-5-5"; }
       const by = (id: string) => list.find((a) => a.id === id);
       for (const q of slots[mach(f)] ?? []) {
         delete q.wait;

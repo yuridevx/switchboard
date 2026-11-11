@@ -8,7 +8,7 @@ import { act, sayError } from "../api.ts";
 import { EFFORTS, MODELS, MODES, useCall, useMyPrefs } from "../common.tsx";
 import { ago } from "../lib/time.ts";
 import { RoutePage } from "./Page.tsx";
-import { seatOptions } from "../lib/accounts.ts";
+import { seatOptions, slotModels } from "../lib/accounts.ts";
 import { useFleet } from "../store/fleet.ts";
 
 export const nameOf = (cwd: string) => (cwd.split(/[\\/]/).filter(Boolean).pop() ?? "session").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "session";
@@ -123,13 +123,15 @@ export function NewForm() {
   const seats = seatOptions(accounts.data);
   // очередь новой сессии: выбранная, иначе первая годная очередь машины, иначе первый годный ключ
   const account = seat && seats.some((o) => o.value === seat && !o.disabled) ? seat : (seats.find((o) => !o.disabled)?.value ?? "");
+  /** Модели, которые даёт выбрать очередь: fable — только Fable, остальные — всё, кроме Fable. */
+  const seatModels = slotModels(accounts.data?.slots.find((q) => q.name === account), MODELS.map(([value, label]) => ({ value, label })));
   const noAccount = !!accounts.data && !account;
   const start = async () => {
     if (!machine || !cwd) return;
     setBusy(true);
     const r = await act(sessionOpen, {
       to: "@" + machine,
-      spec: { name: finalName, cwd, ...(model ? { model } : {}), ...(effort ? { effort: effort as never } : {}), mode: mode as never, slot: account, pieces: picked, backup, ...(fast ? { fast: true } : {}), thinking, ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
+      spec: { name: finalName, cwd, ...(model && seatModels.some((o) => o.value === model) ? { model } : {}), ...(effort ? { effort: effort as never } : {}), mode: mode as never, slot: account, pieces: picked, backup, ...(fast ? { fast: true } : {}), thinking, ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
       ...(prompt.trim() ? { prompt: prompt.trim() } : {}), ...(missing ? { mkdir: true } : {}), ...(pair ? { pair: true } : {}), ...(number ? { number: true } : {}), ...(resume.trim() ? { resume: resume.trim(), ...(fork || held(talks.data?.conversations) ? { fork: true } : {}) } : {}),
     });
     setBusy(false);
@@ -195,7 +197,7 @@ export function NewForm() {
         )}
       </div>
       <SimpleGrid cols={{ base: 1, xs: 2, md: 3 }} spacing="sm">
-        <Select label="Модель" placeholder={from("model", "по умолчанию")} clearable data={MODELS.map(([value, label]) => ({ value, label }))} value={model} onChange={setModel} />
+        <Select label="Модель" placeholder={from("model", "по умолчанию")} clearable data={seatModels} value={model && seatModels.some((o) => o.value === model) ? model : null} onChange={setModel} />
         <Select label="Усилие" placeholder={from("effortLevel", "как у модели")} clearable data={EFFORTS.map(([value, label]) => ({ value, label }))} value={effort} onChange={setEffort} />
         <Select label="Режим" data={MODES.map(([value, label]) => ({ value, label }))} value={mode} onChange={(v) => v && setMode(v)} allowDeselect={false} />
         <Select label="Очередь аккаунтов" data={seats} value={account || null} onChange={(v) => v && setSeat(v)} allowDeselect={false} />

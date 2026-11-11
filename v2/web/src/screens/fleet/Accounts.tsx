@@ -63,7 +63,6 @@ function MergedRow({ m, marked, onMark, picked, onPick, onLogin, onRemove }: { m
       <div className="grow">
         <AccountView full name={<button type="button" className="linklike" aria-pressed={marked} onClick={onMark}>{m.email ?? m.id}</button>} plan={m.plan} limits={m.limits}>
           {split.length > 0 && <button type="button" className="warnmark" aria-expanded={why} aria-label="Машины говорят разное" onClick={() => setWhy(!why)}>⚠</button>}
-          {m.sessions > 0 && <Text size="xs" className="muted">{nSessions(m.sessions)}</Text>}
           <span className="seats">{m.seats.filter((s) => !s.account.ok).map((s) => <Badge key={s.machine} size="sm" variant="light" color="red">{nameOf(s.machine)} ⚠ {s.account.why ?? "вход не годен"}</Badge>)}</span>
           <span className="grow" />
           <Menu withinPortal position="bottom-end">
@@ -81,7 +80,7 @@ function MergedRow({ m, marked, onMark, picked, onPick, onLogin, onRemove }: { m
 }
 
 /** Группа входов в коробке перетаскивания: строка, брошенная сюда, уходит из своей очереди. */
-const MODELS = ["fable", "opus"];
+const MODELS = [{ value: "fable", label: "fable" }, { value: "other", label: "остальные" }];
 const rowId = (queue: string, mail: string) => queue + "|" + mail;
 const partsOf = (id: string) => [id.slice(0, id.indexOf("|")), id.slice(id.indexOf("|") + 1)] as const;
 

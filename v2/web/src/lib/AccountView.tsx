@@ -1,6 +1,6 @@
 // Один вид аккаунта и его лимитов на всей странице: компактный — в строке очереди, обычный (full) — в списке аккаунтов.
 import { IconCalendarWeek, IconSparkles } from "@tabler/icons-react";
-import { limitTone, limitWord, meterOf, sortLimits, type LimitRow } from "./accounts.ts";
+import { limitTone, limitWord, meterOf, slotModelWord, sortLimits, type LimitRow } from "./accounts.ts";
 import { hhmm, leftWord, limitName, resetWord, untilWord } from "./time.ts";
 
 /** Два лимита аккаунта двумя полосками: общая неделя и Fable; рядом — сколько осталось до недельного сброса.
@@ -60,7 +60,7 @@ export function SlotLine({ slot, account }: { slot: { name: string; model: strin
   return (
     <span className="slotline">
       <span className="mono slot-name">{slot.name}</span>
-      <span className="slot-model">{slot.model}</span>
+      <span className="slot-model">{slotModelWord(slot.model)}</span>
       <AccountView name={slot.account ?? "пусто"} limits={account?.limits ?? []} fableOff={slot.model !== "fable"} bad={account && !account.ok ? account.why ?? "вход не годен" : undefined} />
       {slot.wait !== undefined && <span className="acct-wait">ждёт до {resetWord(slot.wait)}</span>}
     </span>

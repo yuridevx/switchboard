@@ -2,7 +2,7 @@
 import { accountList, profileList, type SessionRow } from "@sb/protocol";
 import { MultiSelect, Select, Stack } from "@mantine/core";
 import { EFFORTS, MODES, useCall } from "../common.tsx";
-import { seatOptions } from "../lib/accounts.ts";
+import { seatOptions, slotModels } from "../lib/accounts.ts";
 import { SlotLine } from "../lib/AccountView.tsx";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { effectiveModel, modelsFor, patchDoc, useLater, useModels } from "./doc.ts";
@@ -17,7 +17,8 @@ export function useDoc(s: SessionRow, running?: string) {
   // у сессии на ключе флота модель — та, что записана у ключа
   // аккаунт, на котором сессия идёт сейчас: вход очереди или ключ флота
   const mine = accounts.data?.accounts.find((a) => a.id === (s.account ?? s.spec.slot));
-  const models = modelsFor(mine, useModels(s, !offline && isLive(s)));
+  // очередь диктует выбор: в очереди fable — только Fable, в остальных — всё, кроме Fable
+  const models = slotModels(accounts.data?.slots.find((x) => x.name === s.spec.slot), modelsFor(mine, useModels(s, !offline && isLive(s))));
   const model = effectiveModel(s.spec, models, running);
   const accountOptions = seatOptions(accounts.data).map((o) => [o.value, o.label] as const);
   const list = pieces.data?.pieces ?? [];
