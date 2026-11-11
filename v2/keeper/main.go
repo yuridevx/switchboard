@@ -14,7 +14,7 @@ import (
 	"syscall"
 )
 
-const usage = "keeper: run [--hide] | install --base <https://адрес флота> [--logon] | uninstall | hold … | version; у run и uninstall — --name <флот>"
+const usage = "keeper: run | install --base <https://адрес флота> | uninstall | hold … | version; у run и uninstall — --name <флот>"
 
 // build — номер сборки: его ставит сборка (-ldflags "-X main.build=412"); у файла, собранного руками, — 0.
 var build = "0"
@@ -109,13 +109,12 @@ func fail(code int, text string) {
 
 // runFleet — keeper этого флота до сигнала ОС или до подмены себя; служба Windows идёт через свой обработчик.
 func runFleet(args []string) int {
+	if len(args) > 0 {
+		fmt.Fprintln(os.Stderr, "keeper: run: незнакомый аргумент "+strconv.Quote(args[0]))
+		return 2
+	}
 	if asService() {
 		return runService()
-	}
-	for _, a := range args {
-		if a == "--hide" {
-			hideConsole()
-		}
 	}
 	k, err := startKeeper(Options{})
 	if err != nil {

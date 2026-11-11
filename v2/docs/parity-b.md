@@ -240,8 +240,8 @@
 
 | функция | в новой | где смотрел |
 |---|---|---|
-| Служба ОС машины (Windows — служба под пользователем или задача планировщика при входе --logon; Linux — служба) | keeper/service_windows.go (служба под пользователем или задача планировщика --logon), service_linux.go (юнит systemd --user, linger) | service_*.go |
-| Установка машины: keeper install, приглашение первой строкой stdin (пароль службы Windows — второй), --worker имя=адрес, --name второй флот, --logon | keeper/setup.go install: --base, приглашение первой строкой stdin, пароль второй (Windows), --logon, --name (флот из приглашения); --worker заменён единым --base | setup.go, main.go |
+| Служба ОС машины (Windows — служба под пользователем или задача планировщика при входе --logon; Linux — служба) | заменено: одна установка — keeper/service_windows.go (служба под пользователем, восстановление после выхода), service_linux.go (юнит systemd --user, Restart=always, linger); задачи при входе нет (слово пользователя 11 нояб.) | service_*.go |
+| Установка машины: keeper install, приглашение первой строкой stdin (пароль службы Windows — второй), --worker имя=адрес, --name второй флот, --logon | keeper/setup.go install: --base, приглашение первой строкой stdin, пароль второй (Windows), --name (флот из приглашения); --logon убран; --worker заменён единым --base | setup.go, main.go |
 | Удалить службу: keeper uninstall | keeper/main.go uninstall → unregister() | main.go |
 | keeper run [--hide], keeper version, keeper hold (держатель процесса) | keeper/main.go run [--hide], version, hold | main.go |
 | Исполнять план машины от «Выпусков»: скачать архив версии, сверить sha256, распаковать, setup, поднять часть через держатель | keeper/fetch.go installHost: архив по ссылке плана, sha256, распаковка, npm ci; keeper.go applyHost, hold.go запуск через держатель | fetch.go, keeper.go |

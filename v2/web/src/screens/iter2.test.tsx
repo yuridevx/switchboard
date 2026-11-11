@@ -1,7 +1,7 @@
 /// <reference types="node" />
 // Вторая итерация экранов: выпуски пачкой и перезапуск Host, установка машины ссылкой, «пожар», журнал словами, профили, аккаунты,
 // архив (сводка, ветки), правила прокси (разница, вызов из архива), пуши без открытой страницы.
-import { accountList, createApi, hostRestart, keeperState, pointsCalls, pointsList, type Account, type Piece, type SessionRow } from "@sb/protocol";
+import { accountList, buildsKeeper, createApi, hostRestart, keeperState, pointsCalls, pointsList, type Account, type Piece, type SessionRow } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { Steps } from "../shell/Page.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -11,7 +11,6 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
 import { diverge, dropFromQueues, limitWord, machineOrder, mergeAccounts } from "../lib/accounts.ts";
-import { buildsLink } from "../lib/pending.ts";
 import { createMock, type Mock } from "../mock/fleet.ts";
 import { useFleet } from "../store/fleet.ts";
 import { archiveSummary, branches } from "./Archive.tsx";
@@ -53,20 +52,22 @@ describe("выпуски: пачкой и по машинам", () => {
 });
 
 describe("машины", () => {
-  it("команда установки: со ссылкой на Keeper сама его скачивает; приглашение идёт в stdin, не аргументом", () => {
+  it("команда установки: со ссылкой на Keeper сама его скачивает; приглашение идёт в stdin, не аргументом; на Windows — служба, пароль второй строкой stdin", () => {
     const link = { url: "https://f.example/builds/412/keeper-linux-amd64?sig=1", file: "keeper-linux-amd64" };
     const linux = installCommand("linux", "https://fleet.example", "home:k1:secret", link);
     expect(linux.split("\n")).toEqual(["curl -L -o keeper-linux-amd64 'https://f.example/builds/412/keeper-linux-amd64?sig=1'", "chmod +x keeper-linux-amd64 && echo 'home:k1:secret' | ./keeper-linux-amd64 install --base https://fleet.example"]);
     const win = installCommand("windows", "https://fleet.example", "home:k1:secret", { url: "https://f.example/k.exe", file: "keeper-windows-amd64.exe" });
     expect(win).toContain('curl.exe -L -o keeper-windows-amd64.exe "https://f.example/k.exe"');
-    expect(win).toContain('"home:k1:secret" | .\\keeper-windows-amd64.exe install --base https://fleet.example --logon');
+    expect(win).toContain('$p = Read-Host "Пароль $env:USERNAME" -AsSecureString');
+    expect(win).toContain('"home:k1:secret`n$([Net.NetworkCredential]::new(\'\', $p).Password)" | .\\keeper-windows-amd64.exe install --base https://fleet.example');
+    expect(win).not.toContain("--logon");
     expect(win).not.toContain("--invite");
     // без ссылки — как раньше: файл кладут руками
     expect(installCommand("linux", "https://fleet.example", "i")).toBe("chmod +x keeper-linux-amd64 && echo 'i' | ./keeper-linux-amd64 install --base https://fleet.example");
-    expect(installCommand("windows", "https://fleet.example", "i")).toBe('"i" | .\\keeper-windows-amd64.exe install --base https://fleet.example --logon');
+    expect(installCommand("windows", "https://fleet.example", "i")).toBe('$p = Read-Host "Пароль $env:USERNAME" -AsSecureString\n"i`n$([Net.NetworkCredential]::new(\'\', $p).Password)" | .\\keeper-windows-amd64.exe install --base https://fleet.example');
   });
   it("мок отдаёт ссылку на Keeper сборки флота по системе", async () => {
-    const r = await ask(quiet()).call(buildsLink, { os: "windows" });
+    const r = await ask(quiet()).call(buildsKeeper, { os: "windows" });
     expect(r).toMatchObject({ file: "keeper-windows-amd64.exe", build: expect.any(Number) });
     expect(r.url).toContain("/keeper-windows-amd64.exe");
   });

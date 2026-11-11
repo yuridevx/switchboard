@@ -1,6 +1,6 @@
 package main
 
-// Служба Linux: юнит systemd --user этого флота; linger — служба живёт без входа пользователя. KillMode=process — при остановке и перезапуске
+// Служба Linux — единственная установка на Linux: юнит systemd --user этого флота, Restart=always поднимает keeper после любого выхода; linger — служба живёт без входа пользователя. KillMode=process — при остановке и перезапуске
 // службы держатели и их процессы живут. Установка поверх своего юнита — перезапуск с новым юнитом и файлом.
 import (
 	"bufio"
@@ -34,7 +34,7 @@ func systemctl(args ...string) error {
 
 func registered() error { return nil }
 
-func register(dst string, _ bool, _ *bufio.Reader) error {
+func register(dst string, _ *bufio.Reader) error {
 	path, err := unitPath()
 	if err != nil {
 		return err
@@ -74,4 +74,3 @@ func unregister() error {
 
 func asService() bool { return false }
 func runService() int { return 1 }
-func hideConsole()    {}

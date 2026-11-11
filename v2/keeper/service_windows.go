@@ -1,19 +1,16 @@
 package main
 
-// Служба Windows этого флота: под текущим пользователем (пароль — второй строкой stdin), автостарт без входа, ОС поднимает её после выхода.
-// --logon — задача планировщика при входе пользователя, её ставит и не администратор: запуск при регистрации и при входе, повтор раз в
-// минуту, второго экземпляра нет — так ОС поднимает keeper после подмены себя. Своё имя уже стоит — install отказывает.
+// Служба Windows этого флота — единственная установка на Windows: под текущим пользователем (пароль — второй строкой stdin), автостарт
+// без входа, восстановление службы поднимает keeper после любого выхода, и после подмены себя. Ставит администратор. Своё имя уже стоит —
+// install отказывает.
 import (
 	"bufio"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"os/user"
-	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -60,11 +57,6 @@ func runService() int {
 	return 0
 }
 
-// hideConsole — окно консоли задачи при входе не видно.
-func hideConsole() { windows.NewLazySystemDLL("kernel32.dll").NewProc("FreeConsole").Call() }
-
-func taskExists() bool { return exec.Command("schtasks", "/Query", "/TN", serviceName()).Run() == nil }
-
 // serviceExists — служба этого имени есть; sc query спрашивает и без прав администратора.
 func serviceExists() bool { return exec.Command("sc", "query", serviceName()).Run() == nil }
 
@@ -91,20 +83,16 @@ func grantServiceLogon(sid *windows.SID) error {
 }
 
 func registered() error {
-	if serviceExists() || taskExists() {
+	if serviceExists() {
 		return fmt.Errorf("%s уже стоит: сначала keeper uninstall", serviceName())
 	}
 	return nil
 }
 
-func register(dst string, logon bool, in *bufio.Reader) error {
-	args := runArgs()
-	if logon {
-		return registerTask(dst, append(args, "--hide"))
-	}
+func register(dst string, in *bufio.Reader) error {
 	password, _ := readLine(in)
 	if password == "" {
-		return errors.New("пароль пользователя для службы — второй строкой stdin (или --logon — задача при входе)")
+		return errors.New("пароль пользователя для службы — второй строкой stdin")
 	}
 	u, err := user.Current()
 	if err != nil {
@@ -123,7 +111,7 @@ func register(dst string, logon bool, in *bufio.Reader) error {
 	}
 	defer m.Disconnect()
 	s, err := m.CreateService(serviceName(), dst, mgr.Config{DisplayName: strings.TrimSpace("Switchboard keeper " + fleetName), StartType: mgr.StartAutomatic,
-		ServiceStartName: u.Username, Password: password, Description: "Switchboard keeper: исполняет план машины"}, args...)
+		ServiceStartName: u.Username, Password: password, Description: "Switchboard keeper: исполняет план машины"}, runArgs()...)
 	if err != nil {
 		return err
 	}
@@ -138,60 +126,9 @@ func register(dst string, logon bool, in *bufio.Reader) error {
 	return s.Start()
 }
 
-// logonTask — текст задачи в UTF-16 с меткой порядка байт: другого файла schtasks не принимает. Повтор висит на двух триггерах: «при регистрации» —
-// с установки, «при входе» — после перезагрузки; только у входа повтор не шёл до первого входа.
-func logonTask(dst string, args []string) []byte {
-	xml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Switchboard keeper: исполняет план машины при входе пользователя</Description></RegistrationInfo>
-  <Principals><Principal id="Author"><UserId>%[1]s</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
-  <Settings>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <StartWhenAvailable>true</StartWhenAvailable>
-  </Settings>
-  <Triggers>
-    <RegistrationTrigger><Repetition><Interval>PT1M</Interval></Repetition></RegistrationTrigger>
-    <LogonTrigger><Repetition><Interval>PT1M</Interval></Repetition><UserId>%[1]s</UserId></LogonTrigger>
-  </Triggers>
-  <Actions Context="Author"><Exec><Command>%[2]s</Command><Arguments>%[3]s</Arguments></Exec></Actions>
-</Task>
-`, xmlText(os.Getenv("USERDOMAIN")+`\`+os.Getenv("USERNAME")), xmlText(dst), xmlText(strings.Join(args, " ")))
-	b := []byte{0xff, 0xfe}
-	for _, r := range utf16.Encode([]rune(xml)) {
-		b = append(b, byte(r), byte(r>>8))
-	}
-	return b
-}
-
-func registerTask(dst string, args []string) error {
-	file := filepath.Join(os.TempDir(), serviceName()+".xml")
-	if err := os.WriteFile(file, logonTask(dst, args), 0o600); err != nil {
-		return err
-	}
-	defer os.Remove(file)
-	if out, err := exec.Command("schtasks", "/Create", "/TN", serviceName(), "/XML", file, "/F").CombinedOutput(); err != nil {
-		return fmt.Errorf("schtasks: %v: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func xmlText(s string) string {
-	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;").Replace(s)
-}
-
 func unregister() error {
-	if taskExists() {
-		exec.Command("schtasks", "/End", "/TN", serviceName()).Run()
-		if out, err := exec.Command("schtasks", "/Delete", "/TN", serviceName(), "/F").CombinedOutput(); err != nil {
-			return fmt.Errorf("schtasks: %v: %s", err, strings.TrimSpace(string(out)))
-		}
-		return nil
-	}
 	if !serviceExists() {
-		return fmt.Errorf("нет ни службы, ни задачи %s", serviceName())
+		return fmt.Errorf("нет службы %s", serviceName())
 	}
 	m, err := mgr.Connect()
 	if err != nil {

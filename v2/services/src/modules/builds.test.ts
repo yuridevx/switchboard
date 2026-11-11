@@ -50,23 +50,20 @@ describe("выпуски", () => {
     // план спрашивает только машина
     expect(await s.ask("builds.plan", { os: "linux" }, "kyura1")).toMatchObject({ ok: false, error: "forbidden" });
     // файла под эту ОС в сборке нет — отказ словом
-    expect(await s.ask("builds.plan", { os: "darwin", arch: "arm64" }, "klaptop")).toMatchObject({ ok: false, error: "not_found" });
+    expect(await s.ask("builds.plan", { os: "linux", arch: "arm64" }, "klaptop")).toMatchObject({ ok: false, error: "not_found" });
   });
 });
 
 describe("выпуски: человек ставит машину", () => {
-  it("builds.keeper отдаёт файл Keeper стоящей сборки, ссылку и команду установки без приглашения в ней; сборка не назначена — not_found", async () => {
+  it("builds.keeper отдаёт файл Keeper стоящей сборки и ссылку; сборка не назначена — not_found", async () => {
     const s = stand();
     expect(await s.ask("builds.keeper", { os: "linux" }, "kanya1")).toMatchObject({ ok: false, error: "not_found" });
     await s.ask("builds.upload", { build: 412, files: FILES });
     await s.ask("builds.deploy", { build: 412 });
-    const r = (await s.ask("builds.keeper", { os: "linux" }, "kanya1")).result as { build: number; file: string; url: string; sha256: string; command: string };
+    const r = (await s.ask("builds.keeper", { os: "linux" }, "kanya1")).result as { build: number; file: string; url: string; sha256: string };
     expect(r).toMatchObject({ build: 412, file: "keeper-linux-amd64", sha256: "b".repeat(64) });
     expect(r.url).toContain(`/builds/${s.fleet}/412/keeper-linux-amd64?`);
-    expect(r.command).toContain("./keeper install --base ");
-    const w = (await s.ask("builds.keeper", { os: "windows" }, "kanya1")).result as { command: string };
-    expect(w.command).toContain("keeper.exe install --base ");
-    expect(w.command).toContain("--logon");
+    expect((await s.ask("builds.keeper", { os: "windows" }, "kanya1")).result).toMatchObject({ file: "keeper-windows-amd64.exe", sha256: "c".repeat(64) });
   });
 });
 
@@ -99,9 +96,9 @@ describe("выпуски: отказы словом", () => {
     const s = stand();
     await s.ask("builds.upload", { build: 412, files: FILES });
     await s.ask("builds.deploy", { build: 412 });
-    const r = await s.ask("builds.keeper", { os: "darwin", arch: "arm64" }, "kanya1");
+    const r = await s.ask("builds.keeper", { os: "linux", arch: "arm64" }, "kanya1");
     expect(r).toMatchObject({ ok: false, error: "not_found" });
     expect(String(r.why)).toContain("412");
-    expect(String(r.why)).toContain("keeper-darwin-arm64");
+    expect(String(r.why)).toContain("keeper-linux-arm64");
   });
 });

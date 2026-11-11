@@ -36,7 +36,7 @@ execFileSync(process.platform === "win32" ? path.join(process.env.SystemRoot ?? 
 fs.rmSync(stage, { recursive: true, force: true });
 
 /* Keeper */
-for (const [goos, goarch, name] of [["windows", "amd64", "keeper-windows-amd64.exe"], ["linux", "amd64", "keeper-linux-amd64"], ["darwin", "arm64", "keeper-darwin-arm64"], ["darwin", "amd64", "keeper-darwin-amd64"]]) {
+for (const [goos, goarch, name] of [["windows", "amd64", "keeper-windows-amd64.exe"], ["linux", "amd64", "keeper-linux-amd64"]]) {
   const r = spawnSync("go", ["build", "-trimpath", "-ldflags", `-s -w -X main.build=${build}`, "-o", path.join(out, name), "."], { cwd: path.join(root, "keeper"), env: { ...process.env, GOOS: goos, GOARCH: goarch, CGO_ENABLED: "0" }, stdio: "pipe" });
   if (r.status !== 0) throw new Error(`keeper ${goos} не собран: ${r.stderr}`);
 }

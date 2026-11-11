@@ -1,5 +1,5 @@
 // «Флот → Машины»: машины строками и приглашение новой машины с командой установки.
-import { invite, keeperState, type MachineRow, type SessionRow } from "@sb/protocol";
+import { buildsKeeper, invite, keeperState, type MachineRow, type SessionRow } from "@sb/protocol";
 import { Badge, Button, CopyButton, Group, SegmentedControl, Stack, Text, TextInput } from "@mantine/core";
 import { Page } from "../../shell/Page.tsx";
 import { useState } from "react";
@@ -7,18 +7,18 @@ import { useNavigate } from "react-router";
 import { act, fleetBase } from "../../api.ts";
 import { personWord, useCall, useMachineName } from "../../common.tsx";
 import { newPath } from "../../shell/NewSession.tsx";
-import { buildsLink } from "../../lib/pending.ts";
 import { ago, nSessions } from "../../lib/time.ts";
 import { machineOfCall, useFleet } from "../../store/fleet.ts";
 
 export const HOST_WORD: Record<string, string> = { running: "работает", stopped: "остановлен", failed: "сбой", updating: "обновляется" };
 
-/** Команда установки Keeper: приглашение уходит в stdin, не в аргументы. link — ссылка на файл Keeper сборки флота: тогда команда сама его скачивает. */
+/** Команда установки Keeper — служба ОС: приглашение уходит в stdin, не в аргументы; на Windows второй строкой stdin — пароль пользователя
+ * службы, его спрашивает PowerShell. link — ссылка на файл Keeper сборки флота: тогда команда сама его скачивает. */
 export function installCommand(os: "windows" | "linux", base: string, inviteText: string, link?: { url: string; file: string }): string {
   const file = link?.file ?? (os === "windows" ? "keeper-windows-amd64.exe" : "keeper-linux-amd64");
   const get = link ? (os === "windows" ? `curl.exe -L -o ${file} "${link.url}"\n` : `curl -L -o ${file} '${link.url}'\n`) : "";
   return os === "windows"
-    ? `${get}"${inviteText}" | .\\${file} install --base ${base} --logon`
+    ? `${get}$p = Read-Host "Пароль $env:USERNAME" -AsSecureString\n"${inviteText}\`n$([Net.NetworkCredential]::new('', $p).Password)" | .\\${file} install --base ${base}`
     : `${get}chmod +x ${file} && echo '${inviteText}' | ./${file} install --base ${base}`;
 }
 
@@ -34,7 +34,7 @@ function AddMachine({ onClose }: { onClose: () => void }) {
   const [os, setOs] = useState<"windows" | "linux">("windows");
   const base = fleetBase || "https://fleet.example.com";
   // ссылка на файл Keeper сборки флота: есть — команда скачивает его сама, нет — файл кладут руками
-  const link = useCall(buildsLink, made ? { os } : null);
+  const link = useCall(buildsKeeper, made ? { os } : null);
   const cmd = installCommand(os, base, made, link.data);
   return (
     <Stack gap="sm">
@@ -46,7 +46,7 @@ function AddMachine({ onClose }: { onClose: () => void }) {
       ) : (
         <>
           <SegmentedControl value={os} onChange={(v) => setOs(v as "windows" | "linux")} data={[{ value: "windows", label: "Windows" }, { value: "linux", label: "Linux" }]} aria-label="Система машины" />
-          <Text size="sm">{link.data ? <>Выполните на машине <span className="mono">{name}</span>: команда скачает Keeper сборки {link.data.build} и поставит его.</> : <>Положите файл Keeper из сборки флота на машину <span className="mono">{name}</span> и выполните рядом с ним.</>} Приглашение действует сутки.</Text>
+          <Text size="sm">{link.data ? <>Выполните на машине <span className="mono">{name}</span>{os === "windows" && " в PowerShell от администратора"}: команда скачает Keeper сборки {link.data.build} и поставит его службой.</> : <>Положите файл Keeper из сборки флота на машину <span className="mono">{name}</span> и выполните рядом с ним{os === "windows" && " в PowerShell от администратора"}.</>} Приглашение действует сутки.</Text>
           <pre className="codebox">{cmd}</pre>
           <Group>
             <CopyButton value={cmd}>{({ copied, copy }) => <Button size="xs" variant="default" onClick={copy}>{copied ? "Скопировано" : "Скопировать команду"}</Button>}</CopyButton>

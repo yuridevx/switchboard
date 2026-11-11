@@ -71,11 +71,7 @@ export const builds: Module = {
       const f = (JSON.parse(b?.files ?? "[]") as File[]).find((x) => x.name === name);
       if (!f) throw new Refusal("not_found", `в сборке ${row.stable} нет файла ${name}`);
       const url = await link(ctx.env, "GET", fileKey(ctx.fleet, row.stable, name));
-      // приглашение идёт первой строкой ввода: в команде его нет
-      const command = i.os === "windows"
-        ? `curl.exe -L -o keeper.exe "${url}"; .\keeper.exe install --base ${ctx.origin} --logon`
-        : `curl -L -o keeper "${url}" && chmod +x keeper && ./keeper install --base ${ctx.origin}`;
-      return { build: row.stable, file: name, url, sha256: f.sha256, command };
+      return { build: row.stable, file: name, url, sha256: f.sha256 };
     },
 
     async "builds.plan"(i: { os: string; arch?: string }, ctx) {

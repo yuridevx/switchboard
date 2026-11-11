@@ -27,15 +27,15 @@ const PlanFile = z.object({ url: z.string(), sha256: z.string() });
 /** План машины: спрашивает Keeper своим пропуском. Ссылки живут час. */
 export const buildsPlan = request("builds.plan", {
   owner: "builds", target: "service", machineOnly: true,
-  input: z.object({ os: z.enum(["windows", "linux", "darwin"]), arch: z.string().optional() }),
+  input: z.object({ os: z.enum(["windows", "linux"]), arch: z.string().optional() }),
   output: z.object({ build: z.number(), host: PlanFile, keeper: PlanFile }).nullable(),
 });
 
-/** Файл Keeper стоящей сборки для человека, который ставит машину: ссылка на час и команда установки. */
+/** Файл Keeper стоящей сборки для человека, который ставит машину: ссылка на час. Команду установки собирает страница. */
 export const buildsKeeper = request("builds.keeper", {
   owner: "builds", target: "service",
-  input: z.object({ os: z.enum(["windows", "linux", "darwin"]), arch: z.string().optional() }),
-  output: z.object({ build: z.number(), file: z.string(), url: z.string(), sha256: z.string(), command: z.string() }),
+  input: z.object({ os: z.enum(["windows", "linux"]), arch: z.string().optional() }),
+  output: z.object({ build: z.number(), file: z.string(), url: z.string(), sha256: z.string() }),
 });
 
 /* ===== Журнал флота (ledger) ===== */

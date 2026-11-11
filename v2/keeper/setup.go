@@ -1,6 +1,6 @@
 package main
 
-// Установка машины: keeper install --base <https://адрес флота> [--logon] [--name <флот>]. Приглашение машины — первой строкой stdin, у
+// Установка машины: keeper install --base <https://адрес флота> [--name <флот>]. Приглашение машины — первой строкой stdin, у
 // службы Windows пароль пользователя — второй; секреты не в аргументах. Флот — из приглашения (флот:номер:секрет); redeem → machine.key;
 // keeper.json — адрес флота, имя машины из ответа и node из PATH; файл keeper — в папке флота; служба ОС этого флота.
 // Отказ — словом, на диске и в ОС ничего не меняется.
@@ -23,8 +23,7 @@ import (
 const redeemWait = 30 * time.Second
 
 type installFlags struct {
-	base  string
-	logon bool
+	base string
 }
 
 func parseInstall(args []string) (installFlags, error) {
@@ -32,7 +31,6 @@ func parseInstall(args []string) (installFlags, error) {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&f.base, "base", "", "")
-	fs.BoolVar(&f.logon, "logon", false, "")
 	if err := fs.Parse(args); err != nil {
 		return f, err
 	}
@@ -67,7 +65,7 @@ func install(args []string) error {
 	if err != nil {
 		return err
 	}
-	return register(dst, f.logon, in)
+	return register(dst, in)
 }
 
 // readInvite — приглашение первой строкой stdin; его флот становится флотом этой службы (с --name — должен совпасть).
