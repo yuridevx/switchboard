@@ -250,10 +250,10 @@ describe("аккаунты и ключи", () => {
     expect(a.sessions).toBe(5);
     expect(m[0]!.ok).toBe(false);
   });
-  it("страница показывает два окна — неделю и Fable; остаток до сброса коротко", () => {
-    const limits = [{ name: "five_hour", used: 0.4 }, { name: "seven_day", used: 0.2, resets: 9 }, { name: "seven_day_overage_included", used: 0.99, resets: 9 }, { name: "iguana_necktie", used: 1 }];
-    expect(meterOf(limits)).toEqual({ week: limits[1], fable: limits[2] });
-    expect(meterOf([{ name: "five_hour", used: 1 }])).toEqual({ week: undefined, fable: undefined });
+  it("страница показывает два запаса — Fable и остальные модели; остаток до сброса коротко", () => {
+    const limits = [{ name: "five_hour", used: 0.4 }, { name: "fable", used: 0.99, resets: 9 }, { name: "other", used: 0.2, resets: 9 }];
+    expect(meterOf(limits)).toEqual({ fable: limits[1], other: limits[2] });
+    expect(meterOf([{ name: "five_hour", used: 1 }])).toEqual({ fable: undefined, other: undefined });
     const now = new Date(2026, 0, 1, 8, 0).getTime();
     expect([3 * 86_400_000 + 4 * 3_600_000, 7 * 3_600_000 + 12 * 60_000, 12 * 60_000].map((d) => leftWord(now + d, now))).toEqual(["3д 4ч", "7ч 12м", "12м"]);
   });

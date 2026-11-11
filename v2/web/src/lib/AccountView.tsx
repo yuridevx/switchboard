@@ -3,12 +3,12 @@ import { IconCalendarWeek, IconSparkles } from "@tabler/icons-react";
 import { limitTone, meterOf, slotModelWord, type LimitRow } from "./accounts.ts";
 import { leftWord, resetWord } from "./time.ts";
 
-/** Два лимита аккаунта двумя полосками: общая неделя и Fable; рядом — сколько осталось до недельного сброса.
- *  fableOff — очередь за лимитом Fable не следит: его строка приглушена. */
-export function Meter({ limits, full, fableOff }: { limits: LimitRow[]; full?: boolean; fableOff?: boolean }) {
-  const { week, fable } = meterOf(limits);
+/** Два запаса аккаунта двумя полосками: Fable и остальные модели; рядом — сколько осталось до недельного сброса.
+ *  watch — вид очереди: она следит за своим запасом, чужой приглушён. */
+export function Meter({ limits, full, watch }: { limits: LimitRow[]; full?: boolean; watch?: string }) {
+  const { fable, other } = meterOf(limits);
   const now = Date.now();
-  const reset = week?.resets ?? fable?.resets;
+  const reset = fable?.resets ?? other?.resets;
   const row = (l: LimitRow | undefined, icon: React.ReactNode, word: string, off?: boolean) => {
     const tone = l ? limitTone(l.used) : "teal";
     return (
@@ -22,8 +22,8 @@ export function Meter({ limits, full, fableOff }: { limits: LimitRow[]; full?: b
   return (
     <span className={full ? "meter full" : "meter"}>
       <span className="meter-rows">
-        {row(week, <IconCalendarWeek size={11} aria-label="неделя, все модели" />, "неделя, все модели")}
-        {row(fable, <IconSparkles size={11} aria-label="неделя Fable" />, "неделя Fable", fableOff)}
+        {row(fable, <IconSparkles size={11} aria-label="неделя Fable" />, "неделя Fable", watch !== undefined && watch !== "fable")}
+        {row(other, <IconCalendarWeek size={11} aria-label="неделя, остальные модели" />, "неделя, остальные модели", watch === "fable")}
       </span>
       {reset !== undefined && reset > now && <span className="meter-left" title={`сброс ${resetWord(reset, now)}`}>{leftWord(reset, now)}</span>}
     </span>
@@ -36,13 +36,13 @@ export function SlotLine({ slot, account }: { slot: { name: string; model: strin
     <span className="slotline">
       <span className="mono slot-name">{slot.name}</span>
       <span className="slot-model">{slotModelWord(slot.model)}</span>
-      <AccountView name={slot.account ?? "пусто"} limits={account?.limits ?? []} fableOff={slot.model !== "fable"} bad={account && !account.ok ? account.why ?? "вход не годен" : undefined} />
+      <AccountView name={slot.account ?? "пусто"} limits={account?.limits ?? []} watch={slot.model} bad={account && !account.ok ? account.why ?? "вход не годен" : undefined} />
       {slot.wait !== undefined && <span className="acct-wait">ждёт до {resetWord(slot.wait)}</span>}
     </span>
   );
 }
 
-export function AccountView({ name, plan, limits, bad, current, onPut, full, fableOff, children }: { name: React.ReactNode; plan?: string; limits: LimitRow[]; bad?: string; current?: boolean; /** поставить этот аккаунт в очередь: пустая лампа — кнопка */ onPut?: () => void; full?: boolean; fableOff?: boolean; children?: React.ReactNode }) {
+export function AccountView({ name, plan, limits, bad, current, onPut, full, watch, children }: { name: React.ReactNode; plan?: string; limits: LimitRow[]; bad?: string; current?: boolean; /** поставить этот аккаунт в очередь: пустая лампа — кнопка */ onPut?: () => void; full?: boolean; watch?: string; children?: React.ReactNode }) {
   return (
     <div className={full ? "acct full" : "acct"}>
       <span className="acct-name">
@@ -52,7 +52,7 @@ export function AccountView({ name, plan, limits, bad, current, onPut, full, fab
         <span className="trunc" style={{ fontWeight: current || full ? 600 : 400 }}>{name}</span>
         {full && plan && <span className="muted" style={{ fontSize: 12 }}>{plan}</span>}
       </span>
-      <Meter limits={limits} full={full} fableOff={fableOff} />
+      <Meter limits={limits} full={full} watch={watch} />
       {bad && full && <span className="acct-bad">{bad}</span>}
       {children}
     </div>

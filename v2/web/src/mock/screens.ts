@@ -60,7 +60,7 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
     p.online = !p.wait && (p.addr.startsWith("@") ? online(p.addr.slice(1)) : p.addr === MY_ADDR || (p.seen ?? 0) > T - 30 * MIN);
   }
   const devicesOf = (person: string) => passes.filter((p) => p.person === person).map((p) => ({ kid: p.kid, addr: p.addr, wait: p.wait, online: !!p.online, at: p.at, ...(p.seen ? { seen: p.seen } : {}) }));
-  accounts.server.push({ id: "night@example.com", kind: "claude", email: "night@example.com", plan: "Max 5x", limits: [{ name: "seven_day", used: 0.11, resets: T + 5 * DAY }], ok: true, sessions: 0 });
+  accounts.server.push({ id: "night@example.com", kind: "claude", email: "night@example.com", plan: "Max 5x", limits: [{ name: "fable", used: 0.08, resets: T + 5 * DAY }, { name: "other", used: 0.22, resets: T + 5 * DAY }], ok: true, sessions: 0 });
   for (const list of Object.values(accounts)) for (const a of list) if (a.kind === "key") Object.assign(a, { provider: "openai-compatible", base: "https://api.orca.example/v1", model: "glm-abliterated" });
   Object.assign(keys[0], { models: { "claude-fable-5-2": "glm-5.3", "claude-haiku-5-5": "glm-5.3-flash" }, window: 128_000, env: { DISABLE_TELEMETRY: "1" }, sessions: 0 });
   Object.assign(keys[1], { sessions: 1 });

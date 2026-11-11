@@ -140,22 +140,22 @@ export function createMock(o: MockOptions = {}) {
   startLive("wing@laptop", "поиск вызовов");
 
   /* ===== Остальные записи ===== */
-  // окна как у Claude: общая неделя, недельный лимит Fable (seven_day_overage_included) и прочие, которых страница не показывает
-  const lim = (week: number, fable: number, days = 3.2) => [{ name: "five_hour", used: 0.4, resets: T + 2 * HOUR }, { name: "seven_day", used: week, resets: T + days * DAY }, { name: "seven_day_overage_included", used: fable, resets: T + days * DAY }, { name: "iguana_necktie", used: 0, resets: T - DAY }];
-  /** Аккаунт у порога для очереди: общая неделя или лимит её модели. */
-  const outFor = (a: Account | undefined, model: string) => !a?.ok || (a.limits ?? []).some((l) => l.used >= 0.98 && (l.name === "seven_day" || (model === "fable" && l.name === "seven_day_overage_included")));
+  // запасы, как их считает Host: Fable и остальные модели — каждый от своей доли недели
+  const lim = (fable: number, other: number, days = 3.2) => [{ name: "five_hour", used: 0.4, resets: T + 2 * HOUR }, { name: "fable", used: fable, resets: T + days * DAY }, { name: "other", used: other, resets: T + days * DAY }];
+  /** Аккаунт у порога для очереди: запас её вида. */
+  const outFor = (a: Account | undefined, model: string) => !a?.ok || (a.limits ?? []).some((l) => l.used >= 0.98 && l.name === model);
   const accounts: Record<string, Account[]> = {
     laptop: [
-      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.38, 0.62), ok: true, sessions: 4 },
-      { id: "work@example.com", kind: "claude", email: "work@example.com", plan: "Max 5x", limits: lim(0.2, 0.99, 5.4), ok: true, sessions: 1 },
-      { id: "team@example.com", kind: "claude", email: "team@example.com", plan: "Max 5x", limits: lim(0.91, 0.75, 1.9), ok: false, why: "вход устарел: войдите заново", sessions: 0 },
+      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.62, 0.14), ok: true, sessions: 4 },
+      { id: "work@example.com", kind: "claude", email: "work@example.com", plan: "Max 5x", limits: lim(0.99, 0.31, 5.4), ok: true, sessions: 1 },
+      { id: "team@example.com", kind: "claude", email: "team@example.com", plan: "Max 5x", limits: lim(0.75, 0.86, 1.9), ok: false, why: "вход устарел: войдите заново", sessions: 0 },
       { id: "orca-glm", kind: "key", ok: true, sessions: 0 },
     ],
     server: [
-      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.38, 0.62), ok: true, sessions: 3 },
-      { id: "ops@example.com", kind: "claude", email: "ops@example.com", plan: "Max 5x", limits: lim(1, 0.44, 0.9), ok: true, sessions: 2 },
+      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.62, 0.14), ok: true, sessions: 3 },
+      { id: "ops@example.com", kind: "claude", email: "ops@example.com", plan: "Max 5x", limits: lim(0.44, 1, 0.9), ok: true, sessions: 2 },
     ],
-    "anya-pc": [{ id: "anya@example.com", kind: "claude", email: "anya@example.com", plan: "Max 5x", limits: lim(0.52, 0.99, 0.3), ok: true, sessions: 3 }],
+    "anya-pc": [{ id: "anya@example.com", kind: "claude", email: "anya@example.com", plan: "Max 5x", limits: lim(0.99, 0.05, 0.3), ok: true, sessions: 3 }],
     base2: [],
   };
   /** Очереди аккаунтов машин: один аккаунт может стоять в нескольких. */
@@ -606,7 +606,7 @@ export function createMock(o: MockOptions = {}) {
         if (!outFor(by(q.account ?? ""), q.model)) continue;
         const next = q.order.find((id) => !outFor(by(id), q.model));
         if (next) q.account = next;
-        else q.wait = Math.min(...q.order.map((id) => by(id)?.limits?.find((l) => l.name === "seven_day")?.resets ?? Infinity));
+        else q.wait = Math.min(...q.order.map((id) => by(id)?.limits?.find((l) => l.name === q.model)?.resets ?? Infinity));
       }
       return { accounts: list, slots: slots[mach(f)] ?? [] };
     },
@@ -620,7 +620,7 @@ export function createMock(o: MockOptions = {}) {
       if (String(f.code).length < 6) throw new Refusal("bad_code", "код не подошёл");
       const list = accounts[m];
       let a = list.find((x) => !x.ok);
-      if (a) Object.assign(a, { ok: true, why: undefined, limits: lim(0.05, 0.71) });
+      if (a) Object.assign(a, { ok: true, why: undefined, limits: lim(0.71, 0.05) });
       else list.push((a = { id: "new@example.com", kind: "claude", email: "new@example.com", plan: "Max 5x", limits: lim(0, 0), ok: true, sessions: 0 }));
       // первый вход на машине без очередей заводит main
       if (!slots[m].length) slots[m].push({ name: "main", model: "fable", order: [a.id], account: a.id, sessions: 0 });

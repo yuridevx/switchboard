@@ -16,9 +16,9 @@ export type Merged = {
   sessions: number;
 };
 
-/** Два окна, которые показывает страница: общая неделя и недельный лимит Fable. Остальные окна не показываются. */
-export const WEEK = "seven_day", FABLE = "seven_day_overage_included";
-export const meterOf = (limits: LimitRow[]) => ({ week: limits.find((l) => l.name === WEEK), fable: limits.find((l) => l.name === FABLE) });
+/** Два недельных запаса аккаунта, как их считает Host: Fable и остальные модели — каждый от 0 до 100 % своей доли недели. */
+export const FABLE = "fable", OTHER = "other";
+export const meterOf = (limits: LimitRow[]) => ({ fable: limits.find((l) => l.name === FABLE), other: limits.find((l) => l.name === OTHER) });
 
 /** Слово модели очереди на экране. */
 export const slotModelWord = (model: string) => (model === "fable" ? "fable" : "остальные");
