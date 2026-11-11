@@ -1,7 +1,0 @@
-{
-  "name": "@switchboard/blocks",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "exports": { ".": "./contract.ts", "./stand/*": "./stand/*" }
-}

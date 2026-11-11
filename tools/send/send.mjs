@@ -1,66 +1,80 @@
 #!/usr/bin/env node
-// Сообщение в сессию флота от служб компьютера: hello → roster → session.prompt → reply. Один файл без зависимостей, Node 24: копируется на машину как есть.
-// Службы зовут его снаружи репо, поэтому аргументы, слова отказов, выходы и кадры заморожены.
-// Пропуск программы — keys.invite <имя>~<почта>, принят switchboard redeem; отправитель — <имя>~<почта>.
-//   <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]
-// Выход: 0 — ok; 1 — отказ словом в stdout; 2 — неверный вызов, строка вызова в stderr.
-// Импорт: await send(callsign, text, { key, url, timeoutMs }) → { ok: 1 | 0, error }.
-import { existsSync, realpathSync } from "node:fs";
-import { text as read } from "node:stream/consumers";
+// Сообщение в сессию от служб компьютера (тревоги, сторожа): один файл без зависимостей, нужен только Node.
+//   echo "<пропуск>" | node send.mjs <адрес флота> <сессия> <текст…>
+//   echo "<пропуск>" | node send.mjs <адрес флота> --incident <машина> <вид> <ключ> <текст…>
+//   import { send } from "…/send.mjs"; await send("site@laptop", "текст", { key, url }) → { ok: 1, error: "" } | { ok: 0, error }
+// Пропуск — первой строкой stdin (не аргументом: аргументы видны в списке процессов); из кода — полем key.
+// Выход: 0 — принято; 1 — отказ флота (слово и причина в stderr); 2 — вызван неверно или флот не ответил.
+const usage = "send.mjs <адрес флота> <сессия> <текст…> | send.mjs <адрес флота> --incident <машина> <вид> <ключ> <текст…>; пропуск — первой строкой stdin";
+/** Адрес флота по умолчанию для вызова из кода: SWITCHBOARD_URL или прод. */
+export const RELAY = process.env.SWITCHBOARD_URL || "https://relay.pfarm.app";
 
-export const RELAY = "wss://relay.pfarm.app";
-const LIMIT_MS = 30_000;
+async function firstLine() {
+  let text = "";
+  for await (const chunk of process.stdin) {
+    text += chunk;
+    if (text.includes("\n")) break;
+  }
+  return text.split("\n")[0].trim();
+}
 
-/** Чужие кадры (pong, бинарный, не JSON) — пустой кадр. */
-function parsed(data) {
+export function frameOf(a) {
+  const [base, ...rest] = a;
+  if (!base || !/^https?:\/\//.test(base)) return null;
+  if (rest[0] === "--incident") {
+    const [, machine, kind, key, ...words] = rest;
+    if (!machine || !kind || !key || !words.length) return null;
+    return { base, frame: { type: "incident.raise", to: "@" + machine.replace(/^@/, ""), kind, key, text: words.join(" ") } };
+  }
+  const [to, ...words] = rest;
+  if (!to || !to.includes("@") || !words.length) return null;
+  return { base, frame: { type: "message", to, text: words.join(" ") } };
+}
+
+/** Один запрос POST <адрес>/call с пропуском. Итог — { reply } или { lost: причина }, если флот не ответил. */
+async function post(base, key, frame, ms) {
+  const id = "s" + Date.now().toString(36);
   try {
-    return JSON.parse(data);
-  } catch {
-    return {};
+    const res = await fetch(base.replace(/\/+$/, "") + "/call", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer " + key },
+      body: JSON.stringify({ ...frame, id, trace: "t" + id }),
+      signal: AbortSignal.timeout(ms),
+    });
+    return { reply: await res.json(), trace: "t" + id };
+  } catch (e) {
+    return { lost: String(e?.message ?? e), trace: "t" + id };
   }
 }
 
-/** Один разговор, один предел, один итог. */
-export function send(callsign, text, { key, url, timeoutMs = LIMIT_MS } = {}) {
-  return new Promise((resolve) => {
-    const ws = new WebSocket(`${(url || RELAY).replace(/\/$/, "")}/m/${callsign.split("@").pop()}`);
-    let id; // есть — запрос ушёл; уникален: клиент флота ключует ожидание по id и отправителю
-    const finish = (ok, error) => {
-      clearTimeout(limit);
-      ws.onclose = ws.onmessage = null;
-      ws.close(1000);
-      resolve({ ok, error });
-    };
-    const limit = setTimeout(() => finish(0, `нет ответа за ${timeoutMs} мс`), timeoutMs);
-    ws.onclose = ({ code, reason }) => finish(0, `связь закрыта: ${code} ${reason}`);
-    ws.onopen = () => ws.send(JSON.stringify({ type: "hello", key, proto: 1 }));
-    ws.onmessage = ({ data }) => {
-      const f = parsed(data);
-      if (f.type === "roster" && !id) {
-        id = crypto.randomUUID();
-        ws.send(JSON.stringify({ type: "session.prompt", v: 1, id, to: callsign, callsign, text }));
-      } else if (f.type === "reply" && f.id === id) finish(Number(f.ok), f.error ?? "");
-    };
-  });
+const refused = (reply, trace) => `${reply?.error ?? "bad_frame"}${reply?.why ? ": " + reply.why : ""} (номер запроса ${reply?.trace ?? trace})`;
+
+/** Сообщение сессии из кода службы. url — адрес флота; wss://… читается как https://… того же хоста. */
+export async function send(to, text, { key, url = RELAY, timeoutMs = 30_000 } = {}) {
+  const r = await post(String(url).replace(/^ws(s?):\/\//, "http$1://"), key, { type: "message", to, text }, timeoutMs);
+  if (r.lost) return { ok: 0, error: "флот не ответил: " + r.lost };
+  return r.reply?.ok ? { ok: 1, error: "" } : { ok: 0, error: refused(r.reply, r.trace) };
 }
 
-/** Выход после записи: на Windows запись в канал асинхронна, а незакрытый stdin сам процесс не отпустит. */
-const end = (word, code) => process.stdout.write(`${word}\n`, () => process.exit(code));
-
-async function main() {
-  const [callsign, flag, url] = process.argv.slice(2);
-  if (!callsign || (flag && (flag !== "--url" || !url))) {
-    console.error("вызов: <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]");
-    process.exitCode = 2;
-    return;
+if (import.meta.url === `file:///${process.argv[1]?.replace(/\\/g, "/")}` || process.argv[1]?.endsWith("send.mjs")) {
+  const made = frameOf(process.argv.slice(2));
+  if (!made) {
+    console.error(usage);
+    process.exit(2);
   }
-  const limit = setTimeout(() => end(`stdin не закрыт за ${LIMIT_MS} мс`, 1), LIMIT_MS);
-  const input = await read(process.stdin);
-  clearTimeout(limit);
-  const [, line, text] = input.match(/^([^\n]*)\n?(.*)$/s);
-  const { ok, error } = await send(callsign, text, { key: line.trim(), url });
-  end(ok ? "ok" : error, ok ? 0 : 1);
+  const key = await firstLine();
+  if (!key) {
+    console.error("нет пропуска в stdin");
+    process.exit(2);
+  }
+  const r = await post(made.base, key, made.frame, 120_000);
+  if (r.lost) {
+    console.error("флот не ответил: " + r.lost);
+    process.exit(2);
+  }
+  if (!r.reply?.ok) {
+    console.error(refused(r.reply, r.trace));
+    process.exit(1);
+  }
+  console.log(JSON.stringify(r.reply.result ?? {}));
 }
-
-// Не import.meta.main: на Node 24.1 это выход 0 без отправки. Запуск через ссылку: argv[1] — путь ссылки. При импорте из -e argv[1] — не файл.
-if (existsSync(process.argv[1]) && realpathSync(process.argv[1]) === import.meta.filename) main();

@@ -1,20 +1,13 @@
-# Проверка на каждый пуш и PR; из main после зелёных проверок — загрузка версий без выкладки.
+# Switchboard: гейт импортов, типы и тесты на каждый push в main и PR; Keeper — на Linux и Windows.
 name: ci
-
 on:
   push:
     branches: [main]
   pull_request:
-  workflow_dispatch:
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    # предел задания: общий предел прогона тестов (15 мин) и установка с типами
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -22,40 +15,29 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: package-lock.json
       - run: npm ci
-      - name: гейт манифестов
-        run: npm run gate
-      - name: typecheck
-        run: npx tsc -p tsconfig.json
-      - name: тесты — Node-группа и пакеты Worker-модулей и веба разом, у каждого предел, у прогона общий
-        run: node scripts/test-packages.mjs
+      - run: node tools/gate/gate.mjs
+      - name: типы
+        run: for p in protocol platform services host web; do (cd $p && npx tsc --noEmit); done
+      - name: тесты
+        run: for p in protocol platform services host web; do (cd $p && npx vitest run); done
+      - name: сборка страницы
+        run: cd web && VITE_FLEET=origin npx vite build
 
-  upload:
-    # загрузка без выкладки: stable двигают «выпуски» (releases.deploy) по слову человека или агента
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test]
-    runs-on: ubuntu-latest
-    # предел задания: вдвое выше самого долгого замера (2 мин 0 с) — зависшая загрузка не держит очередь upload
-    timeout-minutes: 4
-    concurrency:
-      group: upload
-      cancel-in-progress: false
-    env:
-      # версии Worker'ов — wrangler; каталог — запросом releases.upload пропуском программы ci, ключей R2 у CI нет
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      SWITCHBOARD_PASS: ${{ secrets.SWITCHBOARD_CI_PASS }}
-      SWITCHBOARD_RELEASES: https://switchboard-releases.yuridevx1608.workers.dev
+  keeper:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: keeper
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-go@v5
         with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - name: Worker-модули — версии с меткой 1.1.<прогон>
-        run: node scripts/deploy-workers.mjs --upload 1.1.${{ github.run_number }}
-      - name: ядро Host в каталог — когда поднят его номер
-        run: node tools/release-cli/cli.ts release core
-      - name: модули в каталог — у каждого свой номер; тот же номер с другим кодом — отказ «подними номер»
-        run: node tools/release-cli/cli.ts release modules
+          go-version-file: keeper/go.mod
+      - run: go vet ./...
+      - run: go test ./...

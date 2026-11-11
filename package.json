@@ -1,52 +1,27 @@
 {
-  "name": "switchboard",
+  "name": "switchboard-v2",
   "private": true,
   "type": "module",
   "workspaces": [
     "protocol",
-    "tools/*",
-    "workers/*",
-    "host/core",
-    "host/modules/*",
-    "web/packages/*",
-    "web/phone",
-    "web/pult"
+    "platform",
+    "services",
+    "host",
+    "web"
   ],
   "scripts": {
-    "gate": "node tools/manifest-gate/cli.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/web-typecheck.mjs",
-    "test": "npm run gate && node scripts/test-packages.mjs",
-    "test:node": "vitest run",
-    "shots": "node scripts/shots/run.mjs",
-    "drag": "node scripts/shots/drag.mjs",
-    "front": "node scripts/design/serve.mjs --fleet"
+    "gate": "node tools/gate/gate.mjs",
+    "typecheck": "tsc -b",
+    "test": "node tools/test/run.mjs"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.23.0",
-    "@cloudflare/workers-types": "5.20261031.1",
-    "@lydell/node-pty": "1.2.0-beta.18",
-    "@types/node": "24.19.2",
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3",
-    "@vitest/runner": "4.1.12",
-    "@vitest/snapshot": "4.1.12",
-    "esbuild": "0.28.2",
-    "happy-dom": "21.0.4",
-    "playwright-core": "1.64.1",
     "typescript": "5.9.3",
-    "vitest": "4.1.12",
-    "wrangler": "4.156.0"
-  },
-  "engines": {
-    "node": ">=24"
-  },
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.321"
+    "vitest": "4.1.12"
   },
   "allowScripts": {
     "esbuild@0.28.1": true,
     "esbuild@0.28.2": true,
     "workerd@1.20260815.1": true,
-    "workerd@1.20261023.1": true
+    "workerd@1.20261109.1": true
   }
 }

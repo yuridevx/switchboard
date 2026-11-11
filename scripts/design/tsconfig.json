@@ -1,8 +1,0 @@
-{
-  "extends": "../../web/tsconfig.web.json",
-  "compilerOptions": {
-    "noEmit": true,
-    "paths": { "@proto/api": ["./api.ts"] }
-  },
-  "include": ["*.ts", "*.tsx", "../../web/css.d.ts"]
-}
