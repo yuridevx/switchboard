@@ -1,15 +1,11 @@
 // Поднять сессию из точки: перенос, копия, откат и смена папки — один путь: проверка → блоки → папка и файлы → сессия → точка подъёма.
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve, sep } from "node:path";
-import { promisify } from "node:util";
-import { zstdDecompress } from "node:zlib";
+import { rmSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { claudeDir, clientPath, refuse } from "@switchboard/host";
 import type { Ctx, Frame, Host, Result, Session } from "@switchboard/host";
-import { bring, BUNDLE, folderOf, type Folder, type Summary } from "./git.ts";
-import { projectDir, r2Fetch, sha256, type PointExtra, type PointFile, type Why } from "./snap.ts";
-
-const unpack = promisify(zstdDecompress);
+import { bring, BUNDLE, download, folderOf, Refused, setAside, writeFiles, type Folder, type PointFile, type Summary } from "@switchboard/pointfiles";
+import { projectDir, type PointExtra, type Why } from "./snap.ts";
 
 type Row = { sid: string; callsign?: string; files: PointFile[]; git?: Summary };
 type Check = Omit<Folder, "folder"> & { folder: Folder["folder"] | "keep" };
@@ -47,44 +43,14 @@ async function plan(host: Host, req: Frame): Promise<Plan> {
   return { sid, point, copy, dir, row, owner: got.owner, links: got.links, previous, check };
 }
 
-async function block(hash: string, url: string, host: Host): Promise<Buffer> {
-  const res = await r2Fetch(host, url);
-  const packed = Buffer.from(await res.arrayBuffer());
-  const part = await unpack(packed).catch(() => {
-    throw refuse("bad_point", `блок ${hash} не открылся`);
-  });
-  if (sha256(part) !== hash) throw refuse("bad_point", `блок ${hash} не тот`);
-  return part;
-}
-
-/** Все файлы точки в памяти: файлы на машине трогаются, только когда все блоки на руках. */
-async function download(host: Host, p: Plan): Promise<Map<string, Buffer>> {
-  const out = new Map<string, Buffer>();
-  for (const f of p.row.files) {
-    const parts: Buffer[] = [];
-    for (const hash of f.b) parts.push(await block(hash, p.links[hash], host));
-    out.set(f.p, Buffer.concat(parts));
-  }
-  return out;
-}
-
-/** Прежние копии разговора в других папках проектов уходят в сторону: resume находит файл по sid во всех папках. */
-function setAside(sid: string, target: string) {
-  const projects = join(claudeDir(), "projects");
-  for (const name of existsSync(projects) ? readdirSync(projects) : []) {
-    const old = join(projects, name, `${sid}.jsonl`);
-    if (join(projects, name) !== target && existsSync(old)) renameSync(old, `${old}.aside-${Date.now()}`);
-  }
-}
-
-/** Файлы точки в папку проекта: путь из реестра не выходит из неё, файл появляется целиком. */
-function writeFiles(target: string, files: Map<string, Buffer>, sid: string, source: string) {
-  const paths = [...files.keys()].filter((p) => p !== BUNDLE).map((p) => [p, resolve(target, p.startsWith(sid) ? source + p.slice(sid.length) : p)]);
-  for (const [p, file] of paths) if (!file.startsWith(resolve(target) + sep)) throw refuse("bad_point", `путь файла точки вне папки проекта: ${p}`);
-  for (const [p, file] of paths) {
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(`${file}.tmp`, files.get(p)!);
-    renameSync(`${file}.tmp`, file);
+/** Отказ раскладки — словом Host; хранилище не ответило — ещё строка журнала. */
+async function laid<T>(host: Host, run: () => Promise<T> | T): Promise<T> {
+  try {
+    return await run();
+  } catch (e) {
+    if (!(e instanceof Refused)) throw e;
+    if (e.word === "store_failed") host.log({ kind: "refuse", ev: "store", word: e.word, why: e.message });
+    throw refuse(e.word, e.message);
   }
 }
 
@@ -93,13 +59,13 @@ function writeFiles(target: string, files: Map<string, Buffer>, sid: string, sou
  * файл сессии остаётся её файлом (опыт на настоящем claude: resume с forkSession берёт файл под другим именем, разговор — разговор точки).
  */
 async function lay(host: Host, p: Plan): Promise<{ branch: string | null; source: string }> {
-  const files = await download(host, p);
+  const files = await laid(host, () => download(p.row.files, p.links));
   const target = projectDir(p.dir);
   const own = p.copy && p.previous !== undefined && resolve(p.previous.info.cwd) === resolve(p.dir);
   const source = own ? randomUUID() : p.sid;
-  const branch = p.row.git && (p.check.folder === "empty" || p.check.folder === "same") ? await bring(p.dir, p.row.git, p.check.folder, files.get(BUNDLE)) : null;
-  if (!p.copy) setAside(p.sid, target);
-  writeFiles(target, files, p.sid, source);
+  const branch = p.row.git && (p.check.folder === "empty" || p.check.folder === "same") ? await laid(host, () => bring(p.dir, p.row.git!, p.check.folder as "empty" | "same", files.get(BUNDLE))) : null;
+  if (!p.copy) setAside(claudeDir(), p.sid, target);
+  await laid(host, () => writeFiles(target, files, p.sid, source));
   return { branch, source };
 }
 

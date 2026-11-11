@@ -60,7 +60,7 @@ async function browser(list: BuildList, relay = fleetRelay()) {
 
 describe("состав приложения", () => {
   it.each([
-    ["pult", pultParts, 18],
+    ["pult", pultParts, 19],
     ["phone", phoneParts, 14],
   ])("5138 5139 · модули стенда %s — те же, что в его into; набор проходит гейт ядра", (name, parts, count) => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
@@ -150,7 +150,7 @@ describe("оболочка страницы", () => {
   it("6903 · колонка разделов: «Перейти… Ctrl K», Вам, Работа, Инциденты, группа «Флот» с профилями; машин и имени устройства в колонке нет", async () => {
     // источник: прототип «Пульт и телефон» (подписан пользователем 2 нояб.); «не нужны внизу машины» — комментарий пользователя
     const t = await pult();
-    expect(t.$$(".sb-navcol .sb-nv").map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "accounts", "profiles", "journal", "points", "settings"]);
+    expect(t.$$(".sb-navcol .sb-nv").map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "accounts", "profiles", "journal", "points", "people", "settings"]);
     expect(t.$$(".sb-navcol .sb-grp").map((x) => x.textContent)).toEqual(["Флот"]);
     expect(t.$(".sb-navcol .sb-nv.sub")).toBeNull();
     expect(t.$(".sb-goto")).not.toBeNull();
@@ -291,14 +291,14 @@ describe("статика и архив", () => {
   it.each(["pult", "phone"])("4185 4187 · %s: dist — app.js, sw.js, статика и значки; адресов relay и Worker'ов, модулей и ключа флота нет; значки те же; обработчик пушей работает из своего файла", async (name) => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): адресов relay в коде оболочек 0
     const app = join(root, "web", name);
-    const dist = join(app, "dist");
+    // своя папка вывода: настоящий dist/ в это время собирает упаковщик модулей в тестах release-cli
+    const dist = join(mkdtempSync(join(tmpdir(), `switchboard-shell-${name}-`)), "dist");
     // чьё: код; в архив каталога идёт вся папка: сборка начинает с чистой, в том числе в свежей копии репо без dist
-    rmSync(dist, { recursive: true, force: true });
     if (name === "pult") {
       mkdirSync(dist);
       writeFileSync(join(dist, "stale.js"), "");
     }
-    const r = spawnSync(process.execPath, [join(app, "build.mjs")], { encoding: "utf8" });
+    const r = spawnSync(process.execPath, [join(app, "build.mjs"), dist], { encoding: "utf8", timeout: 60_000 });
     expect(r.status).toBe(0);
     expect(readdirSync(dist).sort()).toEqual(["app.js", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "index.html", "manifest.webmanifest", "sw.js"]);
     for (const f of ["app.js", "sw.js", "index.html"]) {
@@ -340,7 +340,7 @@ describe("статика и архив", () => {
       workers: { ...FakeRelay.WORKERS, relay: "https://relay.from-build/" },
     };
     const files = webBuild(shell.tgz, packed, list);
-    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(19);
+    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(20);
 
     // сборка на диске; m/<модуль>.<версия>.js — пакетом @switchboard/<модуль>, как import map страницы
     const dir = mkdtempSync(join(tmpdir(), "switchboard-pult-build-"));
@@ -389,7 +389,7 @@ describe("статика и архив", () => {
     await flush();
     const rows = [...document.querySelectorAll(".sb-palit")].filter((r) => ["раздел", "Флот"].includes(r.querySelector(".k")?.textContent ?? "")).map((r) => r.querySelector(".l")!.textContent);
     expect(document.querySelector(".sb-palit.first .l")!.textContent).toBe("Вам");
-    expect(rows).toEqual(["Вам", "Работа", "Инциденты", "Аккаунты", "Профили", "Журнал", "Точки", "Настройки", "Настройки: выпуски", "Настройки: пропуска", "Настройки: github и устройство"]);
+    expect(rows).toEqual(["Вам", "Работа", "Инциденты", "Аккаунты", "Профили", "Журнал", "Сессии", "Люди", "Настройки", "Настройки: выпуски", "Настройки: правила модели", "Настройки: github и устройство"]);
   }, 120_000);
 });
 

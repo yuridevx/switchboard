@@ -9,8 +9,12 @@ export const UNREACHED = "gate_unavailable";
 
 /** Номер приглашения и пропуска: их и показываем, секрет — никогда. */
 export const inviteNumber = (invite: string) => invite.split(".")[0];
-/** Пропуск без секрета: client.phone.k2a9. */
-export const keyId = (key: string) => key.split(".").slice(0, 3).join(".");
+/** Пропуск — подпись.номер.секрет (прежняя выдача — role.name.номер.секрет): без секрета — pult.k2a9. */
+export const keyId = (key: string) => key.split(".").slice(0, -1).join(".");
+/** Номер пропуска. */
+export const keyKid = (key: string) => key.split(".").at(-2) ?? "";
+/** Имя устройства из пропуска: pult.k2a9.… → pult, client.phone.k2a9.… → phone. */
+export const keyName = (key: string) => key.split(".").at(-3) ?? "";
 
 const INVITE = /^[\w-]+\.[\w-]+$/;
 
@@ -57,7 +61,7 @@ export function createPass(page: Page, route: Route, stop: (word: string, invite
       if (page.platform.ios && !page.platform.standalone) return stop("install"), null;
       if (had) {
         route.clear();
-        if (had.split(".")[2] === inviteNumber(invite)) return had;
+        if (keyKid(had) === inviteNumber(invite)) return had;
         page.key = had;
         return stop("replace"), null;
       }

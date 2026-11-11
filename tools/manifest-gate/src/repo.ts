@@ -12,7 +12,7 @@ const NEVER = /^(node_modules|dist|\..*)$/;
 const VIEW = "@switchboard/web-view";
 /** Привязка Worker в env пишется заглавными; строчное имя — поле объекта. */
 const BINDING = /^[A-Z][A-Z0-9_]*$/;
-const FACTS = ["imports", "reach", "testReach", "rpc"] as const;
+const FACTS = ["imports", "reach", "testReach", "rpc", "types"] as const;
 
 /** Устройство файла: куда он импортирует и какие привязки Worker зовёт. Комментарии и строки парсер не считает. */
 function read(ts: typeof TS, file: string, text: string) {
@@ -35,6 +35,17 @@ function read(ts: typeof TS, file: string, text: string) {
   };
   walk(ts.createSourceFile(file, text, ts.ScriptTarget.Latest));
   return { specs, calls };
+}
+
+/** Типы, которые файл отдаёт: export type, export interface и export type { … } from. */
+function exportedTypes(ts: typeof TS, file: string, text: string): string[] {
+  const out: string[] = [];
+  const exported = (n: TS.Node) => ts.canHaveModifiers(n) && ts.getModifiers(n)?.some((x) => x.kind === ts.SyntaxKind.ExportKeyword);
+  for (const n of ts.createSourceFile(file, text, ts.ScriptTarget.Latest).statements) {
+    if ((ts.isTypeAliasDeclaration(n) || ts.isInterfaceDeclaration(n)) && exported(n)) out.push(n.name.text);
+    else if (ts.isExportDeclaration(n) && n.exportClause && ts.isNamedExports(n.exportClause)) out.push(...n.exportClause.elements.map((e) => e.name.text));
+  }
+  return out;
 }
 
 /** Модули монорепо в порядке зависимостей; `dir` — папка от корня. Факты кода — при первом чтении: release-cli и стендам нужны только манифесты, а разбор дорог. */
@@ -64,7 +75,9 @@ export function loadRepo(root: string) {
   };
   const scan = (m: (typeof mods)[number]) => {
     const ts: typeof TS = process.getBuiltinModule("node:module").createRequire(import.meta.url)("typescript");
-    const facts = { imports: [] as string[], reach: [] as string[], testReach: [] as string[], rpc: [] as string[] };
+    const facts = { imports: [] as string[], reach: [] as string[], testReach: [] as string[], rpc: [] as string[], types: [] as string[] };
+    const contract = `${m.dir}/contract.ts`;
+    if (found.has(contract)) facts.types.push(...exportedTypes(ts, contract, text(contract)));
     for (const file of files) {
       if (moduleAt(file) !== m || !CODE.test(file) || file.endsWith(".d.ts")) continue;
       const { specs, calls } = read(ts, file, text(file));

@@ -1,11 +1,12 @@
-// gate: привязка Gate внутри аккаунта и POST по адресу gate; пропуска — база D1 (passes.ts).
+// gate: привязка Gate внутри аккаунта и POST по адресу gate; пропуска — база D1 (passes.ts); вход OAuth внешних клиентов (oauth.ts).
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { accepts, BAD_FRAME, fail, ok, type Frame } from "@switchboard/protocol";
-import { CONTRACT, type GateApi, type Pass } from "../contract.ts";
+import { CONTRACT, type GateApi, type ListFilter } from "../contract.ts";
 import { answer, door, refuseFrame } from "./entrance.ts";
-import { invite, list, redeem, revoke, revoked, verify } from "./passes.ts";
+import { oauth } from "./oauth.ts";
+import { filterWrong, invite, list, redeem, revoke, verify } from "./passes.ts";
 
-type Env = { DB: D1Database };
+export type Env = { DB: D1Database; PULT: string };
 
 /** Предел тела: дверь открыта без пропуска, запросы её — короткие поля. */
 const MAX_BODY = 16 * 1024;
@@ -17,11 +18,8 @@ export class Gate extends WorkerEntrypoint<Env> implements GateApi {
   revoke(kid: string) {
     return revoke(this.env.DB, kid);
   }
-  revoked(ids: string[]) {
-    return revoked(this.env.DB, ids);
-  }
-  list(role?: Pass["role"]) {
-    return list(this.env.DB, role);
+  list(o?: ListFilter) {
+    return list(this.env.DB, o);
   }
   redeem(code: string) {
     return redeem(this.env.DB, code);
@@ -34,12 +32,12 @@ async function work(f: Frame, db: D1Database): Promise<object> {
   const who = await verify(db, f.key);
   if ("error" in who) return who;
   if (f.type === "keys.invite") return invite(db, f, who.addr);
-  const role = f.role as Pass["role"] | undefined;
-  if (![undefined, "host", "client"].includes(role)) {
-    console.log(`bad_request keys.list от ${who.addr} · role — host или client`);
+  const why = filterWrong(f);
+  if (why) {
+    console.log(`bad_request keys.list от ${who.addr} · ${why}`);
     return { error: "bad_request" };
   }
-  return { passes: await list(db, role), you: who.addr };
+  return { passes: await list(db, f as ListFilter), you: who.addr };
 }
 
 async function serve(f: Frame, db: D1Database): Promise<Response> {
@@ -59,4 +57,6 @@ async function serve(f: Frame, db: D1Database): Promise<Response> {
   }
 }
 
-export default { fetch: (req: Request, env: Env) => door(req, MAX_BODY, (f) => serve(f, env.DB)) };
+export default {
+  fetch: (req: Request, env: Env) => oauth(req, env) ?? door(req, MAX_BODY, (f) => serve(f, env.DB)),
+};

@@ -1,0 +1,16 @@
+{
+  "name": "@switchboard/pointfiles",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./contract.ts"
+  },
+  "scripts": {
+    "test": "cd ../.. && vitest run tools/pointfiles"
+  },
+  "dependencies": {
+    "@switchboard/protocol": "1.0.0",
+    "@switchboard/blocks": "1.0.0"
+  }
+}

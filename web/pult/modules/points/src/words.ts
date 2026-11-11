@@ -9,7 +9,8 @@ export function refused(word: string, o: { who?: string; target?: string; from?:
     bad_point: "Точка не открылась — причина в журнале машины",
     not_owner: "Сессию уже подняли на другой машине",
     open_failed: `Не поднялась на ${o.target}${o.from ? ` — снова идёт на ${o.from}` : ""}`,
-    not_r2: "Сессия не в R2",
+    not_archived: "Сессия не в архиве",
+    no_search: "Поиска нет: хранилище флота — R2",
     running: "Сессия ещё идёт — сначала точка со стопом",
     name_taken: "Имя занято на этой машине",
     slot_required: "Выберите слот",
@@ -29,7 +30,7 @@ export function checkOf(p: Probe, target: string): Check {
   const { folder = "", files, sessions = [] } = p;
   const dirty = files === undefined ? "? файлов" : `${files} ${plural(files, "файл", "файла", "файлов")}`;
   const lines: Record<string, Omit<Check, "key">> = {
-    same: { text: "тот же репозиторий, своих правок нет — правки точки применятся", tone: "ok" },
+    same: { text: "", tone: "ok" },
     dirty: { text: `тот же репозиторий, но в нём свои правки (${dirty}): правки точки НЕ применятся, ваши файлы останутся`, tone: "wait" },
     empty: { text: `нет на ${target} — будет клон репозитория и правки точки поверх`, tone: "ok" },
     shared: { text: `здесь же ${sessions.join(", ")} — в этой папке будут ${countOf(sessions.length + 1, "сессия", "сессии", "сессий")}`, tone: "ok" },

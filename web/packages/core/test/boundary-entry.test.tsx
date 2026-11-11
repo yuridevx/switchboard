@@ -94,14 +94,14 @@ describe("пропуск и приглашение", () => {
     expect(t.relay.socks).toHaveLength(0);
     const text = t.$(".sb-full")!.textContent!;
     expect(text).toContain("Нужен пропуск флота");
-    expect(text).toContain("keys.invite client phone <почта>");
+    expect(text).toContain("keys.invite phone~<почта>");
     expect(text).toContain("Вход — только пропуском. Попросите агента флота выдать приглашение и откройте ссылку в этом приложении:");
     expect(text).toContain("Или вставьте приглашение:");
     expect(t.$<HTMLInputElement>(".sb-keyin")!.placeholder).toBe("приглашение или ссылка с #invite=");
     expect(shape(t.$(".sb-full")!)).toEqual(["div.sb-logo.xl", "div.sb-big", "p.", "code.sb-cmd", "p.", "input.sb-in.sb-keyin", "button.sb-cta", "p."]);
     expect(attrs(t.$(".sb-keyin")!)).toMatchObject({ type: "text", "aria-label": "Приглашение" });
     const w = await stand([mod().part], { store: memoryStore(), wide: true });
-    expect(w.$(".sb-full")!.textContent).toContain("keys.invite client <имя> <почта>");
+    expect(w.$(".sb-full")!.textContent).toContain("keys.invite <имя>~<почта>");
   });
 
   it("5197 · iPhone, повторный запуск с экрана «Домой»: в адресе то же приглашение, пропуск из него уже в хранилище — gate не спрашивается, hello с пропуском, адрес очищен", async () => {
@@ -272,8 +272,8 @@ describe("экраны остановки", () => {
   };
 
   it.each([
-    ["5103 revoked", "revoked", refused("revoked"), ["Пропуск отозван", "client.phone.k2a9 больше не принимают. Новый пропуск — приглашением от агента флота:", "keys.invite client phone <почта>", "Откройте ссылку-приглашение в этом приложении. Само приложение больше не подключается.", "Стереть данные приложения"], ["div.sb-ring.bad", "div.sb-big", "p.", "code.sb-cmd", "p.", "button.sb-cta"], "×", "wipe"],
-    ["5103 bad_key, широкий вид", "bad_key", refused("bad_key", "client.panel-desk.k3f1.Qa7sig", true), ["Пропуск не принят", "client.panel-desk.k3f1 не принят флотом. Новый пропуск — приглашением от агента флота:", "keys.invite client panel-desk <почта>"], ["div.sb-ring.bad", "div.sb-big", "p.", "code.sb-cmd", "p.", "button.sb-cta"], "×", "wipe"],
+    ["5103 revoked", "revoked", refused("revoked"), ["Пропуск отозван", "client.phone.k2a9 больше не принимают. Новый пропуск — приглашением от агента флота:", "keys.invite phone~<почта>", "Откройте ссылку-приглашение в этом приложении. Само приложение больше не подключается.", "Стереть данные приложения"], ["div.sb-ring.bad", "div.sb-big", "p.", "code.sb-cmd", "p.", "button.sb-cta"], "×", "wipe"],
+    ["5103 bad_key, широкий вид", "bad_key", refused("bad_key", "client.panel-desk.k3f1.Qa7sig", true), ["Пропуск не принят", "client.panel-desk.k3f1 не принят флотом. Новый пропуск — приглашением от агента флота:", "keys.invite panel-desk~<почта>"], ["div.sb-ring.bad", "div.sb-big", "p.", "code.sb-cmd", "p.", "button.sb-cta"], "×", "wipe"],
     ["4007 contract_mismatch", "contract_mismatch", refused("contract_mismatch"), ["Приложение устарело", "У приложения proto 1; relay эту версию не принял — его обновили, пока приложение было открыто.", "Перезагрузить"], ["div.sb-ring.wait", "div.sb-big", "p.", "button.sb-cta"], "↻", null],
     ["4008 прочий отказ relay", "replaced", refused("replaced"), ["Связь остановлена", "relay закрыл соединение: replaced.", "Перезагрузить"], ["div.sb-ring.bad", "div.sb-big", "p.", "button.sb-cta"], "×", null],
   ])("%s: причина, текст, разметка, второго hello нет, разделов нет", async (_n, why, o, want, kids, ring, act) => {

@@ -158,6 +158,8 @@ export interface Module {
     open?(s: Session): void;
     /** query() сессии закрыт: stop, remove, сбой процесса, restart */
     close?(s: Session): void;
+    /** сессию убрали (remove): после close, до того как разделы сессии стёрты */
+    remove?(s: Session): void;
     /** Host поднял сессии из хранилища и запустил их процессы: с этого шага модуль зовёт запросы к сессиям. Раз за старт Host. */
     ready?(): void;
   };
@@ -303,6 +305,8 @@ export interface Host {
   cli(args: string[], opts?: { env?: Record<string, string>; input?: string }): Promise<{ code: number | null; out: string }>;
   /** Последний roster от relay; до первого — null. Один на Host, как у ядра веба. */
   roster(): Roster | null;
+  /** Адрес Worker-модуля — владельца имени name из своих uses — по списку сборки; такого Worker в сборке нет — undefined. Имени нет в uses — ошибка модуля. */
+  worker(name: string): string | undefined;
 }
 
 // ───────────────────────── отказ словом ─────────────────────────

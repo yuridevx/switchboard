@@ -32,10 +32,10 @@ export function cellOf(k: KState | undefined, online: boolean, part: string, pla
   return { text: mark(version ?? want ?? "—"), tone: "ok" };
 }
 
-/** Этот ли пропуск моего устройства: адрес от gate, пока его нет — имя из пропуска. */
-export const isMine = (app: { address(): string | null; name: string }, p: { addr: string; name: string; role: string }) => {
+/** Этот ли пропуск моего устройства: адрес от gate, пока его нет — имя устройства из пропуска (адрес имя~почта). */
+export const isMine = (app: { address(): string | null; name: string }, p: { addr: string }) => {
   const address = app.address();
-  return address ? p.addr === address : p.role === "client" && p.name === app.name;
+  return address ? p.addr === address : p.addr.startsWith(`${app.name}~`);
 };
 
 const WORDS: Record<string, string> = {
@@ -45,8 +45,6 @@ const WORDS: Record<string, string> = {
   no_part: "такой части нет",
   cf_failed: "Cloudflare не принял",
   bad_version: "номер версии не того вида",
-  name_taken: "у адреса уже есть живой пропуск — сначала отзовите прежний",
-  unknown_key: "такого пропуска нет",
   not_installed: "приложение GitHub не допущено к репозиторию",
   app_exists: "приложение GitHub флота уже есть",
 };

@@ -1,4 +1,4 @@
-// Модуль точек Host: пометка «в R2», когда снимать точку и запросы контракта.
+// Модуль точек Host: пометка «в архиве», когда снимать точку и запросы контракта.
 import { existsSync } from "node:fs";
 import { isRefusal, refuse } from "@switchboard/host";
 import type { Frame, Host, Module, Session } from "@switchboard/host";
@@ -10,8 +10,8 @@ const GAP_MS = 2 * 60_000;
 const LONG_MS = 10 * 60_000;
 const TURN_MS = 6 * 3_600_000;
 
-/** Раздел сессии: пометка; base — копия, первая точка ещё не снята. */
-type Mark = { r2: true; base?: number };
+/** Раздел сессии: есть — сессия в архиве; base — копия, первая точка ещё не снята. */
+type Mark = { base?: number };
 
 export function make(): Module {
   let host: Host;
@@ -62,12 +62,12 @@ export function make(): Module {
     await host.request("session.remove", { callsign: s.info.callsign });
   }
 
-  /** Точка по поводу машины: сбой — в поле r2 и журнале, запрашивать некому. */
+  /** Точка по поводу машины: сбой — в поле archive и журнале, запрашивать некому. */
   function auto(s: Session, why: Why = "rule") {
     const mark = markOf(s).get();
     // до точки старта правило молчит: первая точка после перезапуска Host — она
     if (down || leaving.has(s.info.callsign) || !mark || (!started && why === "rule") || !existsSync(conversationOf(s))) return;
-    const first = mark.base === undefined ? save(s, why) : save(s, "raise", { base: mark.base }).then(() => markOf(s).update((m) => m && { r2: true }));
+    const first = mark.base === undefined ? save(s, why) : save(s, "raise", { base: mark.base }).then(() => markOf(s).update((m) => m && {}));
     void first.catch((e) => (isRefusal(e) && e.word === "not_owner" ? leave(s) : undefined)).catch(() => {});
   }
 
@@ -122,7 +122,7 @@ export function make(): Module {
 
   return {
     fields: {
-      r2: (s) => (marked(s) ? (errors.get(s.info.callsign) ?? {}) : undefined),
+      archive: (s) => (marked(s) ? (errors.get(s.info.callsign) ?? {}) : undefined),
     },
     on: {
       state(s, state) {
@@ -144,10 +144,10 @@ export function make(): Module {
       },
     },
     requests: {
-      async "session.r2"(req, ctx) {
+      async "session.archive"(req, ctx) {
         const s = sessionOf(req);
         if (req.on === true) {
-          markOf(s).update((m) => m ?? { r2: true });
+          markOf(s).update((m) => m ?? {});
           s.refresh();
           if (!existsSync(conversationOf(s))) return { point: null };
           return { point: (await save(s, "save")).id };
@@ -158,14 +158,14 @@ export function make(): Module {
         markOf(s).set(undefined);
         errors.delete(callsign);
         endTurn(callsign);
-        host.log({ kind: "note", ev: "r2_off", callsign, why: `${callsign}: пометка «в R2» снята, точки удалены из R2` });
+        host.log({ kind: "note", ev: "archive_off", callsign, why: `${callsign}: пометка «в архиве» снята, точки удалены из архива` });
         s.refresh();
         return { deleted: (r.result as { points: number }).points };
       },
 
       async "points.save"(req, ctx) {
         const s = sessionOf(req);
-        if (!marked(s)) throw refuse("not_r2", `${s.info.callsign} не в R2`);
+        if (!marked(s)) throw refuse("not_archived", `${s.info.callsign} не в архиве`);
         if (req.stop === true) {
           if (req.interrupt !== true) {
             if (s.state === "busy") await turnEnd(s, ctx.signal);
@@ -182,7 +182,7 @@ export function make(): Module {
 
       "points.raise": (req, ctx) =>
         raise(req, ctx, {
-          mark: (s, base) => markOf(s).set({ r2: true, ...(base === undefined ? {} : { base }) }),
+          mark: (s, base) => markOf(s).set(base === undefined ? {} : { base }),
           save,
           drop: (callsign) => void leaving.add(callsign),
         }),

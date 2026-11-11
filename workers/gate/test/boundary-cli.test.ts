@@ -18,7 +18,7 @@ const REDEEM = join(ROOT, bin["switchboard-redeem"]);
 /** Предел процесса: тот же, что у теста; зависший инструмент не остаётся жить. */
 const LIMIT_MS = 5_000;
 const seed = (args: string[]) => spawnSync(process.execPath, [SEED, ...args], { encoding: "utf8", timeout: LIMIT_MS });
-const USAGE_SEED = "использование: switchboard seed <host|client> <имя> [<почта человека у client>]\n";
+const USAGE_SEED = "использование: switchboard seed <@машина | устройство~почта> [~почта владельца машины]\n";
 const USAGE_REDEEM = "использование: <приглашение в stdin> | switchboard redeem <адрес gate>\n";
 
 const used = new Set<string>();
@@ -55,23 +55,23 @@ function redeem(args: string[], input: string, file = REDEEM): Promise<{ status:
 }
 
 describe("seed", () => {
-  it("5013 · seed host laptop → инструкция вставки «ждёт приёма» с хэшем в выводе, приглашение — в поток ошибок; секрета в выводе нет; у client почта в инструкции", () => {
-    const r = seed(["host", "laptop"]);
+  it("5013 · seed @laptop → инструкция вставки «ждёт приёма» с хэшем в выводе, приглашение — в поток ошибок; секрета в выводе нет; владелец машины в инструкции", () => {
+    const r = seed(["@laptop"]);
     expect(r.status).toBe(0);
     const inv = r.stderr.trim();
     expect(inv).toMatch(/^[a-z0-9]{4}\.[A-Za-z0-9_-]{43}$/);
     const [kid, code] = inv.split(".");
     const hash = createHash("sha256").update(code).digest("hex");
-    expect(r.stdout).toMatch(new RegExp(`^INSERT INTO passes \\(id, role, name, person, state, hash, by, at\\) VALUES \\('${kid}', 'host', 'laptop', NULL, 'wait', '${hash}', 'seed', \\d+\\);\\n$`));
+    expect(r.stdout).toMatch(new RegExp(`^INSERT INTO passes \\(id, addr, owner, state, hash, by, at\\) VALUES \\('${kid}', '@laptop', NULL, 'wait', '${hash}', 'seed', \\d+\\);\\n$`));
     expect(r.stdout).not.toContain(code);
     expect(Math.abs(Number(/(\d+)\);\n$/.exec(r.stdout)![1]) - Date.now())).toBeLessThan(60_000);
-    expect(seed(["client", "phone", "x@y"]).stdout).toContain("'client', 'phone', 'x@y', 'wait'");
+    expect(seed(["@laptop", "~x@y.z"]).stdout).toContain("'@laptop', '~x@y.z', 'wait'");
   });
 
   it.each([
     ["без аргументов", []],
-    ["имя с недопустимым знаком", ["host", "lap.top"]],
-    ["почта с кавычкой", ["client", "phone", "o'x@y"]],
+    ["имя с недопустимым знаком", ["@lap.top"]],
+    ["почта с кавычкой", ["phone~o'x@y.z"]],
   ])("%s → выход 2, использование; инструкции нет", (_n, args) => {
     const r = seed(args);
     expect(r.status).toBe(2);

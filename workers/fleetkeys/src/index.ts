@@ -1,9 +1,9 @@
 // Worker fleetkeys: кадр с пропуском → строки своей базы. Значения ключей в журнал не идут.
 import { entrance, type GateApi } from "@switchboard/gate";
-import { accepts, fail, kindOf, ok, userOf, within, type Frame } from "@switchboard/protocol";
+import { accepts, fail, kindOf, ok, within, type Frame } from "@switchboard/protocol";
 import { CONTRACT, KEY_NAME, type KeyConfig } from "../contract.ts";
 
-type Env = { DB: D1Database; GATE: GateApi; RELAY: { deliver(f: Frame): Promise<number> } };
+type Env = { DB: D1Database; GATE: GateApi; RELAY: { broadcast(f: Frame): Promise<number> } };
 type Row = { name: string; env: string; settings: string; key: string };
 
 const ME = ".fleetkeys";
@@ -13,19 +13,9 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const isEnv = (v: unknown): v is Record<string, string> => isObject(v) && Object.values(v).every((x) => typeof x === "string");
 const config = (r: Row): KeyConfig => ({ env: JSON.parse(r.env), settings: JSON.parse(r.settings) });
 
-/** Кадр смены каждой машине: машина вне связи обновит папку после подключения, поэтому сбой — только строка журнала. */
+/** Кадр смены каждой машине: машина вне связи обновит ключ после подключения, поэтому сбой — только строка журнала. */
 async function announce(env: Env, name: string): Promise<void> {
-  let machines: string[];
-  try {
-    machines = (await within(env.GATE.list("host"), "gate не ответил на list")).map((p) => p.name);
-  } catch (e) {
-    return line({ kind: "refuse", ev: "fleetkeys.changed", word: "offline", name, why: `gate.list: ${e}` });
-  }
-  await Promise.all(
-    machines.map((machine) =>
-      within(env.RELAY.deliver({ type: "fleetkeys.changed", v: 1, to: `@${machine}`, from: ME, name }), "relay не ответил").catch((e) => line({ kind: "refuse", ev: "fleetkeys.changed", word: "offline", name, why: `relay.deliver → @${machine}: ${e}` })),
-    ),
-  );
+  await within(env.RELAY.broadcast({ type: "fleetkeys.changed", v: 1, from: ME, name }), "relay не ответил").catch((e) => line({ kind: "refuse", ev: "fleetkeys.changed", word: "offline", name, why: `relay.broadcast: ${e}` }));
 }
 
 async function frame(f: Frame, env: Env): Promise<Frame[]> {
@@ -49,7 +39,6 @@ async function frame(f: Frame, env: Env): Promise<Frame[]> {
     const r = await row();
     return r ? [{ ...ok(id, { ...config(r), key: r.key }), to: from }] : refuse("no_key", `ключа ${name} нет`);
   }
-  if (!userOf(from!)) return refuse("not_user", `${from} — не человек и не его устройство`);
 
   if (type === "fleetkeys.remove") {
     const { meta } = await env.DB.prepare("DELETE FROM keys WHERE name = ?").bind(name).run();

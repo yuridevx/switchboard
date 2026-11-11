@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { stand } from "@switchboard/host";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -22,9 +23,9 @@ const pkg = (name: string, test?: string) => JSON.stringify({ name, private: tru
 
 describe("прогон пакетов: test-packages", { timeout: CMD_MS }, () => {
   /** Монорепо во временной папке: скрипт считает корень от своего файла. */
-  function repo(packages: Record<string, string | undefined>) {
+  function repo(packages: Record<string, string | undefined>, scripts?: Record<string, string>) {
     const dir = temp("packages");
-    write(join(dir, "package.json"), JSON.stringify({ name: "r", private: true, workspaces: ["tools/*", "workers/*", "web/packages/*", "web/phone"] }));
+    write(join(dir, "package.json"), JSON.stringify({ name: "r", private: true, workspaces: ["tools/*", "workers/*", "web/packages/*", "web/phone"], ...(scripts ? { scripts } : {}) }));
     for (const d of ["tools", "workers", "web/packages"]) mkdirSync(join(dir, d), { recursive: true });
     copyFileSync(join(SCRIPTS, "test-packages.mjs"), (mkdirSync(join(dir, "scripts")), join(dir, "scripts", "test-packages.mjs")));
     for (const [p, test] of Object.entries(packages)) write(join(dir, p, "package.json"), pkg(p.replaceAll("/", "-"), test));
@@ -62,7 +63,7 @@ describe("прогон пакетов: test-packages", { timeout: CMD_MS }, () =
     expect(r.out).not.toContain("workers/");
   });
 
-  it("пакет не уложился в предел — FAIL с причиной словами, снято всё дерево: потомок мёртв, прогон его не ждёт (слово пользователя 2 нояб., опыт 5 нояб.: при пределе 1 с ждал все 25 с)", () => {
+  it("пакет не уложился в предел — FAIL с причиной словами, снято всё дерево: потомок мёртв, прогон его не ждёт (слово пользователя 2 нояб., опыт 5 нояб.: при пределе 1 с ждал все 25 с)", async () => {
     const dir = repo({ "workers/hung": `node -e "require('fs').writeFileSync('pid',String(process.pid));setTimeout(()=>{},60000)"` });
     const f = join(temp("packages-pre"), "pre.mjs");
     write(f, `const orig = globalThis.setTimeout;
@@ -74,7 +75,43 @@ globalThis.setTimeout = (fn, ms, ...a) => orig(fn, ms === 360000 ? 8000 : ms, ..
     expect(r.out).toMatch(/^FAIL workers\/hung · \d+ с · не уложился в 6 мин$/m);
     expect(Date.now() - started).toBeLessThan(40_000);
     const pid = Number(readFileSync(join(dir, "workers", "hung", "pid"), "utf8"));
-    expect(() => process.kill(pid, 0)).toThrow();
+    await stand.until(() => stand.isDead(pid));
+  });
+
+  it("Node-группа корня — скрипт test:node, одна строка рядом с пакетами; часть пути внутри неё уходит фильтром vitest, пакеты вне части не идут (чьё: код)", () => {
+    const dir = repo({ "workers/a": OK }, { "test:node": `node -e "require('fs').writeFileSync('args',JSON.stringify(process.argv.slice(1)))"` });
+    const all = run(dir);
+    expect(all.code).toBe(0);
+    expect(all.out).toMatch(/^ok {3}node \(protocol, tools, host, scripts\) · \d+ с$/m);
+    expect(all.out).toMatch(/^пакетов 2 · упало 0 · \d+ с$/m);
+    const host = run(dir, ["host/core"]);
+    expect(host.out).toMatch(/^пакетов 1 · упало 0 · \d+ с$/m);
+    expect(host.out).not.toContain("workers/a");
+    expect(JSON.parse(readFileSync(join(dir, "args"), "utf8"))).toEqual(["host/core"]);
+  });
+
+  it("пакеты идут разом: каждый ждёт файла другого — оба доходят; последовательный прогон ждал бы вечно (задача 10 нояб.: распараллелить пакеты)", () => {
+    const meet = (me: string, other: string) =>
+      `node -e "const fs=require('fs');fs.writeFileSync('../../${me}','');const end=Date.now()+20000;(function w(){if(fs.existsSync('../../${other}'))return;if(Date.now()>end)process.exit(1);setTimeout(w,50)})()"`;
+    const r = run(repo({ "workers/a": meet("a", "b"), "workers/b": meet("b", "a") }));
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/^пакетов 2 · упало 0 · \d+ с$/m);
+  });
+
+  it("прогон не уложился в общий предел — оставшиеся сняты деревом, итог словами и код 1 (задача 10 нояб.: у прогона целиком свой лимит)", async () => {
+    const dir = repo({ "workers/hung": `node -e "require('fs').writeFileSync('pid',String(process.pid));setTimeout(()=>{},60000)"` });
+    const f = join(temp("packages-pre"), "pre.mjs");
+    write(f, `const orig = globalThis.setTimeout;
+globalThis.setTimeout = (fn, ms, ...a) => orig(fn, ms === 900000 ? 3000 : ms, ...a);
+`);
+    const started = Date.now();
+    const r = run(dir, [], pathToFileURL(f).href);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/^FAIL workers\/hung · \d+ с$/m);
+    expect(r.out).toMatch(/^прогон не уложился в 15 мин · не дошли: $/m);
+    expect(Date.now() - started).toBeLessThan(40_000);
+    const pid = Number(readFileSync(join(dir, "workers", "hung", "pid"), "utf8"));
+    await stand.until(() => stand.isDead(pid));
   });
 });
 
@@ -149,16 +186,16 @@ globalThis.fetch = async (url, init) => {
     for (const [n, text] of Object.entries(o.files ?? {})) write(join(dev, n), text);
     const log = join(dev, "calls.jsonl");
     const env: Record<string, string | undefined> = { ...process.env, SWITCHBOARD_DEV_DIR: dev };
-    for (const k of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "RELAY_URL", "VAPID_PRIVATE", "R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "PROD_R2_SECRET_ACCESS_KEY", "TELEGRAM_BOT_TOKEN", "PROD_TELEGRAM_BOT_TOKEN"]) delete env[k];
+    for (const k of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "RELAY_URL", "VAPID_PRIVATE", "R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "PROD_R2_SECRET_ACCESS_KEY", "TELEGRAM_BOT_TOKEN", "PROD_TELEGRAM_BOT_TOKEN", "CH_PASSWORD_TEST", "CH_PASSWORD_PROD", "CH_ACCESS_ID", "CH_ACCESS_SECRET"]) delete env[k];
     if (o.token) Object.assign(env, { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "a" });
     const r = spawnSync(process.execPath, ["--import", preload(log, o.child), join(SCRIPTS, "deploy-workers.mjs"), ...args], { env, encoding: "utf8", timeout: CMD_MS });
     const calls: Call[] = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
     return { code: r.status, err: r.stderr, out: r.stdout, calls };
   }
-  const SECRETS = { VAPID_PRIVATE: "vapid", R2_SECRET_ACCESS_KEY: "r2-test", R2_ACCESS_KEY_ID: "r2-id", PROD_R2_SECRET_ACCESS_KEY: "r2-prod", TELEGRAM_BOT_TOKEN: "bot-test", PROD_TELEGRAM_BOT_TOKEN: "bot-prod" };
+  const SECRETS = { VAPID_PRIVATE: "vapid", R2_SECRET_ACCESS_KEY: "r2-test", R2_ACCESS_KEY_ID: "r2-id", PROD_R2_SECRET_ACCESS_KEY: "r2-prod", TELEGRAM_BOT_TOKEN: "bot-test", PROD_TELEGRAM_BOT_TOKEN: "bot-prod", CH_PASSWORD_TEST: "ch-test", CH_PASSWORD_PROD: "ch-prod", CH_ACCESS_ID: "acc-id", CH_ACCESS_SECRET: "acc-secret" };
   const envFile = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `${k}=${v}`).join("\n");
   const moduleOf = (c: Call) => c.cwd.split(/[\\/]/).pop();
-  const WORKERS = ["gate", "rooms", "push", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "relay"];
+  const WORKERS = ["gate", "rooms", "push", "blocks-ch", "points", "ledger", "github", "prefs", "fleetkeys", "releases", "mcp", "relay"];
 
   it.each([
     ["", [], ""],
@@ -176,8 +213,8 @@ globalThis.fetch = async (url, init) => {
   });
 
   it.each([
-    ["теста", [], "r2-test", "bot-test", "https://switchboard-rooms.yuridevx1608.workers.dev/setup"],
-    ["прода: секрет точек свой, ссылки выпусков — из общих имён", ["--env", "prod"], "r2-prod", "bot-prod", "https://rooms.pfarm.app/setup"],
+    ["теста", [], "ch-test", "bot-test", "https://switchboard-rooms.yuridevx1608.workers.dev/setup"],
+    ["прода: пароль ClickHouse свой, ссылки выпусков — из общих имён", ["--env", "prod"], "ch-prod", "bot-prod", "https://rooms.pfarm.app/setup"],
   ] as const)("без списка, флот %s — все Worker-модули, relay последним; база до кода, секреты после и только через stdin", (_n, env, points, bot, setup) => {
     // источник: комментарий кода: relay смотрит привязками на остальных; устав: секреты через stdin, никогда через argv
     const r = deploy([...env], { token: true, files: { "fleet-secrets.env": envFile(SECRETS) } });
@@ -190,7 +227,8 @@ globalThis.fetch = async (url, init) => {
     const of = (m: string) => r.calls.filter((c) => moduleOf(c) === m).map((c) => c.args.slice(0, c.args[0] === "deploy" ? 1 : 3).join(" "));
     expect(of("gate")).toEqual(["d1 migrations apply", "deploy"]);
     expect(of("push")).toEqual(["d1 migrations apply", "deploy", "secret put VAPID_PRIVATE"]);
-    expect(of("points")).toEqual(["d1 migrations apply", "deploy", "secret put R2_KEY_SECRET"]);
+    expect(of("blocks-ch")).toEqual(["deploy", "secret put CH_PASSWORD", "secret put CH_ACCESS_ID", "secret put CH_ACCESS_SECRET"]);
+    expect(of("points")).toEqual(["d1 migrations apply", "deploy"]);
     expect(of("relay")).toEqual(["deploy"]);
     expect(of("releases")).toEqual(["d1 migrations apply", "deploy", "secret put CLOUDFLARE_API_TOKEN", "secret put R2_LINK_KEY_ID", "secret put R2_LINK_SECRET"]);
     expect(r.calls.find((c) => c.args[0] === "d1")!.args).toEqual(["d1", "migrations", "apply", "DB", "--remote", ...env]);
@@ -198,12 +236,14 @@ globalThis.fetch = async (url, init) => {
     expect(r.calls.filter((c) => c.args[0] === "secret").map((c) => [moduleOf(c), c.args[2], c.input])).toEqual([
       ["rooms", "TELEGRAM_BOT_TOKEN", bot],
       ["push", "VAPID_PRIVATE", "vapid"],
-      ["points", "R2_KEY_SECRET", points],
+      ["blocks-ch", "CH_PASSWORD", points],
+      ["blocks-ch", "CH_ACCESS_ID", "acc-id"],
+      ["blocks-ch", "CH_ACCESS_SECRET", "acc-secret"],
       ["releases", "CLOUDFLARE_API_TOKEN", "t"],
       ["releases", "R2_LINK_KEY_ID", "r2-id"],
       ["releases", "R2_LINK_SECRET", "r2-test"],
     ]);
-    expect(JSON.stringify(r.calls.map((c) => c.args))).not.toMatch(/vapid|r2-test|r2-id|r2-prod|bot-test|bot-prod/);
+    expect(JSON.stringify(r.calls.map((c) => c.args))).not.toMatch(/vapid|r2-test|r2-id|ch-test|ch-prod|acc-id|acc-secret|bot-test|bot-prod/);
   });
 
   it("названные модули — в порядке выкладки; phone и pult в списке — сборка и выкладка веба; неизвестное имя пропущено", () => {
@@ -214,21 +254,21 @@ globalThis.fetch = async (url, init) => {
   });
 
   it.each([
-    ["прод: файл прода важнее тестовых, тестовая пара в прод не кладётся", ["--env", "prod"], " prod", "prod", "r2-prod"],
-    ["тест: файл прода не читается (чьё: код)", [], "", "test", "r2-test"],
+    ["прод: файл прода важнее тестовых, тестовый пароль ClickHouse в прод не кладётся", ["--env", "prod"], " prod", "prod", "ch-prod"],
+    ["тест: файл прода не читается (чьё: код)", [], "", "test", "ch-test"],
   ] as const)("%s", (_n, env, tail, who, secret) => {
-    // источник: комментарий кода: тестовая пара прав на бакет прода не имеет
-    const r = deploy(["points", "pult", ...env], {
+    // источник: комментарий кода: тестовый пользователь ClickHouse прав на базу прода не имеет
+    const r = deploy(["blocks-ch", "pult", ...env], {
       files: {
-        "prod.env": envFile({ CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc", PROD_R2_SECRET_ACCESS_KEY: "r2-prod" }),
+        "prod.env": envFile({ CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc" }),
         "cf-deploy.env": envFile({ CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ACCOUNT_ID: "test-acc" }),
-        "r2-points.env": envFile({ R2_SECRET_ACCESS_KEY: "r2-test" }),
+        "clickhouse.env": envFile({ CH_PASSWORD_TEST: "ch-test", CH_PASSWORD_PROD: "ch-prod", CH_ACCESS_ID: "acc-id", CH_ACCESS_SECRET: "acc-secret" }),
       },
     });
     expect(r.code).toBe(0);
     expect(r.calls.find((c) => c.args[0] === "deploy")).toMatchObject({ args: ["deploy", ...env], env: { CLOUDFLARE_API_TOKEN: `${who}-token`, CLOUDFLARE_ACCOUNT_ID: `${who}-acc` } });
-    expect(r.calls.find((c) => c.args[0] === "secret")).toMatchObject({ args: ["secret", "put", "R2_KEY_SECRET", ...env], input: secret });
-    expect(r.out).toContain(`=== points${tail} ===`);
+    expect(r.calls.find((c) => c.args[0] === "secret")).toMatchObject({ args: ["secret", "put", "CH_PASSWORD", ...env], input: secret });
+    expect(r.out).toContain(`=== blocks-ch${tail} ===`);
   });
 
   it("значение из окружения важнее файла; строка env может содержать знак равно", () => {

@@ -237,11 +237,11 @@ describe("процесс Host", () => {
     server.close();
   }, 90_000);
 
-  it("738 · --check годного выпуска: ok, версия, SDK 0.3.311 и proto; код 0", async () => {
+  it("738 · --check годного выпуска: ok, версия, SDK 0.3.321 и proto; код 0", async () => {
     // источник: устав «версия SDK закреплена точно»; ответ одной строкой JSON — чьё: код
     const r = await run(join(coreDir, "main.ts"), ["--check"], {});
     expect(r.code).toBe(0);
-    expect(JSON.parse(r.out.trim())).toEqual({ ok: true, version: CORE_VERSION, sdk: "0.3.311", proto: PROTO });
+    expect(JSON.parse(r.out.trim())).toEqual({ ok: true, version: CORE_VERSION, sdk: "0.3.321", proto: PROTO });
   }, 90_000);
 
   it("739 · у имени два владельца: --check — ok:false с причиной, старт — «host: не стартует»; оба с кодом 1", async () => {

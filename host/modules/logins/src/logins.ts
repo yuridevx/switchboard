@@ -3,16 +3,22 @@
 import type { Host, Module, SDKMessage, Session } from "@switchboard/host";
 import { isRefusal, refuse } from "@switchboard/host";
 import { READ_MS, within } from "@switchboard/protocol";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import type { Account } from "./limits.ts";
 import { nextUp, over, shown, stale, usable, usableAt } from "./limits.ts";
-import { keyFolders, type KeyAnswer } from "./keys.ts";
 import { envOf, folders, type Folders } from "./links.ts";
 import { signin, type SignedIn } from "./signin.ts";
 
 type Book = { accounts: Record<string, Account>; slots: Record<string, string[]> };
-/** Запись сессии: её слот, ключ ли это флота, и аккаунт, на котором оборвался ход. Имя ищется только при выборе: новый слот с именем ключа сессию не пересаживает. */
-type Seat = { slot: string; key?: true; cut?: string };
+/** Настройки ключа флота без значения: env (адрес провайдера, модели) и settings Claude. */
+type KeyConfig = { env: Record<string, string>; settings: Record<string, unknown> };
+type KeyAnswer = KeyConfig & { key: string };
+/**
+ * Запись сессии: её слот, ключ ли это флота, и аккаунт, на котором оборвался ход. Имя ищется только при выборе: новый слот с именем ключа сессию не пересаживает.
+ * config — настройки ключа, с которыми сессия стартует: на старте Host связи ещё нет. Значения ключа здесь нет.
+ */
+type Seat = { slot: string; key?: true; cut?: string; config?: KeyConfig };
 
 const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
 const NAME = /^[A-Za-z0-9_-]+$/;
@@ -25,29 +31,24 @@ const RESET_DRIFT_S = 2;
 const MAIN = "main";
 const CONTINUE = "Продолжай";
 const WINDOW_NAMES: Record<string, string> = { five_hour: "5 ч", seven_day: "нед." };
-/** Разовый запрос проверки ключа: ответ модели не нужен, важно, что он есть. */
-const CHECK_PROMPT = "Ответь одним словом: ok";
+/** Адрес Anthropic: туда идёт слот-аккаунт и ключ без своего адреса. */
+const ANTHROPIC = "https://api.anthropic.com";
+/** Слово вместо ключа в окружении сессии на ключе флота: сам ключ ставит прокси из ответа route. */
+const KEY_WORD = "fleet";
+/** env ключа для claude: адрес провайдера знает прокси из ответа route — claude идёт к прокси машины. */
+const keyEnv = ({ ANTHROPIC_BASE_URL: _to, ...vars }: Record<string, string>) => vars;
 
 const now = () => Math.floor(Date.now() / 1000);
 const clock = (t: number) => new Date(t * 1000).toTimeString().slice(0, 5);
 const say = (e: unknown) => (e as Error).message;
 
-/** Ответ разового запуска: модель и время или причина словами самого claude. */
-function checked(code: number | null, out: string): { ok: boolean; word: string } {
-  const line = out.trim().split("\n").at(-1) ?? "";
-  try {
-    const r = JSON.parse(line) as { is_error?: boolean; result?: string; duration_ms?: number; modelUsage?: Record<string, unknown> };
-    if (code !== 0 || r.is_error) return { ok: false, word: r.result ?? `claude вышел с кодом ${code}` };
-    return { ok: true, word: `ключ принят, отвечает ${Object.keys(r.modelUsage ?? {})[0] ?? "модель"}, ${r.duration_ms} мс` };
-  } catch {
-    return { ok: false, word: out.trim().slice(-300) || `claude вышел с кодом ${code}` };
-  }
-}
-
 export function make(): Module {
   let host: Host;
   let dirs: Folders;
-  let keys: ReturnType<typeof keyFolders>;
+  /** Значения ключей флота — только в памяти: имя → значение. */
+  const values = new Map<string, string>();
+  /** Папка входа сессий на ключах флота: пустая, чужой вход в неё не попадает. */
+  let keyHome: string;
   let stopping = false;
   let wake: ReturnType<typeof setTimeout> | undefined;
   /** Слоты, которые ждали при последнем расчёте: их проверяет побудка. */
@@ -81,7 +82,8 @@ export function make(): Module {
   const all = () => host.sessions().map((x) => host.session(x.callsign)!);
   /** Сессии слота машины: сессия на ключе с тем же именем сюда не входит. */
   const seated = (slot: string) => all().filter((s) => seatOf(s).get()?.slot === slot && !seatOf(s).get()?.key);
-  const onKey = (name: string) => all().some((s) => seatOf(s).get()?.key && seatOf(s).get()?.slot === name);
+  /** Сессии на ключе флота с этим именем. */
+  const onKey = (name: string) => all().filter((s) => seatOf(s).get()?.key && seatOf(s).get()?.slot === name);
 
   /** Слот ждёт сброса: в нём аккаунт у порога и запаса нет. */
   function waitOf(slot: string): number | null {
@@ -281,41 +283,60 @@ export function make(): Module {
   /** fleetkeys.key с пределом чтения; отказ — как ответил модуль. */
   const askKey = (name: string) => host.read("fleetkeys.key", { name });
 
-  /** Выбор ключа флота: свежий ответ — в папку. Ключа нет — как нет такого слота; модуль не ответил — отказ его словом. */
-  async function takeKey(name: string): Promise<void> {
+  /** Свежий ключ: значение — в память, настройки — ответом. Ключа нет — как нет такого слота; модуль не ответил — отказ его словом. */
+  async function takeKey(name: string): Promise<KeyAnswer> {
     if (!NAME.test(name)) throw noSlot(name);
     const r = await askKey(name);
-    if (r.ok) return keys.write(name, r.result as KeyAnswer);
+    if (r.ok) {
+      const answer = r.result as KeyAnswer;
+      values.set(name, answer.key);
+      return answer;
+    }
     if (r.error === "no_key") throw noSlot(name);
     throw refuse(r.error, `ключ флота ${name}: ${r.why ?? r.error}`);
   }
 
-  /** Папка ключа по последнему ответу модуля; удалённого ключа папки нет. Модуль не ответил — папка прежняя. */
-  async function refreshKey(name: string): Promise<void> {
+  /** Ключ по последнему ответу модуля: значение в памяти и настройки сессий на нём. Ключа во флоте нет — значения нет; модуль не ответил — всё прежнее. Ответ — слово отказа или null. */
+  async function refreshKey(name: string): Promise<string | null> {
     const r = await askKey(name);
-    if (r.ok) return keys.write(name, r.result as KeyAnswer);
-    if (r.error === "no_key") {
-      keys.remove(name);
-      return host.log({ ev: "fleetkey", why: `${name}: ключа во флоте нет — папка удалена` });
+    if (r.ok) {
+      const { key, env, settings } = r.result as KeyAnswer;
+      values.set(name, key);
+      for (const s of onKey(name)) seatOf(s).update((x) => x && { ...x, config: { env, settings } });
+      return null;
     }
-    host.log({ kind: "refuse", ev: "fleetkey", word: r.error, why: `${name}: папка не обновлена` });
+    if (r.error === "no_key") {
+      values.delete(name);
+      for (const s of onKey(name)) seatOf(s).update((x) => x && { slot: x.slot, key: true });
+      host.log({ ev: "fleetkey", why: `${name}: ключа во флоте нет — значение забыто` });
+      return "no_key";
+    }
+    host.log({ kind: "refuse", ev: "fleetkey", word: r.error, why: `${name}: ключ не обновлён` });
+    return r.error;
   }
 
-  /** Проверка ключа: разовый запуск claude тем же вкладом, что у сессии; значения ключа нет ни в аргументах, ни в окружении. */
-  async function keyCheck(name: string): Promise<{ ok: boolean; word: string }> {
-    if (!NAME.test(name)) throw refuse("bad_frame", "имя ключа — латиница, цифры, - и _");
-    const r = await askKey(name);
-    if (!r.ok) throw refuse(r.error, `ключ флота ${name}: ${r.why ?? r.error}`);
-    const answer = r.result as KeyAnswer;
-    keys.write(name, answer);
-    try {
-      const settings = JSON.stringify({ ...answer.settings, apiKeyHelper: keys.helper(name) });
-      const { code, out } = await host.cli(["-p", CHECK_PROMPT, "--output-format", "json", "--no-session-persistence", "--settings", settings], { env: { ...answer.env, ...envOf(keys.dir(name)), CLAUDE_CODE_MAX_RETRIES: "0" } });
-      return checked(code, out);
-    } finally {
-      // машина, где сессий на ключе нет, копию не держит
-      if (!onKey(name)) keys.remove(name);
+  /**
+   * Куда идёт вызов модели: по sid — сессия этой машины (слот-аккаунт — Anthropic со входом claude как есть, слот-ключ — адрес и значение ключа);
+   * по key — ключ флота для проверки: env — как у сессии на нём, со словом fleet. Только внутри Host: значение ключа relay не проходит.
+   */
+  async function route(req: Record<string, unknown>, from: string | undefined) {
+    if (from !== `@${host.machine}`) throw refuse("denied", `route — вызов внутри Host, а пришёл от ${from}`);
+    if (typeof req.key === "string") {
+      if (!NAME.test(req.key)) throw refuse("bad_frame", "имя ключа — латиница, цифры, - и _");
+      const r = await askKey(req.key);
+      if (!r.ok) throw refuse(r.error, `ключ флота ${req.key}: ${r.why ?? r.error}`);
+      const { key, env, settings } = r.result as KeyAnswer;
+      return { to: env.ANTHROPIC_BASE_URL ?? ANTHROPIC, key, env: { ...keyEnv(env), ANTHROPIC_API_KEY: KEY_WORD }, settings };
     }
+    const s = all().find((x) => x.info.session_id === req.sid);
+    if (!s) throw refuse("unknown_session", `сессии ${String(req.sid)} на ${host.machine} нет`);
+    const seat = seatOf(s).get();
+    if (!seat?.slot) throw refuse("no_slot", `${s.info.callsign} не в слоте`);
+    if (!seat.key) return { to: ANTHROPIC };
+    const word = values.has(seat.slot) ? null : await refreshKey(seat.slot);
+    const key = values.get(seat.slot);
+    if (!key) throw refuse(word ?? "no_key", `${s.info.callsign}: ключ ${seat.slot} — ${word ?? "no_key"}`);
+    return { to: seatOf(s).get()?.config?.env.ANTHROPIC_BASE_URL ?? ANTHROPIC, key };
   }
 
   /** Сессия идёт только в слоте; какой — решается ещё до запуска. Имя ищется среди слотов машины, потом среди ключей флота; без имени ключ не выбирается. */
@@ -325,8 +346,8 @@ export function make(): Module {
     if ("slot" in req) {
       if (typeof req.slot !== "string") throw refuse("bad_frame", "session.open: slot — имя слота");
       if (!names.includes(req.slot)) {
-        await takeKey(req.slot);
-        seatOf(s).set({ slot: req.slot, key: true });
+        const { env, settings } = await takeKey(req.slot);
+        seatOf(s).set({ slot: req.slot, key: true, config: { env, settings } });
         return;
       }
       slot = req.slot;
@@ -423,19 +444,18 @@ export function make(): Module {
 
   return {
     opening,
-    // подъём папку читает и флот не спрашивает: на старте системы связи ещё нет
+    // подъём настройки ключа берёт из записи сессии и флот не спрашивает: на старте системы связи ещё нет
     session(s) {
       const seat = seatOf(s).get();
       if (!seat?.slot) return undefined;
       if (!seat.key) return { env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: dirs.slotDir(seat.slot) } };
-      // папка входа ключа остаётся и без него: плательщик молча не меняется, claude сам скажет в ленте, что входа нет
-      const secure = { CLAUDE_SECURESTORAGE_CONFIG_DIR: keys.dir(seat.slot) };
-      const config = keys.read(seat.slot);
-      if (!config) {
-        host.log({ kind: "stop", ev: "fleetkey", word: "no_key", callsign: s.info.callsign, why: `${seat.slot}: папки ключа на машине нет — сессия без него` });
-        return { env: secure };
+      // вход пустой и без ключа: плательщик молча не меняется, claude сам скажет в ленте, что ключа нет
+      const env = { CLAUDE_SECURESTORAGE_CONFIG_DIR: keyHome, ANTHROPIC_API_KEY: KEY_WORD };
+      if (!seat.config) {
+        host.log({ kind: "stop", ev: "fleetkey", word: "no_key", callsign: s.info.callsign, why: `${seat.slot}: ключа во флоте нет — сессия без него` });
+        return { env };
       }
-      return { env: secure, settings: { apiKeyHelper: keys.helper(seat.slot) }, defaults: { tier: "account", env: config.env, settings: config.settings } };
+      return { env, defaults: { tier: "account", env: keyEnv(seat.config.env), settings: seat.config.settings } };
     },
     fields: {
       slot(s) {
@@ -454,11 +474,12 @@ export function make(): Module {
       },
       // на старте связи ещё нет: папки ключей обновляются один раз после подключения
       ready() {
-        for (const name of keys.names()) background(() => refreshKey(name));
+        const names = new Set(all().flatMap((s) => (seatOf(s).get()?.key ? [seatOf(s).get()!.slot] : [])));
+        for (const name of names) background(async () => void (await refreshKey(name)));
       },
       frame(f) {
         const name = f.name;
-        if (f.type === "fleetkeys.changed" && typeof name === "string" && keys.has(name)) background(() => refreshKey(name));
+        if (f.type === "fleetkeys.changed" && typeof name === "string" && (values.has(name) || onKey(name).length)) background(async () => void (await refreshKey(name)));
       },
     },
     requests: {
@@ -472,17 +493,16 @@ export function make(): Module {
       "machine.account_remove": (req, ctx) => serial(() => accountRemove(String(req.account), ctx.from)),
       "slot.set": (req) => serial(() => slotSet(String(req.slot), (req.order ?? []) as string[])),
       "slot.swap": (req, ctx) => serial(() => slotSwap(String(req.slot), req.account as string | undefined, ctx.from)),
-      "machine.key_check": (req) => keyCheck(String(req.name)),
+      route: (req, ctx) => route(req, ctx.from),
       async "session.slot"(req) {
         const s = host.session(req.callsign as string)!;
         const slot = req.slot;
         if (typeof slot !== "string") throw refuse("bad_frame", "session.slot: нужно поле slot — имя слота");
         const key = !book().slots[slot];
-        if (key) await takeKey(slot);
-        else assertLogin(slot);
+        const config = key ? await takeKey(slot) : (assertLogin(slot), undefined);
         const was = seatOf(s).get();
         if (was?.slot === slot && !!was.key === key) return { restart: false };
-        seatOf(s).set(key ? { slot, key: true } : { slot });
+        seatOf(s).set(config ? { slot, key: true, config: { env: config.env, settings: config.settings } } : { slot });
         if (s.state === "stopped" || s.state === "failed") return { restart: false };
         void s.restart();
         return { restart: true };
@@ -491,7 +511,8 @@ export function make(): Module {
     start(h) {
       host = h;
       dirs = folders(h.dataDir);
-      keys = keyFolders(h.dataDir);
+      keyHome = join(h.dataDir, "fleetkeys");
+      mkdirSync(keyHome, { recursive: true });
       auth = signin(() => host, dirs, {
         read: () => book().accounts,
         edit(email, patch) {

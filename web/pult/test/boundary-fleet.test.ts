@@ -8,6 +8,7 @@ import { createAlerts, manifest as alertsM, type BrowserPush } from "@switchboar
 import { FakeRelay, flush, stand } from "../../packages/core/stand/app.ts";
 import { fakeBrowser } from "../../packages/alerts/stand/fakes.ts";
 import { createMachines, manifest as machinesM } from "../modules/machines/contract.ts";
+import { createPeople, manifest as peopleM } from "../modules/people/contract.ts";
 import { createSettings, manifest as settingsM } from "../modules/settings/contract.ts";
 import { fleetRelay, fleetRoster, pult, SLOTS } from "./stand.ts";
 
@@ -418,13 +419,19 @@ describe("Настройки", () => {
   /** Флот «Выпусков»: stable host +7, keeper 1.0.5; laptop держит keeper 1.0.4 закреплённым, pc отстал по host и уронил hello-daemon; old ушла. */
   function fleet(offline: string[] = [], hostsRefused = "") {
     const plans: Record<string, Plan> = { laptop: { keeper: { pin: "1.0.4" } }, pc: {}, old: {} };
+    // люди: вы (pult — это устройство, phone, машина laptop), dan (телефон, программа, машина dan-pc), bob ждёт входа
     const passes = [
-      { id: "kh1", role: "host", name: "laptop", person: null, addr: "@laptop", state: "ok", by: "агент", at: Date.UTC(2026, 10, 1) },
-      { id: "kc1", role: "client", name: "pult", person: "you@mail", addr: "pult~you@mail", state: "ok", by: "@laptop", at: Date.UTC(2026, 10, 2) },
-      { id: "kc2", role: "client", name: "phone", person: "you@mail", addr: "phone~you@mail", state: "ok", by: "pult~you@mail", at: Date.UTC(2026, 10, 2) },
+      { kid: "kh1", addr: "@laptop", owner: "~you@mail.io", wait: false },
+      { kid: "kc1", addr: "pult~you@mail.io", owner: null, wait: false },
+      { kid: "kc2", addr: "phone~you@mail.io", owner: null, wait: false },
+      { kid: "kd1", addr: "phone~dan@mail.io", owner: null, wait: false },
+      { kid: "kd2", addr: "alerts~dan@mail.io", owner: null, wait: false },
+      { kid: "kd3", addr: "@dan-pc", owner: "~dan@mail.io", wait: false },
+      { kid: "kb1", addr: "pult~bob@mail.io", owner: null, wait: true },
+      { kid: "ks1", addr: "site@laptop", owner: null, wait: false },
     ];
     const relay = new FakeRelay(roster());
-    relay.you = "pult~you@mail";
+    relay.you = "pult~you@mail.io";
     relay.handlers["releases.list"] = () => ({
       ok: true,
       result: {
@@ -457,25 +464,28 @@ describe("Настройки", () => {
     };
     relay.handlers["releases.deploy"] = (f: Frame) =>
       f.part === "web-inbox" ? { ok: false, error: "check_failed" } : { ok: true, result: { parts: { [String(f.part)]: { from: "1.2.0+12", to: String(f.version) } } } };
-    relay.handlers["keys.invite"] = (f: Frame) => ({ ok: true, result: { kid: "k9ab", invite: "k9ab.SECRETsecretSECRETsecretSECRETsecret1234567", addr: `${f.name}~${f.person}` } });
-    relay.handlers["keys.revoke"] = (f: Frame) => ({ ok: true, result: { addr: passes.find((p) => p.id === f.kid)!.addr } });
+    relay.handlers["keys.invite"] = (f: Frame) => ({ ok: true, result: { kid: "k9ab", invite: "k9ab.SECRETsecretSECRETsecretSECRETsecret1234567", addr: String(f.addr) } });
+    relay.handlers["keys.revoke"] = (f: Frame) => {
+      const i = passes.findIndex((p) => p.kid === f.kid);
+      return i < 0 ? { ok: false, error: "unknown_key" } : { ok: true, result: { addr: passes.splice(i, 1)[0].addr, closed: 1 } };
+    };
     relay.handlers["github.app"] = () => ({ ok: true, result: { app: { slug: "switchboard-fleet" }, repos: ["you/switchboard", "you/profiles", "you/site"], install: "https://github.com/apps/switchboard-fleet/installations/new" } });
     relay.handlers["github.setup"] = (f: Frame) => ({ ok: true, result: { app: { slug: "switchboard-fleet" }, install: `https://github.com/apps/x?code=${f.code}` } });
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: { "you/profiles": { state: "ok" } } } });
     // пропуска клиентов: стенд сам отвечает на keys.list машинами — здесь весь список gate
     const fetch = (async (url: string | URL | Request, init?: RequestInit) => {
       const f = JSON.parse(String(init?.body)) as Frame;
-      if (String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.role === undefined) {
+      if (String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.kind === undefined) {
         relay.got.push(f);
-        return Response.json({ type: "reply", id: f.id, ...(relay.handlers["keys.list"]?.(f) ?? { ok: true, result: { passes } }) });
+        return Response.json({ type: "reply", id: f.id, ...(relay.handlers["keys.list"]?.(f) ?? { ok: true, result: { passes, you: relay.you } }) });
       }
       // экран спрашивает машины сам; у клиента флота id со словом list
-      if (hostsRefused && String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.role === "host" && !String(f.id).endsWith("-list")) return Response.json({ type: "reply", id: f.id, ok: false, error: hostsRefused });
+      if (hostsRefused && String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.kind === "machine" && !String(f.id).endsWith("-list")) return Response.json({ type: "reply", id: f.id, ok: false, error: hostsRefused });
       const r = await relay.fetch(url, init);
       // машина с пропуском, которой нет на связи: её знает только gate
-      if (offline.length && String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.role === "host") {
+      if (offline.length && String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.kind === "machine") {
         const b = await r.json();
-        return Response.json({ ...b, result: { ...b.result, passes: [...b.result.passes, ...offline.map((name) => ({ name, role: "host", state: "ok" }))] } });
+        return Response.json({ ...b, result: { ...b.result, passes: [...b.result.passes, ...offline.map((name) => ({ kid: `k-${name}`, addr: `@${name}`, owner: null, wait: false }))] } });
       }
       return r;
     }) as typeof globalThis.fetch;
@@ -487,6 +497,7 @@ describe("Настройки", () => {
     o.hooks?.(fl.relay);
     const parts: AppPart[] = [
       { manifest: settingsM, module: createSettings },
+      { manifest: peopleM, module: createPeople },
       { manifest: alertsM, module: createAlerts(o.browser ?? fakeBrowser("granted")) },
     ];
     const t = await stand(parts, { relay: fl.relay, store: memoryStore({ key: "client.pult.k3f1.Qa7sig" }), wide: o.wide ?? true, url: o.url ?? "/#settings", options: { fetch: fl.fetch, ...(o.workers ? { workers: o.workers } : {}) } });
@@ -504,6 +515,52 @@ describe("Настройки", () => {
   }
 
   describe("pult-settings", () => {
+    it("18 · «Правила модели»: набор флота из prefs, правка в наборе и проверка тем же пакетом, что у прокси; сохранение — proxy.rules в области флота", async () => {
+      const rule = { name: "Имя агента", scopes: ["system"], kind: "literal", unit: "paragraph", action: "replace", pattern: "You are a Claude agent, built on Anthropic's Claude Agent SDK.", replacement: "You are a coding agent of the ops fleet." };
+      const t = await settings({ url: "/#settings?tab=rules", hooks: (r) => void (r.handlers["prefs.get"] = () => ({ ok: true, result: { values: { "proxy.rules": [rule] } } })) });
+      expect(t.sent("prefs.get").at(-1)).toMatchObject({ scope: "global", prefix: "proxy.", to: ".prefs" });
+      expect(t.$('[data-rule="Имя агента"]')).not.toBeNull();
+      const area = t.$<HTMLTextAreaElement>('[data-f="ttext"]')!;
+      area.value = "You are a Claude agent, built on Anthropic's Claude Agent SDK.\n\nRest.";
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+      await flush(5);
+      expect(t.$("[data-diff]")!.textContent).toContain("+ You are a coding agent of the ops fleet.");
+      expect(t.text()).toContain("Имя агента · 1");
+      await t.click(t.btn("＋ правило"));
+      const name = t.$<HTMLInputElement>('[data-f="rname"]')!;
+      name.value = "Тикет";
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+      await flush(5);
+      await t.click(t.btn("регулярка"));
+      const pattern = t.$<HTMLTextAreaElement>('[data-f="pattern"]')!;
+      pattern.value = "(";
+      pattern.dispatchEvent(new Event("input", { bubbles: true }));
+      await flush(5);
+      expect(t.$('[role="alert"]')).not.toBeNull();
+      expect(t.btn("Сохранить")!.disabled).toBe(true);
+      pattern.value = "ABC-[0-9]";
+      pattern.dispatchEvent(new Event("input", { bubbles: true }));
+      await flush(5);
+      await t.click(t.btn("Сохранить"));
+      expect(t.sent("prefs.set").at(-1)).toMatchObject({ scope: "global", name: "proxy.rules", to: ".prefs", value: [rule, { name: "Тикет", kind: "regex", pattern: "ABC-[0-9]", scopes: ["system"] }] });
+    });
+
+    it("18 · проверка на вызове из архива: system вызова по points.history, имя сессии — из каталога, разница после правил", async () => {
+      const rule = { name: "Имя агента", scopes: ["system"], kind: "literal", unit: "paragraph", action: "replace", pattern: "You are a Claude agent", replacement: "Агент флота" };
+      const t = await settings({
+        url: "/#settings?tab=rules&call=s1/u2",
+        hooks: (r) => {
+          r.handlers["prefs.get"] = () => ({ ok: true, result: { values: { "proxy.rules": [rule] } } });
+          r.handlers["points.list"] = () => ({ ok: true, result: { search: false, sessions: [{ sid: "s1", callsign: "site@laptop", title: "Перенос журнала" }] } });
+          r.handlers["points.history"] = () => ({ ok: true, result: { point: 41, more: false, messages: [{ type: "user", uuid: "u1", message: { content: "привет" } }], calls: [{ uuid: "u2", at: "2026-11-09T10:00:00Z", model: "claude-opus-5-5", tok_in: 10, tok_out: 2, system: "You are a Claude agent, built on SDK.\n\nRest." }] } });
+        },
+      });
+      expect(t.sent("points.history").at(-1)).toMatchObject({ sid: "s1", before: "u2" });
+      expect(t.text()).toContain("← Перенос журнала");
+      expect(t.$('[data-source="system"]')!.textContent).toContain("You are a Claude agent, built on SDK.");
+      expect(t.$("[data-diff]")!.textContent).toContain("+ Агент флота");
+    });
+
     it("5501 · выпуски по машинам: stable и сколько машин его держат; матрица машина × часть — stable, отстаёт, 📌, сбой, ушла; план машины сбоку — закрепить версию", async () => {
       const t = await settings({ offline: ["old"] });
       expect(t.$('[data-tab="releases"]')!.getAttribute("aria-selected")).toBe("true");
@@ -565,49 +622,12 @@ describe("Настройки", () => {
       expect(t.btn("Вернуть +10", t.$('tr[data-part="pult"]')!)).not.toBeNull();
     });
 
-    it("5504 · пропуска: пригласить устройство — keys.invite и ссылки #invite= на пульт и телефон, каждая копируется; отозвать с подтверждением — keys.revoke у relay; это устройство не отзывается", async () => {
-      // источник: слово пользователя 3 нояб. — «отдавала инвайт сразу и линком на пульт и на телефон, копия по выбору»
-      const writes: string[] = [];
-      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (s: string) => void writes.push(s) } });
-      const t = await settings({ url: "/#settings?tab=passes", workers: { ...FakeRelay.WORKERS, phone: "https://phone.test/" } });
-      expect(t.$('[data-passes="Машины"]')!.textContent).toContain("@laptop");
-      const me = t.$('tr[data-pass="kc1"]')!;
-      expect(me.textContent).toContain("это устройство");
-      expect(t.btn("Отозвать…", me)).toBeNull();
-      // колонки таблиц одинаковые
-      expect(t.$$(".st-tbl colgroup").length).toBe(2);
-      await t.click(t.btn("Пригласить"));
-      const nameIn = t.$<HTMLInputElement>('[aria-label="Имя"]')!;
-      nameIn.value = "laptop2";
-      nameIn.dispatchEvent(new Event("input", { bubbles: true }));
-      const who = t.$<HTMLInputElement>('[aria-label="Почта"]')!;
-      who.value = "you@mail";
-      who.dispatchEvent(new Event("input", { bubbles: true }));
-      await flush();
-      await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
-      expect(t.sent("keys.invite").at(-1)).toMatchObject({ role: "client", name: "laptop2", person: "you@mail", to: ".gate" });
-      const inv = "k9ab.SECRETsecretSECRETsecretSECRETsecret1234567";
-      expect(t.$("[data-link=\"Пульт\"] code")!.textContent).toBe(`${location.origin}/#invite=${inv}`);
-      expect(t.$("[data-link=\"Телефон\"] code")!.textContent).toBe(`https://phone.test/#invite=${inv}`);
-      // QR — ссылки на телефон (слово пользователя 3 нояб.)
-      expect(t.$("[data-qr] svg")).not.toBeNull();
-      expect(t.$("[data-qr]")!.dataset.qr).toBe(`https://phone.test/#invite=${inv}`);
-      await t.click(t.btn("Копировать", t.$("[data-link=\"Телефон\"]")!));
-      expect(writes).toEqual([`https://phone.test/#invite=${inv}`]);
-      expect(t.$("[data-invited]")!.textContent).toContain("laptop2~you@mail");
-      await t.click(t.btn("Готово"));
-      const phone = t.$('tr[data-pass="kc2"]')!;
-      await t.click(t.btn("Отозвать…", phone));
-      await t.click(t.btn("Отозвать", t.$('tr[data-pass="kc2"]')!));
-      expect(t.sent("keys.revoke").at(-1)).toMatchObject({ kid: "kc2", to: ".relay" });
-    });
-
     it("5505 · GitHub и устройство: репозитории — список флота и видимые приложению; устройство — адрес, пропуск, уведомления; телефон — только устройство", async () => {
       const t = await settings({ url: "/#settings?tab=general" });
       expect(t.$$("[data-profile-repos] [data-repo]").map((r) => r.dataset.repo)).toEqual(["you/switchboard", "you/profiles", "you/site"]);
       expect(t.$("[data-github] [data-repo]")).toBeNull();
       const dev = t.$("[data-device]")!;
-      expect(dev.textContent).toContain("pult~you@mail");
+      expect(dev.textContent).toContain("pult~you@mail.io");
       expect(dev.textContent).toContain("действует");
       expect(dev.querySelector("[data-push]")!.textContent).toBe("выключены");
 
@@ -625,21 +645,6 @@ describe("Настройки", () => {
       expect(t.sent("github.app").at(-1)).toMatchObject({ redirect });
       await t.click(t.btn("Создать приложение GitHub"));
       expect(t.sent("github.app").at(-1)).toMatchObject({ redirect });
-    });
-
-    it("7357 · это устройство — адрес пропуска от gate: второе устройство с тем же именем у другого человека не «это»", async () => {
-      // источник: контракт workers/gate — keys.list отдаёт you; gate допускает phone~a и phone~b одновременно
-      const twin = { id: "kc9", role: "client", name: "pult", person: "anna@mail", addr: "pult~anna@mail", state: "ok", by: "@laptop", at: Date.UTC(2026, 10, 2) };
-      const t = await settings({ url: "/#settings?tab=passes", hooks: (r) => void (r.handlers["keys.list"] = () => ({ ok: true, result: { passes: [twin, { ...twin, id: "kc1", person: "you@mail", addr: "pult~you@mail" }] } })) });
-      expect(t.$('tr[data-pass="kc1"]')!.textContent).toContain("это устройство");
-      expect(t.$('tr[data-pass="kc9"]')!.textContent).not.toContain("это устройство");
-    });
-
-    it("адреса от gate ещё нет — это устройство по имени из пропуска: отозвать себя нельзя", async () => {
-      // источник: комментарий старого кода, сверка 6 нояб.: «адрес от gate, пока его нет — имя из пропуска»
-      const t = await settings({ url: "/#settings?tab=passes", hooks: (r) => void (r.you = undefined) });
-      expect(t.$('tr[data-pass="kc1"]')!.textContent).toContain("это устройство");
-      expect(t.btn("Отозвать…", t.$('tr[data-pass="kc1"]')!)).toBeNull();
     });
 
     it("ячейка: части на машине нет, в плане и каталоге её нет — пусто", async () => {
@@ -682,7 +687,7 @@ describe("Настройки", () => {
       await t.click(t.btn("Каталог и сборки"));
       await t.click(t.btn("Выложить +13"));
       const id = t.sent("releases.deploy").at(-1)!.id as string;
-      await t.click(t.$('[data-tab="passes"]'));
+      await t.click(t.$('[data-tab="rules"]'));
       await flush(10);
       t.relay.reply(id, { ok: true, result: { parts: { pult: { from: "1.2.0+12", to: "1.2.0+13" } } } });
       await flush(10);
@@ -699,10 +704,10 @@ describe("Настройки", () => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
       await flush();
       const q = document.querySelector<HTMLInputElement>(".sb-palin")!;
-      q.value = "пропуска";
+      q.value = "правила";
       q.dispatchEvent(new Event("input", { bubbles: true }));
       await flush();
-      expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toContain("Настройки: пропуска");
+      expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toContain("Настройки: правила модели");
     });
 
     it("7295 · GitHub вернул ?code= без адреса экрана — страница сама открывает «GitHub и устройство»", async () => {
@@ -711,15 +716,12 @@ describe("Настройки", () => {
       expect(t.btn("Сохранить приложение")).toBeTruthy();
     });
 
-    it("6946 · вкладки: «Выпуски» — releases.list и keeper.state; «Пропуска» — keys.list; «GitHub и устройство» — keys.list и github.app", async () => {
+    it("6946 · вкладки: «Выпуски» — releases.list и keeper.state; «GitHub и устройство» — keys.list и github.app", async () => {
       // источник: факт — при открытии ответы владельцев своей вкладки
       const t = await settings();
       expect(t.sent("releases.list").length).toBeGreaterThan(0);
       expect(t.sent("keeper.state").length).toBeGreaterThan(0);
       expect(t.sent("github.app")).toHaveLength(0);
-      const t2 = await settings({ url: "/#settings?tab=passes" });
-      expect(t2.sent("keys.list").length).toBeGreaterThan(0);
-      expect(t2.sent("releases.list")).toHaveLength(0);
       const t3 = await settings({ url: "/#settings?tab=general" });
       expect(t3.sent("keys.list").length).toBeGreaterThan(0);
       expect(t3.sent("github.app").length).toBeGreaterThan(0);
@@ -769,28 +771,11 @@ describe("Настройки", () => {
       expect(t.text()).toContain("releases.list: denied");
       const t3 = await settings({ url: "/#settings?tab=general", hooks: (r) => (r.handlers["github.app"] = () => ({ ok: false, error: "no_app" })) });
       expect(t3.text()).toContain("github.app: no_app");
-      const t2 = await settings({ url: "/#settings?tab=passes", hooks: (r) => (r.handlers["keys.list"] = () => ({ ok: false, error: "denied" })) });
+      const t2 = await settings({ url: "/#settings?tab=general", hooks: (r) => (r.handlers["keys.list"] = () => ({ ok: false, error: "denied" })) });
       expect(t2.text()).toContain("keys.list: denied");
     });
 
-    it("новая попытка отзыва снимает прошлый отказ: слово не висит над успехом (чьё: код)", async () => {
-      const t = await settings({ url: "/#settings?tab=passes" });
-      const fine = t.relay.handlers["keys.revoke"];
-      const revoke = async () => {
-        await t.click(t.btn("Отозвать…", t.$('tr[data-pass="kc2"]')!));
-        await t.click(t.btn("Отозвать", t.$('tr[data-pass="kc2"]')!));
-        await flush(5);
-      };
-      t.relay.handlers["keys.revoke"] = () => ({ ok: false, error: "unknown_key" });
-      await revoke();
-      expect(t.text()).toContain("phone~you@mail: такого пропуска нет");
-      t.relay.handlers["keys.revoke"] = fine;
-      await revoke();
-      expect(t.$(".sb-toast")!.textContent).toBe("phone~you@mail отозван — соединения закрыты");
-      expect(t.text()).not.toContain("такого пропуска нет");
-    });
-
-    it("слова отказа настроек объявляются: каталог, список машин, план, приглашение, отзыв (чьё: код)", async () => {
+    it("слова отказа настроек объявляются: каталог, список машин, план (чьё: код)", async () => {
       const alerts = (t: { $$(s: string): Element[] }) => t.$$('[role="alert"]').flatMap((x) => x.textContent || []);
       const refused = await settings({ hostsRefused: "denied", hooks: (r) => void (r.handlers["releases.list"] = () => ({ ok: false, error: "timeout" })) });
       expect(alerts(refused)).toEqual(["releases.list: timeout", "keys.list: denied"]);
@@ -800,14 +785,6 @@ describe("Настройки", () => {
       await plan.click(plan.btn("включена", plan.$('[data-plan="pc"] [data-part="hello-daemon"]')!));
       expect(alerts(plan)).toEqual(["@pc hello-daemon: такой части нет"]);
 
-      const passes = await settings({ url: "/#settings?tab=passes", hooks: (r) => void Object.assign(r.handlers, { "keys.invite": () => ({ ok: false, error: "name_taken" }), "keys.revoke": () => ({ ok: false, error: "unknown_key" }) }) });
-      await passes.click(passes.btn("Пригласить"));
-      await passes.click(passes.btn("Пригласить", passes.$("[data-invite]")!));
-      expect(alerts(passes)).toEqual(["у адреса уже есть живой пропуск — сначала отзовите прежний"]);
-      await passes.click(passes.btn("Отмена", passes.$("[data-invite]")!));
-      await passes.click(passes.btn("Отозвать…", passes.$('tr[data-pass="kc2"]')!));
-      await passes.click(passes.btn("Отозвать", passes.$('tr[data-pass="kc2"]')!));
-      expect(alerts(passes)).toEqual(["phone~you@mail: такого пропуска нет"]);
     });
 
     it("6989 · уведомления на устройстве: подписан — «включены»; браузер не умеет — своё слово, ошибок нет", async () => {
@@ -819,6 +796,167 @@ describe("Настройки", () => {
       expect(sub.calls).not.toContain("requestPermission");
       const t2 = await settings({ url: "/#settings?tab=general", browser: {} });
       expect(t2.$("[data-device]")!.textContent).toContain("браузер не умеет");
+    });
+  });
+
+  describe("pult-people", () => {
+    const people = (o: Parameters<typeof settings>[0] = {}) => settings({ url: "/#people", workers: { ...FakeRelay.WORKERS, phone: "https://phone.test/" }, ...o });
+    const typeIn = async (t: { $<T extends Element>(s: string): T | null }, label: string, v: string) => {
+      const el = t.$<HTMLInputElement>(`[aria-label="${label}"]`)!;
+      el.value = v;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      await flush();
+    };
+
+    it("1 · люди по почте: устройства — по адресу после ~, машины — по owner; вы первым, «это устройство», «ждёт входа»; сессии ничьи", async () => {
+      const t = await people();
+      expect(t.$$("[data-person]").map((x) => x.getAttribute("data-person"))).toEqual(["you@mail.io", "bob@mail.io", "dan@mail.io"]);
+      expect(t.sent("keys.list").at(-1)).toMatchObject({ to: ".gate" });
+      expect(t.sent("keys.list").at(-1)).not.toHaveProperty("kind");
+      const me = t.$('[data-person="you@mail.io"]')!;
+      expect(me.textContent).toContain("вы");
+      expect(me.querySelector('[data-pass="pult~you@mail.io"]')!.textContent).toContain("это устройство");
+      expect(me.querySelector('[data-pass="@laptop"]')).not.toBeNull();
+      expect(t.$('[data-pass="pult~bob@mail.io"]')!.textContent).toContain("ждёт входа");
+      expect(t.$('[data-pass="site@laptop"]')).toBeNull();
+      // список — без кнопок отзыва и приглашения в строках людей: они в карточке
+      expect(t.btn("＋ пригласить")).toBeNull();
+    });
+
+    it("пригласить человека по почте: keys.invite {addr: имя~почта} — ссылки на пульт и телефон, QR, код; почта уже во флоте — не приглашается", async () => {
+      // источник: слово пользователя 3 нояб. — «отдавала инвайт сразу и линком на пульт и на телефон, копия по выбору»; слово 9 нояб. — человек = почта
+      const writes: string[] = [];
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (x: string) => void writes.push(x) } });
+      const t = await people();
+      await t.click(t.btn("Пригласить человека"));
+      await typeIn(t, "Почта", "dan@mail.io");
+      expect(t.text()).toContain("dan@mail.io уже во флоте");
+      expect(t.btn("Пригласить", t.$("[data-invite]")!)!.disabled).toBe(true);
+      await typeIn(t, "Почта", "kira@mail.io");
+      await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
+      expect(t.sent("keys.invite").at(-1)).toMatchObject({ addr: "pult~kira@mail.io", to: ".gate", v: 2 });
+      expect(t.sent("keys.invite").at(-1)).not.toHaveProperty("owner");
+      const inv = "k9ab.SECRETsecretSECRETsecretSECRETsecret1234567";
+      expect(t.$('[data-link="Пульт"] code')!.textContent).toBe(`${location.origin}/#invite=${inv}`);
+      expect(t.$('[data-link="Телефон"] code')!.textContent).toBe(`https://phone.test/#invite=${inv}`);
+      expect(t.$('[data-link="Код"] code')!.textContent).toBe(inv);
+      expect(t.$("[data-qr]")!.dataset.qr).toBe(`https://phone.test/#invite=${inv}`);
+      await t.click(t.btn("Копировать", t.$('[data-link="Телефон"]')!));
+      expect(writes).toEqual([`https://phone.test/#invite=${inv}`]);
+      await t.click(t.btn("Готово"));
+      expect(t.$("[data-invited]")).toBeNull();
+    });
+
+    it("карточка человека: устройство — имя~почта, машина — @имя с owner ~почта; машине — только код; отказ gate — словом", async () => {
+      const t = await people({ url: "/#people?who=dan%40mail.io" });
+      expect(t.$$("[data-person]").map((x) => x.getAttribute("data-person"))).toEqual(["dan@mail.io"]);
+      await t.click(t.btn("＋ пригласить"));
+      t.relay.handlers["keys.invite"] = () => ({ ok: false, error: "name_taken" });
+      await typeIn(t, "Имя", "tablet");
+      await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
+      expect(t.sent("keys.invite").at(-1)).toMatchObject({ addr: "tablet~dan@mail.io" });
+      expect(t.$("[data-invite]")!.textContent).toContain("у адреса уже есть живой пропуск — сначала отзовите прежний");
+      t.relay.handlers["keys.invite"] = (f: Frame) => ({ ok: true, result: { kid: "k2", invite: "k2.SECRET", addr: String(f.addr) } });
+      await t.click(t.btn("машина", t.$("[data-invite]")!));
+      await typeIn(t, "Имя", "edge");
+      await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
+      expect(t.sent("keys.invite").at(-1)).toMatchObject({ addr: "@edge", owner: "~dan@mail.io" });
+      expect(t.$("[data-invited]")!.textContent).toContain("@edge");
+      expect(t.$('[data-link="Код"] code')!.textContent).toBe("k2.SECRET");
+      expect(t.$('[data-link="Пульт"]')).toBeNull();
+      expect(t.$("[data-qr]")).toBeNull();
+    });
+
+    it("отзыв с подтверждением — keys.revoke у relay, список перечитан; отказ — словом у адреса, новая попытка его снимает; своё устройство — с предупреждением", async () => {
+      const t = await people({ url: "/#people?who=you%40mail.io" });
+      const row = () => t.$('[data-pass="phone~you@mail.io"]')!;
+      const fine = t.relay.handlers["keys.revoke"];
+      t.relay.handlers["keys.revoke"] = () => ({ ok: false, error: "unknown_key" });
+      await t.click(t.btn("Отозвать…", row()));
+      await t.click(t.btn("Отозвать", row()));
+      expect(t.text()).toContain("phone~you@mail.io: такого пропуска нет");
+      t.relay.handlers["keys.revoke"] = fine;
+      const read = t.sent("keys.list").length;
+      await t.click(t.btn("Отозвать…", row()));
+      await t.click(t.btn("Отозвать", row()));
+      await flush(5);
+      expect(t.sent("keys.revoke").at(-1)).toMatchObject({ kid: "kc2", to: ".relay" });
+      expect(t.text()).not.toContain("такого пропуска нет");
+      expect(t.sent("keys.list").length).toBeGreaterThan(read);
+      expect(t.$('[data-pass="phone~you@mail.io"]')).toBeNull();
+      await t.click(t.btn("Отозвать…", t.$('[data-pass="pult~you@mail.io"]')!));
+      expect(t.text()).toContain("Это устройство выйдет из флота.");
+    });
+
+    it("41 · удаление человека: отзыв его устройств и программ, машины остаются и названы в подтверждении; себя удалить нельзя", async () => {
+      const t = await people({ url: "/#people?who=dan%40mail.io" });
+      await t.click(t.btn("Удалить из флота…"));
+      expect(t.text()).toContain("Удалить dan@mail.io: отозвать 2 устройства? Машины @dan-pc остаются.");
+      await t.click(t.btn("Удалить"));
+      await flush(5);
+      expect(t.sent("keys.revoke").map((f) => f.kid)).toEqual(["kd1", "kd2"]);
+      expect(location.hash).toBe("#people");
+      expect(t.$('[data-person="dan@mail.io"]')).not.toBeNull();
+      expect(t.$('[data-person="dan@mail.io"] [data-pass="@dan-pc"]')).not.toBeNull();
+      const me = await people({ url: "/#people?who=you%40mail.io" });
+      expect(me.btn("Удалить из флота…")).toBeNull();
+    });
+
+    it("имя человека — запись fleet.labels.people области флота, ключ — почта", async () => {
+      const t = await people({ url: "/#people?who=dan%40mail.io" });
+      await t.click(t.btn("Назвать…"));
+      await typeIn(t, "Имя", "Даниил");
+      await t.click(t.btn("Сохранить"));
+      expect(t.sent("prefs.set").at(-1)).toMatchObject({ scope: "global", name: "fleet.labels", value: { people: { "dan@mail.io": "Даниил" } }, to: ".prefs" });
+    });
+  });
+
+  describe("согласие внешнего Claude", () => {
+    const CLIENT = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+    const BACK = "https://claude.ai/api/mcp/auth_callback";
+    const query = (o: Record<string, string>) => `/?${new URLSearchParams({ open: "consent", response_type: "code", code_challenge_method: "S256", ...o })}`;
+    let assign: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      assign = vi.spyOn(window.location, "assign").mockImplementation(() => {});
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    it("23 · страница authorize: имя устройства из client_id; «Разрешить» — keys.invite с challenge, client и back; браузер — в клиент с code и state", async () => {
+      const t = await settings({ url: query({ client_id: CLIENT, redirect_uri: BACK, state: "st1", code_challenge: "C".repeat(43) }) });
+      expect(t.$("[data-consent]")!.textContent).toContain("claude.ai");
+      expect(t.$<HTMLInputElement>('[aria-label="Имя устройства"]')!.value).toBe("claude");
+      expect(t.text()).toContain("~you@mail.io");
+      await t.click(t.btn("Разрешить"));
+      expect(t.sent("keys.invite").at(-1)).toMatchObject({ addr: "claude~you@mail.io", challenge: "C".repeat(43), client: CLIENT, back: BACK, to: ".gate" });
+      expect(assign).toHaveBeenCalledWith(`${BACK}?code=k9ab.SECRETsecretSECRETsecretSECRETsecret1234567&state=st1`);
+    });
+
+    it("44 · Claude Code: имя code, адрес возврата со своим query сохраняет его; занятое имя — «заменит прежний»: прежний пропуск отзывается до выдачи", async () => {
+      const code = "https://claude.ai/oauth/claude-code-client-metadata";
+      const t = await settings({
+        url: query({ client_id: code, redirect_uri: "http://127.0.0.1:5311/callback?x=1", state: "s", code_challenge: "C".repeat(43) }),
+        hooks: (r) => {
+          r.handlers["keys.list"] = () => ({ ok: true, result: { passes: [{ kid: "kq1", addr: "code~you@mail.io", owner: null, wait: false }], you: "pult~you@mail.io" } });
+          r.handlers["keys.revoke"] = (f: Frame) => ({ ok: true, result: { addr: "code~you@mail.io", closed: Number(f.kid === "kq1") } });
+        },
+      });
+      expect(t.$<HTMLInputElement>('[aria-label="Имя устройства"]')!.value).toBe("code");
+      expect(t.$("[data-consent]")!.textContent).toContain("заменит прежний");
+      await t.click(t.btn("Разрешить"));
+      expect(t.sent("keys.revoke").at(-1)).toMatchObject({ kid: "kq1" });
+      expect(t.sent("keys.invite").at(-1)).toMatchObject({ addr: "code~you@mail.io" });
+      expect(assign).toHaveBeenCalledWith("http://127.0.0.1:5311/callback?x=1&code=k9ab.SECRETsecretSECRETsecretSECRETsecret1234567&state=s");
+    });
+
+    it("«Отказать» — возврат с error=access_denied; отказ gate (bad_client) — словом, браузер остаётся; без запроса — «Запроса нет.»", async () => {
+      const t = await settings({ url: query({ client_id: CLIENT, redirect_uri: BACK, state: "st1", code_challenge: "C".repeat(43) }), hooks: (r) => void (r.handlers["keys.invite"] = () => ({ ok: false, error: "bad_client" })) });
+      await t.click(t.btn("Разрешить"));
+      expect(t.$('[role="alert"]')!.textContent).toBe("клиент не назвал этот адрес возврата");
+      expect(assign).not.toHaveBeenCalled();
+      await t.click(t.btn("Отказать"));
+      expect(assign).toHaveBeenCalledWith(`${BACK}?error=access_denied&state=st1`);
+      const none = await settings({ url: "/?open=consent" });
+      expect(none.text()).toContain("Запроса нет.");
     });
   });
 
@@ -893,74 +1031,6 @@ describe("Настройки", () => {
       expect(t2.$('[data-plan="pc"] [data-part="hello-daemon"]')!.textContent).toContain("exit 1: нет файла конфигурации");
     });
 
-    it("V-S5 · пропуска: заголовки таблиц, «ждёт приёма»; отзыв — тост и строка перечитана; отказ — словами; приглашение программе и машине", async () => {
-      const passes = [
-        { id: "kh1", role: "host", name: "laptop", person: null, addr: "@laptop", state: "ok", by: "агент", at: Date.UTC(2026, 10, 1) },
-        { id: "kc2", role: "client", name: "phone", person: "you@mail", addr: "phone~you@mail", state: "wait", by: "pult~you@mail", at: Date.UTC(2026, 10, 2) },
-      ];
-      const t = await settings({ url: "/#settings?tab=passes", hooks: (r) => void (r.handlers["keys.list"] = () => ({ ok: true, result: { passes } })) });
-      expect(t.$('[data-passes="Устройства и программы"] thead')!.textContent).toBe("адрессостояниекто пригласилкогда");
-      expect(t.$('tr[data-pass="kc2"]')!.textContent).toContain("ждёт приёма");
-      const read = t.sent("keys.list").length;
-      await t.click(t.btn("Отозвать…", t.$('tr[data-pass="kc2"]')!));
-      await t.click(t.btn("Отмена", t.$('tr[data-pass="kc2"]')!));
-      expect(t.btn("Отозвать…", t.$('tr[data-pass="kc2"]')!)).not.toBeNull();
-      await t.click(t.btn("Отозвать…", t.$('tr[data-pass="kc2"]')!));
-      await t.click(t.btn("Отозвать", t.$('tr[data-pass="kc2"]')!));
-      expect(t.$(".sb-toast")!.textContent).toBe("phone~you@mail отозван — соединения закрыты");
-      expect(t.sent("keys.list").length).toBeGreaterThan(read);
-      t.relay.handlers["keys.revoke"] = () => ({ ok: false, error: "unknown_key" });
-      await t.click(t.btn("Отозвать…", t.$('tr[data-pass="kc2"]')!));
-      await t.click(t.btn("Отозвать", t.$('tr[data-pass="kc2"]')!));
-      expect(t.text()).toContain("phone~you@mail: такого пропуска нет");
-
-      const typeIn = async (label: string, v: string) => {
-        const el = t.$<HTMLInputElement>(`[aria-label="${label}"]`)!;
-        el.value = v;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        await flush();
-      };
-      await t.click(t.btn("Пригласить"));
-      await t.click(t.btn("программа", t.$("[data-invite]")!));
-      expect(t.$<HTMLInputElement>('[aria-label="Имя"]')!.placeholder).toBe("laptop");
-      t.relay.handlers["keys.invite"] = () => ({ ok: false, error: "name_taken" });
-      await typeIn("Имя", "bot");
-      await typeIn("Почта", "you@mail");
-      await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
-      expect(t.$("[data-invite]")!.textContent).toContain("у адреса уже есть живой пропуск — сначала отзовите прежний");
-      t.relay.handlers["keys.invite"] = (f: Frame) => ({ ok: true, result: { kid: "k1", invite: "k1.SECRET", addr: `${f.name}~${f.person}` } });
-      await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
-      expect(t.$("[data-invited]")!.textContent).toContain("Приглашение для bot~you@mail");
-      expect(t.$("[data-invited] code")!.textContent).toBe("k1.SECRET");
-      expect(t.btn("Копировать", t.$("[data-invited]")!)).not.toBeNull();
-      expect(t.$("[data-qr]")).toBeNull();
-      await t.click(t.btn("Готово"));
-      await t.click(t.btn("Пригласить"));
-      await t.click(t.btn("машина", t.$("[data-invite]")!));
-      expect(t.$<HTMLInputElement>('[aria-label="Имя"]')!.placeholder).toBe("имя машины");
-      expect(t.$('[aria-label="Почта"]')).toBeNull();
-      t.relay.handlers["keys.invite"] = (f: Frame) => ({ ok: true, result: { kid: "k2", invite: "k2.SECRET", addr: `@${f.name}` } });
-      await typeIn("Имя", "edge");
-      await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
-      expect(t.sent("keys.invite").at(-1)).toMatchObject({ role: "host", name: "edge" });
-      expect(t.sent("keys.invite").at(-1)).not.toHaveProperty("person");
-      expect(t.$("[data-invited]")!.textContent).toContain("Приглашение машины @edge");
-    });
-
-    it("V-S6 · приглашение устройству: QR с подписью; приглашение переживает смену вкладки, пока не «Готово»", async () => {
-      const t = await settings({ url: "/#settings?tab=passes", workers: { ...FakeRelay.WORKERS, phone: "https://phone.test/" } });
-      await t.click(t.btn("Пригласить"));
-      await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
-      expect(t.$("[data-invited]")!.textContent).toContain("Ссылка для ");
-      expect(t.$("[data-qr]")!.getAttribute("aria-label")).toBe("QR ссылки для телефона");
-      await t.click(t.$('[data-tab="general"]'));
-      await t.click(t.$('[data-tab="passes"]'));
-      await flush(5);
-      expect(t.$("[data-invited]")).not.toBeNull();
-      await t.click(t.btn("Готово"));
-      expect(t.$("[data-invited]")).toBeNull();
-    });
-
     it("V-S7 · GitHub: заголовок, поиск репозитория и «Таких нет», ссылка доступа; нет приложения — организация; отказ создания; код из адреса — промежуточное и итог", async () => {
       const t = await settings({ url: "/#settings?tab=general" });
       expect(t.$("[data-github] > b")!.textContent).toBe("Приложение GitHub флота");
@@ -1013,8 +1083,8 @@ describe("Настройки", () => {
       const t = await settings({ url: "/#settings?tab=general", hooks: (r) => void (r.handlers["keys.list"] = () => ({ ok: true, result: { passes: [] } })) });
       const dev = t.$("[data-device]")!;
       expect(dev.textContent).toContain("пропуск—");
-      await t.click(t.btn("Пропуска", dev));
-      expect(location.hash).toBe("#settings?tab=passes");
+      await t.click(t.btn("Люди", dev));
+      expect(location.hash).toBe("#people");
     });
   });
 
@@ -1075,7 +1145,7 @@ describe("Найдено сверкой деревьев", () => {
     expect(t.$('tr[data-machine="pc"] td[data-part="keeper"]')!.textContent).toBe("8 → 9");
     await t.click(t.$('tr[data-machine="pc"] .st-ck'));
     await t.type(t.$('[data-f="rq"]'), "pc");
-    await t.click(t.$('[data-tab="passes"]'));
+    await t.click(t.$('[data-tab="rules"]'));
     await t.click(t.$('[data-tab="releases"]'));
     await flush(5);
     expect(t.$("[data-bulk]")).not.toBeNull();

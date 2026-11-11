@@ -1,0 +1,16 @@
+{
+  "name": "blocks-r2",
+  "type": "worker",
+  "version": "1.0.0",
+  "implements": "blocks",
+  "uses": {
+    "release.format@release": 1
+  },
+  "config": {
+    "R2_KEY_SECRET": "secret",
+    "CF_ACCOUNT_ID": "var",
+    "R2_KEY_ID": "var",
+    "BLOCKS_BUCKET": "var",
+    "BUCKET": "binding"
+  }
+}

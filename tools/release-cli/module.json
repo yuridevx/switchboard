@@ -1,13 +1,14 @@
 {
   "name": "release-cli",
   "type": "tool",
-  "version": "1.5.1",
+  "version": "1.7.1",
   "provides": {},
   "uses": {
     "release.format@release": 1,
     "releases.upload@releases": 1,
     "manifest.check@manifest-gate": 1,
-    "releases.fetch@releases": 1
+    "releases.fetch@releases": 1,
+    "pointfiles.lay@pointfiles": 1
   },
   "config": {
     "SWITCHBOARD_PASS": "secret",

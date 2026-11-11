@@ -36,19 +36,19 @@ export const namesOf = (dir) => {
 /** Отозвать все пропуска дизайна, и принятые, и ждущие приёма. Возвращает отозванные адреса. */
 export async function close(workers, dir, fleet) {
   const names = Object.values(namesOf(dir));
-  const { passes } = await post(workers.gate, fleet, { type: "keys.list" });
-  const mine = passes.filter((p) => p.role === "client" && names.includes(p.name));
-  for (const p of mine) await post(workers.relay, fleet, { type: "keys.revoke", kid: p.id });
+  const { passes } = await post(workers.gate, fleet, { type: "keys.list", v: 2, kind: "device" });
+  const mine = passes.filter((p) => names.includes(p.addr.split("~")[0]));
+  for (const p of mine) await post(workers.relay, fleet, { type: "keys.revoke", kid: p.kid });
   return mine.map((p) => p.addr);
 }
 
 /** Старые пропуска дизайна отозвать, выдать новые приглашения: человеку за пультом и, если agent, браузеру снимков. */
 export async function open(workers, dir, fleet, agent) {
   const closed = await close(workers, dir, fleet);
-  const { you } = await post(workers.gate, fleet, { type: "keys.list", role: "client" });
+  const { you } = await post(workers.gate, fleet, { type: "keys.list", v: 2, kind: "machine" });
   const person = String(you).split("~")[1];
   const names = namesOf(dir);
-  const invite = (name) => post(workers.gate, fleet, { type: "keys.invite", role: "client", name, person }).then((r) => r.invite);
+  const invite = (name) => post(workers.gate, fleet, { type: "keys.invite", v: 2, addr: `${name}~${person}` }).then((r) => r.invite);
   return { closed, user: await invite(names.user), shots: agent ? await invite(names.shots) : null };
 }
 

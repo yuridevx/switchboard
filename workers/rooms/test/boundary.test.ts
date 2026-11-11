@@ -40,7 +40,7 @@ const fakeEnv = (over: Record<string, unknown> = {}) =>
     DB,
     TELEGRAM_BOT_TOKEN: TOKEN,
     GATE: {
-      revoked: async (ids: string[]) => ids.filter((id) => revoked.includes(id)),
+      list: async ({ ids }: { ids: string[] }) => ids.filter((id) => !revoked.includes(id)).map((kid) => ({ kid, addr: "", owner: null, wait: false })),
       redeem: async (invite: string) => redeems[invite] ?? { error: "bad_invite" },
     },
     RELAY: { deliver: async (f: Frame) => (frames.push(f), deliverN) },
@@ -324,7 +324,7 @@ describe("вебхук", () => {
     await link(ANN, ANN_DM, "k-ann");
     await send({ to: ANN_DM });
     calls = [];
-    const broken = fakeEnv({ GATE: { revoked: () => { throw new Error("gate упал"); } } });
+    const broken = fakeEnv({ GATE: { list: () => { throw new Error("gate упал"); } } });
     await hook({ callback_query: { id: "cb", from: { id: ANN }, data: "0:q1", message: { message_id: 7, chat: chatOf(ANN), message_thread_id: 101 } } }, { env: broken });
     expect(of("answerCallbackQuery")[0].body).toEqual({ callback_query_id: "cb", text: "Машина не на связи" });
     vi.restoreAllMocks();
@@ -359,7 +359,7 @@ describe("привязка", () => {
     const redeem = vi.fn(async () => ({ key: "k", addr: TEAM, kid: "abcd" }));
     const u = said(GROUP, ANN, `/start abcd_${"s".repeat(43)}`);
     u.message.chat = { id: GROUP, type: "group" } as never;
-    await hook(u, { env: fakeEnv({ GATE: { redeem, revoked: async () => [] } }) });
+    await hook(u, { env: fakeEnv({ GATE: { redeem, list: async () => [] } }) });
     expect(redeem).not.toHaveBeenCalled();
     expect(await row("chats")).toEqual([]);
     expect(of("sendMessage")[0].body).toMatchObject({ chat_id: GROUP, text: "Включите темы в настройках группы и отправьте приглашение снова." });

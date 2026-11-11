@@ -1,7 +1,7 @@
 {
   "name": "pult-points",
   "type": "web",
-  "version": "2.3.10",
+  "version": "2.4.0",
   "into": [
     "pult"
   ],
@@ -16,20 +16,22 @@
     "label.session@web-labels": 1,
     "app@web-core": 2,
     "roster@relay": 1,
-    "points.list@points": 1,
-    "points.get@points": 2,
+    "points.list@points": 2,
     "points.delete@points": 1,
     "points.save@host-points": 1,
-    "session.r2@host-points": 1,
     "session.remove@host-manage": 1,
     "points.raise@host-points": 1,
     "machine.accounts@host-logins": 2,
     "machines.left@pult-machines": 1,
     "machines.left.read@pult-machines": 1,
     "card.tab@web-card": 1,
-    "project.machines@web-board": 2,
     "project.of@web-board": 1,
-    "board.assign@web-board": 1
+    "board.assign@web-board": 1,
+    "session.archive@host-points": 1,
+    "points.history@points": 1,
+    "chat.view@web-chat": 1,
+    "settings@pult-settings": 1,
+    "card@web-card": 1
   },
   "config": {}
 }

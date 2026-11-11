@@ -37,7 +37,7 @@ const gate = (files: Files) => check(loadRepo(repo(files)));
 /** Прогон настоящего `cli.ts` на временном монорепо; своих node_modules у него нет, инструменты — из настоящего корня. */
 function gateOn(root: string) {
   cpSync(GATE, join(root, "tools", "manifest-gate"), { recursive: true });
-  return spawnSync(process.execPath, [join(root, "tools", "manifest-gate", "cli.ts")], { encoding: "utf8", env: { ...process.env, NODE_PATH: join(GATE, "..", "..", "node_modules") } });
+  return spawnSync(process.execPath, [join(root, "tools", "manifest-gate", "cli.ts")], { encoding: "utf8", timeout: 60_000, env: { ...process.env, NODE_PATH: join(GATE, "..", "..", "node_modules") } });
 }
 
 describe("набор модулей", () => {
@@ -66,6 +66,32 @@ describe("набор модулей", () => {
       "2075 · импорт модуля, которого нет; uses на имя, которого владелец не отдаёт",
       [m("push", { provides: { "push.send": 1 } }), m("watch", { uses: { "push.key@push": 1 }, imports: ["@switchboard/ghost"] })],
       ["модуль watch: uses push.key@push — push не отдаёт push.key", "модуль watch: импорт @switchboard/ghost — такого модуля нет"],
+    ],
+    [
+      "хранилище модулем: две реализации контракта blocks, points зовёт имя контракта — годно",
+      [
+        m("blocks", { type: "contract", provides: { "blocks.links": 1 } }),
+        m("blocks-r2", { implements: "blocks", imports: ["@switchboard/blocks"], config: { BUCKET: "binding" } }),
+        m("blocks-ch", { implements: "blocks", imports: ["@switchboard/blocks"] }),
+        m("points", { uses: { "blocks.links@blocks": 1 } }),
+      ],
+      [],
+    ],
+    [
+      "реализация: своё имя, не контракт, код без контракта; у контракта config",
+      [
+        m("blocks", { type: "contract", provides: { "blocks.links": 1 }, config: { X: "var" } }),
+        m("relay", { provides: { hello: 1 } }),
+        m("blocks-r2", { implements: "blocks", provides: { "blocks.mine": 1 }, imports: ["@switchboard/blocks"] }),
+        m("blocks-ch", { implements: "blocks" }),
+        m("blocks-kv", { implements: "relay", imports: ["@switchboard/relay"] }),
+      ],
+      [
+        "модуль blocks: у модуля-контракта нет config, uses и implements",
+        "модуль blocks-r2: implements blocks — своих provides у реализации нет",
+        "модуль blocks-ch: implements blocks — код не берёт контракт @switchboard/blocks",
+        "модуль blocks-kv: implements relay — не модуль-контракт",
+      ],
     ],
     ["повтор имени модуля", [m("relay"), m("relay")], ["модуль relay: имя уже занято"]],
     ["секрет в двух модулях; не секрет — можно", [m("gate", { config: { S: "secret", V: "var" } }), m("relay", { config: { S: "secret", V: "var" } })], ["секрет S: в config двух модулей — gate и relay"]],
@@ -177,7 +203,7 @@ describe("монорепо", () => {
   });
 
   it("2073 · npm run gate на настоящем монорепо: выход 0 и строка с числами", () => {
-    const r = spawnSync(process.execPath, [join(GATE, "cli.ts")], { encoding: "utf8" });
+    const r = spawnSync(process.execPath, [join(GATE, "cli.ts")], { encoding: "utf8", timeout: 60_000 });
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout.trim()).toMatch(/^gate: ok · \d+ модулей · \d+ имён контракта$/);
   });
@@ -212,6 +238,16 @@ describe("устройство кода против манифеста", () => 
     ["в строке и комментарии — не вызов (устав: устройство кода, а не текст)", "src/a.ts", '// env.GATE.revoked([]);\nconst s = "env.GATE.revoked([])";\n', {}, []],
   ])("вызов привязки Worker: %s", (_n, path, code, uses, want) => {
     expect(gate({ "workers/gate/module.json": owner, "workers/own/module.json": mod("own", { provides: { "own.key": 1 }, uses }), [`workers/own/${path}`]: code })).toEqual(want);
+  });
+
+  // источник: дизайн «Прокси модели», шаг 7 — tool только у запроса с типом, который есть в контракте
+  it.each<[string, Record<string, unknown>, string[]]>([
+    ["запрос с типом из контракта", { "own.key": { about: "ключ", type: "OwnKey" } }, []],
+    ["запроса нет в provides", { "own.nope": { about: "x", type: "OwnKey" } }, ["модуль own: tool у own.nope — такого запроса в provides нет"]],
+    ["типа нет в contract.ts", { "own.key": { about: "x", type: "Nope" } }, ["модуль own: tool у own.key — типа Nope нет в contract.ts"]],
+    ["без описания", { "own.key": { about: "", type: "OwnKey" } }, ["модуль own: tool у own.key — нужны about и type"]],
+  ])("инструмент MCP в манифесте: %s", (_n, tools, want) => {
+    expect(gate({ "workers/own/module.json": mod("own", { provides: { "own.key": 1 }, tools }), "workers/own/contract.ts": "export type OwnKey = { name: string };\nexport interface Other {}\n" })).toEqual(want);
   });
 
   const packages: Files = {

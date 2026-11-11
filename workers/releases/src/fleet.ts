@@ -26,7 +26,7 @@ export async function writeRow(env: Env, row: Row, change: Pick<Row, "stable" | 
 
 export async function machinesOf(env: Env): Promise<string[]> {
   try {
-    return (await within(env.GATE.list("host"), "gate не ответил на list")).map((p) => p.name);
+    return (await within(env.GATE.list({ kind: "machine" }), "gate не ответил на keys.list")).filter((p) => !p.wait).map((p) => p.addr.slice(1));
   } catch (e) {
     return refuse("gate_unavailable", String(e));
   }

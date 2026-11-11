@@ -17,7 +17,7 @@ import { Dis, RowView, Rows } from "./Rows.tsx";
 const AT_END_PX = 48;
 const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)} К` : String(n));
 
-function ItemView({ it }: { it: Item }) {
+export function ItemView({ it }: { it: Item }) {
   if (it.k !== "steps") return <RowView r={it} />;
   return (
     <Dis

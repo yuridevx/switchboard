@@ -15,8 +15,8 @@
   "scripts": {
     "gate": "node tools/manifest-gate/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/web-typecheck.mjs",
-    "test": "npm run gate && vitest run",
-    "test:workers": "node scripts/test-packages.mjs",
+    "test": "npm run gate && node scripts/test-packages.mjs",
+    "test:node": "vitest run",
     "shots": "node scripts/shots/run.mjs",
     "drag": "node scripts/shots/drag.mjs",
     "front": "node scripts/design/serve.mjs --fleet"
@@ -24,7 +24,10 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.23.0",
     "@cloudflare/workers-types": "5.20261031.1",
+    "@lydell/node-pty": "1.2.0-beta.18",
     "@types/node": "24.19.2",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
     "@vitest/runner": "4.1.12",
     "@vitest/snapshot": "4.1.12",
     "esbuild": "0.28.2",
@@ -32,15 +35,13 @@
     "playwright-core": "1.64.1",
     "typescript": "5.9.3",
     "vitest": "4.1.12",
-    "wrangler": "4.156.0",
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3"
+    "wrangler": "4.156.0"
   },
   "engines": {
     "node": ">=24"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.311"
+    "@anthropic-ai/claude-agent-sdk": "0.3.321"
   },
   "allowScripts": {
     "esbuild@0.28.1": true,

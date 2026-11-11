@@ -44,8 +44,8 @@ const claudePid = async (cs: string) => {
   return existsSync(f) ? (JSON.parse(readFileSync(f, "utf8")).pid as number) : undefined;
 };
 const hostPid = () =>
-  Number(execSync(`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { $_.CommandLine -like '*\\.switchboard\\parts\\host\\*' -and $_.CommandLine -notlike '*sbkeeper*' } | Select-Object -First 1).ProcessId"`).toString().trim());
-const kill = (pid: number) => execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
+  Number(execSync(`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { $_.CommandLine -like '*\\.switchboard\\parts\\host\\*' -and $_.CommandLine -notlike '*sbkeeper*' } | Select-Object -First 1).ProcessId"`, { timeout: 30_000 }).toString().trim());
+const kill = (pid: number) => execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore", timeout: 10_000 });
 
 const hostPart = async () => ((await req({ type: "keeper.state", to: `.keeper@${machine}` })).result?.parts ?? []).find((p: any) => p.part === "host");
 /** Чистый перезапуск Host агентом: план on: false, затем on: true; ждать новый hello машины. */

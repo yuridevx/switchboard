@@ -14,6 +14,8 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # предел задания: общий предел прогона тестов (15 мин) и установка с типами
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,9 +27,7 @@ jobs:
         run: npm run gate
       - name: typecheck
         run: npx tsc -p tsconfig.json
-      - name: тесты Node (protocol, tools, host)
-        run: npx vitest run
-      - name: тесты пакетов (Worker-модули, веб)
+      - name: тесты — Node-группа и пакеты Worker-модулей и веба разом, у каждого предел, у прогона общий
         run: node scripts/test-packages.mjs
 
   upload:

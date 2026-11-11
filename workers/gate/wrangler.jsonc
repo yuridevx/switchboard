@@ -1,4 +1,5 @@
-// gate: пропуска флота в базе D1 gate. Адрес — POST keys.invite, keys.list, gate.redeem; привязка Gate — verify, revoke, revoked.
+// gate: пропуска флота в базе D1 gate. Адрес — POST keys.invite, keys.list, gate.redeem и вход OAuth; привязка Gate — verify, revoke, list, redeem.
+// PULT — страница согласия пульта: authorization_endpoint метаданных OAuth.
 {
   "name": "switchboard-gate",
   "main": "src/index.ts",
@@ -7,12 +8,14 @@
   "preview_urls": false,
   "d1_databases": [{ "binding": "DB", "database_name": "switchboard-gate", "database_id": "38d056bd-24b2-41cc-aeef-7deb97dc9bed", "migrations_dir": "migrations" }],
   "observability": { "enabled": true },
+  "vars": { "PULT": "https://switchboard-pult.yuridevx1608.workers.dev/?open=consent" },
   // прод — switchboard-gate-prod со своей базой: пропуска теста в прод не входят
   "env": {
     "prod": {
       // свой домен прода: адрес Worker'а в сборках страниц и keeper.json машин прода
       "routes": [{ "pattern": "gate.pfarm.app", "custom_domain": true }],
       "workers_dev": false,
+      "vars": { "PULT": "https://pult.pfarm.app/?open=consent" },
       "d1_databases": [{ "binding": "DB", "database_name": "switchboard-gate-prod", "database_id": "78220606-b94a-475c-99f3-7c103836d9b4", "migrations_dir": "migrations" }]
     }
   }

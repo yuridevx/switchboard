@@ -1,20 +1,27 @@
-// Worker prefs: кадр с пропуском → строки своей базы. Значений не читает; значение в журнал не идёт.
+// Worker prefs: кадр с пропуском → строки своей базы. Значений не читает; значение в журнал не идёт. Запись области флота — кадр prefs.changed машинам.
 import { entrance, type GateApi } from "@switchboard/gate";
-import { accepts, fail, ok, userOf, type Frame } from "@switchboard/protocol";
+import { accepts, fail, ok, userOf, within, type Frame } from "@switchboard/protocol";
 import { CONTRACT } from "../contract.ts";
 
-type Env = { DB: D1Database; GATE: GateApi };
+type Env = { DB: D1Database; GATE: GateApi; RELAY: { broadcast(f: Frame): Promise<number> } };
 
 /** Предел значения в байтах: больше строки базы D1 не принимает. */
 const MAX_VALUE = 2_000_000;
 const SCOPE = /^(global|app:[\w-]+)$/;
 
 const text = (v: unknown): v is string => typeof v === "string" && v !== "";
+const line = (o: Record<string, unknown>) => console.log(JSON.stringify({ t: new Date().toISOString(), part: "prefs", ...o }));
 
-async function frame(f: Frame, db: D1Database): Promise<Frame[]> {
+/** Ключ области флота сменился: машины перечитывают его сами. Машина вне связи прочтёт при подключении, поэтому сбой — только строка журнала. */
+async function announce(env: Env, name: string): Promise<void> {
+  await within(env.RELAY.broadcast({ type: "prefs.changed", v: 1, from: ".prefs", name }), "relay не ответил").catch((e) => line({ kind: "refuse", ev: "prefs.changed", word: "offline", name, why: `relay.broadcast: ${e}` }));
+}
+
+async function frame(f: Frame, env: Env): Promise<Frame[]> {
+  const db = env.DB;
   const { type, id, from, scope, prefix, name, value } = f;
   const refuse = (word: string, why: string) => {
-    console.log(JSON.stringify({ t: new Date().toISOString(), part: "prefs", kind: "refuse", ev: type, word, why, from }));
+    line({ kind: "refuse", ev: type, word, why, from });
     return id ? [{ ...fail(id, word), to: from }] : [];
   };
   const off = accepts(f, CONTRACT);
@@ -36,9 +43,10 @@ async function frame(f: Frame, db: D1Database): Promise<Frame[]> {
   const size = new TextEncoder().encode(json).length;
   if (size > MAX_VALUE) return refuse("too_large", `${name}: ${size} байт, предел ${MAX_VALUE}`);
   await db.prepare("INSERT OR REPLACE INTO prefs (user, key, value) VALUES (?, ?, ?)").bind(owner, name, json).run();
+  if (owner === "global") await announce(env, name);
   return [{ ...ok(id), to: from }];
 }
 
 export default {
-  fetch: (req, env) => entrance(req, env.GATE, (f) => frame(f, env.DB)),
+  fetch: (req, env) => entrance(req, env.GATE, (f) => frame(f, env)),
 } satisfies ExportedHandler<Env>;

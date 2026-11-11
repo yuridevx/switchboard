@@ -32,7 +32,8 @@ export class FakeRelay {
   readonly fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const { key, ...f } = JSON.parse(String(init?.body)) as Frame;
     if (String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list") {
-      return Response.json({ type: "reply", id: f.id, ok: true, result: { you: this.you ?? this.roster.clients.find((c) => c.startsWith(`${String(key).split(".")[1]}~`)), passes: this.roster.machines.map((m) => ({ name: m.machine, role: "host", state: "ok" })) } });
+      const name = String(key).split(".").at(-3);
+      return Response.json({ type: "reply", id: f.id, ok: true, result: { you: this.you ?? this.roster.clients.find((c) => c.startsWith(`${name}~`)), passes: this.roster.machines.map((m) => ({ kid: `k-${m.machine}`, addr: `@${m.machine}`, owner: null, wait: false })) } });
     }
     this.got.push(f as Frame);
     if (typeof f.id !== "string") return new Response(null, { status: 204 });
@@ -171,9 +172,17 @@ export class FakeSock {
   }
 }
 
-/** Дать отработать таймерам, обещаниям и отрисовке React: клик → отрисовка → эффект → запрос → ответ → отрисовка. */
+/** Дать отработать таймерам, обещаниям и отрисовке React: клик → отрисовка → эффект → запрос → ответ → отрисовка.
+ *  n переходов setTimeout(0) подряд. Пока переход ждёт, цикл крутится на setImmediate и не засыпает: иначе на Windows
+ *  сон до таймера длится шаг системного таймера (10–16 мс вместо 1), и 12 переходов стоили 120–190 мс. */
 export async function flush(n = 12) {
-  for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
+  for (let i = 0; i < n; i++)
+    await new Promise<void>((r) => {
+      let fired = false;
+      setTimeout(() => ((fired = true), r()), 0);
+      const spin = () => void (fired || setImmediate(spin));
+      spin();
+    });
 }
 
 /** Флот home из дизайна: laptop и pc, четыре сессии, Worker push. */

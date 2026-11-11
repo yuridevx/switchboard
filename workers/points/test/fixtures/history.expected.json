@@ -1,0 +1,159 @@
+{
+ "sid": "9f1c0000-0000-4000-8000-000000000001",
+ "messages": [
+  {
+   "type": "user",
+   "uuid": "u1",
+   "session_id": "9f1c0000-0000-4000-8000-000000000001",
+   "message": {
+    "role": "user",
+    "content": "перенеси журнал в ClickHouse"
+   },
+   "parent_tool_use_id": null,
+   "parent_agent_id": null,
+   "timestamp": "2030-10-31T20:00:03.000Z"
+  },
+  {
+   "type": "assistant",
+   "uuid": "a1",
+   "session_id": "9f1c0000-0000-4000-8000-000000000001",
+   "message": {
+    "id": "m1",
+    "role": "assistant",
+    "model": "claude-opus-5-5",
+    "content": [
+     {
+      "type": "text",
+      "text": "Смотрю схему журнала."
+     }
+    ],
+    "usage": {
+     "input_tokens": 10,
+     "cache_creation_input_tokens": 100,
+     "cache_read_input_tokens": 1000,
+     "output_tokens": 20
+    }
+   },
+   "parent_tool_use_id": null,
+   "parent_agent_id": null,
+   "timestamp": "2030-10-31T20:00:04.000Z"
+  },
+  {
+   "type": "assistant",
+   "uuid": "a1b",
+   "session_id": "9f1c0000-0000-4000-8000-000000000001",
+   "message": {
+    "id": "m1",
+    "role": "assistant",
+    "model": "claude-opus-5-5",
+    "content": [
+     {
+      "type": "tool_use",
+      "id": "toolu_1",
+      "name": "Bash",
+      "input": {
+       "command": "ls"
+      }
+     }
+    ],
+    "usage": {
+     "input_tokens": 10,
+     "cache_creation_input_tokens": 100,
+     "cache_read_input_tokens": 1000,
+     "output_tokens": 20
+    }
+   },
+   "parent_tool_use_id": null,
+   "parent_agent_id": null,
+   "timestamp": "2030-10-31T20:00:05.000Z"
+  },
+  {
+   "type": "user",
+   "uuid": "u2",
+   "session_id": "9f1c0000-0000-4000-8000-000000000001",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "tool_result",
+      "tool_use_id": "toolu_1",
+      "content": "journal.ts"
+     }
+    ]
+   },
+   "parent_tool_use_id": null,
+   "parent_agent_id": null,
+   "timestamp": "2030-10-31T20:00:07.000Z"
+  },
+  {
+   "type": "assistant",
+   "uuid": "a2",
+   "session_id": "9f1c0000-0000-4000-8000-000000000001",
+   "message": {
+    "id": "m2",
+    "role": "assistant",
+    "model": "claude-opus-5-5",
+    "content": [
+     {
+      "type": "text",
+      "text": "Журнал — один файл."
+     }
+    ],
+    "usage": {
+     "input_tokens": 30,
+     "cache_creation_input_tokens": 100,
+     "cache_read_input_tokens": 1000,
+     "output_tokens": 40
+    }
+   },
+   "parent_tool_use_id": null,
+   "parent_agent_id": null,
+   "timestamp": "2030-10-31T20:00:08.000Z"
+  },
+  {
+   "type": "system",
+   "uuid": "s1",
+   "session_id": "9f1c0000-0000-4000-8000-000000000001",
+   "parent_tool_use_id": null,
+   "parent_agent_id": null,
+   "timestamp": "2030-10-31T20:00:09.000Z"
+  },
+  {
+   "type": "user",
+   "uuid": "u3",
+   "session_id": "9f1c0000-0000-4000-8000-000000000001",
+   "message": {
+    "role": "user",
+    "content": "а миграция d1?"
+   },
+   "parent_tool_use_id": null,
+   "parent_agent_id": null,
+   "timestamp": "2030-10-31T20:00:11.000Z"
+  },
+  {
+   "type": "assistant",
+   "uuid": "a3",
+   "session_id": "9f1c0000-0000-4000-8000-000000000001",
+   "message": {
+    "id": "m3",
+    "role": "assistant",
+    "model": "claude-sonnet-5-5",
+    "content": [
+     {
+      "type": "text",
+      "text": "Миграция D1 не нужна."
+     }
+    ],
+    "usage": {
+     "input_tokens": 50,
+     "cache_creation_input_tokens": 100,
+     "cache_read_input_tokens": 1000,
+     "output_tokens": 60
+    }
+   },
+   "parent_tool_use_id": null,
+   "parent_agent_id": null,
+   "timestamp": "2030-10-31T20:00:12.000Z"
+  }
+ ]
+}

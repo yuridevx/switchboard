@@ -1,15 +1,28 @@
 {
   "name": "gate",
   "type": "worker",
-  "version": "1.3.9",
+  "version": "1.4.0",
   "provides": {
     "gate.verify": 1,
     "gate.revoke": 1,
-    "gate.revoked": 1,
-    "keys.invite": 1,
-    "keys.list": 1,
-    "gate.redeem": 1,
-    "gate.list": 1
+    "keys.invite": 2,
+    "keys.list": 2,
+    "gate.redeem": 1
+  },
+  "tools": {
+    "keys.invite": {
+      "about": "Выдать пропуск флота одноразовым приглашением на сутки. Вид — форма адреса: машина @laptop (owner — владелец ~почта; приглашение принимает keeper install), устройство или программа имя~почта (пульт и телефон — ссылкой #invite=, программа — switchboard redeem). Занятый адрес — name_taken.",
+      "type": "KeysInvite",
+      "omit": [
+        "challenge",
+        "client",
+        "back"
+      ]
+    },
+    "keys.list": {
+      "about": "Пропуска флота: номер, адрес, владелец машины, wait — приглашение не принято. kind — только эта форма адреса, ids — только эти номера.",
+      "type": "KeysList"
+    }
   },
   "uses": {},
   "config": {
