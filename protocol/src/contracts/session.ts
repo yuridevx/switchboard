@@ -93,12 +93,11 @@ export const SessionRow = z.object({
   error: z.string().optional(),
   /** аккаунт Claude, к которому сессия привязана сейчас: выбирает машина; у сессии провайдера его нет */
   account: z.string().optional(),
-  /** час кэша разговора: until — до какого времени кэш тёплый, мс; compact — когда машина сама сожмёт разговор, мс (нет — сжимать не будет) */
-  cache: z.object({ until: z.number(), compact: z.number().optional() }).optional(),
+  /** час кэша разговора: until — до какого времени кэш тёплый, мс; compact — когда машина сама сожмёт разговор, мс (нет — сжимать не будет);
+   *  size — сколько токенов занято в контексте по последнему ответу модели: страница показывает заполнение по нему и сама у сессии не спрашивает */
+  cache: z.object({ until: z.number(), compact: z.number().optional(), size: z.number().optional() }).optional(),
   /** модель, которая ответила вместо выбранной; нет — отвечает выбранная */
   answers: z.string().optional(),
-  /** доля занятого контекста, 0..1 */
-  context: z.number().optional(),
   /** последняя точка в архив не удалась: причина */
   archiveError: z.string().optional(),
   /** когда Host повторит неудавшуюся точку сам, мс; раньше — при конце хода */
@@ -120,7 +119,7 @@ const toSession = z.object({ to: Callsign });
 
 export const sessionOpen = request("session.open", {
   owner: "host", target: "machine",
-  tool: "Открыть новую сессию Claude Code на машине: to — машина вида @laptop, spec — документ сессии (name, cwd, key и model обязательны: key — провайдер, claude или имя ключа флота; model — точное имя модели из keys_models). prompt — первое сообщение сессии; mkdir — создать папку, если её нет; number — к имени первый свободный номер; pair — открыть вместе с ведомым <имя>-wing; resume — продолжить разговор с диска машины по его id, fork — его копией.",
+  tool: "Открыть новую сессию Claude Code на машине и дать ей первую задачу. Бери, чтобы поручить работу отдельной сессии: открытая тобой сессия — твоя дочь, итоги её ходов по твоей задаче придут сами. to — машина вида @laptop. spec — документ сессии: name, cwd, key и model обязательны (key — провайдер: claude или имя ключа флота; model — точное имя из keys_models; свои key и model видны в fleet_list, в строке с твоим позывным). Проект не называй — дочь встанет в твой; другой проект — его номер из people_list. prompt — первая задача. mkdir — создать папку, если её нет; number — к имени первый свободный номер; pair — открыть вместе с ведомым <имя>-wing; resume — продолжить разговор с диска машины по его id, fork — его копией. Ответ: callsign новой сессии. Отказы: key_required, model_required, no_model — нет провайдера или такой модели; no_project — проекта нет, в отказе список «номер — имя»; name_taken — имя занято; bad_dir — папки нет.", example: {"to":"@server","spec":{"name":"coder","cwd":"~/projects/site","key":"claude","model":"claude-opus-5-5"},"prompt":"Собери срез 2 и пришли номер коммита"},
   input: z.object({
     to: MachineAddr, spec: Spec, prompt: z.string().optional(),
     /** создать папку, если её нет */
@@ -138,22 +137,22 @@ export const sessionOpen = request("session.open", {
 
 export const sessionUpdate = request("session.update", {
   owner: "host", target: "session",
-  tool: "Изменить документ сессии: patch — ключи для замены (key и model — провайдер и точное имя модели из keys_models, меняются вместе; effort, mode, fast, style, thinking, title, pieces, project, wing, backup, cwd); wing: null — снять ведомого; pair: true — открыть ведомого <имя>-wing.",
+  tool: "Изменить документ сессии. Бери, чтобы сменить модель, режим или проект сессии или открыть себе ведомого. patch — ключи для замены: key и model (провайдер и точное имя из keys_models, меняются вместе), effort, mode, fast, style, thinking, title, pieces, project (номер из people_list), backup, cwd. wing: null — снять ведомого; pair: true — открыть ведомого <имя>-wing. Ответ: now — что подействовало сразу, later — что вступит в силу после хода, wing — позывной открытого ведомого.", example: {"to":"site@laptop","patch":{"effort":"high"}},
   input: z.object({ to: Callsign, patch: SpecPatch.extend({ wing: Callsign.nullable().optional() }), pair: z.boolean().optional() }),
   /** now — что подействовало сразу; later — что вступит в силу после хода, с новым процессом */
   output: z.object({ now: z.array(z.string()), later: z.array(z.string()), wing: Callsign.optional() }).loose(),
 });
 
 export const sessionStop = request("session.stop", {
-  owner: "host", target: "session", tool: "Остановить процесс сессии; разговор сохраняется.",
+  owner: "host", target: "session", tool: "Остановить процесс сессии; разговор сохраняется. Запустить снова — session_start.", example: {"to":"site@laptop"},
   input: toSession, output: Done,
 });
 export const sessionStart = request("session.start", {
-  owner: "host", target: "session", tool: "Запустить остановленную сессию: разговор возобновляется.",
+  owner: "host", target: "session", tool: "Запустить остановленную сессию: разговор продолжается с того же места. Бери после отказа stopped у message.", example: {"to":"site@laptop"},
   input: toSession, output: Done,
 });
 export const sessionRemove = request("session.remove", {
-  owner: "host", target: "session", tool: "Убрать сессию с машины; точки в архиве остаются. after_turn: true — посреди хода убрать после его конца (так сессия убирает сама себя).",
+  owner: "host", target: "session", tool: "Убрать сессию с машины; точки в архиве остаются. Себя убирай так: to — свой позывной, after_turn: true — сессия уйдёт после конца хода.", example: {"to":"site@laptop","after_turn":true},
   input: z.object({ to: Callsign, after_turn: z.boolean().optional() }), output: z.object({ after_turn: z.boolean().optional() }).loose(),
 });
 
@@ -168,7 +167,7 @@ export const SDK_METHODS = [
 export const TOOL_METHODS = ["interrupt", "compact", "reload", "mcpStatus", "mcpReconnect", "mcpToggle", "contextUsage", "status"] as const;
 export const sessionCall = request("session.call", {
   owner: "host", target: "session",
-  tool: "Действие над живой сессией: method — interrupt (прервать ход), compact (сжать разговор), reload (перечитать скилы, агентов и серверы плагинов), mcpStatus (серверы MCP), mcpReconnect (args: имя сервера), mcpToggle (args: [имя сервера, включён]), contextUsage (занятость контекста), status (состояние).",
+  tool: "Действие над живой сессией: method — interrupt (прервать ход), compact (сжать разговор), reload (перечитать скилы, агентов и серверы плагинов), mcpStatus (серверы MCP), mcpReconnect (args: имя сервера), mcpToggle (args: [имя сервера, включён]), contextUsage (занятость контекста), status (состояние). Ответ — то, что вернул метод. Отказ stopped — сессия остановлена.", example: {"to":"site@laptop","method":"interrupt"},
   input: z.object({ to: Callsign, method: z.enum(SDK_METHODS), args: z.unknown().optional() }),
   output: z.unknown(),
 });
@@ -182,11 +181,26 @@ export type Priority = z.infer<typeof Priority>;
 
 export const message = request("message", {
   owner: "host-chat", target: "session",
-  tool: "Написать сессии флота: to — позывной вида site@laptop, text — сообщение. От сессии оно придёт адресату с пометкой отправителя. Текст «/model слова» меняет модель адресата: слова — часть имени модели, семейство или провайдер; подошла одна — она встала (model в ответе), несколько — отказ many_models со списком. Человеку (~почта) пишут инструментом reach_send.",
+  tool: "Написать сессии флота. Бери, чтобы дать задачу дочери, ответить соседу, сообщить новость. Человеку — reach_send. to — позывной вида site@laptop; text — сообщение; priority: next (по умолчанию) — после нынешнего шага адресата, now — прервать его ход; files — вложения. Текст «/model слова» меняет модель адресата: слова — часть имени модели, семейство или провайдер. Ответ: uuid и queued — адресат занят, сообщение ждёт; model — «/model» поставило эту модель. Отказы: stopped — сессия остановлена: session_start; many_models — под слова подошло несколько моделей, в отказе список.", example: {"to":"coder@server","text":"Собери срез 2 и пришли номер коммита"},
   input: z.object({ to: Callsign, text: z.string(), files: z.array(FileIn).optional(), priority: Priority.optional() }),
   /** queued — сессия занята, сообщение ждёт в очереди; uuid — его номер: по нему приходит статус в ленте и отмена */
   /** model — «/model слова» поставило сессии эту модель: в разговор команда не ушла */
   output: z.object({ queued: z.boolean().optional(), uuid: z.string().optional(), model: z.string().optional() }).loose(),
+});
+
+/** Вид входящего от флота: что это и что с ним делать. task и message ставит машина адресата (отправитель — родитель сессии → task);
+ *  result, question и news называет машина отправителя запросом notice; incident — модуль обращений. У инструмента message поля вида нет. */
+export const Kind = z.enum(["task", "message", "result", "question", "news", "incident"]);
+export type Kind = z.infer<typeof Kind>;
+/** Разобранное входящее в событии ленты и истории: тег собирает и разбирает только модуль разговора. ask — номер вопроса; incident и key — вид и ключ обращения. */
+export const Peer = z.object({ from: z.string(), kind: Kind, text: z.string(), ask: z.string().optional(), incident: z.string().optional(), key: z.string().optional() });
+export type Peer = z.infer<typeof Peer>;
+
+/** Служебное сообщение сессии от машины: итог хода дочери (result), вопрос дочери (question), событие со своей работой (news). Не инструмент: вид называет машина, а не модель. */
+export const notice = request("notice", {
+  owner: "host-chat", target: "session", machineOnly: true,
+  input: z.object({ to: Callsign, kind: z.enum(["result", "question", "news"]), text: z.string(), ask: z.string().optional() }),
+  output: z.object({ queued: z.boolean().optional(), uuid: z.string().optional() }).loose(),
 });
 
 /** Отменить своё сообщение, пока ход его не взял. */
@@ -203,7 +217,7 @@ export type QueuedMessage = z.infer<typeof QueuedMessage>;
 export const MessageStatus = z.object({ type: z.literal("message.status"), uuid: z.string(), status: z.enum(["queued", "taken", "cancelled"]) });
 
 /** Событие ленты: сообщение SDK как есть. Сверх него Host кладёт в ленту и историю:
- *  сообщение человека, сессии или службы сразу, как оно принято (type user, uuid — номер сообщения, from — отправитель; у сообщения сессии — peer { from, text });
+ *  сообщение человека, сессии или службы сразу, как оно принято (type user, uuid — номер сообщения, from — отправитель; у входящего от флота — peer: Peer);
  *  итог хода (type result: duration_ms, num_turns, total_cost_usd, usage) — в истории он стоит за последней записью своего хода;
  *  статус своего сообщения (MessageStatus). */
 export const SdkEvent = z.object({ type: z.string(), uuid: z.string().optional() }).loose();
@@ -211,7 +225,7 @@ export type SdkEvent = z.infer<typeof SdkEvent>;
 
 export const sessionHistory = request("session.history", {
   owner: "host-chat", target: "session",
-  tool: "Прочитать разговор сессии страницами с конца: before — uuid, до которого читать; people: true — только переписка с людьми (их сообщения, сообщения им, вопросы и ответы).",
+  tool: "Прочитать разговор сессии страницами с конца. Бери, чтобы узнать, что сессия делала и что ответила. limit — сколько событий (по умолчанию 50, не больше 200); before — uuid события, до которого читать дальше назад; people: true — только переписка с людьми (их сообщения, сообщения им, вопросы и ответы). Ответ: events — сообщения и вызовы инструментов по порядку, more — есть ли более ранние.", example: {"to":"site@laptop","limit":30}, reads: true,
   input: z.object({ to: Callsign, before: z.string().optional(), limit: z.number().int().min(1).max(200).optional(), people: z.boolean().optional() }),
   output: z.object({ events: z.array(SdkEvent), more: z.boolean(), seq: z.number() }),
 });
@@ -237,7 +251,7 @@ export const sessionUnwatch = request("session.unwatch", { owner: "host-chat", t
  *  files — вернуть и файлы к тому же моменту; dry — только посчитать. text — текст ушедшего сообщения: страница кладёт его в поле ввода. */
 export const sessionRewind = request("session.rewind", {
   owner: "host", target: "session",
-  tool: "Откатить разговор сессии к сообщению человека: upto — uuid этого сообщения, оно и всё после него уходит; без upto — разговор начинается заново. files: true — вернуть и файлы к тому же моменту. dry: true — только показать, что уйдёт.",
+  tool: "Откатить разговор сессии к сообщению человека: upto — uuid этого сообщения, оно и всё после него уходит; без upto — разговор начинается заново. files: true — вернуть и файлы к тому же моменту. dry: true — только показать, что уйдёт. Ответ: cut — сколько записей уходит, files — какие файлы вернутся. Отказы: stopped; no_checkpoint — снимка файлов нет.", example: {"to":"site@laptop","upto":"a0a446ca-1c2d-4e5f-8a9b-0c1d2e3f4a5b","dry":true},
   input: z.object({ to: Callsign, upto: z.string().optional(), files: z.boolean().optional(), dry: z.boolean().optional() }),
   /** nofiles — у показа: почему файлы к этому сообщению не вернуть (снимка нет); откат с файлами тогда отказывает словом */
   output: z.object({ cut: z.number(), text: z.string().optional(), files: z.array(z.string()).optional(), plus: z.number().optional(), minus: z.number().optional(), nofiles: z.string().optional() }),
@@ -246,7 +260,7 @@ export const sessionRead = request("session.read", { owner: "host-chat", target:
 
 export const answer = request("answer", {
   owner: "host-chat", target: "session",
-  tool: "Ответить на вопрос сессии: ask — номер вопроса из строки сессии, answer — ответ. Первый ответ выигрывает.",
+  tool: "Ответить на вопрос сессии. Бери, когда во ввод пришло <fleet kind=\"question\" ask=\"…\">: to — кто спросил, ask — номер вопроса из тега (он же в fleet_list), answer — выбранный вариант или текст. Первый ответ выигрывает; разрешения, планы и формы решает только человек. Отказы: already_answered — уже ответили; unknown_question — такого вопроса нет.", example: {"to":"coder@server","ask":"toolu_01Hq","answer":"main"},
   /** via: "push" — ответ дан кнопкой уведомления, а не на странице */
   input: z.object({ to: Callsign, ask: z.string(), answer: z.unknown(), via: z.literal("push").optional() }),
   output: Done,

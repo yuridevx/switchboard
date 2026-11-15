@@ -23,7 +23,7 @@ export type PassRow = z.infer<typeof PassRow>;
  *  fresh — ждём нового человека: человек уже во флоте — отказ `exists`. */
 export const invite = request("invite", {
   owner: "fleet", target: "fleet",
-  tool: "Выдать приглашение на сутки: addr — устройство вида pult~a@b.c или машина вида @laptop; owner — владелец машины (по умолчанию вы).",
+  tool: "Выдать приглашение на сутки: addr — устройство вида pult~a@b.c или машина вида @laptop; owner — владелец машины (по умолчанию вы).", example: {"addr":"@laptop"},
   input: z.object({ addr: z.string(), owner: Person.optional(), fresh: z.boolean().optional() }),
   output: z.object({ kid: z.string(), invite: z.string() }),
 });
@@ -43,12 +43,12 @@ export const consent = request("consent", {
 });
 /** kind — только машины или только устройства; kids — только эти номера (отозванных в ответе нет). */
 export const passes = request("passes", {
-  owner: "fleet", target: "fleet", tool: "Пропуска флота: свои; у админа — все. kind — machine или device; kids — только эти номера.",
+  owner: "fleet", target: "fleet", tool: "Пропуска флота: свои; у админа — все. kind — machine или device; kids — только эти номера.", example: {"kind":"machine"}, reads: true,
   input: z.object({ kind: z.enum(["machine", "device"]).optional(), kids: z.array(z.string()).optional() }), output: z.object({ passes: z.array(PassRow) }),
 });
 /** Отозвать пропуск или приглашение: свои — любой, чужие — админ. Соединения с ним закрываются. */
 export const revoke = request("revoke", {
-  owner: "fleet", target: "fleet", tool: "Отозвать пропуск или приглашение по номеру.",
+  owner: "fleet", target: "fleet", tool: "Отозвать пропуск или приглашение по номеру.", example: {"kid":"k7f2"},
   input: z.object({ kid: z.string() }), output: Done,
 });
 export const whoami = request("whoami", {
@@ -69,7 +69,7 @@ export const Project = z.object({ id: Name, name: z.string(), members: z.array(P
 export type Project = z.infer<typeof Project>;
 
 export const peopleList = request("people.list", {
-  owner: "fleet", target: "fleet", tool: "Люди флота и их проекты.",
+  owner: "fleet", target: "fleet", tool: "Люди флота и проекты. Бери, чтобы узнать номер проекта для spec.project: в ответе projects — id (номер) и name (имя для людей); people — люди, их проекты и кто админ.", example: {}, reads: true,
   input: Empty, output: z.object({ people: z.array(PersonRow), projects: z.array(Project) }),
 });
 export const peopleSet = request("people.set", {
@@ -106,12 +106,21 @@ export const MachineRow = z.object({
 });
 export type MachineRow = z.infer<typeof MachineRow>;
 
+/** Короткая строка сессии в ответе fleet.list: то, что нужно модели, чтобы найти сессию и написать ей. Полная строка — с full: true. */
+export const SessionBrief = z.object({
+  callsign: z.string(), state: z.string(), title: z.string().optional(), cwd: z.string(), key: z.string().optional(), model: z.string().optional(),
+  parent: z.string().optional(), project: z.string().optional(), doing: z.string().optional(),
+  /** ждущий вопрос: номер — для инструмента answer */
+  ask: z.object({ id: z.string(), kind: z.string(), text: z.string() }).optional(),
+});
+export type SessionBrief = z.infer<typeof SessionBrief>;
+
 /** Картина флота одним ответом — для модели и скриптов: машины и сессии, до которых достаёт спросивший, и люди на связи. */
 export const fleetList = request("fleet.list", {
   owner: "fleet", target: "fleet",
-  tool: "Картина флота: машины (на связи или нет, с какого времени), сессии с состоянием и документом и люди на связи — только то, до чего вы достаёте. machine — только эта машина; project — сессии одного проекта доски; state — сессии в этом состоянии (idle, busy, waiting, stopped, failed).",
-  input: z.object({ machine: Name.optional(), project: z.string().optional(), state: z.string().optional() }),
-  output: z.object({ machines: z.array(MachineRow), sessions: z.array(SessionRow), people: z.array(z.object({ person: Person, name: z.string().optional(), devices: z.array(z.string()) })) }),
+  tool: "Картина флота: машины, сессии и люди на связи — только то, до чего ты достаёшь. Бери, чтобы найти сессию, узнать её состояние или свои key, model и проект (строка с твоим позывным). У сессии короткая строка: callsign, state, title, cwd, key, model, parent, project, doing (чем занята), ask (ждущий вопрос и его номер). full: true — полные строки с документом. machine — только эта машина; project — номер проекта; state — idle, busy, waiting, stopped или failed.", example: {"state":"busy"}, reads: true,
+  input: z.object({ machine: Name.optional(), project: z.string().optional(), state: z.string().optional(), /** полные строки сессий: документ, вопрос целиком, начало последнего ответа */ full: z.boolean().optional() }),
+  output: z.object({ machines: z.array(MachineRow), sessions: z.array(z.union([SessionRow, SessionBrief])), people: z.array(z.object({ person: Person, name: z.string().optional(), devices: z.array(z.string()) })) }),
 });
 
 /** Снимок картины: приходит странице при подключении. В нём только машины, до которых человек достаёт. */

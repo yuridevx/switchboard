@@ -18,8 +18,12 @@ export interface RequestDef<I = unknown, O = unknown> {
   ownerOnly?: boolean;
   /** без пропуска (приём приглашения) */
   open?: boolean;
-  /** описание для модели: запрос с ним — инструмент сервера MCP */
+  /** описание для модели: запрос с ним — инструмент сервера MCP. Шаблон: что делает · когда брать · поля · что вернётся · отказы */
   tool?: string;
+  /** пример вызова инструмента: проходит схему ввода без потерь — это проверяет тест договора; модель видит его строкой «Пример: {…}» */
+  example?: unknown;
+  /** запрос только читает: сервер MCP ставит инструменту пометку «только чтение». Пишет хозяин запроса, из имени не выводится */
+  reads?: boolean;
   input: z.ZodType<I>;
   output: z.ZodType<O>;
 }
@@ -44,7 +48,7 @@ function add<D extends AnyDef>(d: D): D {
 
 export function request<I, O>(
   name: string,
-  d: { owner: string; target: Target; admin?: boolean; machineOnly?: boolean; ownerOnly?: boolean; open?: boolean; tool?: string; input: z.ZodType<I>; output: z.ZodType<O> },
+  d: { owner: string; target: Target; admin?: boolean; machineOnly?: boolean; ownerOnly?: boolean; open?: boolean; tool?: string; example?: unknown; reads?: boolean; input: z.ZodType<I>; output: z.ZodType<O> },
 ): RequestDef<I, O> {
   return add({ kind: "request", name, ...d });
 }
@@ -63,6 +67,12 @@ export const contract = {
   all: (): AnyDef[] => [...all.values()],
   tools: (): RequestDef[] => [...all.values()].filter((d): d is RequestDef => d.kind === "request" && !!d.tool),
 };
+
+/** Предел Claude Code на описание инструмента: длиннее — обрезает молча. */
+export const TOOL_TEXT_MAX = 4096;
+/** Описание инструмента для модели: текст хозяина и пример вызова из договора. */
+export const toolText = (d: RequestDef): string => (d.example === undefined ? d.tool! : `${d.tool}
+Пример: ${JSON.stringify(d.example)}`);
 
 export type InputOf<D> = D extends RequestDef<infer I, any> ? I : never;
 export type OutputOf<D> = D extends RequestDef<any, infer O> ? O : never;

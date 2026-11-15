@@ -121,7 +121,7 @@ describe("ядро: открытие и документ", () => {
 });
 
 describe("пара", () => {
-  it("pair открывает ведомого <имя>-wing с тем же документом; в строке ведомого — ведущий; весть ведущему; вторая пара и пара в паре — отказ; wing: null снимает ведомого", async () => {
+  it("pair открывает ведомого <имя>-wing с тем же документом; в строке ведомого — ведущий; вести об открытии ведущей нет; вторая пара и пара в паре — отказ; wing: null снимает ведомого", async () => {
     st = await stand({ modules: [chat()] });
     const r = await st.request("session.open", { to: "@laptop", spec: { name: "lead", cwd: st.dir, model: "m1" }, pair: true });
     expect(r.result).toEqual({ callsign: "lead@laptop", wing: "lead-wing@laptop" });
@@ -130,7 +130,9 @@ describe("пара", () => {
     expect(lead.rec.spec.wing).toBe("lead-wing@laptop");
     expect(wing.rec.spec).toMatchObject({ parent: "lead@laptop", model: "m1", cwd: st.dir });
     expect(st.link.rows("lead-wing@laptop").at(-1)!.row).toMatchObject({ lead: "lead@laptop" });
-    await until(() => st!.proc("lead@laptop").inputs.some((i) => String(i.message.content).includes("Ведомый lead-wing@laptop открыт")), 5000, "весть ведущему");
+    // ведущая открыла ведомого сама и получила его позывной ответом инструмента — весть лишняя
+    await tick(40);
+    expect(st.proc("lead@laptop").inputs).toEqual([]);
     expect(await st.request("session.update", { to: "lead@laptop", patch: {}, pair: true })).toMatchObject({ ok: false, error: "has_wing" });
     expect(await st.request("session.update", { to: "lead-wing@laptop", patch: {}, pair: true })).toMatchObject({ ok: false, error: "pair_inside" });
     expect((await st.request("session.update", { to: "lead@laptop", patch: { wing: null } })).ok).toBe(true);
@@ -156,7 +158,8 @@ describe("пара", () => {
     await until(() => st!.holders.procs.get("lead-wing@laptop")?.failInit, 5000, "неготовый процесс");
     st.holders.procs.get("lead-wing@laptop")!.exit(1, "не поднялся");
     await until(() => wing.state === "failed", 5000, "failed");
-    await until(() => st!.proc("lead@laptop").inputs.some((i) => String(i.message.content).includes("остановился со сбоем")), 5000, "весть об обрыве");
+    const got = await until(() => st!.proc("lead@laptop").inputs.find((i) => String(i.message.content).includes("со сбоем")), 5000, "весть об обрыве");
+    expect(String(got.message.content)).toMatch(/^<fleet from="lead-wing@laptop" kind="news">\nОстановилась со сбоем: /);
   });
 });
 
@@ -375,7 +378,7 @@ describe("incidents", () => {
     const proc = await until(() => st!.proc("disk-1@laptop"), 5000, "процесс инцидента");
     await until(() => proc.inputs.length === 1, 5000, "обращение во вводе");
     const content = proc.inputs[0]!.message.content as any[];
-    expect(content[0]).toMatchObject({ type: "text", text: expect.stringContaining('<incident kind="disk" key="c:"') });
+    expect(content[0]).toMatchObject({ type: "text", text: expect.stringContaining('<fleet from="@laptop" kind="incident" incident="disk" key="c:">') });
     expect(content[1]).toMatchObject({ type: "document", title: "df.txt", source: { data: "/ 99%" } });
     expect((st.sdk.last("disk-1@laptop")!.options as any).systemPrompt.append).toContain("Сначала df -h.");
     expect(st.services.of("reach.send")).toContainEqual(expect.objectContaining({ to: "~yuri@example.com", kind: "incident", title: expect.stringContaining("инцидент disk") }));

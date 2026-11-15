@@ -57,7 +57,7 @@ describe("час кэша в строке сессии", () => {
     await st.open("site");
     st.clock.advance(5 * MIN);
     await st.turn(CS, [answer(120_000)]);
-    expect(row().cache).toEqual({ until: T0 + 5 * MIN + 60 * MIN });
+    expect(row().cache).toEqual({ until: T0 + 5 * MIN + 60 * MIN, size: 120_000 });
   });
 
   // чьё: слово пользователя 11 нояб. — 54-я минута, от 200 К
@@ -65,7 +65,7 @@ describe("час кэша в строке сессии", () => {
     st = await stand();
     await st.open("site");
     await st.turn(CS, [answer(212_000)]);
-    expect(row().cache).toEqual({ until: T0 + 60 * MIN, compact: T0 + 54 * MIN });
+    expect(row().cache).toEqual({ until: T0 + 60 * MIN, compact: T0 + 54 * MIN, size: 212_000 });
   });
 });
 
@@ -100,7 +100,7 @@ describe("сжатие при простое", () => {
     st.clock.advance(60 * MIN);
     await tick();
     expect(compacts()).toBe(0);
-    expect(row().cache).toEqual({ until: T0 + 5 * MIN });
+    expect(row().cache).toEqual({ until: T0 + 5 * MIN, size: 212_000 });
   });
 
   it("человек вернулся на 30-й минуте: таймер снят, срок считается от нового ответа", async () => {
@@ -125,7 +125,7 @@ describe("сжатие при простое", () => {
     await tick();
     expect(compacts()).toBe(1);
     await st.turn(CS, [{ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 212_000, post_tokens: 9_000 } }], "");
-    expect(row().cache).toEqual({ until: T0 + 54 * MIN + 60 * MIN });
+    expect(row().cache).toEqual({ until: T0 + 54 * MIN + 60 * MIN, size: 9_000 });
     st.clock.advance(60 * MIN);
     await tick();
     expect(compacts()).toBe(1);
@@ -134,7 +134,7 @@ describe("сжатие при простое", () => {
   // устав: после перезапуска модуль и ядро поднимают своё из хранилища
   it("Host подменён на 20-й минуте простоя: таймер взведён из записи сессии, /compact уходит на 54-й минуте от ответа", async () => {
     st = await stand({ sessions: [{ callsign: CS, cache: { at: T0 - 20 * MIN, size: 212_000, hour: true } }] });
-    expect(row().cache).toEqual({ until: T0 + 40 * MIN, compact: T0 + 34 * MIN });
+    expect(row().cache).toEqual({ until: T0 + 40 * MIN, compact: T0 + 34 * MIN, size: 212_000 });
     st.clock.advance(33 * MIN);
     await tick();
     expect(compacts()).toBe(0);
@@ -150,6 +150,6 @@ describe("сжатие при простое", () => {
     await tick();
     expect(compacts()).toBe(0);
     expect(journal("idle_compact_late")).toHaveLength(1);
-    expect(row().cache).toEqual({ until: T0 + 2 * MIN });
+    expect(row().cache).toEqual({ until: T0 + 2 * MIN, size: 212_000 });
   });
 });

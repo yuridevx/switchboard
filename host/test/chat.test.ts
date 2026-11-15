@@ -13,14 +13,14 @@ const PHONE = "phone~yuri@example.com";
 const ANYA = "pult~anya@example.com";
 
 describe("chat", () => {
-  it("сообщение человека идёт как есть, сообщение сессии — с пометкой отправителя", async () => {
+  it("сообщение человека идёт как есть, сообщение сессии — одним тегом с отправителем и видом", async () => {
     st = await stand({ modules: [chat()] });
     const { proc } = await st.open("site");
     expect((await st.request("message", { to: "site@laptop", text: "привет" }, PULT)).ok).toBe(true);
     expect((await st.request("message", { to: "site@laptop", text: "я закончила" }, "docs@server")).ok).toBe(true);
     await until(() => proc.inputs.length === 2, 5000, "ввод");
     expect(proc.inputs[0]!.message.content).toBe("привет");
-    expect(proc.inputs[1]!.message.content).toBe('<fleet-message from="docs@server">\nя закончила\n</fleet-message>');
+    expect(proc.inputs[1]!.message.content).toBe('<fleet from="docs@server" kind="message">\nя закончила\n</fleet>');
   });
 
   it("вложение-картинка идёт блоком; тип без блока — отказ bad_attachment, во ввод ничего не ушло", async () => {

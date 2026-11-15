@@ -172,7 +172,7 @@ describe("ведущая и ведомый", () => {
     await until(() => st!.kernel.sessions.get(WING)?.state === "idle", 5000, "ведомый готов");
     return st;
   };
-  const news = (s: Stand) => s.proc(LEAD).inputs.map((i) => String(i.message.content)).filter((t) => t.includes("Ведомый"));
+  const news = (s: Stand) => s.proc(LEAD).inputs.map((i) => String(i.message.content)).filter((t) => t.startsWith(`<fleet from="${WING}" kind="news">`));
 
   it("session.call инструментом: метод из закрытого списка исполнен у ведомого; метод вне списка — отказ словом; странице доступен весь список", async () => {
     const s = await pair();
@@ -186,17 +186,19 @@ describe("ведущая и ведомый", () => {
     expect((await s.request("session.call", { to: WING, method: "permissionRules" }, PULT)).ok).toBe(true);
   });
 
-  it("откат и сжатие ведомого: ведущей — по одному сообщению от ведомого на событие", async () => {
+  // чьё: слово пользователя 15 нояб. — «пересмотреть управление контекста»: весть — только о том, что требует решения ведущей
+  it("ведомого откатил человек — ведущей одна весть; откатила или сжала сама ведущая — вести нет", async () => {
     const s = await pair();
     withTalk(s, SIX);
-    await s.request("session.rewind", { to: WING, upto: "h2" }, LEAD);
+    await s.request("session.rewind", { to: WING, upto: "h2" }, PULT);
     await until(() => news(s).some((t) => t.includes("откачен")), 5000, "весть об откате");
-    s.proc(WING).send({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 68_000, post_tokens: 12_000 } });
-    await until(() => news(s).some((t) => t.includes("сжат")), 5000, "весть о сжатии");
-    await tick(30);
-    expect(news(s).filter((t) => t.includes("откачен"))).toHaveLength(1);
-    expect(news(s).filter((t) => t.includes("сжат"))).toEqual([expect.stringContaining("68 К → 12 К")]);
     expect(news(s).find((t) => t.includes("откачен"))).toContain("ушло записей — 4");
+    withTalk(s, SIX);
+    await until(() => s.kernel.sessions.get(WING)!.state === "idle", 5000, "ведомый после отката");
+    await s.request("session.rewind", { to: WING, upto: "h2" }, LEAD);
+    s.proc(WING).send({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 68_000, post_tokens: 12_000 } });
+    await tick(40);
+    expect(news(s)).toHaveLength(1);
   });
 
   it("ведомый ждёт человека — разрешение: ведущей одна весть на вопрос", async () => {
@@ -204,10 +206,10 @@ describe("ведущая и ведомый", () => {
     await s.request("session.update", { to: WING, patch: { mode: "ask" } }, PULT);
     await until(() => s.kernel.sessions.get(WING)!.state === "idle", 5000, "ведомый после смены режима");
     void s.proc(WING).ask("Bash", { command: "rm -rf dist" }, "toolu_w1");
-    await until(() => news(s).some((t) => t.includes("ждёт ответа человека")), 5000, "весть");
+    await until(() => news(s).some((t) => t.includes("Ждёт ответа человека")), 5000, "весть");
     s.kernel.sessions.get(WING)!.sync();
     await tick(30);
-    expect(news(s).filter((t) => t.includes("ждёт ответа человека"))).toHaveLength(1);
+    expect(news(s).filter((t) => t.includes("Ждёт ответа человека"))).toHaveLength(1);
   });
 
   it("ведомый задал вопрос самой ведущей: ей одно сообщение — сам вопрос, вести «ждёт человека» нет", async () => {
@@ -215,10 +217,12 @@ describe("ведущая и ведомый", () => {
     // задачу ведомому дала ведущая — вопрос идёт ей
     await s.request("message", { to: WING, text: "найди вызовы" }, LEAD);
     void s.proc(WING).ask("AskUserQuestion", { questions: [{ question: "Какую ветку смотреть?", options: [{ label: "main" }, { label: "release" }] }] }, "toolu_q1");
-    await until(() => s.proc(LEAD).inputs.some((i) => String(i.message.content).includes("<fleet-question")), 5000, "вопрос ведущей");
+    const asked = () => s.proc(LEAD).inputs.map((i) => String(i.message.content)).filter((t) => t.includes('kind="question"'));
+    await until(() => asked().length, 5000, "вопрос ведущей");
     await tick(30);
-    expect(news(s).filter((t) => t.includes("ждёт ответа человека"))).toEqual([]);
-    expect(s.proc(LEAD).inputs.filter((i) => String(i.message.content).includes("<fleet-question"))).toHaveLength(1);
+    expect(news(s)).toEqual([]);
+    // один тег вида question с номером вопроса: вложенного тега и приписки «ответь инструментом» нет
+    expect(asked()).toEqual([`<fleet from="${WING}" kind="question" ask="toolu_q1">\nКакую ветку смотреть?\n· main\n· release\n</fleet>`]);
   });
 });
 

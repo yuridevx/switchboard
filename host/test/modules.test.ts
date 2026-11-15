@@ -106,7 +106,7 @@ describe("incidents", () => {
     expect(first).toMatchObject({ ok: true, result: { callsign: "disk-1@laptop" } });
     const proc = await until(() => st!.proc("disk-1@laptop"), 5000, "процесс инцидента");
     await until(() => proc.inputs.length === 1, 5000, "обращение во вводе");
-    expect(proc.inputs[0]!.message.content).toContain('<incident kind="disk" key="c:"');
+    expect(proc.inputs[0]!.message.content).toBe('<fleet from="@laptop" kind="incident" incident="disk" key="c:">\nместо кончается\n</fleet>');
     expect((st.sdk.last("disk-1@laptop")!.options as any).systemPrompt.append).toContain("инцидент disk");
     const second = await st.request("incident.raise", { to: "@laptop", kind: "disk", key: "c:", text: "стало хуже" }, "@laptop");
     expect(second).toMatchObject({ ok: true, result: { callsign: "disk-1@laptop" } });
