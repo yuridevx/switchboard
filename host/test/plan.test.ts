@@ -87,12 +87,15 @@ describe("план v2: запросы сессии", () => {
     expect((r.result as { files: string[] }).files).toEqual(["src/Menu/TopBar.tsx"]);
   });
 
-  // чьё: код — подъём точки идёт открытием сессии по её документу; ключ без хозяина на машине — отказ, а не молчаливая потеря
-  it("документ точки со старым ключом account (до очередей) — отказ bad_spec, сессия не открыта", async () => {
+  // чьё: факт прода 15 нояб. — документы прежней системы несут ключи, которых в договоре больше нет (slot, remote): пара и подъём точки отказывали bad_spec.
+  // Документ входит в ядро по договору; снятые ключи названы в журнале — потеря не молчаливая. Ключ договора без хозяина на машине — по-прежнему отказ.
+  it("документ со старым ключом, которого нет в договоре, — сессия открыта без него, журнал называет снятые ключи; ключ договора без хозяина — отказ bad_spec", async () => {
     st = await stand({ modules: [chat()] });
-    const open = st.kernel.open({ name: "old", cwd: st.dir, account: "a@example.com" } as never, { by: PULT });
-    await expect(open).rejects.toMatchObject({ word: "bad_spec" });
-    expect(st.kernel.sessions.has("old@laptop")).toBe(false);
+    const s = await st.kernel.open({ name: "old", cwd: st.dir, slot: "main" } as never, { by: PULT });
+    expect(s.rec.spec).toEqual({ name: "old", cwd: st.dir });
+    expect(st.journal().find((l) => l.msg === "doc_keys")).toMatchObject({ callsign: "old@laptop", keys: ["slot"] });
+    await expect(st.kernel.open({ name: "pieced", cwd: st.dir, pieces: ["x"] }, { by: PULT })).rejects.toMatchObject({ word: "bad_spec" });
+    expect(st.kernel.sessions.has("pieced@laptop")).toBe(false);
   });
 });
 

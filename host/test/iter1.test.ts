@@ -138,6 +138,15 @@ describe("пара", () => {
     expect(lead.rec.spec.wing).toBeUndefined();
   });
 
+  // чьё: факт прода 15 нояб. — у сессий прежней системы в документе остался ключ slot, и пара отказывала словом bad_spec
+  it("в документе ведущей остался ключ, которого нет в договоре, — ведомый открыт, в его документе такого ключа нет", async () => {
+    st = await stand({ modules: [chat()], sessions: [{ callsign: "lead@laptop", spec: { name: "lead", cwd: "", model: "m1", slot: "main", remote: true } as never }] });
+    const lead = st.kernel.sessions.get("lead@laptop")!;
+    lead.rec.spec = { ...lead.rec.spec, cwd: st.dir };
+    expect(await st.request("session.update", { to: "lead@laptop", patch: {}, pair: true })).toMatchObject({ ok: true, result: { wing: "lead-wing@laptop" } });
+    expect(st.kernel.sessions.get("lead-wing@laptop")!.rec.spec).toEqual({ name: "lead-wing", cwd: st.dir, model: "m1", parent: "lead@laptop" });
+  });
+
   it("ведомый остановился со сбоем — ведущий узнаёт", async () => {
     st = await stand({ modules: [chat()] });
     await st.request("session.open", { to: "@laptop", spec: { name: "lead", cwd: st.dir }, pair: true });
