@@ -191,14 +191,19 @@ describe("points", () => {
     const hash = puts[0].files[0].blocks[0] as string;
     const blocksServer = await server(() => ({ body: gzipSync(Buffer.from(text)) }));
     st.services.handlers["points.get"] = () => ({
-      session: { sid: "sid-old", machine: "server", callsign: "docs@server", cwd: st!.dir, points: 1, last: 1 },
+      // чьё: факт прода 15 нояб. — у точек прежней системы проект записан именем, а не номером; проект точки мог быть и убран
+      session: { sid: "sid-old", machine: "server", callsign: "docs@server", cwd: st!.dir, points: 1, last: 1, project: "p1-phoenix" },
       point: { point: "p1", at: 1 },
       files: [{ path: "sid-old.jsonl", size: text.length, blocks: [{ hash, url: `${blocksServer.url}/b/${hash}` }] }],
     });
+    st.services.handlers["people.list"] = () => ({ people: [], projects: [{ id: "pmwhtprlq", name: "p1-phoenix", members: [] }] });
     // чьё: факт переноса 15 нояб. — в документе точки прежней системы нет провайдера и точной модели: их называют при подъёме
     const raised = await st.request("points.raise", { to: "@laptop", sid: "sid-old", name: "docs-copy", model: "glm-5.3" });
     expect(raised).toMatchObject({ ok: true, result: { callsign: "docs-copy@laptop" } });
     expect(st.kernel.sessions.get("docs-copy@laptop")!.rec.spec).toMatchObject({ model: "glm-5.3" });
+    // проекта точки во флоте нет: сессия поднята без проекта, потеря названа в журнале
+    expect(st.kernel.sessions.get("docs-copy@laptop")!.rec.spec.project).toBeUndefined();
+    expect(st.journal().find((l) => l.msg === "raise_project")).toMatchObject({ level: "warn", word: "no_project" });
     expect(readFileSync(join(projectDir(st.dir), "sid-old.jsonl"), "utf8")).toBe(text);
     expect(st.sdk.last("docs-copy@laptop")!.options).toMatchObject({ resume: "sid-old", forkSession: true });
     expect(st.kernel.sessions.get("docs-copy@laptop")!.rec.spec.backup).toBe(true);

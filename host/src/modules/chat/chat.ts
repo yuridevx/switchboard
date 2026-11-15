@@ -31,8 +31,9 @@ type FileIn = { name: string; mime: string; base64: string };
 /** Итог хода для истории: файл разговора его не хранит. after — запись разговора, за которой он встаёт. */
 type TurnEnd = { after: string; event: Record<string, unknown> };
 /** Раздел сессии: люди разговора, у кого непрочитанное, начало последнего ответа, итоги последних ходов.
- *  opens — номера принятых входящих, которые откроют задачу родителя, когда ход их возьмёт; open — задача родителя открыта: итог хода уходит ему. */
-type Part = { people?: string[]; unread?: string[]; result?: string; title?: string; asker?: string; ends?: TurnEnd[]; opens?: string[]; open?: boolean };
+ *  opens — номера принятых входящих, которые откроют задачу родителя, когда ход их возьмёт; open — задача родителя открыта: итог хода уходит ему;
+ *  owed — итог хода, кончившегося, пока Host останавливался: его дошлёт следующий Host. */
+type Part = { people?: string[]; unread?: string[]; result?: string; title?: string; asker?: string; ends?: TurnEnd[]; opens?: string[]; open?: boolean; owed?: string };
 /** Виды входящего, взятие которых открывает задачу родителя: его задача, итог своей дочери, весть о своей работе. */
 const OPENS = new Set<Kind>(["task", "result", "news"]);
 /** Сколько итогов ходов хранит сессия. */
@@ -178,8 +179,21 @@ export function make(): Module {
     const waits = running.get(s.callsign)?.size ?? 0;
     if (!waits) merge(s, { open: false });
     if (!text) return;
-    host.log.info("report", { callsign: s.callsign, to: parent, chars: text.length, open: waits > 0 });
-    void host.call(notice, { to: parent, kind: "result", text }, { from: s.callsign }).catch((e: unknown) => host.log.warn("report", { callsign: s.callsign, to: parent, word: (e as Refusal).word ?? "offline", why: `итог хода не дошёл родителю: ${(e as Error).message}` }));
+    send(s, parent, text, waits > 0);
+  }
+
+  /** Итог — родителю. Host останавливается — итог остаётся в хранилище сессии: штатная остановка сохраняет своё, следующий Host дошлёт. */
+  function send(s: SessionApi, parent: string, text: string, open: boolean): void {
+    const keep = (why: string) => {
+      merge(s, { owed: text });
+      host.log.info("report_kept", { callsign: s.callsign, to: parent, chars: text.length, why });
+    };
+    if (host.signal.aborted) return keep("Host останавливается: итог хода уйдёт родителю после запуска");
+    host.log.info("report", { callsign: s.callsign, to: parent, chars: text.length, open });
+    void host.call(notice, { to: parent, kind: "result", text }, { from: s.callsign }).catch((e: unknown) => {
+      if ((e as Refusal).word === "shutting_down") return keep("Host начал останавливаться, пока итог был в пути: уйдёт после запуска");
+      host.log.warn("report", { callsign: s.callsign, to: parent, word: (e as Refusal).word ?? "offline", why: `итог хода не дошёл родителю: ${(e as Error).message}` });
+    });
   }
 
   /** Весть родителю о своей дочери: событие, по которому ему решать. Не дошла — строка журнала. */
@@ -464,6 +478,12 @@ export function make(): Module {
       },
       state(s, state: SessionState, was: SessionState) {
         if (state === "starting") ask.reset(s.callsign);
+        // сессия поднялась на новом Host: итог, который прежний Host не успел отдать, уходит родителю
+        const owed = was === "starting" && (state === "idle" || state === "busy") ? part(s).owed : undefined;
+        if (owed && s.spec.parent) {
+          merge(s, { owed: undefined });
+          send(s, s.spec.parent, owed, !!part(s).open);
+        }
         if (state !== "busy" && state !== "waiting") {
           doing.delete(s.callsign);
           compacting.delete(s.callsign);

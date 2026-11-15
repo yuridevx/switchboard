@@ -84,6 +84,31 @@ describe("итог хода: открытая задача", () => {
     expect(kid.inputs).toHaveLength(1);
   });
 
+  // чьё: факт живой проверки 16 нояб. — ход кончился, пока Host останавливался, итог отвергнут словом shutting_down; устав — штатная остановка сохраняет своё в хранилище
+  it("ход дочери кончился, пока Host останавливался, — итог сохранён и уходит родителю после запуска нового Host", async () => {
+    const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
+    const holders = new FakeHolders();
+    let release = () => {};
+    // остановка Host длится, пока модуль не отпустит: окно, в котором кончается ход
+    const slow = { name: "slow-stop", stop: () => new Promise<void>((r) => (release = r)) };
+    const first = await family({ home, holders, modules: [chat(), slow] });
+    const kid = first.proc(KID);
+    kid.send({ type: "system", subtype: "session_state_changed", state: "running", session_id: "s" });
+    await until(() => first.kernel.sessions.get(KID)!.state === "busy", 5000, "дочь занята");
+    const down = first.kernel.shutdown("подмена");
+    kid.send({ type: "result", subtype: "success", result: "трафик чист", session_id: "s", user_message_uuids: [kid.inputs[0]!.uuid] });
+    kid.send({ type: "system", subtype: "session_state_changed", state: "idle", session_id: "s" });
+    await until(() => first.journal().find((l) => l.msg === "report_kept"), 5000, "итог сохранён");
+    expect(results(first, BOSS, KID)).toEqual([]);
+    release();
+    await down;
+    st = await stand({ home, holders, modules: [chat()] });
+    await until(() => results(st!, BOSS, KID).length === 1, 5000, "итог у родителя после запуска");
+    expect(results(st, BOSS, KID)).toEqual(["трафик чист"]);
+    await tick(40);
+    expect(results(st, BOSS, KID)).toHaveLength(1);
+  });
+
   // чьё: код — так отвечает любое сообщение остановленной сессии; факт прода — 26 таких отказов за два часа
   it("дочь закончила, родитель остановлен — отказ stopped и строка журнала с причиной; итог остался в строке дочери", async () => {
     st = await family();
