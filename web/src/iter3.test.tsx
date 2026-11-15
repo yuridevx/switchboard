@@ -1,6 +1,6 @@
 /// <reference types="node" />
 // Третья итерация страницы: порядок одним жестом, профили (слои промпта, память, репозитории), точки в инспекторе, ближние машины подъёма,
-// HTML-документ вне блока кода, план опроса лимитов, части вызова для проверки правил, alias-модели ключа, «браузер устарел», состав строки списка.
+// HTML-документ вне блока кода, план опроса лимитов, части вызова для проверки правил, «браузер устарел», состав строки списка.
 import { createApi, pointsCall, type Piece, type SessionRow } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,7 +14,6 @@ import { nearFirst, raiseInput } from "./screens/archive/Raise.tsx";
 import { byUse } from "./shell/NewSession.tsx";
 import { memoryType, promptLayers, repoUse, tabOfKind } from "./screens/fleet/Profiles.tsx";
 import { callParts } from "./screens/settings/Proxy.tsx";
-import { modelsFor } from "./session/doc.ts";
 import { fenceHtml } from "./session/html.tsx";
 import { pointsHead } from "./session/Inspector.tsx";
 
@@ -96,7 +95,7 @@ describe("подъём из архива", () => {
   });
   it("перенос живой сессии идёт с move и без точки: прежняя машина снимает свежую", () => {
     const s = { sid: "s1", machine: "laptop", callsign: "site@laptop", points: 3, last: T, cwd: "~/p" };
-    expect(raiseInput("move", s, { machine: "server", name: "site", cwd: "~/p", account: "", files: "point", point: "p2" })).toEqual({ to: "@server", sid: "s1", files: "point", move: true });
+    expect(raiseInput("move", s, { machine: "server", name: "site", cwd: "~/p", files: "point", point: "p2" })).toEqual({ to: "@server", sid: "s1", files: "point", move: true });
   });
 });
 
@@ -120,15 +119,6 @@ describe("проверка правил на вызове из архива", ()
     const r = await api.call(pointsCall, { sid: "s1", call: "c1" });
     expect(r.system).toMatch(/internal\.example\.com/);
     expect(r.messages[0]).toMatchObject({ n: 0, role: "user" });
-  });
-});
-
-describe("сессия на ключе флота", () => {
-  const sdk = [{ value: "claude-opus-5-5", label: "Opus" }];
-  it("модель выбирается из alias-моделей ключа; их нет — одна модель ключа; у входа Claude — список SDK", () => {
-    expect(modelsFor({ kind: "key", model: "orca/flash", models: { fast: "orca/flash", smart: "orca/glm" } }, sdk)).toEqual([{ value: "fast", label: "fast → orca/flash" }, { value: "smart", label: "smart → orca/glm" }]);
-    expect(modelsFor({ kind: "key", model: "orca/flash" }, sdk)).toEqual([{ value: "orca/flash", label: "orca/flash" }]);
-    expect(modelsFor({ kind: "claude" }, sdk)).toBe(sdk);
   });
 });
 

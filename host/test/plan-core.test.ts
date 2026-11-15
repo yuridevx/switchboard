@@ -2,7 +2,7 @@
 // Источник свойств — закрытый список веток восстановления и «система ловит» из устава; «чьё: код» помечено у теста.
 import { rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { sessionStop } from "@sb/protocol";
+import { Refusal, sessionStop } from "@sb/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Module } from "../src/core/contract.ts";
 import { FakeHolders, stand, tick, until, type Stand } from "../stand/index.ts";
@@ -51,6 +51,22 @@ describe("план v2: запуск Host", () => {
     expect(ghost.alive).toBe(false);
     expect(logged("orphan_kill")[0]).toMatchObject({ callsign: "ghost@laptop" });
     expect(String(logged("orphan_kill")[0]!.why)).toContain(String(ghost.pid));
+  });
+
+  // чьё: факт выкладки 15 нояб. — сессия без провайдера в документе упала при подмене Host, а её прежний процесс остался у держателя
+  it("сессия не поднялась на процессе, пережившем подмену Host: процесс снят, сессия failed с причиной; запуск начинает с разговора", async () => {
+    const holders = new FakeHolders();
+    const old = await holders.addProcess(CS);
+    const refuse: Module = { name: "host-accounts", compose: () => { throw new Refusal("key_required", "не назван провайдер"); } };
+    st = await stand({ holders, modules: [refuse], sessions: [{ callsign: CS }] });
+    const s = st.kernel.sessions.get(CS)!;
+    expect(s.state).toBe("failed");
+    expect(old.alive).toBe(false);
+    expect(logged("orphan_kill")[0]).toMatchObject({ callsign: CS });
+    refuse.compose = () => ({});
+    expect(await st.request("session.start", { to: CS })).toMatchObject({ ok: true });
+    await until(() => s.state === "idle", 5000, "сессия поднята заново");
+    expect(holders.procs.get(CS)!.pid).not.toBe(old.pid);
   });
 
   it("start модуля бросил — Host не стартует: check_failed с именем модуля, соединения с флотом нет", async () => {

@@ -3,8 +3,9 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { opendir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { kindOf, personOf, reachSend, Refusal, toolLine, type Frame, type SessionState } from "@sb/protocol";
+import { findModels, kindOf, personOf, reachSend, Refusal, sessionUpdate, toolLine, type Frame, type SessionState } from "@sb/protocol";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
+import type { AccountsApi } from "../accounts/contract.ts";
 import { questions } from "./ask.ts";
 
 /** Окно пачки ленты. */
@@ -21,6 +22,10 @@ export const DOING_GAP_MS = 3000;
 const DOING_MAX = 120;
 /** Типы файлов, которые модель видит картинкой. */
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+/** «/model слова» сообщением: команда правит документ сессии и в разговор не уходит. */
+const MODEL_COMMAND = /^\/model(?:\s+([\s\S]*))?$/;
+/** Сколько подходящих моделей называет отказ. */
+const MODELS_SHOWN = 12;
 
 type FileIn = { name: string; mime: string; base64: string };
 /** Итог хода для истории: файл разговора его не хранит. after — запись разговора, за которой он встаёт. */
@@ -156,6 +161,8 @@ export function make(): Module {
     const { people = [], unread = [] } = part(s);
     const result = (results.get(cs) ?? "").slice(0, RESULT_MAX);
     results.delete(cs);
+    // ход без ответа модели (сжатие, очистка, команда): непрочитанного нет, человека не зовём — работу сессия не заканчивала
+    if (!s.info.answered) return;
     merge(s, { unread: [...new Set([...unread, ...people.filter((p) => !watching.has(p))])], ...(result ? { result } : {}) });
     reach(s, "done", result);
     // заголовок разговора: строка меняется, только если он сменился
@@ -170,6 +177,20 @@ export function make(): Module {
       },
       () => {},
     );
+  }
+
+  /** «/model слова»: слова → модели одним правилом договора. Одна — она встаёт в документ; несколько или ни одной — отказ словом, документ прежний. */
+  async function setModel(to: string, words: string, ctx: Ctx): Promise<{ model: string }> {
+    const api = host.module<AccountsApi>("host-accounts");
+    if (!api) throw new Refusal("no_accounts", "модуля аккаунтов нет в этом Host");
+    if (!words) throw new Refusal("bad_input", "/model: назовите модель — часть имени, семейство или провайдера");
+    const found = findModels(words, await api.offers());
+    const names = found.slice(0, MODELS_SHOWN).map((o) => `${o.key}/${o.model}`).join(", ");
+    if (!found.length) throw new Refusal("no_model", `/model ${words}: такой модели у провайдеров флота нет`);
+    if (found.length > 1) throw new Refusal("many_models", `/model ${words}: подходят ${found.length} — ${names}${found.length > MODELS_SHOWN ? " и другие" : ""}; уточните слова`);
+    const { key, doc } = found[0]!;
+    await host.call(sessionUpdate, { to, patch: { key, model: doc } }, { from: ctx.from, trace: ctx.trace });
+    return { model: doc };
   }
 
   /** Событие в ленту: пачка уходит зрителям через окно. */
@@ -240,6 +261,8 @@ export function make(): Module {
     },
     requests: {
       message({ to, text, files: attached, priority = "next" }: { to: string; text: string; files?: FileIn[]; priority?: "now" | "next" | "later" }, ctx: Ctx) {
+        const command = MODEL_COMMAND.exec(text.trim());
+        if (command) return setModel(to, (command[1] ?? "").trim(), ctx);
         const s = session(to);
         if (down(s)) throw new Refusal("stopped", `${to}: сессия ${s.state} — запускает session.start`);
         const from = ctx.from;

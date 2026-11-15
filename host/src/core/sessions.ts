@@ -11,14 +11,13 @@ import { quiet, type Session } from "./session.ts";
 /** Ключи документа, которыми владеет ядро. */
 export const CORE_KEYS = ["name", "cwd", "model", "effort", "mode", "fast", "style", "thinking", "title", "parent", "wing", "project"] as const;
 
-const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
 /** Имя запроса session.call → метод SDK. */
 const SDK: Record<string, string> = {
-  interrupt: "interrupt", contextUsage: "getContextUsage", commands: "supportedCommands", models: "supportedModels", agents: "supportedAgents",
+  interrupt: "interrupt", contextUsage: "getContextUsage", commands: "supportedCommands", agents: "supportedAgents",
   mcpStatus: "mcpServerStatus", mcpToggle: "toggleMcpServer", mcpReconnect: "reconnectMcpServer", mcpAuthenticate: "mcpAuthenticate",
   tasks: "backgroundTasks", taskStop: "stopTask", taskOutput: "getTaskOutput", sideQuestion: "askSideQuestion",
   status: "getStatus", hooks: "getHooksListing",
-  usage: USAGE, renameSession: "renameSession", getSessionInfo: "getSessionInfo", permissionRules: "listPermissionRules",
+  renameSession: "renameSession", getSessionInfo: "getSessionInfo", permissionRules: "listPermissionRules",
 };
 /** Методы, которым процесс не нужен: читают и правят файл разговора. */
 const OFFLINE = new Set(["renameSession", "getSessionInfo"]);
@@ -265,7 +264,6 @@ export function coreModule(k: Kernel): Module {
         s.input("/compact", { priority: "next" });
         return {};
       }
-      if (method === "usage") return sdk(s, USAGE, { skipBehaviors: true });
       if (method === "mcpStatus") {
         // у сервера флота в настройках лежит пропуск машины: заголовки и окружение серверов наружу не уходят
         const servers = (await sdk(s, "mcpServerStatus")) as Array<{ config?: Record<string, unknown> }> | undefined;

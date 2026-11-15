@@ -44,31 +44,31 @@ describe("настройки", () => {
 });
 
 describe("ключи флота", () => {
-  // находка: правка одного свойства записанного ключа не затирает неназванные адрес и модель
-  it("keys.set без адреса или модели оставляет их прежними", async () => {
+  // находка: правка одного свойства записанного ключа не затирает неназванные адрес и окружение
+  it("keys.set без адреса или окружения оставляет их прежними", async () => {
     const s = stand();
     const keys = async () => ((await s.ask("keys.list", {}, "kanya1")).result as { keys: Record<string, unknown>[] }).keys;
-    await s.ask("keys.set", { name: "orca", provider: "anthropic", value: "sk-secret-9876", base: "https://orca.example" });
-    await s.ask("keys.set", { name: "orca", provider: "anthropic", model: "m1" });
-    expect(await keys()).toMatchObject([{ name: "orca", base: "https://orca.example", model: "m1", tail: "9876" }]);
-    await s.ask("keys.set", { name: "orca", provider: "anthropic", base: "https://orca2.example" });
-    expect(await keys()).toMatchObject([{ name: "orca", base: "https://orca2.example", model: "m1" }]);
+    await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-secret-9876", base: "https://orca.example" });
+    await s.ask("keys.set", { name: "orca", protocol: "anthropic", env: { ORCA_REGION: "eu" } });
+    expect(await keys()).toMatchObject([{ name: "orca", base: "https://orca.example", env: { ORCA_REGION: "eu" }, tail: "9876" }]);
+    await s.ask("keys.set", { name: "orca", protocol: "anthropic", base: "https://orca2.example" });
+    expect(await keys()).toMatchObject([{ name: "orca", base: "https://orca2.example", env: { ORCA_REGION: "eu" } }]);
   });
 
   it("список без значений — только хвост; значение отдаётся машине; смена — кадр «изменилось»", async () => {
     const s = stand();
-    await s.ask("keys.set", { name: "orca", provider: "anthropic", value: "sk-secret-9876", base: "https://orca.example" });
+    await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-secret-9876", base: "https://orca.example" });
     const list = (await s.ask("keys.list", {}, "kanya1")).result as { keys: Record<string, unknown>[] };
-    expect(list.keys).toMatchObject([{ name: "orca", provider: "anthropic", tail: "9876", base: "https://orca.example" }]);
+    expect(list.keys).toMatchObject([{ name: "orca", protocol: "anthropic", tail: "9876", base: "https://orca.example" }]);
     expect(JSON.stringify(list)).not.toContain("sk-secret");
-    expect(await s.ask("keys.value", { name: "orca" }, "klaptop")).toMatchObject({ result: { value: "sk-secret-9876", provider: "anthropic" } });
+    expect(await s.ask("keys.value", { name: "orca" }, "klaptop")).toMatchObject({ result: { value: "sk-secret-9876", protocol: "anthropic" } });
     expect(await s.ask("keys.value", { name: "нет" }, "klaptop")).toMatchObject({ ok: false, error: "not_found" });
     expect(await s.ask("keys.remove", { name: "orca" }, "kanya1")).toMatchObject({ ok: false, error: "forbidden" });
     expect(await s.ask("keys.value", { name: "orca" }, "klaptop")).toMatchObject({ ok: true });
     await s.ask("keys.remove", { name: "orca" });
     expect(await s.ask("keys.value", { name: "orca" }, "klaptop")).toMatchObject({ ok: false, error: "not_found" });
     expect(s.seen.broadcasts.map((b) => [b.role, b.frame.type, b.frame.what])).toEqual([["host", "changed", "keys"], ["host", "changed", "keys"]]);
-    expect(await s.ask("keys.set", { name: "x", provider: "p", value: "v" }, "kanya1")).toMatchObject({ ok: false, error: "forbidden" });
+    expect(await s.ask("keys.set", { name: "x", protocol: "p", value: "v" }, "kanya1")).toMatchObject({ ok: false, error: "forbidden" });
   });
 });
 

@@ -182,10 +182,10 @@ describe("мок флота", () => {
     const deltas: Frame[] = [];
     m.transport.open("page", { onFrame: (f) => deltas.push(f) });
     await new Promise((r) => setTimeout(r, 60));
-    const { callsign } = await api.call(sessionOpen, { to: "@server", spec: { name: "probe", cwd: "~/projects/infra" }, prompt: "Проверь диск" });
+    const { callsign } = await api.call(sessionOpen, { to: "@server", spec: { name: "probe", cwd: "~/projects/infra", key: "claude", model: "claude-fable-5-2" }, prompt: "Проверь диск" });
     expect(callsign).toBe("probe@server");
     expect(deltas.at(-1)).toMatchObject({ type: "roster.delta", sessions: [{ callsign: "probe@server" }] });
-    await expect(api.call(sessionOpen, { to: "@server", spec: { name: "probe", cwd: "~/x" } })).rejects.toMatchObject({ word: "name_taken" });
+    await expect(api.call(sessionOpen, { to: "@server", spec: { name: "probe", cwd: "~/x", key: "claude", model: "claude-fable-5-2" } })).rejects.toMatchObject({ word: "name_taken" });
     const found = await api.call(pointsList, { q: "шапка" });
     expect(found.sessions[0]).toMatchObject({ callsign: "site@laptop" });
     expect(found.sessions[0].hit).toMatch(/[Шш]апк/);

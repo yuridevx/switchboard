@@ -1,5 +1,5 @@
 // Инспектор сессии: обзор (документ и сведения), контекст, файлы, точки, журнал.
-import { accountList, machineJournal, peopleList, pointsDelete, pointsList, pointsSave, sessionCall, slotSwap, type SessionRow } from "@sb/protocol";
+import { catalogModel, machineJournal, peopleList, pointsDelete, pointsList, pointsSave, sessionCall, type SessionRow } from "@sb/protocol";
 import { Badge, Button, Group, Progress, SegmentedControl, Select, Stack, Switch, Tabs, Text, TextInput } from "@mantine/core";
 import { openStep } from "../shell/Page.tsx";
 import { useQueryClient } from "@tanstack/react-query";
@@ -8,11 +8,9 @@ import { Link } from "react-router";
 import { act, api, sayError } from "../api.ts";
 import { CONTEXT_PARTS, STATUS_LABELS } from "../chat/words.ts";
 import type { View } from "../chat/fold.ts";
-import { accountWord, AfterTurn, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels, useWide } from "../common.tsx";
+import { AfterTurn, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels, useWide } from "../common.tsx";
 import { Sortable } from "../lib/Sortable.tsx";
-import { Meter } from "../lib/AccountView.tsx";
-import { laneOf } from "@sb/protocol";
-import { ago, bytesWord, count, day, duration, hhmm, kilo, nPoints, nTurns } from "../lib/time.ts";
+import { ago, bytesWord, count, day, hhmm, kilo, nPoints, nTurns } from "../lib/time.ts";
 import { DeleteTyped } from "../lib/DeleteTyped.tsx";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { DocFields } from "./DocFields.tsx";
@@ -33,8 +31,7 @@ export function pairRows(lead: SessionRow, wing: SessionRow): Array<[string, str
   const row = (label: string, of: (s: SessionRow) => string): [string, string, string] => [label, of(lead), of(wing)];
   return [
     row("Состояние", (s) => (s.compacting ? "сжимает контекст" : (s.doing ?? STATE_WORD[s.state]))),
-    row("Модель", (s) => s.spec.model ?? "по умолчанию"),
-    row("Очередь", (s) => accountWord(s.spec.slot) + (s.account && s.account !== s.spec.slot ? ` · ${s.account}` : "")),
+    row("Модель", (s) => (s.spec.model ? catalogModel(s.spec.model) : "—")),
     row("Кусочки", (s) => (s.spec.pieces ?? []).join(", ") || "нет"),
     row("Папка", (s) => s.spec.cwd),
     row("Открыта", (s) => ago(s.since)),
@@ -58,13 +55,9 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
   const machine = machineOfCall(s.callsign);
   const people = useCall(peopleList, {});
   const off = useFleet((f) => f.machines[machine]?.online === false);
-  const accounts = useCall(accountList, off ? null : { to: "@" + machine });
   const wide = useWide();
   const later = useLater(s);
   const labels = useLabels();
-  const mine = accounts.data?.accounts.find((a) => a.id === s.account || a.email === s.account);
-  // сессия стоит на очереди машины, а не на ключе флота
-  const auto = !!accounts.data?.slots.some((q) => q.name === s.spec.slot);
   const qc = useQueryClient();
   return (
     <Stack gap="sm" p="md">
@@ -82,8 +75,6 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
           <Sortable ids={s.spec.pieces!} label={(id) => id} onOrder={(pieces) => void patchDoc(s, { pieces })} row={(id) => <span className="mono">{id}</span>} />
         </div>
       )}
-      <Switch label={<>Открыть в приложении Claude <AfterTurn on={later.includes("remote")} /></>} disabled={off} checked={!!s.spec.remote} onChange={(e) => patchDoc(s, { remote: e.currentTarget.checked })} />
-      {s.remoteUrl && <Text size="sm" component="a" href={s.remoteUrl} target="_blank" rel="noreferrer" style={{ overflowWrap: "anywhere" }}>{s.remoteUrl}</Text>}
       {other && <PairInfo s={s} other={other} />}
       <dl className="kv">
         {/* ведомого открыла ведущая: она названа один раз — в колонке пары выше */}
@@ -92,12 +83,9 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
         {s.spec.parent && !s.lead && <><dt>Задачу дала</dt><dd><Link className="mono" to={`/work/${s.spec.parent}`}>{labels.name(s.spec.parent)}</Link></dd></>}
         {s.lead && !other && <><dt>Ведущий</dt><dd><Link className="mono" to={`/work/${s.lead}`}>{labels.name(s.lead)}</Link></dd></>}
         {s.incident && <><dt>Разбирает</dt><dd>{s.incident.kind} · <span className="mono">{s.incident.key}</span></dd></>}
-        {/* у пары кусочки, аккаунт и срок стоят в её двух колонках выше */}
+        {/* у пары кусочки стоят в её двух колонках выше */}
         {!other && <><dt>Кусочки</dt><dd>{(s.spec.pieces ?? []).join(", ") || "нет"}</dd></>}
-        {!other ? <><dt>Очередь</dt><dd><span className="mono">{accountWord(s.spec.slot)}</span>{s.account && s.account !== s.spec.slot ? ` · ${s.account}` : ""}{mine?.plan ? ` · ${mine.plan}` : ""}</dd></> : mine?.plan ? <><dt>План</dt><dd>{mine.plan}</dd></> : null}
       </dl>
-      <Meter full limits={mine?.limits ?? []} />
-      {auto && !off && <Button size="xs" variant="default" w="fit-content" onClick={async () => (await act(slotSwap, { to: "@" + machine, slot: s.spec.slot ?? "", lane: laneOf(s.spec.model) }, "Аккаунт очереди сменён")) && qc.invalidateQueries({ queryKey: ["account.list"] })}>Сменить аккаунт сейчас</Button>}
     </Stack>
   );
 }
@@ -117,8 +105,8 @@ function Section({ title, q, children }: { title: string; q: { data?: unknown; e
 
 function Context({ s }: { s: SessionRow }) {
   const live = s.state !== "stopped" && s.state !== "failed";
-  const call = (method: "contextUsage" | "mcpStatus" | "usage" | "status" | "hooks" | "permissionRules" | "agents") => useCall(sessionCall, live ? { to: s.callsign, method } : null);
-  const ctx = call("contextUsage"), mcp = call("mcpStatus"), usage = call("usage"), status = call("status"), hooks = call("hooks"), rules = call("permissionRules"), agents = call("agents");
+  const call = (method: "contextUsage" | "mcpStatus" | "status" | "hooks" | "permissionRules" | "agents") => useCall(sessionCall, live ? { to: s.callsign, method } : null);
+  const ctx = call("contextUsage"), mcp = call("mcpStatus"), status = call("status"), hooks = call("hooks"), rules = call("permissionRules"), agents = call("agents");
   const qc = useQueryClient();
   const again = () => qc.invalidateQueries({ queryKey: ["session.call"] });
   if (!live) return <Text size="sm" className="muted" p="md">Сессия не работает: контекст виден у работающей</Text>;
@@ -138,18 +126,6 @@ function Context({ s }: { s: SessionRow }) {
           </Group>
         </div>
       )}
-      <Section title="Расход" q={usage}>
-        {(x) => {
-          const ses = x.session;
-          return (
-            <Stack gap={6}>
-            <dl className="kv">
-              {ses && <><dt>Этот запуск</dt><dd>${Number(ses.total_cost_usd ?? 0).toFixed(2).replace(".", ",")}</dd><dt>Время API</dt><dd>{duration(ses.total_api_duration_ms ?? 0)}</dd><dt>Строки</dt><dd className="stat-pm"><b className="plus">+{ses.total_lines_added ?? 0}</b> <b className="minus">−{ses.total_lines_removed ?? 0}</b></dd></>}
-            </dl>
-            </Stack>
-          );
-        }}
-      </Section>
       <div className="insp-sec">
         <h4>Серверы MCP</h4>
         {mcp.error ? <Text size="sm" c="red">{sayError(mcp.error)}</Text> : servers.map((m) => {

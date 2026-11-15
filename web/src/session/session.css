@@ -180,6 +180,10 @@ button.todos.folded:focus-visible { outline: 2px solid var(--st-busy); outline-o
 /* действия под полем ввода: все значки в одном ряду; кольцо занятости контекста сжимает разговор */
 .docacts .mantine-ActionIcon-root { min-width: 28px; min-height: 28px; }
 @media (max-width: 860px) { .docacts .mantine-ActionIcon-root, .docacts .ctxring { min-width: 32px; min-height: 32px; } }
+/* час кэша в ряду действий; на телефоне — одно кольцо: минуты называет подсказка */
+@media (max-width: 860px) { .docacts .cacheclock { justify-content: center; padding: 4px; min-width: 32px; min-height: 32px; } .docacts .cacheclock > span { display: none; } }
+/* на телефоне посреди хода часов нет: ряд занят выбором «когда взять сообщение», а кэш во время хода тёплый */
+@media (max-width: 860px) { .composer-opts:has(> .take) .cacheclock { display: none; } }
 .ctxring { display: inline-flex; align-items: center; gap: 5px; flex: none; border: 0; background: none; padding: 4px 6px; border-radius: 6px; font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); cursor: pointer; min-height: 28px; white-space: nowrap; }
 .ctxring:hover:not(:disabled), .ctxring:focus-visible { background: var(--surface-2); color: var(--mantine-color-text); }
 .ctxring:disabled { cursor: default; }
@@ -214,3 +218,22 @@ button.todos.folded:focus-visible { outline: 2px solid var(--st-busy); outline-o
 .asked-opts { display: flex; flex-wrap: wrap; gap: 6px; }
 .asked-opt { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
 .asked-opt[aria-current] { color: var(--mantine-color-text); border-color: var(--mantine-color-text); background: var(--surface-2); font-weight: 600; }
+
+/* модель в ряду: провайдер и модель, которая ответила вместо выбранной */
+.docval.loud, .mp-drift { color: var(--st-waiting); }
+.mp-on { color: var(--muted); }
+
+/* выбор модели: поиск, закреплённые сверху, дальше по провайдерам и семействам */
+.mp-list { max-height: 320px; overflow-y: auto; margin-top: 6px; display: flex; flex-direction: column; }
+.mp-group { font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 8px 8px 3px; }
+.mp-row { display: flex; align-items: center; border-radius: 6px; min-width: 0; }
+.mp-row:hover, .mp-row:focus-within { background: var(--surface-2); }
+.mp-row.cur .mp-pick { font-weight: 700; }
+.mp-pick { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; border: 0; background: none; padding: 6px 8px; font: inherit; font-size: 13px; color: inherit; text-align: left; cursor: pointer; }
+.mp-note { flex: none; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mp-pin { flex: none; display: inline-flex; border: 0; background: none; padding: 6px 8px; color: var(--muted); cursor: pointer; opacity: 0; }
+.mp-row:hover .mp-pin, .mp-pin:focus-visible, .mp-pin[aria-pressed="true"] { opacity: 1; }
+.mp-pin[aria-pressed="true"] { color: var(--mantine-color-text); }
+@media (hover: none) { .mp-pin { opacity: 1; } }
+.mp-none { padding: 10px 8px; font-size: 13px; color: var(--muted); }
+.mp-rule { height: 1px; background: var(--line); margin: 6px 8px 2px; }

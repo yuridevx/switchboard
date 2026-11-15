@@ -26,7 +26,9 @@ const state = (cs) => must("fleet.list", { machine }).sessions.find((s) => s.cal
 const idle = async (cs, ms = 150_000) => { for (const end = Date.now() + ms; Date.now() < end; await sleep(1500)) if (state(cs) === "idle") return; throw new Error(`${cs} не освободилась`); };
 const fileOn = (name) => String(must("shell.run", { to: "@" + machine, shell: "node", script: `import fs from "node:fs";const p=${JSON.stringify(cwd + "/" + name)};process.stdout.write(fs.existsSync(p)?fs.readFileSync(p,"utf8"):"")`, wait: 30 }).out ?? "").trim();
 
-const cs = must("session.open", { to: "@" + machine, spec: { name: "talk-" + tag, cwd, slot: "muse" }, mkdir: true }).callsign;
+// модель сессии сценария — SB2_MODEL или первая из каталога провайдера
+const MODEL = process.env.SB2_MODEL ?? must("keys.models", { name: "muse" }).models[0].id;
+const cs = must("session.open", { to: "@" + machine, spec: { name: "talk-" + tag, cwd, key: "muse", model: MODEL }, mkdir: true }).callsign;
 made.push(cs);
 await idle(cs);
 

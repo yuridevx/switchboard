@@ -4,7 +4,6 @@ import { type Frame, Refusal } from "@sb/protocol";
 import type { MockCtx } from "./screens.ts";
 
 type H = Record<string, (f: any) => unknown>;
-const MIN = 60_000;
 
 export function iter2Handlers(c: MockCtx, base: H): H {
   const { machines, now } = c;
@@ -59,9 +58,5 @@ export function iter2Handlers(c: MockCtx, base: H): H {
       ],
     }),
     // лимиты с временем замера: старше часа подписаны «от ЧЧ:ММ»; вход с датой окончания
-    "account.list": (f) => {
-      const r = base["account.list"]!(f) as { accounts: Array<{ limits?: Array<Record<string, unknown>>; kind: string; expires?: number }> };
-      return { ...r, accounts: r.accounts.map((a, i) => ({ ...a, ...(a.kind === "claude" ? { expires: now() + (20 + i) * 24 * 60 * MIN } : { models: { fast: "orca/flash", smart: "orca/glm" } }), limits: a.limits?.map((l, j) => ({ ...l, at: now() - (j ? 95 : 4) * MIN })) })) };
-    },
   };
 }

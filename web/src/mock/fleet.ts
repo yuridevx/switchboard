@@ -1,8 +1,8 @@
 // Мок флота: провод договора в памяти страницы. Живой: занятые сессии пишут события, ответ на вопрос меняет состояние, записи видны сразу.
 import {
-  type Account, type Slot, type ArchPoint, type ArchSession, type Ask, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type Link, type MachineRow,
+  type Account, type ArchPoint, type ArchSession, type Ask, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type Link, type LogRow, type MachineRow,
   type ObsRow, type PassRow, type PersonRow, type Piece, type Project, type Reply, type SessionRow, type Span, type Transport, fail, machineOf, newId, ok, Refusal,
-  laneOf,
+  catalogModel, CLAUDE,
 } from "@sb/protocol";
 import { iter2Handlers } from "./iter2.ts";
 import { iter4Handlers } from "./iter4.ts";
@@ -41,6 +41,9 @@ export function createMock(o: MockOptions = {}) {
     base2: { name: "base2", owner: ME, online: false, since: T - 3 * HOUR, build: 410, sdk: "0.3.311", os: "Ubuntu 22.04", keeper: false },
   };
 
+  /** Аккаунт Claude для новой сессии машины: первый с принятым токеном. */
+  const pickAccount = (m: string): string | undefined => accounts[m]?.find((a) => a.ok)?.name;
+
   /* ===== Сессии ===== */
   const M = "claude-fable-5-2";
   // вопрос адресован тому, кто дал задачу; видели его те, кто смотрел сессию
@@ -50,7 +53,7 @@ export function createMock(o: MockOptions = {}) {
     const name = callsign.slice(0, callsign.indexOf("@"));
     return {
       callsign, state, by: ME, since: T - 8 * HOUR, last: T - 30 * MIN,
-      spec: { name, cwd: cwd ?? `~/projects/${name}`, model: model ?? M, effort: "high", mode: mode ?? "all", slot: "main", pieces: pieces ?? ["base"], backup: true, ...(project ? { project } : {}) },
+      spec: { name, cwd: cwd ?? `~/projects/${name}`, model: model ?? M, key: CLAUDE, effort: "high", mode: mode ?? "all", pieces: pieces ?? ["base"], backup: true, ...(project ? { project } : {}) },
       account: "yuri@example.com", context: 0.31, ...rest,
     };
   };
@@ -61,8 +64,8 @@ export function createMock(o: MockOptions = {}) {
   add(row("site-tests@laptop", "waiting", "site", { title: "Выкладка тестового стенда", pieces: ["base", "web"], last: T - 6 * MIN,
     ask: ask({ kind: "question", title: "Ветка для выкладки", text: "Какую ветку выкладывать на тестовый стенд?", tool: "AskUserQuestion", options: [{ label: "main", about: "последний зелёный коммит" }, { label: "release/2.4", about: "ветка выпуска" }, { label: "Обе по очереди" }] }, 6) }));
   add(row("docs@laptop", "idle", "site", { title: "Раздел про выкладку в документации", unread: [ME], last: T - 14 * MIN, context: 0.18, result: "Дописал раздел «Выкладка»: три шага, откат и пример. Проверил ссылки в разделе — 14 из 14 открываются." }));
-  add(row("lead@laptop", "busy", "research", { title: "Замена клиента оплаты", doing: "Ждёт итог от wing@laptop", last: T - 2 * MIN, spec: { name: "lead", cwd: "~/projects/billing", model: M, effort: "xhigh", mode: "all", slot: "main", pieces: ["base", "research"], wing: "wing@laptop", project: "research", backup: true } }));
-  add(row("wing@laptop", "busy", "research", { title: "Поиск вызовов старого клиента", doing: "Читает src/jobs/renew.ts", by: "lead@laptop", lead: "lead@laptop", last: T - 1 * MIN, model: "claude-sonnet-5-5", spec: { name: "wing", cwd: "~/projects/billing", model: "claude-sonnet-5-5", effort: "medium", mode: "all", slot: "main", pieces: ["base"], parent: "lead@laptop", project: "research", backup: true } }));
+  add(row("lead@laptop", "busy", "research", { title: "Замена клиента оплаты", doing: "Ждёт итог от wing@laptop", last: T - 2 * MIN, spec: { name: "lead", cwd: "~/projects/billing", model: M, effort: "xhigh", mode: "all", key: CLAUDE, pieces: ["base", "research"], wing: "wing@laptop", project: "research", backup: true } }));
+  add(row("wing@laptop", "busy", "research", { title: "Поиск вызовов старого клиента", doing: "Читает src/jobs/renew.ts", by: "lead@laptop", lead: "lead@laptop", last: T - 1 * MIN, model: "claude-sonnet-5-5", spec: { name: "wing", cwd: "~/projects/billing", model: "claude-sonnet-5-5", effort: "medium", mode: "all", key: CLAUDE, pieces: ["base"], parent: "lead@laptop", project: "research", backup: true } }));
   // четыре больших вопроса разом: карточка на каждый, всё прокручивается вместе с лентой
   const longQ = (about: string, n: number) => `${about}\n\n` + Array.from({ length: n }, (_, i) => `${i + 1}. ${["Проверил текущую схему и её ограничения", "Сравнил с тем, что уже лежит в репозитории", "Посчитал, сколько файлов это затронет", "Оценил, что сломается у соседних команд", "Нашёл место, где это решение уже пробовали"][i % 5]} — пункт ${i + 1} разбора, от которого зависит ответ.`).join("\n");
   add(row("survey@laptop", "waiting", "site", { title: "Перенос сайта на новую сборку", last: T - 5 * MIN, pieces: ["base", "web"],
@@ -141,60 +144,53 @@ export function createMock(o: MockOptions = {}) {
   startLive("wing@laptop", "поиск вызовов");
 
   /* ===== Остальные записи ===== */
-  // числа как у Claude: неделя целиком и лимит Fable; у недели — доля Fable в ней и запас для него. fable и other — сколько недели потратили Fable и остальные модели.
-  const CAP = 0.5, NEAR = 0.98;
-  const lim = (fable: number, other: number, days = 3.2) => {
-    const week = Math.min(1, fable + other), hold = Math.max(0, Math.min(CAP - fable, 1 - week));
-    return [{ name: "five_hour", used: 0.4, resets: T + 2 * HOUR }, { name: "seven_day", used: week, fable, hold, resets: T + days * DAY }, { name: "fable", used: Math.min(1, fable / CAP), resets: T + days * DAY }];
+  // числа как у Claude: неделя целиком и окно Fable; у недели — доля Fable в ней и запас для него (у аккаунта с флагом «беречь Fable»).
+  // fable и other — сколько недели потратили Fable и остальные модели.
+  const CAP = 0.5;
+  const lim = (fable: number, other: number, days = 3.2, keep = true): Account["limits"] => {
+    const week = Math.min(1, fable + other), hold = keep ? Math.max(0, Math.min(CAP - fable, 1 - week)) : 0;
+    return [{ name: "seven_day", used: week, fable, ...(hold ? { hold } : {}), resets: T + days * DAY, at: T - 2 * MIN }, { name: "seven_day_overage_included", used: Math.min(1, fable / CAP), resets: T + days * DAY, at: T - 2 * MIN }];
   };
-  type LaneName = "fable" | "other";
-  const limOf = (a: Account | undefined, name: string) => a?.limits?.find((l) => l.name === name);
-  /** Аккаунт годен месту: Fable — пока не выбран ни его лимит, ни неделя; остальным моделям — пока есть неделя сверх запаса Fable. */
-  const fits = (a: Account | undefined, lane: LaneName) => {
-    if (!a?.ok) return false;
-    const week = limOf(a, "seven_day");
-    return lane === "fable" ? (limOf(a, "fable")?.used ?? 0) < NEAR && (week?.used ?? 0) < NEAR : (week?.used ?? 0) + (week?.hold ?? 0) < NEAR;
-  };
-  /** Места очереди, как их ставит Host. Fable — годный с ближним сбросом недели. Остальные — так же, с неделей сверх запаса Fable;
-   *  таких нет — берут запас Fable, тоже у ближнего сброса. Годного нет — место ждёт недельного сброса. Место не уходит с аккаунта, пока он ему годен. */
-  const place = (q: Slot, list: Account[]) => {
-    const by = (id?: string) => list.find((a) => a.id === id);
-    const stay = (lane: LaneName, as: LaneName = lane) => { const was = q.lanes[lane].account; return was && q.order.includes(was) && fits(by(was), as) ? was : undefined; };
-    const idle = (lane: LaneName) => {
-      const was = q.lanes[lane].account, wait = Math.min(...q.order.map((id) => limOf(by(id), "seven_day")?.resets ?? Infinity));
-      return { ...(was && q.order.includes(was) ? { account: was } : {}), ...(Number.isFinite(wait) ? { wait } : {}) };
-    };
-    // выбор — годный с ближним сбросом недели; при равных и без сброса — по порядку человека
-    const resets = (id: string) => limOf(by(id), "seven_day")?.resets ?? Infinity;
-    const near = (lane: LaneName) => q.order.filter((id) => fits(by(id), lane)).reduce<string | undefined>((best, id) => (best === undefined || resets(id) < resets(best) ? id : best), undefined);
-    const fable = stay("fable") ?? near("fable");
-    const other = stay("other") ?? near("other");
-    const spare = other ? undefined : near("fable");
-    q.lanes = { fable: fable ? { account: fable } : idle("fable"), other: other ? { account: other } : spare ? { account: spare, over: true } : idle("other") };
-  };
+  const acct = (name: string, fable: number, other: number, days: number, more: Partial<Account> = {}): Account => ({ name, ok: true, limits: lim(fable, other, days), keep: true, ...more });
+  /** Аккаунты Claude глазами машин: числа — из ответов Claude каждой машине; один аккаунт у двух машин — одни и те же числа. */
   const accounts: Record<string, Account[]> = {
-    laptop: [
-      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.37, 0.1), ok: true, sessions: 4 },
-      { id: "work@example.com", kind: "claude", email: "work@example.com", plan: "Max 5x", limits: lim(0.495, 0.43, 5.4), ok: true, sessions: 1 },
-      { id: "team@example.com", kind: "claude", email: "team@example.com", plan: "Max 5x", limits: lim(0.36, 0.64, 1.9), ok: false, why: "вход устарел: войдите заново", sessions: 0 },
-      { id: "orca-glm", kind: "key", ok: true, sessions: 0 },
-    ],
-    server: [
-      { id: "yuri@example.com", kind: "claude", email: "yuri@example.com", plan: "Max 20x", limits: lim(0.37, 0.1), ok: true, sessions: 3 },
-      { id: "ops@example.com", kind: "claude", email: "ops@example.com", plan: "Max 5x", limits: lim(0.23, 0.49, 0.9), ok: true, sessions: 2 },
-    ],
-    "anya-pc": [{ id: "anya@example.com", kind: "claude", email: "anya@example.com", plan: "Max 5x", limits: lim(0.2, 0.49, 0.3), ok: true, sessions: 3 }],
+    laptop: [acct("yuri@example.com", 0.37, 0.1, 3.2), acct("work@example.com", 0.495, 0.43, 5.4), acct("team@example.com", 0.36, 0.64, 1.9, { ok: false, why: "Claude не принял токен" })],
+    server: [acct("yuri@example.com", 0.37, 0.1, 3.2), acct("ops@example.com", 0.23, 0.49, 0.9), acct("night@example.com", 0.04, 0.11, 5), acct("team@example.com", 0.36, 0.64, 1.9, { ok: false, why: "Claude не принял токен" })],
+    "anya-pc": [acct("anya@example.com", 0.2, 0.49, 0.3)],
     base2: [],
   };
-  /** Очереди аккаунтов машин: один аккаунт может стоять в нескольких. */
-  const slots: Record<string, Slot[]> = {
-    // main на laptop: Fable стоит на yuri (у work его лимит выбран), остальные модели — на work; review — из одного work: Fable ждёт сброса
-    laptop: [{ name: "main", order: ["work@example.com", "yuri@example.com", "team@example.com"], lanes: { fable: { account: "yuri@example.com" }, other: { account: "work@example.com" } }, sessions: 4 }, { name: "review", order: ["work@example.com"], lanes: { fable: { account: "work@example.com" }, other: { account: "work@example.com" } }, sessions: 1 }],
-    server: [{ name: "main", order: ["yuri@example.com", "ops@example.com"], lanes: { fable: { account: "yuri@example.com" }, other: { account: "yuri@example.com" } }, sessions: 3 }, { name: "night", order: ["night@example.com", "ops@example.com"], lanes: { fable: { account: "night@example.com" }, other: { account: "night@example.com" } }, sessions: 2 }],
-    // anya-pc: остальные модели выбрали свою половину на единственном аккаунте и идут из запаса Fable
-    "anya-pc": [{ name: "main", order: ["anya@example.com"], lanes: { fable: { account: "anya@example.com" }, other: { account: "anya@example.com", over: true } }, sessions: 3 }],
-    base2: [],
+  /** Каталоги провайдеров: служба ключей спрашивает провайдера на каждый запрос списка и копии не держит. */
+  const W = (id: string, window: number) => ({ id, window });
+  const catalogs: Record<string, { models: Array<{ id: string; name?: string; family?: string; window?: number }> }> = {
+    orca: { models: [
+      W("glm-5.3", 200_000), W("glm-5.3-flash", 128_000), W("glm-abliterated", 128_000), W("deepseek-v4", 164_000), W("deepseek-r2", 164_000), W("deepseek-coder-v4", 128_000),
+      W("qwen-3.5-coder", 256_000), W("qwen-3.5-max", 256_000), W("qwen-3.5-turbo", 128_000), W("kimi-k3", 256_000), W("kimi-k3-thinking", 256_000), W("minimax-m3", 200_000),
+      W("gpt-5.5", 400_000), W("gpt-5.5-mini", 400_000), W("gpt-5.5-codex", 400_000), W("o5", 200_000), W("gemini-3.5-pro", 1_000_000), W("gemini-3.5-flash", 1_000_000),
+      W("grok-5", 256_000), W("grok-5-fast", 256_000), W("llama-5-405b", 128_000), W("llama-5-70b", 128_000), W("mistral-large-4", 128_000), W("codestral-3", 256_000),
+    ] },
+    "meta-muse": { models: [W("muse-spark-1.3", 256_000), W("muse-spark-mini", 128_000)] },
+    [CLAUDE]: { models: ([
+      ["claude-fable-5-2", "Fable 5.2", "Fable", 1_000_000], ["claude-fable-5-1", "Fable 5.1", "Fable", 1_000_000], ["claude-fable-5", "Fable 5", "Fable", 1_000_000],
+      ["claude-opus-5-5", "Opus 5.5", "Opus", 1_000_000], ["claude-opus-5", "Opus 5", "Opus", 1_000_000], ["claude-opus-4-8", "Opus 4.8", "Opus", 1_000_000], ["claude-opus-4-7", "Opus 4.7", "Opus", 1_000_000], ["claude-opus-4-6", "Opus 4.6", "Opus", 1_000_000], ["claude-opus-4-5-20251101", "Opus 4.5", "Opus", 200_000],
+      ["claude-sonnet-5-5", "Sonnet 5.5", "Sonnet", 1_000_000], ["claude-sonnet-5", "Sonnet 5", "Sonnet", 1_000_000], ["claude-sonnet-4-6", "Sonnet 4.6", "Sonnet", 1_000_000], ["claude-sonnet-4-5-20250929", "Sonnet 4.5", "Sonnet", 200_000],
+      ["claude-haiku-5-5", "Haiku 5.5", "Haiku", 200_000], ["claude-haiku-4-5-20251001", "Haiku 4.5", "Haiku", 200_000],
+    ] as const).map(([id, name, family, window]) => ({ id, name, family, window })) },
   };
+  // час кэша разговора: until — до какого времени кэш тёплый; compact — час, когда машина сожмёт разговор сама (правило считает она, страница его не знает)
+  const warm = (c: string, min: number, compact?: number, account?: string) => sessions[c] && Object.assign(sessions[c]!, { cache: { until: T + min * MIN, ...(compact ? { compact: T + compact * MIN } : {}) }, ...(account ? { account } : {}) });
+  warm("site@laptop", 58);
+  warm("lead@laptop", 44, 38, "work@example.com");
+  warm("wing@laptop", 59, undefined, "work@example.com");
+  warm("site-tests@laptop", 54);
+  warm("ingest@server", 57, 51);
+  warm("landing@anya-pc", 58);
+  warm("forms@anya-pc", 51);
+  warm("design@anya-pc", 43, 37);
+  // выбрана Fable, а последний ответ пришёл от Opus: расхождение называет машина в строке сессии
+  if (sessions["docs@laptop"]) Object.assign(sessions["docs@laptop"]!, { answers: "claude-opus-5-5", cache: { until: T + 46 * MIN } });
+  // сессии на провайдере: аккаунта Claude у них нет
+  for (const [c, model] of [["audit@server", "glm-5.3"], ["crawler@base2", "deepseek-v4"]] as const) if (sessions[c]) { sessions[c]!.spec = { ...sessions[c]!.spec, key: "orca", model }; delete sessions[c]!.account; }
+  for (const s of Object.values(sessions)) if (s.callsign.endsWith("@server") && s.spec.key === CLAUDE && s.account === "yuri@example.com" && s.callsign !== "ingest@server") s.account = "ops@example.com";
   const pieces: Piece[] = [
     { id: "base", repo: "github.com/example/sb-base", title: "Основа", about: "Правила работы, общие скилы и хуки", has: { скилы: 6, хуки: 3, настройки: 1 }, rev: "a41f9c2", ok: true },
     { id: "web", repo: "github.com/example/sb-web", title: "Веб", about: "Снимки экранов, проверка доступности, дизайн", has: { скилы: 4, агенты: 2, "серверы MCP": 1 }, rev: "7be2d10", ok: true },
@@ -231,10 +227,22 @@ export function createMock(o: MockOptions = {}) {
     { id: "d1", kind: "webpush", person: ME, label: "Телефон, Chrome", at: T - 38 * DAY, kid: "k4c5d6" },
     { id: "d2", kind: "telegram", person: ME, label: "Telegram: Switchboard", at: T - 20 * DAY },
   ];
+  const YEAR = 365 * DAY;
+  const claudeKey = (name: string, daysAgo: number, keep = true): KeyRow => ({ name, protocol: CLAUDE, at: T - daysAgo * DAY, tail: "…" + name.slice(0, 2) + "AA", keep, expires: T - daysAgo * DAY + YEAR });
+  /** Ключи флота: аккаунты Claude (годовые токены) и провайдеры. */
   const keys: KeyRow[] = [
-    { name: "orca-glm", provider: "openai-compatible", base: "https://api.orca.example/v1", model: "glm-abliterated", at: T - 6 * DAY, tail: "…9f3c" },
-    { name: "meta-muse", provider: "meta", model: "muse-spark", at: T - 2 * DAY, tail: "…a07d" },
+    claudeKey("yuri@example.com", 40), claudeKey("work@example.com", 12), claudeKey("team@example.com", 351), claudeKey("ops@example.com", 90), claudeKey("night@example.com", 3), claudeKey("anya@example.com", 200),
+    { name: "orca", protocol: "anthropic", base: "https://api.orca.example", at: T - 6 * DAY, tail: "…9f3c" },
+    { name: "meta-muse", protocol: "meta", at: T - 2 * DAY, tail: "…a07d" },
   ];
+  /** История флота (ClickHouse): что система сделала с аккаунтами сама. */
+  const moves: LogRow[] = ([
+    ["account.moved", "laptop", 14 * MIN, "docs@laptop", "ops@example.com", "docs: work → ops · неделя work выбрана, вызов перешёл"],
+    ["account.moved", "anya-pc", 47 * MIN, "forms@anya-pc", "anya@example.com", "forms → anya · кэш остыл, выбран заново"],
+    ["account.full", "server", 2 * HOUR + 5 * MIN, undefined, "yuri@example.com", "yuri полон: 31 вызов разом, новые сессии идут на ops"],
+    ["account.closed", "laptop", 3 * HOUR + 10 * MIN, undefined, "work@example.com", "work: окно Fable закрыто до сброса"],
+    ["account.token", "server", 2 * DAY, undefined, "team@example.com", "team: Claude не принял токен"],
+  ] as const).map(([msg, machine, agoMs, session, account, text]) => ({ at: T - agoMs, machine, part: "host", level: msg === "account.token" ? "error" : msg === "account.moved" ? "info" : "warn", msg, ...(session ? { session } : {}), account, kind: msg.slice(msg.indexOf(".") + 1), text }));
   const incidents: Record<string, Incident[]> = {
     server: [
       { id: "i1", kind: "disk", key: "/var", text: "Диск /var занят на 91%", at: T - 35 * MIN, callsign: "nightcheck@server", state: "taken" },
@@ -243,7 +251,7 @@ export function createMock(o: MockOptions = {}) {
     laptop: [{ id: "i3", kind: "watchdog", key: "host", text: "Host перезапущен Keeper после падения", at: T - 5 * HOUR, state: "done" }],
   };
   const prefs: Record<"me" | "fleet", Record<string, unknown>> = {
-    me: { pins: ["site@laptop"], view: { work: "list" } },
+    me: { pins: ["site@laptop"], view: { work: "list" }, "models.pins": ["claude/claude-fable-5-2", "orca/glm-5.3", "orca/deepseek-v4"] },
     fleet: {
       "labels": { "site@laptop": "Сайт: шапка и подвал" },
     },
@@ -251,7 +259,7 @@ export function createMock(o: MockOptions = {}) {
   const ledger: LedgerEvent[] = [
     ["builds.deployed", "pult" + ME, undefined, "Сборка 412 назначена флоту", 3 * HOUR], ["host.updated", "@laptop", "laptop", "Host 411 → 412", 3 * HOUR - 2 * MIN], ["host.updated", "@server", "server", "Host 411 → 412", 3 * HOUR - 3 * MIN],
     ["machine.left", "@base2", "base2", "Машина ушла со связи", 3 * HOUR], ["session.failed", "@laptop", "laptop", "hotfix@laptop: процесс claude дважды вышел до готовности", 50 * MIN],
-    ["account.expired", "@laptop", "laptop", "work@example.com: вход устарел", 52 * MIN], ["pass.invited", "pult" + ME, undefined, "Приглашение для pult~oleg@example.com", 2 * HOUR],
+["pass.invited", "pult" + ME, undefined, "Приглашение для pult~oleg@example.com", 2 * HOUR],
     ["host.restarted", ".keeper@laptop", "laptop", "Host перезапущен после падения", 5 * HOUR], ["analytics.failed", ".analytics", undefined, "ClickHouse не ответил за 10 с; точка s3e8/p9 ждёт долива", 6 * HOUR],
     ["people.set", "pult" + ME, undefined, "Олег добавлен в проект «Инфра»", 9 * DAY], ["builds.deployed", "pult" + ME, undefined, "Сборка 411 назначена флоту", 29 * HOUR], ["pass.revoked", "pult" + ME, undefined, "Отозван пропуск tablet~yuri@example.com", 6 * DAY],
   ].map(([what, who, machine, textOf, agoMs], i) => ({ id: "e" + i, at: T - (agoMs as number), what: what as string, who: who as string, ...(machine ? { machine: machine as string } : {}), text: textOf as string, trace: "t" + (0x51a7 + i * 733).toString(36) }));
@@ -395,7 +403,6 @@ export function createMock(o: MockOptions = {}) {
     const rest = before ? list.filter((x) => at(x) < before) : list;
     return { items: rest.slice(0, limit), more: rest.length > limit };
   };
-  const logins = new Map<string, string>();
 
   const H: Record<string, (f: any) => unknown> = {
     whoami: () => ({ addr: MY_ADDR, person: ME, admin: true, machines: Object.keys(machines), fleet: "home" }),
@@ -439,11 +446,14 @@ export function createMock(o: MockOptions = {}) {
       if (sessions[c]) throw new Refusal("name_taken", `сессия ${c} уже есть`);
       if (!f.mkdir && /nope|нет-такой/.test(String(f.spec.cwd))) throw new Refusal("bad_input", `spec.cwd: папка не найдена — ${f.spec.cwd}`);
       const wing = f.pair ? `${name}-wing@${m}` : undefined;
-      sessions[c] = { callsign: c, state: "starting", spec: { mode: "all", slot: "main", pieces: ["base"], backup: true, ...f.spec, name, ...(wing ? { wing } : {}) }, by: MY_ADDR, since: now(), last: now(), account: slots[m]?.find((q) => q.name === (f.spec.slot ?? "main"))?.lanes[laneOf(f.spec.model)].account, context: 0.02, ...(f.prompt ? { title: String(f.prompt).slice(0, 60) } : {}) };
+      // как Host: провайдер и точная модель обязательны; аккаунт Claude выбирает машина
+      if (!f.spec.key) throw new Refusal("key_required", "назовите провайдера: claude или имя ключа флота");
+      if (!f.spec.model) throw new Refusal("model_required", "назовите модель: точное имя из каталога провайдера");
+      sessions[c] = { callsign: c, state: "starting", spec: { mode: "all", pieces: ["base"], backup: true, ...f.spec, name, ...(wing ? { wing } : {}) }, by: MY_ADDR, since: now(), last: now(), ...(f.spec.key === CLAUDE ? { account: pickAccount(m) } : {}), context: 0.02, ...(f.prompt ? { title: String(f.prompt).slice(0, 60) } : {}) };
       if (f.resume) talks.set(c, [...shortTurn(now() - 30 * MIN, "Продолжим с прошлого раза.", `Разговор ${f.resume} продолжен${f.fork ? " копией" : ""}.`)]);
       delta({ sessions: [{ callsign: c, row: sessions[c] }] });
       if (wing) {
-        sessions[wing] = { callsign: wing, state: "idle", spec: { ...sessions[c].spec, name: `${name}-wing`, wing: undefined, parent: c }, by: c, lead: c, since: now(), last: now(), account: accounts[m]?.[0]?.id, context: 0.02 };
+        sessions[wing] = { callsign: wing, state: "idle", spec: { ...sessions[c].spec, name: `${name}-wing`, wing: undefined, parent: c }, by: c, lead: c, since: now(), last: now(), ...(sessions[c].account ? { account: sessions[c].account } : {}), context: 0.02 };
         delta({ sessions: [{ callsign: wing, row: sessions[wing] }] });
       }
       setTimeout(() => {
@@ -459,9 +469,12 @@ export function createMock(o: MockOptions = {}) {
     "session.update": (f) => {
       const { c, s } = sess(f);
       const patch = { ...f.patch };
-      // как Host: сессия идёт на месте своей модели — сменилась модель или очередь, аккаунт берётся с нового места
-      const inSlot = slots[machineOf(c) ?? ""]?.find((q) => q.name === (patch.slot ?? s.spec.slot));
-      if (inSlot && ("model" in patch || "slot" in patch)) setRow(c, { account: inSlot.lanes[laneOf(patch.model ?? s.spec.model)].account });
+      // как Host: модель проверяется по каталогу провайдера; сменился провайдер — аккаунт Claude выбирает машина, у провайдера аккаунта нет
+      if ("model" in patch || "key" in patch) {
+        const key = String(patch.key ?? s.spec.key ?? CLAUDE), model = catalogModel(String(patch.model ?? s.spec.model ?? ""));
+        if (!catalogs[key]?.models.some((x) => x.id === model)) throw new Refusal("no_model", `у провайдера ${key} нет модели ${model}`);
+        setRow(c, { account: key === CLAUDE ? (s.account ?? pickAccount(machineOf(c) ?? "")) : undefined, answers: undefined });
+      }
       let wing: string | undefined;
       if (patch.wing === null) {
         const was = s.spec.wing;
@@ -482,7 +495,7 @@ export function createMock(o: MockOptions = {}) {
       }
       // посреди хода модель, усилие, аккаунт, кусочки и папка вступают в силу с новым процессом — после хода
       const keys = Object.keys(f.patch ?? {});
-      const slow = s.state === "busy" ? keys.filter((k) => ["model", "effort", "slot", "pieces", "cwd", "fast", "thinking", "style", "remote"].includes(k)) : [];
+      const slow = s.state === "busy" ? keys.filter((k) => ["model", "key", "effort", "pieces", "cwd", "fast", "thinking", "style"].includes(k)) : [];
       return { now: keys.filter((k) => !slow.includes(k)), later: slow, ...(wing ? { wing } : {}) };
     },
     "session.stop": (f) => (setRow(sess(f).c, { state: "stopped", doing: undefined, ask: null }), {}),
@@ -546,9 +559,7 @@ export function createMock(o: MockOptions = {}) {
       if (f.method === "tasks") return true;
       if (f.method === "taskOutput") return { output: "> dev\n> vite\n\n  VITE v8.3.7  ready in 412 ms\n  ➜  Local:   http://localhost:5173/\n", total_bytes: 96, truncated: false };
       if (f.method === "commands") return [{ name: "compact", description: "Сжать контекст", argumentHint: "" }, { name: "clear", description: "Начать разговор заново", argumentHint: "" }, { name: "review", description: "Ревью текущих правок", argumentHint: "[что смотреть]" }, { name: "deliver", description: "Довести принятое до конца", argumentHint: "" }, { name: "design", description: "Дизайн в персоне архитектора", argumentHint: "" }];
-      if (f.method === "models") return [["claude-fable-5-2", "Fable 5.2"], ["claude-opus-5-5", "Opus 5.5"], ["claude-sonnet-5-5", "Sonnet 5.5"], ["claude-haiku-5-5", "Haiku 5.5"]].map(([value, displayName], i) => ({ value, displayName, description: "", supportsEffort: true, supportedEffortLevels: i === 3 ? ["low", "medium", "high"] : ["low", "medium", "high", "xhigh", "max"], supportsFastMode: i < 2, supportsAutoMode: i < 3 }));
       if (f.method === "agents") return [{ name: "Explore", description: "Поиск по коду: только чтение" }, { name: "critic", description: "Критик прототипа по живой странице" }];
-      if (f.method === "usage") return { session: { total_cost_usd: 1.84, total_api_duration_ms: 412_000, total_duration_ms: 3_600_000, total_lines_added: 214, total_lines_removed: 61, model_usage: {} }, subscription_type: "max", rate_limits_available: true, rate_limits: { five_hour: { utilization: 46, resets_at: new Date(now() + 2 * HOUR).toISOString() }, seven_day: { utilization: 38, resets_at: new Date(now() + 3 * DAY).toISOString() } } };
       if (f.method === "status") return { sections: [{ rows: [{ label: "Version", value: "2.1.321" }, { label: "Session ID", value: "7c1e0a52-9d3b" }, { label: "Peer address", value: "x" }] }] };
       if (f.method === "hooks") return { hooks: [{ event: "PreToolUse", matcher: "Bash", displayText: "node .claude/hooks/gate.mjs" }, { event: "Stop", matcher: "", displayText: "node .claude/hooks/summary.mjs" }] };
       if (f.method === "permissionRules") return { state: { rules: [{ behavior: "allow", source: "projectSettings", rule: "Bash(npm run *)" }, { behavior: "deny", source: "userSettings", rule: "Read(~/secrets/**)" }, { behavior: "ask", source: "session", rule: "Bash(git push *)" }] } };
@@ -625,38 +636,7 @@ export function createMock(o: MockOptions = {}) {
       return {};
     },
 
-    "account.list": (f) => {
-      const list = accounts[mach(f)] ?? [];
-      for (const q of slots[mach(f)] ?? []) place(q, list);
-      return { accounts: list, slots: slots[mach(f)] ?? [] };
-    },
-    "account.login": (f) => {
-      const login = "l" + newId().slice(0, 6);
-      logins.set(login, mach(f));
-      return { login, url: "https://claude.ai/oauth/authorize?code=true&client_id=mock&state=" + login };
-    },
-    "account.code": (f) => {
-      const m = need(logins.get(f.login), "вход не начат или истёк");
-      if (String(f.code).length < 6) throw new Refusal("bad_code", "код не подошёл");
-      const list = accounts[m];
-      let a = list.find((x) => !x.ok);
-      if (a) Object.assign(a, { ok: true, why: undefined, limits: lim(0.05, 0.02) });
-      else list.push((a = { id: "new@example.com", kind: "claude", email: "new@example.com", plan: "Max 5x", limits: lim(0, 0), ok: true, sessions: 0 }));
-      // первый вход на машине без очередей заводит main
-      if (!slots[m].length) slots[m].push({ name: "main", order: [a.id], lanes: { fable: { account: a.id }, other: { account: a.id } }, sessions: 0 });
-      return { account: a };
-    },
-    "account.remove": (f) => {
-      const m = mach(f);
-      const list = accounts[m];
-      list.splice(list.findIndex((a) => a.id === f.account), 1);
-      for (const q of slots[m]) {
-        q.order = q.order.filter((x) => x !== f.account);
-        place(q, list);
-      }
-      slots[m] = slots[m].filter((q) => q.order.length);
-      return {};
-    },
+    "account.list": (f) => ({ accounts: (accounts[mach(f)] ?? []).filter((a) => keys.some((k) => k.name === a.name)).map((a) => { const keep = keys.find((k) => k.name === a.name)?.keep !== false; return { ...a, keep, limits: a.limits.map((l) => (l.name === "seven_day" ? { ...l, hold: keep ? l.hold : undefined } : l)) }; }) }),
     "key.check": (f) => (mach(f), { ok: true, word: "glm-abliterated ответила за 1,4 с" }),
     "profile.file": () => ({ text: "---\nname: deliver\ndescription: Доводит принятое до конца\n---\n\n# Порядок\n\n1. Код с тестами\n2. Выпуск и живой прогон\n3. Второй проход" }),
     "shell.info": (f) => ({ os: machines[mach(f)].os, shells: ["bash", "node"], home: "/home/yuri" }),
@@ -749,7 +729,7 @@ export function createMock(o: MockOptions = {}) {
   };
 
   // запросы экранов (пропуска, аккаунты, профили, архив, правила, наблюдение) — в screens.ts: ложатся поверх прежних
-  const screenCtx = { now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, slots, pieces, archive, incidents, prefs, ledger, obs, archPoints, journal, talk, talks, need, mach, sess, delta, setRow, row };
+  const screenCtx = { now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, catalogs, moves, pieces, archive, incidents, prefs, ledger, obs, archPoints, journal, talk, talks, need, mach, sess, delta, setRow, row };
   Object.assign(H, screenHandlers(screenCtx));
   // запросы второй итерации экранов — поверх: iter2.ts
   Object.assign(H, iter2Handlers(screenCtx, { ...H }));

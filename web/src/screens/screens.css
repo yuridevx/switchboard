@@ -58,72 +58,59 @@
 
 .linklike { border: 0; background: none; padding: 0; cursor: pointer; color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; font: inherit; font-weight: 600; }
 
-.line.marked { background: var(--st-waiting-weak); border-radius: 6px; padding-left: 6px; padding-right: 6px; }
-.warnmark { border: 0; background: none; padding: 0 2px; cursor: pointer; color: var(--st-waiting); font-size: 14px; line-height: 1; }
 
 .diff .del { background: var(--st-failed-weak); text-decoration: line-through; }
 .diff .add { background: var(--st-idle-weak); }
 .diff > div { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 
-/* очереди аккаунтов машины: очередь — блок с шапкой и строками по порядку выбора */
-.queue { border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 4px; margin-top: 8px; }
-.queue .queue-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 32px; }
-.queue .queue-head .grow { flex: 1; }
-.queue .line { border-top: 1px solid var(--line); }
-.queue.logins { border-style: dashed; }
-
-/* лимиты аккаунта: окна в ряд — имя, полоска, процент, сброс; full — обычный вид, без него — компактный */
-/* аккаунт одной строкой */
-.acct { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; font-size: 13px; }
-.acct-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
-.acct.full { font-size: 14px; }
-.acct.full .acct-name { flex: 0 1 250px; }
-.acct-wait { color: var(--st-waiting); font-size: 12px; white-space: nowrap; }
-.acct-bad { color: var(--st-failed); font-size: 12px; overflow-wrap: anywhere; }
-.seats { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-/* машина строкой: слева имя и действия, справа её очереди колонками */
-.card.mrow { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; padding: 8px 12px; }
-.mrow-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
-.queues { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
-.queues .queue { margin-top: 0; flex: 1 1 250px; max-width: 440px; min-width: 0; padding: 0 8px 2px; }
-.queues .queue-head { min-height: 28px; gap: 6px; }
-.queues .queue .line { padding: 3px 0; gap: 6px; }
-.card.mline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 8px 12px; font-size: 13px; }
-.mline .grow { flex: 1 1 260px; min-width: 0; }
 .rows { display: flex; flex-direction: column; gap: 6px; }
-@media (max-width: 700px) {
-  .card.mrow { grid-template-columns: minmax(0, 1fr); }
-  .mrow-head { flex-direction: row; align-items: center; justify-content: space-between; }
-}
 
-/* два лимита аккаунта: неделя и Fable — две полоски, число и остаток до сброса */
-.meter { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; flex: none; }
-.meter-rows { display: inline-flex; flex-direction: column; gap: 2px; }
-.meter-row { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
-.meter-row svg { flex: none; }
-.meter-bar { position: relative; display: inline-flex; width: 44px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
-.meter-bar i { display: block; height: 100%; background: var(--st-idle); flex: none; }
-/* неделя в два тона: светлее — Fable, плотнее — остальные; штрих в конце — запас для Fable */
-.meter-bar i.share { opacity: .45; }
-.meter-rows .meter-row .meter-bar i.hold { position: absolute; right: 0; top: 0; background: repeating-linear-gradient(135deg, var(--muted) 0 1.5px, transparent 1.5px 4px); opacity: .8; }
-.lamp.lane { width: 8px; height: 8px; margin-top: 0; }
-.lamp.off.lane { border-width: 1.5px; }
-.meter-row b { font-weight: 600; min-width: 1.9em; text-align: right; color: var(--mantine-color-text); }
-.meter-row.orange .meter-bar i { background: var(--st-waiting); }
-.meter-row.red .meter-bar i { background: var(--st-failed); }
-.meter-row.orange b { color: var(--st-waiting); }
-.meter-row.red b { color: var(--st-failed); }
-.meter-left { color: var(--muted); white-space: nowrap; font-size: 12px; }
-.meter.full { font-size: 12px; gap: 12px; }
-.meter.full .meter-bar { width: 120px; height: 5px; }
-.acct { flex-wrap: nowrap; }
-.acct .acct-name { flex: 1 1 0; }
-.acct.full { flex-wrap: wrap; }
-@media (max-width: 700px) { .meter.full .meter-bar { width: 72px; } }
-.lamp.put { padding: 0; cursor: pointer; }
-.lamp.put:hover, .lamp.put:focus-visible { border-color: var(--st-idle); }
-.queues .queue-head { flex-wrap: nowrap; }
-.slotline { display: inline-flex; align-items: center; gap: 8px; min-width: 0; vertical-align: middle; }
-.slotline .acct { gap: 8px; }
-.slotline .acct .acct-name { flex: 0 1 auto; }
+/* час кэша разговора и срок токена: дуга убывает к концу срока; засечка — где машина сожмёт разговор сама; холодный кэш — пустое кольцо */
+.cacheclock { display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 4px 6px; min-height: 28px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.cacheclock circle { fill: none; stroke-width: 2.5; }
+.cacheclock .track { stroke: var(--line); }
+.cacheclock .arc { stroke: currentColor; }
+.cacheclock .notch { stroke: var(--st-waiting); stroke-width: 2; stroke-linecap: round; }
+.cacheclock.soon { color: var(--st-waiting); }
+.cacheclock.cold .track { stroke-dasharray: 2.5 3; }
+
+/* точки сессий аккаунта или провайдера */
+.sdots { display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.sdots .lamp { margin-top: 0; width: 9px; height: 9px; }
+.sdots .lamp:focus-visible { outline: 2px solid var(--st-busy); outline-offset: 3px; }
+.sdots-more { font-size: 11.5px; color: var(--muted); }
+
+/* аккаунты столбцами на общей шкале: заливка — потрачено, черта — сколько недели прошло, штрих сверху — запас под Fable */
+.acct-split { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 28px; padding-top: 6px; }
+.acols { display: flex; flex-wrap: wrap; gap: 14px 4px; flex: 0 1 auto; }
+.acol { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; width: 96px; }
+.moves { flex: 1 1 320px; min-width: 0; padding-left: 22px; border-left: 1px solid var(--line); }
+@media (max-width: 860px) { .moves { flex-basis: 100%; padding: 8px 0 0; border-left: 0; border-top: 1px solid var(--line); } .acol { width: 88px; } }
+.acol-bars { display: flex; align-items: flex-end; gap: 12px; }
+.vcol { display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--muted); }
+.vcol b { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--mantine-color-text); }
+.vcol b.orange { color: var(--st-waiting); }
+.vcol b.red { color: var(--st-failed); }
+.vbar { position: relative; display: flex; flex-direction: column-reverse; width: 16px; height: 112px; border-radius: 4px; background: var(--surface-2); }
+.vbar i { display: block; flex: none; width: 100%; }
+.vbar .share, .vbar .fill { background: var(--st-idle); }
+.vbar .share { opacity: .45; }
+.vbar i:first-child { border-radius: 0 0 4px 4px; }
+.vbar.orange .share, .vbar.orange .fill { background: var(--st-waiting); }
+.vbar.red .share, .vbar.red .fill { background: var(--st-failed); }
+.vbar .hold { position: absolute; top: 0; left: 0; border-radius: 4px 4px 0 0; background: repeating-linear-gradient(135deg, var(--muted) 0 1.5px, transparent 1.5px 4px); opacity: .8; }
+.vbar .pace { position: absolute; left: -3px; width: calc(100% + 6px); height: 2px; margin-bottom: -1px; border-radius: 1px; background: var(--mantine-color-text); }
+.acol.bad .vbar { opacity: .5; }
+.acol-name { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; font-size: 12.5px; font-weight: 600; }
+.acol-full { flex: none; color: var(--st-waiting); }
+.acol-left { min-height: 16px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.acol .sdots { justify-content: center; min-height: 12px; max-width: 84px; }
+.acol-foot { display: flex; align-items: center; gap: 2px; }
+.acol-foot .cacheclock { padding: 2px; min-height: 0; }
+.line.move { gap: 10px; font-size: 13px; padding: 4px 0; }
+.move-at { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.move-kind { flex: none; display: inline-flex; color: var(--muted); }
+.move-kind.full, .move-kind.closed { color: var(--st-waiting); }
+.move-kind.token { color: var(--st-failed); }
+.move-m { flex: none; font-size: 11.5px; }

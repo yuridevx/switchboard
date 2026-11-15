@@ -33,7 +33,7 @@ describe("вход служб", () => {
 
   it("запрос только для машины от устройства — forbidden", async () => {
     const s = stand();
-    await s.ask("keys.set", { name: "orca", provider: "anthropic", value: "sk-secret-1234" });
+    await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-secret-1234" });
     expect(await s.ask("keys.value", { name: "orca" }, "kyura1")).toMatchObject({ ok: false, error: "forbidden" });
     expect(await s.ask("keys.value", { name: "orca" }, "klaptop")).toMatchObject({ ok: true, result: { value: "sk-secret-1234" } });
   });

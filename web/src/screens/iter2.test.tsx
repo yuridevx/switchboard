@@ -1,7 +1,7 @@
 /// <reference types="node" />
 // Вторая итерация экранов: выпуски пачкой и перезапуск Host, установка машины ссылкой, «пожар», журнал словами, профили, аккаунты,
 // архив (сводка, ветки), правила прокси (разница, вызов из архива), пуши без открытой страницы.
-import { accountList, buildsKeeper, createApi, hostRestart, keeperState, pointsCalls, pointsList, type Account, type Piece, type SessionRow } from "@sb/protocol";
+import { accountList, buildsKeeper, CLAUDE, createApi, hostRestart, keeperState, pointsCalls, pointsList, type Account, type KeyRow, type Piece, type SessionRow } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { Steps } from "../shell/Page.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
-import { diverge, dropFromQueues, machineOrder, mergeAccounts } from "../lib/accounts.ts";
+import { byReset, columns } from "../lib/accounts.ts";
 import { createMock, type Mock } from "../mock/fleet.ts";
 import { useFleet } from "../store/fleet.ts";
 import { archiveSummary, branches } from "./Archive.tsx";
@@ -29,7 +29,7 @@ vi.hoisted(() => {
 const T = 1_800_000_000_000;
 const quiet = () => createMock({ now: () => T, live: false, latency: 0 });
 const ask = (m: Mock) => createApi(m.transport);
-const acc = (id: string, o: Partial<Account> = {}): Account => ({ id, kind: "claude", email: id, ok: true, ...o });
+const acc = (name: string, o: Partial<Account> = {}): Account => ({ name, ok: true, keep: true, limits: [], ...o });
 const row = (callsign: string, backup?: boolean) => ({ callsign, state: "idle", spec: { name: callsign.split("@")[0]!, cwd: "~/p", ...(backup ? { backup } : {}) }, by: "~a@b.c", since: 0 }) as SessionRow;
 
 describe("выпуски: пачкой и по машинам", () => {
@@ -112,26 +112,21 @@ describe("профили", () => {
 });
 
 describe("аккаунты", () => {
-  it("расхождение машин: разный тариф или час сброса больше минуты — что говорит каждая; согласие — пусто", () => {
-    const m = (a: Record<string, Account[]>) => mergeAccounts(a)[0]!;
-    expect(diverge(m({ laptop: [acc("a@b.c", { plan: "max" })], server: [acc("a@b.c", { plan: "max" })] }))).toEqual([]);
-    expect(diverge(m({ laptop: [acc("a@b.c", { plan: "max" })], server: [acc("a@b.c", { plan: "pro" })] }))).toEqual(["laptop: max", "server: pro"]);
-    const drift = diverge(m({ laptop: [acc("a@b.c", { limits: [{ name: "five_hour", used: 0.1, resets: T }] })], server: [acc("a@b.c", { limits: [{ name: "five_hour", used: 0.1, resets: T + 600_000 }] })] }));
-    expect(drift.length).toBe(2);
-    expect(diverge(m({ laptop: [acc("a@b.c")] }))).toEqual([]);
+  const key = (name: string, o: Partial<KeyRow> = {}): KeyRow => ({ name, protocol: CLAUDE, at: T, tail: "…", keep: true, ...o });
+  it("столбцы стоят по сбросу недели: раньше сброс — левее; без замера — за ними; негодный токен — в конце", () => {
+    const week = (resets: number) => [{ name: "seven_day", used: 0.3, resets }];
+    const cols = columns([key("a@b.c"), key("b@b.c"), key("c@b.c"), key("d@b.c")], { laptop: [acc("a@b.c", { limits: week(T + 5000) }), acc("b@b.c", { limits: week(T + 1000) }), acc("c@b.c", { ok: false, why: "Claude не принял токен", limits: week(T + 10) })] });
+    expect(byReset(cols).map((c) => c.name)).toEqual(["b@b.c", "a@b.c", "d@b.c", "c@b.c"]);
   });
-  it("убрать аккаунт из всех очередей всех машин; очереди без него не трогаются", () => {
-    const q = (name: string, order: string[]) => ({ name, order, lanes: { fable: {}, other: {} }, sessions: 0 });
-    const slots = { laptop: [q("main", ["a@b.c", "c@d.e"]), q("night", ["c@d.e"])], server: [q("main", ["c@d.e", "a@b.c"])] };
-    expect(dropFromQueues(slots, ["a@b.c"])).toEqual([{ machine: "laptop", slot: "main", order: ["c@d.e"] }, { machine: "server", slot: "main", order: ["c@d.e"] }]);
-    expect(dropFromQueues(slots, ["nobody"])).toEqual([]);
+  it("аккаунт — ключ флота: в столбцы идут только ключи с протоколом claude; флаг запаса и «полон» видны", () => {
+    const cols = columns([key("a@b.c", { keep: false }), { name: "orca", protocol: "anthropic", at: T, tail: "…" }], { laptop: [acc("a@b.c"), acc("gone@b.c")], server: [acc("a@b.c", { full: true })] });
+    expect(cols).toEqual([{ name: "a@b.c", ok: true, keep: false, full: true, limits: [] }]);
   });
-  it("машины со сбойным входом — первыми; мок отдаёт лимиты с временем замера и срок входа", async () => {
-    expect(machineOrder({ a: [acc("x")], b: [acc("y", { ok: false })], c: [acc("z")] })).toEqual(["b", "a", "c"]);
+  it("мок отдаёт аккаунты машины с окнами недели и Fable и временем замера", async () => {
     const r = await ask(quiet()).call(accountList, { to: "@laptop" });
-    const claude = r.accounts.find((a) => a.kind === "claude")!;
-    expect((claude as { expires?: number }).expires).toBeGreaterThan(T);
-    expect((claude.limits![0] as { at?: number }).at).toBeLessThan(T);
+    expect(r.accounts.map((a) => a.name)).toEqual(["yuri@example.com", "work@example.com", "team@example.com"]);
+    expect(r.accounts[0]!.limits.map((l) => l.name)).toEqual(["seven_day", "seven_day_overage_included"]);
+    expect(r.accounts[0]!.limits[0]!.at).toBeLessThan(T);
   });
 });
 

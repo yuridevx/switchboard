@@ -1,19 +1,16 @@
 // Эталоны первой итерации: функции старой системы, которых не хватало в Host v2.
-import { existsSync, mkdirSync, mkdtempSync, appendFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, appendFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ok } from "@sb/protocol";
-import { make as accounts } from "../src/modules/accounts/accounts.ts";
-import { folders } from "../src/modules/accounts/links.ts";
 import { DOING_GAP_MS, make as chat, peopleOnly } from "../src/modules/chat/chat.ts";
 import { make as incidents } from "../src/modules/incidents/incidents.ts";
 import { make as machine } from "../src/modules/machine/machine.ts";
 import { make as points, projectDir } from "../src/modules/points/points.ts";
 import { make as profiles } from "../src/modules/profiles/profiles.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
-import { make as remote } from "../src/modules/remote/remote.ts";
 import { make as shell } from "../src/modules/shell/shell.ts";
 import { FakeHolders, stand, tick, until, type Stand } from "../stand/index.ts";
 
@@ -31,7 +28,6 @@ afterEach(async () => {
 const PULT = "pult~yuri@example.com";
 const PHONE = "phone~yuri@example.com";
 const CS = "site@laptop";
-const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
 
 /** Локальный сервер: хранилище блоков. */
 async function server(answer: () => { status?: number; body?: Buffer | string } = () => ({})): Promise<{ url: string; seen: Array<{ method: string; url: string }> }> {
@@ -47,18 +43,6 @@ async function server(answer: () => { status?: number; body?: Buffer | string } 
   servers.push(s);
   await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
   return { url: `http://127.0.0.1:${(s.address() as { port: number }).port}`, seen };
-}
-
-function homeWithAccounts(names: string[], limits: Record<string, unknown> = {}, slots: Record<string, string[]> = { main: names }): string {
-  const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
-  mkdirSync(join(home, "store"), { recursive: true });
-  const book = { accounts: Object.fromEntries(names.map((n) => [n, { login: "ok", plan: "max", limits: limits[n] ?? {} }])), slots };
-  writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: book }));
-  const dirs = folders(home);
-  for (const n of names) mkdirSync(dirs.accDir(n), { recursive: true });
-  // у каждой очереди на диске — ссылка на первого по порядку
-  for (const [slot, order] of Object.entries(slots)) for (const lane of ["fable", "other"] as const) symlinkSync(dirs.accDir(order[0]!), (mkdirSync(join(home, "slots"), { recursive: true }), dirs.laneDir(slot, lane)), process.platform === "win32" ? "junction" : "dir");
-  return home;
 }
 
 const events = (s: Stand) => s.link.of("session.events").flatMap((f) => f.events as any[]);
@@ -107,13 +91,13 @@ describe("ядро: открытие и документ", () => {
     expect(st.sdk.last(CS)!.options).toMatchObject({ cwd: other, settings: { fastMode: true, outputStyle: "short", alwaysThinkingEnabled: false } });
   });
 
-  it("режим auto идёт в опции запуска; session.call: расход, правила, сжатие; сведения — и у остановленной", async () => {
+  it("режим auto идёт в опции запуска; session.call: правила, сжатие; расхода аккаунта в проходе нет; сведения — и у остановленной", async () => {
     st = await stand();
     const { proc, q } = await st.open("site", { mode: "auto" });
     expect((q.options as any).permissionMode).toBe("auto");
-    await st.request("session.call", { to: CS, method: "usage" });
+    expect(await st.request("session.call", { to: CS, method: "usage" })).toMatchObject({ ok: false, error: "bad_input" });
     await st.request("session.call", { to: CS, method: "permissionRules" });
-    expect(q.calls.map((c) => c.name)).toEqual(expect.arrayContaining([USAGE, "listPermissionRules"]));
+    expect(q.calls.map((c) => c.name)).toContain("listPermissionRules");
     await st.request("session.call", { to: CS, method: "compact" });
     await until(() => proc.inputs.some((i) => i.message.content === "/compact"), 5000, "команда сжатия во вводе");
     await st.request("session.stop", { to: CS });
@@ -290,44 +274,6 @@ describe("chat: строка и лента", () => {
   });
 });
 
-describe("accounts", () => {
-  it("лимит исчерпан: у очереди и у её сессии — час сброса; «сменить сейчас» ставит названный аккаунт, без запаса — отказ", async () => {
-    const at = Math.floor(Date.now() / 1000);
-    const home = homeWithAccounts(["a@example.com", "b@example.com"], {
-      "a@example.com": { five_hour: { utilization: 1, resetsAt: at + 600, at } },
-      "b@example.com": { five_hour: { utilization: 1, resetsAt: at + 900, at } },
-    });
-    st = await stand({ home, modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => ({ keys: [] });
-    const list = (await st.request("account.list", { to: "@laptop" })).result as any;
-    // «ждёт сброса» — у очереди: годность аккаунта зависит от её вида
-    expect(list.accounts[0].wait).toBeUndefined();
-    expect(list.slots).toEqual([{ name: "main", order: ["a@example.com", "b@example.com"], lanes: { fable: { account: "a@example.com", wait: (at + 600) * 1000 }, other: { account: "a@example.com", wait: (at + 600) * 1000 } }, sessions: 0 }]);
-    await st.open("site");
-    expect(st.link.rows(CS).at(-1)!.row).toMatchObject({ account: "a@example.com", wait: (at + 600) * 1000 });
-    expect(await st.request("slot.swap", { to: "@laptop", slot: "main", lane: "fable" })).toMatchObject({ ok: false, error: "no_reserve" });
-    expect((await st.request("slot.swap", { to: "@laptop", slot: "main", lane: "fable", account: "b@example.com" })).result).toEqual({ account: "b@example.com" });
-    expect(folders(home).inLane("main", "fable")).toBe("b@example.com");
-    expect(st.link.rows(CS).at(-1)!.row).toMatchObject({ account: "b@example.com" });
-    expect(st.services.of("ledger.add").some((f) => f.what === "account.swapped")).toBe(true);
-    expect(await st.request("slot.swap", { to: "@laptop", slot: "main", lane: "fable", account: "nope@example.com" })).toMatchObject({ ok: false, error: "no_account" });
-  });
-
-  it("ключ флота: переменные и настройки ключа идут в запуск сессии; провайдер и адрес — в списке", async () => {
-    st = await stand({ modules: [accounts()] });
-    st.services.handlers["keys.value"] = () => ({ value: "sk-one", provider: "anthropic", base: "https://api.example.com", models: { opus: "big-1", haiku: "" }, window: 200000, env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: "1" }, settings: { autoCompactWindow: 200000 } });
-    st.services.handlers["keys.list"] = () => ({ keys: [{ name: "team-key", provider: "anthropic", base: "https://api.example.com", model: "big-1", at: 1, tail: "…abcd" }] });
-    const { q } = await st.open("site", { slot: "team-key" });
-    expect((q.options as any).env).toMatchObject({ ANTHROPIC_DEFAULT_OPUS_MODEL: "big-1", CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000", CLAUDE_CODE_DISABLE_1M_CONTEXT: "1", ANTHROPIC_API_KEY: "fleet" });
-    expect((q.options as any).env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBeUndefined();
-    const route = await (st.kernel.mods.find((m) => m.name === "host-accounts")!.api as any).keyRoute("team-key");
-    expect(route).toMatchObject({ to: "https://api.example.com", key: "sk-one", env: { ANTHROPIC_DEFAULT_OPUS_MODEL: "big-1", ANTHROPIC_API_KEY: "fleet" } });
-    expect((q.options as any).settings).toMatchObject({ autoCompactWindow: 200000 });
-    const list = (await st.request("account.list", { to: "@laptop" })).result as any;
-    expect(list.accounts).toContainEqual({ id: "team-key", kind: "key", ok: true, sessions: 1, provider: "anthropic", base: "https://api.example.com", model: "big-1" });
-  });
-});
-
 describe("points", () => {
   it("с прошлой точки ничего не изменилось — новая не пишется; сбой точки виден в строке и уходит с удачной; ведущий пары не отпускается; проба папки подъёма ничего не открывает", async () => {
     const store = await server();
@@ -453,7 +399,7 @@ describe("incidents", () => {
   });
 });
 
-describe("machine, proxy, profiles, remote", () => {
+describe("machine, proxy, profiles", () => {
   it("журнал машины: вид строки, сессия и время", async () => {
     st = await stand({ modules: [machine(), chat()] });
     await st.open("site");
@@ -537,13 +483,4 @@ describe("machine, proxy, profiles, remote", () => {
     expect([reloads("site@laptop"), reloads("far@laptop")]).toEqual([1, 0]);
   });
 
-  it("Remote Control не включился — причина в строке сессии", async () => {
-    st = await stand({ modules: [remote()] });
-    await st.open("site");
-    (st.sdk.last(CS) as any).enableRemoteControl = async () => {
-      throw new Error("нет подписки");
-    };
-    expect((await st.request("session.update", { to: CS, patch: { remote: true } })).ok).toBe(true);
-    await until(() => (st!.link.rows(CS).at(-1)!.row as any).remoteError === "нет подписки", 5000, "ошибка моста в строке");
-  });
 });

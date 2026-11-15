@@ -1,16 +1,15 @@
 // Мок флота — запросы экранов (кроме разговора): пропуска и люди, аккаунты, профили, архив, инциденты, правила прокси, связь с людьми, наблюдение.
 // Формы — те же, что в договоре после первой волны итерации. Подключается одной строкой в fleet.ts: обработчики ложатся поверх прежних.
 import {
-  type Account, type Slot, type ArchPoint, type ArchSession, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type MachineRow, type ObsRow, type PassRow,
-  type PersonRow, type Piece, type Project, type ProxyRule, type RepoClone, type SessionRow, machineOf, newId, Refusal,
-  laneOf,
+  type Account, type ArchPoint, type ArchSession, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type LogRow, type MachineRow, type ObsRow, type PassRow,
+  type PersonRow, type Piece, type Project, type ProxyRule, type RepoClone, type SessionRow, CLAUDE, machineOf, newId, Refusal,
 } from "@sb/protocol";
 
 type Ev = Record<string, any>;
 export type MockCtx = {
   now: () => number; T: number; ME: string; MY_ADDR: string;
   machines: Record<string, MachineRow>; sessions: Record<string, SessionRow>; people: PersonRow[]; projects: Project[]; passes: PassRow[]; devices: DeviceRow[];
-  keys: KeyRow[]; accounts: Record<string, Account[]>; slots: Record<string, Slot[]>; pieces: Piece[]; archive: ArchSession[]; incidents: Record<string, Incident[]>;
+  keys: KeyRow[]; accounts: Record<string, Account[]>; catalogs: Record<string, { models: Array<{ id: string; name?: string; family?: string; window?: number }> }>; moves: LogRow[]; pieces: Piece[]; archive: ArchSession[]; incidents: Record<string, Incident[]>;
   prefs: Record<"me" | "fleet", Record<string, unknown>>; ledger: LedgerEvent[]; obs: ObsRow[];
   archPoints: (s: ArchSession) => ArchPoint[]; journal: (machine: string) => Array<{ t: number; part: string; level: "info" | "warn" | "error"; msg: string; machine: string; trace: string }>;
   talk: (c: string) => Ev[]; talks: Map<string, Ev[]>;
@@ -52,7 +51,7 @@ export function applyRules(text: string, rules: Array<Partial<ProxyRule> & { nam
 }
 
 export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> {
-  const { now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, slots, pieces, archive, incidents, prefs, ledger, obs } = c;
+  const { now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, catalogs, moves, pieces, archive, incidents, prefs, ledger, obs } = c;
   const online = (m: string) => machines[m]?.online === true;
 
   /* ===== Данные в формах договора ===== */
@@ -61,10 +60,7 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
     p.online = !p.wait && (p.addr.startsWith("@") ? online(p.addr.slice(1)) : p.addr === MY_ADDR || (p.seen ?? 0) > T - 30 * MIN);
   }
   const devicesOf = (person: string) => passes.filter((p) => p.person === person).map((p) => ({ kid: p.kid, addr: p.addr, wait: p.wait, online: !!p.online, at: p.at, ...(p.seen ? { seen: p.seen } : {}) }));
-  accounts.server.push({ id: "night@example.com", kind: "claude", email: "night@example.com", plan: "Max 5x", limits: [{ name: "five_hour", used: 0.1, resets: T + 3 * HOUR }, { name: "seven_day", used: 0.15, fable: 0.04, hold: 0.46, resets: T + 5 * DAY }, { name: "fable", used: 0.08, resets: T + 5 * DAY }], ok: true, sessions: 0 });
-  for (const list of Object.values(accounts)) for (const a of list) if (a.kind === "key") Object.assign(a, { provider: "openai-compatible", base: "https://api.orca.example/v1", model: "glm-abliterated" });
-  Object.assign(keys[0], { models: { "claude-fable-5-2": "glm-5.3", "claude-haiku-5-5": "glm-5.3-flash" }, window: 128_000, env: { DISABLE_TELEMETRY: "1" }, sessions: 0 });
-  Object.assign(keys[1], { sessions: 1 });
+  for (const k of keys) k.sessions = Object.values(sessions).filter((s) => (k.protocol === CLAUDE ? s.account === k.name : s.spec.key === k.name)).length;
   for (const a of archive) Object.assign(a, { live: !!sessions[a.callsign] && sessions[a.callsign].state !== "stopped", owner: machines[a.machine]?.owner ?? ME });
   incidents.server.push({ id: "i4", kind: "backup", key: "nightly", text: "Ночная копия не снята: том /backup не подключён", at: T - 70 * MIN, state: "pending", why: "вида backup нет в правилах: сессию открыть некому", files: ["backup.log"] });
   const repos: Record<string, RepoClone[]> = {
@@ -134,54 +130,44 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
     }),
 
     /* аккаунты и ключи */
-    "slot.set": (f) => {
-      const m = c.mach(f);
-      const order = f.order as string[];
-      const name = String(f.slot);
-      const ghost = order.find((id) => !accounts[m].some((a) => a.id === id && a.kind === "claude"));
-      if (ghost) throw new Refusal("no_account", `${ghost}: такого аккаунта на машине нет`);
-      const q = slots[m].find((x) => x.name === name);
-      if (!order.length) {
-        if (q?.sessions) throw new Refusal("has_sessions", `на очереди ${name} есть сессии`);
-        slots[m] = slots[m].filter((x) => x.name !== name);
-        return {};
-      }
-      const ok = (id: string) => accounts[m].find((a) => a.id === id)?.ok;
-      if (!q) {
-        if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) throw new Refusal("bad_input", "имя очереди — латиница, цифры, дефис");
-        if (keys.some((k) => k.name === name)) throw new Refusal("name_taken", `${name}: так зовут ключ флота`);
-        if (!order.some(ok)) throw new Refusal("no_reserve", "в порядке нет вошедшего аккаунта");
-        slots[m].push({ name, order, lanes: { fable: { account: order.find(ok) }, other: { account: order.find(ok) } }, sessions: 0 });
-        return {};
-      }
-      q.order = order;
-      return {};
-    },
-    "slot.swap": (f) => {
-      const m = c.mach(f);
-      const q = c.need(slots[m].find((x) => x.name === f.slot), `очереди ${f.slot} на ${m} нет`);
-      const good = q.order.filter((id) => { const a = accounts[m].find((x) => x.id === id); return a?.ok; });
-      const lane = f.lane === "other" ? "other" : "fable";
-      const cur = q.lanes[lane].account;
-      const next = f.account ? (good.includes(f.account) ? f.account : undefined) : good[(good.indexOf(cur ?? "") + 1) % Math.max(1, good.length)];
-      if (!next || (!f.account && next === cur)) throw new Refusal("no_reserve", f.account ? `${f.account}: вход не годен` : "в очереди нет другого вошедшего аккаунта ниже порога");
-      q.lanes[lane] = { account: next };
-      for (const s of Object.values(sessions)) if (s.callsign.endsWith("@" + m) && s.spec.slot === q.name && laneOf(s.spec.model) === lane) c.setRow(s.callsign, { account: next });
-      return { account: next };
-    },
     "keys.list": () => ({ keys }),
+    // каталог служба не хранит: спрашивает провайдера на каждый запрос
+    "keys.models": (f) => {
+      if (f.name === CLAUDE && !keys.some((k) => k.protocol === CLAUDE)) throw new Refusal("no_account", "аккаунтов Claude у флота нет");
+      return c.need(catalogs[f.name], `ключа ${f.name} нет`);
+    },
     "keys.set": (f) => {
       const k = keys.find((x) => x.name === f.name);
-      if (!k && !f.value) throw new Refusal("no_key", `ключа ${f.name} нет: нужно значение`);
-      const next = { name: f.name, provider: f.provider, base: f.base, model: f.model, models: f.models, window: f.window, settings: f.settings, env: f.env, at: now(), tail: f.value ? "…" + String(f.value).slice(-4) : k!.tail, sessions: k?.sessions ?? 0 };
+      if (!k && !f.value) throw new Refusal("not_found", `ключа ${f.name} нет: первому сохранению нужно значение`);
+      if (f.protocol === CLAUDE) {
+        // аккаунт Claude: годовой токен виден каждой машине; новый токен — аккаунт снова годен
+        const next = { name: f.name, protocol: CLAUDE, at: k?.at ?? now(), tail: f.value ? "…" + String(f.value).slice(-4) : k!.tail, keep: f.keep ?? k?.keep ?? true, expires: f.value ? now() + 365 * DAY : k!.expires };
+        if (k) Object.assign(k, next);
+        else keys.push(next);
+        for (const [m, list] of Object.entries(accounts)) {
+          if (!machines[m]?.online) continue;
+          const a = list.find((x) => x.name === f.name);
+          if (a && f.value) Object.assign(a, { ok: true, why: undefined });
+          else if (!a) list.push({ name: f.name, ok: true, limits: [], keep: next.keep });
+        }
+        return {};
+      }
+      const next = { name: f.name, protocol: f.protocol, base: f.base, settings: f.settings, env: f.env, at: now(), tail: f.value ? "…" + String(f.value).slice(-4) : k!.tail, sessions: k?.sessions ?? 0 };
       if (k) Object.assign(k, next);
-      else keys.push(next);
+      else (keys.push(next), (catalogs[f.name] ??= { models: [{ id: f.name + "-large", window: 200_000 }, { id: f.name + "-small", window: 128_000 }] }));
       return {};
     },
-    "keys.remove": (f) => {
-      const on = Object.values(sessions).filter((s) => s.spec.slot === f.name || s.account === f.name).map((s) => s.callsign);
-      if (f.probe) return { sessions: f.name === "meta-muse" && !on.length ? ["wing@laptop"] : on };
+    // история флота из ClickHouse: строки журналов машин, новые первыми
+    "log.query": (f) => {
+      const fit = moves.filter((l) => (!f.msg || l.msg.startsWith(f.msg)) && (!f.machine || l.machine === f.machine) && (!f.account || l.account === f.account) && (!f.session || l.session === f.session)).sort((x, y) => y.at - x.at);
+      return { lines: fit.slice(0, f.limit ?? 50), more: fit.length > (f.limit ?? 50) };
+    },
+        "keys.remove": (f) => {
+      const on = Object.values(sessions).filter((s) => (s.spec.key === f.name || s.account === f.name) && s.state !== "stopped" && s.state !== "failed").map((s) => s.callsign);
+      if (f.probe) return { sessions: on };
       keys.splice(keys.findIndex((k) => k.name === f.name), 1);
+      // аккаунт удалён: его сессии переходят на другой аккаунт машины
+      for (const s of Object.values(sessions)) if (s.account === f.name) c.setRow(s.callsign, { account: accounts[machineOf(s.callsign) ?? ""]?.find((a) => a.ok && a.name !== f.name)?.name });
       return {};
     },
 
@@ -254,7 +240,6 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
       if (sessions[cs]) throw new Refusal("name_taken", `сессия ${cs} уже есть`);
       c.talks.set(cs, [...c.talk(src.callsign)]);
       sessions[cs] = c.row(cs, "idle", src.project, { title: src.title, cwd: f.cwd ?? src.cwd, last: now(), since: now() });
-      if (f.slot) sessions[cs].spec.slot = f.slot;
       c.delta({ sessions: [{ callsign: cs, row: sessions[cs] }] });
       // перенос: прежняя машина отпускает сессию
       if (f.move && sessions[src.callsign] && src.callsign !== cs) c.setRow(src.callsign, null);

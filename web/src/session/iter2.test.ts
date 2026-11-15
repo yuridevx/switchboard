@@ -10,7 +10,6 @@ import { askOutcome, seenWord } from "../chat/answers.ts";
 import { returned } from "./Composer.tsx";
 import { pairOf, toggleHeadPart } from "./Conversation.tsx";
 import { diffLines } from "./diff.ts";
-import { modelsFor } from "./doc.ts";
 import { looksSvg, previewKind, svgUrl } from "./html.tsx";
 import { pairRows } from "./Inspector.tsx";
 
@@ -76,15 +75,9 @@ describe("пара в разговоре", () => {
   });
   it("«Сведения» пары: общие ряды, две колонки — ведущий и ведомый", () => {
     const rows = pairRows(row("lead@laptop", { state: "busy", doing: "Ждёт итог", account: "work@example.com", pieces: ["base"] } as never), row("wing@laptop", { state: "waiting" }));
-    expect(rows.map((r) => r[0])).toEqual(["Состояние", "Модель", "Очередь", "Кусочки", "Папка", "Открыта"]);
+    // аккаунта в панели сессии нет: его выбирает машина (слово пользователя 15 нояб.)
+    expect(rows.map((r) => r[0])).toEqual(["Состояние", "Модель", "Кусочки", "Папка", "Открыта"]);
     expect(rows[0]).toEqual(["Состояние", "Ждёт итог", "ждёт вас"]);
-    expect(rows[2]).toEqual(["Очередь", "— · work@example.com", "—"]);
-  });
-  it("модели сессии: у ключа флота — одна, записанная у ключа; у входа Claude — список SDK", () => {
-    const sdk = [{ value: "default", label: "Default" }, { value: "opus", label: "Opus" }];
-    expect(modelsFor({ kind: "key", model: "orca/flash" }, sdk)).toEqual([{ value: "orca/flash", label: "orca/flash" }]);
-    expect(modelsFor({ kind: "claude" }, sdk)).toBe(sdk);
-    expect(modelsFor(undefined, sdk)).toBe(sdk);
   });
   it("части шапки: переключение держит порядок списка", () => {
     expect(toggleHeadPart(["model", "pieces"], "machine")).toEqual(["model", "pieces", "machine"]);

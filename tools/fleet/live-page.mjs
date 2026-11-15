@@ -20,11 +20,13 @@ const env = fleetEnv;
 const { call } = fleetCall(fleet, device);
 
 const me = call("whoami", {}).result;
+// модель сессии сценария — SB2_MODEL или первая из каталога провайдера
+const MODEL = process.env.SB2_MODEL ?? call("keys.models", { name: SEAT }).result.models[0].id;
 const name = "live" + Date.now().toString(36).slice(-5);
 const invite = call("invite", { addr: name + me.person }).result;
 // своя сессия на ключе флота: ответ модели не зависит от чужой сессии и её ключа
 const cwd = machine === "wsl" ? "/tmp/sb2-live-steps" : "C:/Users/" + os.userInfo().username + "/AppData/Local/Temp/sb2-live-steps";
-const opened = call("session.open", { to: "@" + machine, spec: { name, cwd, slot: SEAT }, mkdir: true });
+const opened = call("session.open", { to: "@" + machine, spec: { name, cwd, key: SEAT, model: MODEL }, mkdir: true });
 const callsign = opened.ok ? opened.result.callsign : "";
 if (!opened.ok) console.log(`сессия не открылась: ${opened.error} ${opened.why ?? ""}`);
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 // Сессия: один разговор и его процесс у держателя. Запуск — значение Run; его конец решает одну ветку: наш close, остановка ОС или сбой.
 import { existsSync } from "node:fs";
-import type { SessionRow, SessionState } from "@sb/protocol";
+import { catalogModel, incidentRaise, type SessionRow, type SessionState } from "@sb/protocol";
 import { within } from "./clock.ts";
 import type { InputOpts, Module, QueryPart, SessionApi } from "./contract.ts";
 import { wholeConversation } from "./history.ts";
@@ -12,6 +12,15 @@ import type { CoreRecord } from "./store.ts";
 const INIT_MS = 60_000; // как initializeTimeoutMs у startup() SDK: у query() своего предела нет
 const STEP_MS = 30_000;
 const RESTART_MS = 6 * 3_600_000;
+/** Срок кэша разговора: часовой и пятиминутный. */
+const CACHE_HOUR_MS = 3_600_000, CACHE_SHORT_MS = 300_000;
+/** Сжатие при простое: 54-я минута после последнего ответа — 90 % часа кэша; разговор от 200 К токенов. */
+const COMPACT_AFTER_MS = 54 * 60_000, COMPACT_FROM = 200_000;
+/** Вид обращения в «Инциденты»: ответила не та модель. */
+const MODEL_INCIDENT = "model";
+/** Имя модели у записи, которую процесс написал сам (ошибка API, прерывание): модель её не давала. */
+const SYNTHETIC = "<synthetic>";
+type Usage = { input_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number; cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number } };
 
 const STATES: Record<string, SessionState> = { idle: "idle", running: "busy", requires_action: "waiting" };
 const isBusy = (s: unknown) => s === "busy" || s === "waiting";
@@ -44,6 +53,12 @@ export class Session {
   launched: Launch | undefined;
   /** сколько раз просили перезапуск живого процесса: документ вступит в силу после хода */
   restarts = 0;
+  /** в последнем ходе модель ответила: только такой ход двигает «закончила … назад», непрочитанное и зов человека */
+  answered = false;
+  /** таймер сжатия при простое и его час */
+  private compact: { timer: unknown; at: number } | null = null;
+  /** о пропущенном сроке сжатия журнал уже сказал */
+  private late = false;
   /** сбои подряд без готовности */
   private falls: string[] = [];
   private turnEnds: Array<() => void> = [];
@@ -78,7 +93,7 @@ export class Session {
         },
         get info() {
           const { sessionId, cwd, by, since, last } = self.rec;
-          return { sessionId, cwd, by, since, last, model: self.model, queue: self.inbox.length, launch: self.launched };
+          return { sessionId, cwd, by, since, last, model: self.model, queue: self.inbox.length, launch: self.launched, answered: self.answered, ...(self.rec.cache ? { warm: self.warmUntil() } : {}) };
         },
         input: (c, o) => self.input(c, o),
         sdk: (name, ...args) => self.call(name, args),
@@ -98,10 +113,77 @@ export class Session {
 
   /** Строка сессии в картине: поля ядра и вклады модулей. */
   row(): SessionRow {
-    const { callsign, spec, by, since, last, error, title } = this.rec;
+    const { callsign, spec, by, since, last, error, title, cache, answers } = this.rec;
     // ведущий пары — тот, у кого эта сессия записана ведомым
     const lead = [...this.k.sessions.values()].find((x) => x.rec.spec.wing === callsign)?.callsign;
-    return { callsign, state: this.state, spec, by, since, ...(last ? { last } : {}), ...(title ? { title } : {}), ...(lead ? { lead } : {}), ...(error && this.state === "failed" ? { error } : {}), ...this.k.rowsOf(this) };
+    return {
+      callsign, state: this.state, spec, by, since, ...(last ? { last } : {}), ...(title ? { title } : {}), ...(lead ? { lead } : {}), ...(error && this.state === "failed" ? { error } : {}),
+      // итог, а не правило: час кэша и час, когда машина сожмёт разговор сама; модель, которая ответила вместо названной
+      ...(cache ? { cache: { until: this.warmUntil(), ...(this.compact ? { compact: this.compact.at } : {}) } } : {}), ...(answers ? { answers } : {}),
+      ...this.k.rowsOf(this),
+    };
+  }
+
+  /** До какого времени кэш разговора тёплый. */
+  warmUntil(): number {
+    const c = this.rec.cache!;
+    return c.at + (c.hour ? CACHE_HOUR_MS : CACHE_SHORT_MS);
+  }
+
+  // ───────────────────────── ответ модели: кэш, сжатие при простое, сверка модели ─────────────────────────
+
+  /** Ответ модели в основном разговоре: размер разговора и час кэша — в запись сессии; модель ответа сверяется с документом. */
+  private said(m: { message?: { model?: string; usage?: Usage } }): void {
+    this.answered = true;
+    const u = m.message?.usage;
+    if (u) {
+      const made = u.cache_creation;
+      const hour = (made?.ephemeral_1h_input_tokens ?? 0) > 0 ? true : (made?.ephemeral_5m_input_tokens ?? 0) > 0 ? false : (this.rec.cache?.hour ?? false);
+      // запись уйдёт на диск с концом хода: на каждый ответ диск не пишется
+      this.rec.cache = { at: this.k.clock.now(), size: (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), hour };
+    }
+    const model = m.message?.model;
+    const named = this.rec.spec.model;
+    if (!model || model === SYNTHETIC || !named) return;
+    const other = model === catalogModel(named) ? undefined : model;
+    if (other === this.rec.answers) return;
+    this.rec.answers = other;
+    this.k.save();
+    this.sync();
+    if (!other) return;
+    // система ловит, агент чинит: строка журнала и обращение в «Инциденты»; сама сессия модель не меняет
+    const why = `${this.callsign}: в документе модель ${named}, ответила ${other}`;
+    this.k.log.error("model_drift", { callsign: this.callsign, word: "model_drift", why });
+    quiet(this.k.call(incidentRaise, { to: `@${this.k.machine}`, kind: MODEL_INCIDENT, key: this.callsign, text: why }).catch((e: unknown) => this.k.log.warn("incident", { callsign: this.callsign, why: `обращение «модель» не открыто: ${(e as Error).message}` })));
+  }
+
+  /** Сжатие при простое: сессия свободна, кэш часовой и тёплый, разговор от 200 К — на 54-й минуте после ответа уходит «/compact», тем же вводом, что у человека.
+   *  Срок прошёл (машина стояла) — строка журнала, догоняющего сжатия нет. Любой новый ход таймер снимает. */
+  private arm(): void {
+    this.disarm();
+    const c = this.rec.cache;
+    if (this.state !== "idle" || !c || !c.hour || c.size < COMPACT_FROM) return;
+    const at = c.at + COMPACT_AFTER_MS, now = this.k.clock.now();
+    if (at <= now) {
+      // строка — один раз: пока кэш ещё мог быть тёплым или только что остыл
+      if (!this.late) this.k.log.info("idle_compact_late", { callsign: this.callsign, size: c.size, why: `сжатие при простое: срок прошёл ${Math.round((now - at) / 60_000)} мин назад — разговор не сжат` });
+      this.late = true;
+      return;
+    }
+    this.late = false;
+    const timer = this.k.clock.setTimeout(() => {
+      this.compact = null;
+      if (this.state !== "idle" || this.k.shutting) return;
+      this.k.log.info("idle_compact", { callsign: this.callsign, size: c.size, why: `сжатие при простое: разговор ${Math.round(c.size / 1000)} К, кэш тёплый` });
+      this.input("/compact", { priority: "next" });
+      this.sync();
+    }, at - now);
+    this.compact = { timer, at };
+  }
+
+  private disarm(): void {
+    if (this.compact) this.k.clock.clearTimeout(this.compact.timer);
+    this.compact = null;
   }
 
   /** Строка для снимка machine.hello. */
@@ -133,7 +215,10 @@ export class Session {
     this.state = state;
     this.rec.state = state;
     this.rec.error = state === "failed" ? error : undefined;
-    if (state === "idle" && isBusy(was)) this.rec.last = this.k.clock.now();
+    // «закончила … назад» двигает только ход, где модель ответила
+    if (state === "idle" && isBusy(was) && this.answered) this.rec.last = this.k.clock.now();
+    if (isBusy(state) && !isBusy(was)) this.answered = false;
+    this.arm();
     this.k.save();
     this.k.each(this, "on.state", (mod, view) => mod.on?.state?.(view, state, was));
     this.k.stateChanged(this, state, was);
@@ -309,8 +394,18 @@ export class Session {
       this.rec.upto = undefined;
       this.k.save();
     }
+    if (m.type === "assistant" && !m.parent_tool_use_id && !m.isReplay) this.said(m);
+    // разговор сжат: кэш написан заново, размер — после сжатия
+    if (m.type === "system" && m.subtype === "compact_boundary" && this.rec.cache) {
+      const meta = (m.compact_metadata ?? m.compactMetadata ?? {}) as { post_tokens?: number; postTokens?: number };
+      this.rec.cache = { ...this.rec.cache, at: this.k.clock.now(), size: meta.post_tokens ?? meta.postTokens ?? 0 };
+    }
     if (m.type === "result") {
-      if (typeof m.result === "string") this.result = m.result;
+      if (typeof m.result === "string") {
+        this.result = m.result;
+        // итог с текстом — тоже ответ модели; у хода сжатия и команд итог пустой
+        if (m.result) this.answered = true;
+      }
       this.turnEnded();
     }
     this.k.each(this, "on.event", (mod, view) => mod.on?.event?.(view, m));

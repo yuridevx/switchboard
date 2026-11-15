@@ -8,8 +8,9 @@ import { researchTurn, siteTurn } from "../mock/convo.ts";
 import { createMock } from "../mock/fleet.ts";
 import { freeName, nameOf, piecesFor, pushPlace, sortMachines, splitPath } from "../shell/NewSession.tsx";
 import { actionAnswer, answeredAll, formAnswer, formFields, formReady, questionAnswer, questionSaid, questionsOf } from "../chat/answers.ts";
-import { commandPicks, sideQuestion } from "./Composer.tsx";
-import { effectiveModel, mergeLater, modelOptions } from "./doc.ts";
+import { commandPicks, modelAsk, sideQuestion } from "./Composer.tsx";
+import { mergeLater } from "./doc.ts";
+import { arrange, offersOf, offerWord } from "./ModelPicker.tsx";
 import { looksHtml, textOf } from "./html.tsx";
 import { bindLocal, draft, mergeEvents, missed } from "./talk.ts";
 
@@ -136,9 +137,9 @@ describe("вопросы человеку", () => {
 });
 
 describe("ввод и документ", () => {
-  it("команды «/» — из списка SDK (массив, имя без слеша) плюс «/btw»; отбор по началу", () => {
+  it("команды «/» — из списка SDK (массив, имя без слеша) плюс свои «/btw» и «/model»; отбор по началу", () => {
     const sdk = [{ name: "compact", description: "Сжать контекст", argumentHint: "" }, { name: "review", description: "Ревью", argumentHint: "[что]" }];
-    expect(commandPicks(sdk, "").map((p) => p.label)).toEqual(["/compact", "/review", "/btw"]);
+    expect(commandPicks(sdk, "").map((p) => p.label)).toEqual(["/compact", "/review", "/btw", "/model"]);
     expect(commandPicks(sdk, "re")).toEqual([{ label: "/review", about: "[что] · Ревью", insert: "/review " }]);
     expect(commandPicks(undefined, "b").map((p) => p.label)).toEqual(["/btw"]);
     expect(sideQuestion("/btw  а тесты зелёные?")).toBe("а тесты зелёные?");
@@ -152,15 +153,36 @@ describe("ввод и документ", () => {
     draft.set("site@laptop", "");
     expect(draft.get("site@laptop")).toBe("");
   });
-  it("действующая модель: из документа, иначе та, на которой идёт разговор, иначе первая в списке SDK", () => {
-    const options = modelOptions([{ value: "claude-fable-5-2", displayName: "Fable 5.2", supportedEffortLevels: ["low", "high"], supportsFastMode: true }, { value: "claude-sonnet-5-5", displayName: "Sonnet 5.5" }]);
-    expect(options[0]).toEqual({ value: "claude-fable-5-2", label: "Fable 5.2", efforts: ["low", "high"], fast: true });
-    expect(effectiveModel({ model: "claude-sonnet-5-5" }, options).label).toBe("Sonnet 5.5");
-    expect(effectiveModel({}, options, "claude-sonnet-5-5[1m]").label).toBe("Sonnet 5.5");
-    expect(effectiveModel({}, options).label).toBe("Fable 5.2");
-    expect(effectiveModel({ model: "glm-abliterated" }, options)).toEqual({ value: "glm-abliterated", label: "glm-abliterated" });
-    // сессия не ответила — общий список страницы
-    expect(modelOptions(undefined).length).toBeGreaterThan(2);
+  it("список моделей: группы «провайдер · семейство» в порядке каталога, закреплённые — сверху, поиск — правилом договора; имя для документа даёт договор", () => {
+    // источник: слово пользователя 15 нояб. — «выбирать провайдера и модель из списка с поиском с закрепов»
+    const offers = offersOf([
+      { key: "claude", models: [{ id: "claude-fable-5-2", name: "Fable 5.2", family: "Fable", window: 1_000_000 }, { id: "claude-opus-4-8", name: "Opus 4.8", family: "Opus", window: 1_000_000 }, { id: "claude-haiku-4-5-20251001", name: "Haiku 4.5", family: "Haiku", window: 200_000 }] },
+      { key: "orca", models: [{ id: "glm-5.3", window: 200_000 }, { id: "qwen-3.5-coder" }] },
+    ]);
+    expect(offers.map((o) => o.group)).toEqual(["Claude · Fable", "Claude · Opus", "Claude · Haiku", "orca", "orca"]);
+    // окно от миллиона у модели Claude включает суффикс [1m]; у провайдера имя каталога идёт как есть
+    expect(offers.map((o) => o.doc)).toEqual(["claude-fable-5-2[1m]", "claude-opus-4-8[1m]", "claude-haiku-4-5-20251001", "glm-5.3", "qwen-3.5-coder"]);
+    const all = arrange(offers, "", ["orca/glm-5.3"]);
+    expect(all.pinned.map((o) => o.model)).toEqual(["glm-5.3"]);
+    expect(all.groups.map((g) => [g.group, g.list.map((o) => o.model)])).toEqual([["Claude · Fable", ["claude-fable-5-2"]], ["Claude · Opus", ["claude-opus-4-8"]], ["Claude · Haiku", ["claude-haiku-4-5-20251001"]], ["orca", ["qwen-3.5-coder"]]]);
+    expect(arrange(offers, "opus 4.8", []).groups.flatMap((g) => g.list.map((o) => o.model))).toEqual(["claude-opus-4-8"]);
+    expect(arrange(offers, "orca", ["orca/glm-5.3"])).toMatchObject({ pinned: [{ model: "glm-5.3" }], groups: [{ group: "orca", list: [{ model: "qwen-3.5-coder" }] }] });
+    expect(arrange(offers, "нет такой", [])).toEqual({ pinned: [], groups: [] });
+  });
+  it("«/model слова» — команда страницы: слова поиска, без слов — список целиком; прочий текст — не она", () => {
+    // источник: слово пользователя 15 нояб. — «/model должно правильно отрабатываться»
+    expect(modelAsk("/model opus 4.8")).toBe("opus 4.8");
+    expect(modelAsk("  /model  ")).toBe("");
+    expect(modelAsk("/models")).toBeNull();
+    expect(modelAsk("поставь /model opus")).toBeNull();
+    // своя команда закрывает одноимённую команду Claude: в подсказках она одна
+    expect(commandPicks([{ name: "model", description: "Claude" }, { name: "compact" }], "mo").map((p) => [p.label, p.about])).toEqual([["/model", "выбрать модель: слова поиска"]]);
+  });
+  it("имя модели для человека: название из каталога; каталог не прочитан — имя каталога без [1m]", () => {
+    const offers = offersOf([{ key: "claude", models: [{ id: "claude-fable-5-2", name: "Fable 5.2", window: 1_000_000 }] }]);
+    expect(offerWord(offers, "claude-fable-5-2[1m]")).toBe("Fable 5.2");
+    expect(offerWord([], "claude-unknown-9[1m]")).toBe("claude-unknown-9");
+    expect(offerWord([], undefined)).toBe("модель не выбрана");
   });
   it("пометка «после хода»: новое добавляется, применённое сразу снимается", () => {
     expect(mergeLater([], ["mode"], ["model"])).toEqual(["model"]);
@@ -227,21 +249,24 @@ describe("мок отвечает в формах Host", () => {
     const api = createApi(m.transport);
     expect(await api.call(sessionUpdate, { to: "site@laptop", patch: { effort: "low", project: "infra" } })).toMatchObject({ now: ["project"], later: ["effort"] });
     expect(await api.call(sessionUpdate, { to: "docs@laptop", patch: { effort: "low" } })).toMatchObject({ now: ["effort"], later: [] });
-    const opened = await api.call(sessionOpen, { to: "@laptop", spec: { name: "duo", cwd: "~/projects/duo" }, pair: true, mkdir: true });
+    const opened = await api.call(sessionOpen, { to: "@laptop", spec: { name: "duo", cwd: "~/projects/duo", key: "claude", model: "claude-fable-5-2" }, pair: true, mkdir: true });
     expect(opened).toEqual({ callsign: "duo@laptop", wing: "duo-wing@laptop" });
     expect(m.state.sessions["duo-wing@laptop"]).toMatchObject({ lead: "duo@laptop", by: "duo@laptop" });
     await api.call(sessionUpdate, { to: "duo@laptop", patch: { wing: null } });
     expect(m.state.sessions["duo@laptop"].spec.wing).toBeUndefined();
     // как Host: снятый ведомый убран с машины
     expect(m.state.sessions["duo-wing@laptop"]).toBeUndefined();
-    await expect(api.call(sessionOpen, { to: "@laptop", spec: { name: "x", cwd: "~/projects/nope" } })).rejects.toMatchObject({ word: "bad_input" });
+    await expect(api.call(sessionOpen, { to: "@laptop", spec: { name: "x", cwd: "~/projects/nope", key: "claude", model: "claude-fable-5-2" } })).rejects.toMatchObject({ word: "bad_input" });
+    // провайдер и модель обязательны: значения «по умолчанию» нет
+    await expect(api.call(sessionOpen, { to: "@laptop", spec: { name: "y", cwd: "~/projects/duo" } })).rejects.toMatchObject({ word: "key_required" });
+    await expect(api.call(sessionOpen, { to: "@laptop", spec: { name: "y", cwd: "~/projects/duo", key: "claude" } })).rejects.toMatchObject({ word: "model_required" });
   });
-  it("проход к SDK: команды и модели — массивы SDK; откат файлов требует сообщение и с пробой только считает", async () => {
+  it("проход к SDK: команды — массив SDK; списка моделей и расхода у прохода нет — модели отдаёт каталог провайдера", async () => {
     const m = quiet();
     const api = createApi(m.transport);
     const call = (method: any, args?: unknown) => api.call(sessionCall, { to: "site@laptop", method, args });
     expect((await call("commands") as any[])[0]).toMatchObject({ name: "compact", description: "Сжать контекст" });
-    expect((await call("models") as any[])[0]).toMatchObject({ value: "claude-fable-5-2", displayName: "Fable 5.2" });
+    for (const gone of ["models", "usage"]) expect(sessionCall.input.safeParse({ to: "site@laptop", method: gone }).success).toBe(false);
     expect(await call("contextUsage")).toMatchObject({ maxTokens: 200_000, categories: expect.any(Array) });
     expect((await call("mcpStatus") as any[]).map((s) => s.status)).toEqual(["connected", "connected", "needs-auth", "failed"]);
     await call("mcpToggle", ["playwright", false]);

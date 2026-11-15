@@ -1,601 +1,387 @@
-// Аккаунты машины: входы Claude с лимитами, именованные очереди аккаунтов и ключи флота. Имя аккаунта — его почта.
-// Очередь — один список аккаунтов и два места на нём: на месте fable идут сессии Fable, на месте other — остальные модели.
-// Место — ссылка на диске на папку того, кто стоит сейчас: кто на нём, знает только ссылка. Числа лимитов — только из ответа Claude об аккаунте.
-// Сессия стоит в очереди или на ключе флота (поле slot её документа). Все изменения всех очередей машины идут одной линией.
-// Значение ключа флота — только в памяти; настройки ключа — в записи сессии: подъём читает их без связи.
-import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { keysList, keysValue, laneOf, ledgerAdd, READ_MS, Refusal, within, type Account as AccountOut, type Lane, type Slot as SlotOut } from "@sb/protocol";
-import type { HostApi, Module, SessionApi } from "../../core/contract.ts";
-import type { Account } from "./limits.ts";
-import { expired, FABLE, fits, nextReset, place, read, shown, stale, usableAt, WEEK, windowOf } from "./limits.ts";
-import { envOf, folders, type Folders } from "./links.ts";
-import { signin, type SignedIn } from "./signin.ts";
+// Аккаунты и модели сессий машины. Аккаунт Claude — ключ флота с протоколом claude: годовой токен, один на весь флот.
+// Машина держит токены только в памяти; у процесса сессии вместо токена слово-заглушка, настоящий ставит прокси.
+// Сессия привязана к аккаунту, пока кэш её разговора тёплый; новая и остывшая выбирают лучший по счёту (limits.ts). Порядка аккаунтов нет нигде.
+// Числа окон — только из заголовков ответов Claude этой машине. Каждый вызов, решение и событие аккаунта — строка журнала машины
+// (call, route, account.*): историю читают из ClickHouse, от него выбор не зависит.
+import { CLAUDE, catalogModel, docModel, findModels, incidentRaise, keysList, keysModels, keysValue, READ_MS, Refusal, within, type Account as AccountOut, type Model, type Offer } from "@sb/protocol";
+import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
+import { choose, closed, FABLE, FIVE, fits, isFable, nextReset, read, refusalHeaders, shown, WEEK, type Account, type Candidate } from "./limits.ts";
 
-/** slots — очереди: имя → аккаунты по порядку; очередь есть, пока в ней есть аккаунт. */
-type Book = { accounts: Record<string, Account>; slots: Record<string, string[]> };
-/** Настройки ключа флота без значения: models — имена моделей claude → модели провайдера; window — окно контекста, токены;
- *  env — окружение сессии; settings — настройки Claude. */
-type KeyConfig = { provider: string; base?: string; model?: string; models?: Record<string, string>; window?: number; env?: Record<string, string>; settings?: Record<string, unknown> };
+/** Запись машины: окна и годность аккаунтов переживают подмену Host. */
+type Book = { accounts: Record<string, Account> };
+/** Настройки ключа провайдера без значения. */
+type KeyConfig = { protocol: string; base?: string; env?: Record<string, string>; settings?: Record<string, unknown> };
+/** Запись сессии. account — привязка, at — когда привязана; cut — годных аккаунтов не было, ход оборван: wait — час ближайшего сброса.
+ *  key и window — настройки ключа провайдера и окно модели из каталога: подъём читает их без связи. */
+type Seat = { account?: string; at?: number; cut?: boolean; wait?: number; key?: KeyConfig; window?: number };
 
-/** Окружение сессии на ключе флота: alias моделей и окно — родными переменными Claude; сам ключ ставит прокси. */
-export const keyEnv = (c: KeyConfig): Record<string, string> => ({
-  ...c.env,
-  ...Object.fromEntries(Object.entries(c.models ?? {}).filter(([, to]) => to).map(([name, to]) => [`ANTHROPIC_DEFAULT_${name.toUpperCase()}_MODEL`, to])),
-  ...(c.window ? { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(c.window) } : {}),
-  ANTHROPIC_API_KEY: KEY_WORD,
-});
-/** Запись сессии: аккаунт, на котором оборвался ход, и настройки ключа, с которыми она стартует. */
-type Seat = { cut?: string; key?: KeyConfig };
-/** Куда идёт вызов модели сессии: вход Claude как есть — Anthropic; ключ флота — адрес и значение. */
-export type Route = { to: string; key?: string; provider?: string };
-export type AccountsApi = { route(sessionId: string): Promise<Route>; keyRoute(name: string): Promise<Route & { env: Record<string, string> }> };
+/** Куда идёт вызов модели. account и token — аккаунт Claude: токен подписки идёт только в Authorization.
+ *  key — ключ провайдера; model — модель сессии: побочный вызов с именем чужой модели уходит на неё. */
+export type Route = { callsign: string; to: string; account?: string; token?: string; key?: string; name?: string; model?: string; env?: Record<string, string> };
+/** Что делать с ответом: отдать сессии; послать тот же вызов на следующий аккаунт; подождать и повторить на том же. */
+export type Verdict = { act: "pass" } | { act: "next" } | { act: "wait"; ms: number };
+export type Answered = { status: number; headers: Record<string, string | string[] | undefined>; path: string; ms: number; hops: number; waited: boolean; model?: string };
+export type AccountsApi = {
+  /** Маршрут вызова сессии. skip — аккаунты, которые этот вызов уже пробовал. Маршрут в полёте, пока не назван done. */
+  route(sessionId: string, skip?: string[]): Promise<Route>;
+  /** Заголовки ответа пришли: окна аккаунта, вид отказа, строка журнала. */
+  answer(route: Route, r: Answered): Verdict;
+  /** Вызов кончился: ответ отдан или оборван. */
+  done(route: Route): void;
+  /** Маршрут проверки ключа провайдера: без сессии. */
+  keyRoute(name: string): Promise<Route>;
+  /** Модели всех провайдеров флота: для «/model слова» из сообщения. doc — имя для документа сессии. */
+  offers(): Promise<Array<Offer & { doc: string }>>;
+};
 
-const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
-/** Очередь, которую заводит первый вход на машине без очередей. */
-const MAIN = "main";
-/** Имя очереди — оно же начало имени ссылок её мест. */
-const SLOT_NAME = /^[a-z0-9][a-z0-9_-]*$/;
-const LANES: Lane[] = ["fable", "other"];
-const LANE_WORD: Record<Lane, string> = { fable: "Fable", other: "остальные" };
-/** Числа аккаунта старше этого — спросить у Claude: расход на других машинах видно только там. Чаще аккаунт не спрашивается. */
-const FRESH_S = 120;
-const POLL_MS = READ_MS - 2_000;
-/** Один аккаунт на разных машинах: 17:59:59 и 18:00:00. */
-const RESET_DRIFT_S = 2;
-const CONTINUE = "Продолжай";
-/** Модель сессии, у которой своя не названа. */
-const DEFAULT_MODEL = "fable";
 const ANTHROPIC = "https://api.anthropic.com";
-/** Слово вместо ключа в окружении сессии на ключе флота: сам ключ ставит прокси. */
-const KEY_WORD = "fleet";
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Слово вместо секрета в окружении сессии: настоящий токен или ключ ставит прокси. */
+const FLEET_WORD = "fleet";
+const CONTINUE = "Продолжай";
+/** Кэш разговора живёт час: столько же держится привязка сессии без ответов. */
+const HOUR_MS = 3_600_000;
+/** Короткая пауза Claude: ждём не дольше. */
+const THROTTLE_MAX_S = 60;
+/** Вид обращения в «Инциденты»: токен аккаунта не принят. */
+const ACCOUNT_INCIDENT = "account";
+const WINDOW_WORD: Record<string, string> = { [WEEK]: "неделя", [FABLE]: "окно Fable", [FIVE]: "пять часов" };
+const KIND: Record<string, string> = { [WEEK]: "week", [FABLE]: "fable", [FIVE]: "five_hour" };
 
-const now = () => Math.floor(Date.now() / 1000);
-const clock = (t: number) => new Date(t * 1000).toTimeString().slice(0, 5);
-const say = (e: unknown) => (e as Error).message;
+const clock = (t: number) => new Date(t).toTimeString().slice(0, 5);
+const say = (e: unknown) => (e as Refusal).why ?? (e as Error).message;
 
 export function make(): Module {
   let host: HostApi;
-  let dirs: Folders;
-  /** Значения ключей флота — только в памяти: имя → значение. */
-  const values = new Map<string, string>();
-  /** Папка входа сессий на ключах флота: пустая, чужой вход в неё не попадает. */
-  let keyHome: string;
   let stopping = false;
-  let wake: ReturnType<typeof setTimeout> | undefined;
-  let tail: Promise<unknown> = Promise.resolve();
-  const polls = new Set<{ close(): void }>();
-  /** идущие опросы лимитов: один на аккаунт, второй спросивший ждёт тот же */
-  const polling = new Map<string, Promise<void>>();
-  /** сессии, чей отказ в этом ходе назвал окно, которое аккаунт не закрывает: место из-за него не уходит */
-  const foreign = new Set<string>();
-  /** место, на котором запущен процесс сессии: смена модели через границу Fable — перезапуск на другом месте */
-  const started = new Map<string, Lane>();
-  let auth: ReturnType<typeof signin>;
+  let wake: unknown;
+  /** токены аккаунтов Claude и значения ключей провайдеров — только в памяти */
+  const tokens = new Map<string, string>();
+  const values = new Map<string, string>();
+  /** вызовов в полёте по аккаунту */
+  const flying = new Map<string, number>();
+  /** «полон»: при скольких вызовах в полёте Claude отказал аккаунту */
+  const full = new Map<string, number>();
+  let loading: Promise<void> | null = null;
 
+  const now = () => host.clock.now();
   const shelf = () => host.store<Book>();
-  const book = (): Book => shelf().get() ?? { accounts: {}, slots: {} };
-  const write = (fn: (b: Book) => void) => void shelf().update((b = { accounts: {}, slots: {} }) => (fn(b), b));
+  const book = (): Record<string, Account> => shelf().get()?.accounts ?? {};
+  const write = (fn: (all: Record<string, Account>) => void) => void shelf().update((b = { accounts: {} }) => (fn(b.accounts), b));
   const seatOf = (s: SessionApi) => s.store<Seat>();
-  const slotNames = () => Object.keys(book().slots);
-  /** Кто стоит на месте очереди сейчас. */
-  const current = (slot: string, lane: Lane) => dirs.inLane(slot, lane);
-  /** Очередь сессии: имя из её документа, если такая очередь есть на машине; иначе это ключ флота. Имя сначала ищется среди очередей. */
-  const slotOf = (s: SessionApi): string | null => (s.spec.slot && book().slots[s.spec.slot] ? s.spec.slot : null);
-  /** Место сессии — по её модели: одно определение в договоре. */
-  const laneOfSession = (s: SessionApi) => laneOf(s.spec.model);
-  /** Сессии очереди; с местом — только его. */
-  const queued = (slot: string, lane?: Lane) => host.sessions().filter((s) => slotOf(s) === slot && (!lane || laneOfSession(s) === lane));
-  /** Аккаунт, на котором сессия идёт сейчас. */
-  const accountOf = (s: SessionApi) => { const slot = slotOf(s); return slot ? current(slot, laneOfSession(s)) : null; };
-  /** Очереди, где аккаунт стоит сейчас хотя бы на одном месте. */
-  const standsIn = (account: string) => slotNames().filter((n) => LANES.some((l) => current(n, l) === account));
-  const slotsWord = () => (slotNames().length ? `очереди машины: ${slotNames().join(", ")}` : "очередей на машине нет");
+  const onClaude = (s: SessionApi) => s.spec.key === CLAUDE;
+  const alive = (s: SessionApi) => s.state !== "stopped" && s.state !== "failed";
+  const sessionOf = (sessionId: string) => host.sessions().find((x) => x.info.sessionId === sessionId);
+  const isFull = (name: string) => full.has(name) && (flying.get(name) ?? 0) >= full.get(name)!;
 
-  /** Изменения очередей — по одному, одной линией на машину: аккаунт и его лимиты у очередей общие. */
-  function serial<T>(work: () => T | Promise<T>): Promise<T> {
-    const run = tail.then(() => {
-      if (stopping) throw new Refusal("shutting_down", "Host останавливается, аккаунт не сменён — повторите запрос");
-      return work();
-    });
-    tail = run.catch(() => {});
-    return run;
-  }
-  /** Работа без спроса: отказ уже в журнале у того, кто отказал. */
-  const background = (work: () => Promise<void>) =>
-    void serial(work).catch((e) => {
-      if (!(e instanceof Refusal)) host.log.error("accounts", { why: say(e) });
-    });
-
-  /** Место ждёт сброса: его аккаунт не годен и годного в очереди нет. Нигде не записано — считается из списка и лимитов.
-   *  Остальные модели без своей половины идут из запаса Fable, поэтому ждут, только когда нет и его. */
-  function waitAt(slot: string, lane: Lane): number | null {
-    const { accounts, slots } = book();
-    const order = slots[slot] ?? [];
-    const cur = current(slot, lane);
-    const t = now();
-    if (!cur || place(order, accounts, { [lane]: cur }, t)[lane]) return null;
-    const soon = (a: Account) => (lane === "fable" ? [usableAt(a, "fable", t)] : [usableAt(a, "other", t), usableAt(a, "fable", t)]).filter(Boolean);
-    const times = order.filter((n) => accounts[n]?.login === "ok").flatMap((n) => soon(accounts[n]!));
-    return times.length ? Math.min(...times) : null;
+  /** Кэш разговора тёплый или привязка свежая: такая сессия держится своего аккаунта и занимает его в счёте. */
+  const warm = (s: SessionApi, seat: Seat | undefined, t: number) => Math.max((seat?.at ?? 0) + HOUR_MS, s.info.warm ?? 0) > t;
+  /** Тёплые сессии по аккаунтам на этой машине; other — без этой сессии. */
+  function warmBy(t: number, other?: string): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const s of host.sessions()) {
+      const seat = seatOf(s).get();
+      if (s.callsign === other || !onClaude(s) || !alive(s) || !seat?.account || !warm(s, seat, t)) continue;
+      out[seat.account] = (out[seat.account] ?? 0) + 1;
+    }
+    return out;
   }
 
-  /** Побудка одна на машину: на ближайший сброс окна у аккаунтов очередей. По ней места пересматриваются;
-   *  где сбросилась неделя — выбирают заново: ближний сброс теперь у другого аккаунта. */
+  /** Аккаунты Claude флота: имена и флаги — из списка ключей, токены — в память. Один запрос на всех, кто ждёт. */
+  function load(): Promise<void> {
+    loading ??= (async () => {
+      try {
+        const { keys } = await within(host.call(keysList, {}), READ_MS, `список ключей флота: службы не ответили за ${READ_MS / 1000} с`);
+        const rows = keys.filter((k) => k.protocol === CLAUDE);
+        await Promise.all(rows.filter((k) => !tokens.has(k.name)).map(async (k) => tokens.set(k.name, (await within(host.call(keysValue, { name: k.name }), READ_MS, `токен ${k.name}: службы не ответили`)).value)));
+        for (const n of [...tokens.keys()]) if (!rows.some((k) => k.name === n)) tokens.delete(n);
+        write((all) => {
+          for (const k of rows) {
+            const was = all[k.name];
+            // хвост значения сменился — токен новый: аккаунт снова в выборе
+            all[k.name] = { ...(was && was.tail === k.tail ? was : { limits: was?.limits ?? {}, ok: true }), keep: k.keep !== false, tail: k.tail };
+          }
+          for (const n of Object.keys(all)) if (!rows.some((k) => k.name === n)) delete all[n];
+        });
+      } finally {
+        loading = null;
+      }
+    })();
+    return loading;
+  }
+
+  /** Побудка одна на машину: на ближайший сброс закрытого окна. По ней сессии, чей ход оборвался без годного аккаунта, продолжают сами. */
   function plan(): void {
-    clearTimeout(wake);
+    host.clock.clearTimeout(wake);
     wake = undefined;
     if (stopping) return;
-    const { accounts, slots } = book();
     const t = now();
-    const queued = [...new Set(Object.values(slots).flat())];
-    // неделя сбросилась, пока служба стояла или побудка опоздала, — пересмотр сразу
-    const at = queued.some((n) => expired(accounts[n], t)) ? t : Math.min(...queued.map((n) => (accounts[n] ? nextReset(accounts[n]!, t) : Infinity)));
+    const at = Math.min(...Object.values(book()).map((a) => nextReset(a, t)), ...host.sessions().map((s) => seatOf(s).get()).filter((x) => x?.cut && x.wait && x.wait > t).map((x) => x!.wait!), Infinity);
     if (!Number.isFinite(at)) return;
-    wake = setTimeout(() => {
-      const gone = Object.keys(book().accounts).filter((n) => expired(book().accounts[n], now()));
-      for (const slot of slotNames()) background(() => repick(slot, "сброс", { fresh: book().slots[slot]!.some((n) => gone.includes(n)), sameToo: true }));
-      // прошедшая неделя снята с записи: побудка по ней — один раз
-      background(async () => write((b) => { for (const n of gone) { delete b.accounts[n]?.limits[WEEK]; delete b.accounts[n]?.limits[FABLE]; } }));
-      background(async () => plan());
-    }, Math.max(0, at * 1000 - Date.now()));
-    wake.unref();
-  }
-
-  /** Единственная смена аккаунта места: ссылка, строки сессий, журнал машины и флота. */
-  async function put(slot: string, lane: Lane, to: string, why: string): Promise<void> {
-    const from = current(slot, lane);
-    await dirs.place(slot, lane, to);
-    for (const s of queued(slot)) s.sync();
-    const text = `очередь ${slot} · ${LANE_WORD[lane]}: ${from ?? "—"} → ${to} · ${why}`;
-    host.log.info("account_swap", { why: text });
-    void host.call(ledgerAdd, { what: "account.swapped", machine: host.machine, text }).catch(() => {});
-  }
-
-  /** Сессия с оборвавшимся ходом продолжает, когда свободна; тот же аккаунт — только после его сброса. */
-  function resume(s: SessionApi, sameToo = false): void {
-    const seat = seatOf(s).get();
-    const slot = slotOf(s);
-    if (!seat?.cut || s.state !== "idle" || !slot) return;
-    if (seat.cut === current(slot, laneOfSession(s)) && !sameToo) return;
-    seatOf(s).update((x) => ({ ...x, cut: undefined }));
-    s.input(CONTINUE);
-  }
-
-  /** После пересмотра очереди: строки её сессий, побудка, оборванные. */
-  function settled(slot: string, sameToo = false): void {
-    for (const s of queued(slot)) {
-      s.sync();
-      resume(s, sameToo);
-    }
-    plan();
-  }
-
-  /** Опрос лимитов аккаунта: одновременно — один. */
-  function poll(name: string): Promise<void> {
-    const going = polling.get(name);
-    if (going) return going;
-    const p = pollOnce(name).finally(() => polling.delete(name));
-    polling.set(name, p);
-    return p;
-  }
-
-  async function pollOnce(name: string): Promise<void> {
-    if (stopping) return;
-    // время вопроса пишется до ответа: Claude молчит — следующий вопрос всё равно не раньше порога свежести
-    write((b) => { if (b.accounts[name]) b.accounts[name]!.asked = now(); });
-    const probe = host.probe({ env: envOf(dirs.accDir(name)) });
-    polls.add(probe);
-    try {
-      const u = await within(probe.sdk(USAGE, { skipBehaviors: true }), POLL_MS, `не ответил за ${POLL_MS / 1000} с`);
-      const fresh = read(u, now());
-      write((b) => { if (b.accounts[name]) Object.assign(b.accounts[name]!.limits, fresh); });
-    } catch (e) {
-      host.log.warn("poll", { why: `${name}: опрос лимитов — ${say(e)}` });
-    } finally {
-      polls.delete(probe);
-      probe.close();
-    }
-  }
-
-  /** Пересмотр мест очереди — шаг линии. Место стоит, пока его аккаунт годен; иначе берёт годный с ближним сбросом недели.
-   *  fresh — у аккаунта очереди сбросилась неделя: места выбирают заново. bar — пара, которой Claude только что отказал. */
-  async function repick(slot: string, why: string, opts: { fresh?: boolean; sameToo?: boolean; bar?: { lane: Lane; account: string } } = {}): Promise<void> {
-    const order = book().slots[slot];
-    if (!order) return;
-    const pick = () => place(order, book().accounts, opts.fresh ? {} : { fable: current(slot, "fable"), other: current(slot, "other") }, now(), opts.bar);
-    let p = pick();
-    // новый аккаунт места — только со свежими числами: расход на других машинах видно у Claude; вопросов — не больше, чем аккаунтов
-    for (let i = 0; i < order.length; i++) {
-      const ask = [...new Set(LANES.flatMap((l) => (p[l] && p[l] !== current(slot, l) && stale(book().accounts[p[l]!]!, FRESH_S, now()) ? [p[l]!] : [])))];
-      if (!ask.length) break;
-      await Promise.all(ask.map(poll));
-      p = pick();
-    }
-    try {
-      for (const lane of LANES) {
-        const cur = current(slot, lane);
-        const stays = cur && order.includes(cur) ? cur : undefined;
-        // годного нет — место стоит, где стояло; ссылки ещё нет — на первом вошедшем: сессии нужен вход, чтобы дождаться сброса
-        const to = p[lane] ?? stays ?? order.find((n) => book().accounts[n]?.login === "ok");
-        if (to && to !== cur) await put(slot, lane, to, why);
-        if (!p[lane] && queued(slot, lane).length && (opts.bar?.lane === lane || to !== cur)) {
-          const w = waitAt(slot, lane);
-          host.log.info("account_wait", { why: `очередь ${slot} · ${LANE_WORD[lane]}: годного аккаунта нет — жду сброса${w ? ` ${clock(w)}` : ""}` });
-        }
-      }
-    } finally {
-      settled(slot, opts.sameToo);
-    }
-  }
-
-  /** Числа аккаунта изменились или он выбыл: очереди, где он стоит, пересматриваются — каждая своим шагом линии. */
-  function moved(account: string, why: string, bar?: { lane: Lane; account: string }, told?: string): void {
-    for (const slot of standsIn(account)) background(() => repick(slot, why, slot === told ? { bar } : {}));
-  }
-
-  /** Сессия работает, а числам её аккаунта больше порога свежести — один вопрос Claude и пересмотр очередей, где аккаунт стоит. */
-  function tick(account: string): void {
-    const a = book().accounts[account];
-    if (!a || stopping || polling.has(account) || !stale(a, FRESH_S, now())) return;
-    void poll(account).then(() => moved(account, "порог"));
-  }
-
-  /** Вход перестал быть годным: очереди, где он стоит, идут на следующего. */
-  function lost(email: string): void {
-    moved(email, "вход пропал");
-    plan();
-  }
-
-  /** Почта нового входа известна: файл на место, запись; первый вход на машине без очередей заводит очередь main. */
-  function landed(email: string, info: SignedIn): Promise<void> {
-    return serial(async () => {
-      await dirs.settle(email);
-      const first = !slotNames().length;
-      write((b) => {
-        b.accounts[email] = { ...(b.accounts[email] ?? { limits: {} }), ...info, login: "ok" };
-        if (first) b.slots[MAIN] = [email];
-      });
-      // вход вернулся: очереди, где аккаунт в списке, пересматриваются
-      for (const slot of slotNames().filter((n) => book().slots[n]!.includes(email))) await repick(slot, first ? "первый вход" : "вход");
+    wake = host.clock.setTimeout(() => {
+      revive();
       plan();
-      host.log.info("account_login", { why: `${email}: вход` });
-      void host.call(ledgerAdd, { what: "account.login", machine: host.machine, text: `вход ${email} на ${host.machine}` }).catch(() => {});
+    }, Math.max(0, at - t));
+    (wake as { unref?: () => void }).unref?.();
+  }
+
+  /** Сессии с оборванным ходом: годный аккаунт появился — продолжают, когда свободны. */
+  function revive(): void {
+    const t = now();
+    for (const s of host.sessions()) {
+      const seat = seatOf(s).get();
+      if (!seat?.cut || !onClaude(s) || s.state !== "idle") continue;
+      if (!choose(book(), isFable(s.spec.model), {}, t, (n) => !tokens.has(n)).account) continue;
+      seatOf(s).update((x) => ({ ...x, cut: undefined, wait: undefined }));
+      s.sync();
+      s.input(CONTINUE);
+    }
+  }
+
+  /** Строка решения о выборе: кандидаты со счётом — входы решения. */
+  function routed(s: SessionApi, account: string | undefined, why: string, candidates: Candidate[]): void {
+    const pct = (x: number) => Math.round(x * 1000) / 10;
+    host.log.info("route", {
+      callsign: s.callsign, ...(account ? { account } : {}), model: s.spec.model, why,
+      candidates: candidates.map((c) => ({ account: c.account, rem: pct(c.rem), hours: Math.round(c.hours * 10) / 10, warm: c.warm, score: pct(c.score) })),
     });
   }
 
-  /** Отказ Claude по окну лимита: окно закрыто до сброса — это факт, он пишется сразу; числа следом уточняет опрос.
-   *  Сброс совпал с окном другого аккаунта очереди — это поздний ответ прежнего. */
-  function rejected(s: SessionApi, slot: string, lane: Lane, cur: string, info: { rateLimitType?: string; resetsAt?: number }): void {
-    const name = info.rateLimitType ? windowOf(info.rateLimitType) : undefined;
-    if (!name) {
-      // окно не закрывает аккаунт: место не уходит; отказ сессия видит словами
-      foreign.add(s.callsign);
-      seatOf(s).update((x) => ({ ...x, cut: undefined }));
-      return;
-    }
-    const resetsAt = info.resetsAt ?? 0;
-    const { accounts, slots } = book();
-    const same = (n: string) => {
-      const known = accounts[n]?.limits[name]?.resetsAt;
-      return known !== undefined && Math.abs(known - resetsAt) <= RESET_DRIFT_S;
-    };
-    const owner = same(cur) ? cur : ((slots[slot] ?? []).find((n) => n !== cur && same(n)) ?? cur);
-    const at = now();
-    write((b) => {
-      const a = b.accounts[owner];
-      if (a) a.limits[name] = { ...a.limits[name], utilization: 1, resetsAt, at };
-    });
-    seatOf(s).update((x) => ({ ...x, cut: owner }));
-    if (owner !== cur) {
-      host.log.info("account_late", { callsign: s.callsign, why: `поздний ответ ${owner}` });
-      return plan();
-    }
-    void poll(cur).then(() => moved(cur, "отказ", { lane, account: cur }, slot));
-  }
-
-  /** Свежий ключ: значение — в память, настройки — ответом. Ключа нет — как нет такого аккаунта. */
+  /** Свежий ключ провайдера: значение — в память, настройки — ответом. */
   async function takeKey(name: string): Promise<KeyConfig> {
     try {
-      const { value, ...config } = await within(host.call(keysValue, { name }), READ_MS, `ключ флота ${name}: службы не ответили за ${READ_MS / 1000} с`);
+      const { value, keep: _keep, ...config } = await within(host.call(keysValue, { name }), READ_MS, `ключ флота ${name}: службы не ответили за ${READ_MS / 1000} с`);
       values.set(name, value);
       return config;
     } catch (e) {
       const r = e as Refusal;
-      throw r.word === "not_found" || r.word === "no_key" ? new Refusal("no_account", `${name}: такого аккаунта и ключа флота нет`) : new Refusal(r.word ?? "module_failed", `ключ флота ${name}: ${r.why ?? say(e)}`);
+      throw r.word === "not_found" || r.word === "no_key" ? new Refusal("no_key", `${name}: такого ключа флота нет`) : new Refusal(r.word ?? "module_failed", `ключ флота ${name}: ${r.why ?? say(e)}`);
     }
   }
 
-  const sessionOf = (sessionId: string) => host.sessions().find((x) => x.info.sessionId === sessionId);
+  /** Каталог моделей провайдера: спрашивается у службы каждый раз, своей копии нет. */
+  const catalog = async (key: string): Promise<Model[]> => (await within(host.call(keysModels, { name: key }), READ_MS, `каталог ${key}: службы не ответили за ${READ_MS / 1000} с`)).models;
+
+  /** Настройки ключа и окно модели — в запись сессии: подъём читает их без связи. */
+  async function seatKey(s: SessionApi): Promise<Seat> {
+    const name = s.spec.key!;
+    const [key, models] = await Promise.all([takeKey(name), catalog(name)]);
+    const window = models.find((m) => m.id === catalogModel(s.spec.model ?? ""))?.window;
+    return seatOf(s).update(() => ({ key, ...(window ? { window } : {}) }))!;
+  }
+
+  /** Маршрут сессии на аккаунте Claude: привязка держится, пока аккаунт годен и кэш тёплый; иначе выбор заново. */
+  function claudeRoute(s: SessionApi, skipped: Set<string>): Route {
+    const t = now();
+    const fable = isFable(s.spec.model);
+    const all = book();
+    const seat = seatOf(s).get() ?? {};
+    const bound = seat.account && all[seat.account] && tokens.has(seat.account) ? seat.account : undefined;
+    const hot = !!bound && warm(s, seat, t);
+    // тёплая сессия своего аккаунта не пропускает, даже если он полон; новая и остывшая полный обходят
+    const pick = choose(all, fable, warmBy(t, s.callsign), t, (n) => !tokens.has(n) || skipped.has(n) || (isFull(n) && !(n === bound && hot)));
+    const go = (account: string): Route => {
+      flying.set(account, (flying.get(account) ?? 0) + 1);
+      // адрес Claude — из настройки модуля: на стенде на его месте подделка
+      return { callsign: s.callsign, to: host.config<{ api?: string }>().api ?? ANTHROPIC, account, token: tokens.get(account)! };
+    };
+    if (bound && hot && pick.candidates.some((c) => c.account === bound)) return go(bound);
+    const to = pick.account;
+    if (!to) {
+      seatOf(s).update((x) => ({ ...x, cut: true, ...(pick.wait ? { wait: pick.wait } : {}) }));
+      s.sync();
+      plan();
+      const why = `годных аккаунтов Claude нет${pick.wait ? `: ближайший сброс в ${clock(pick.wait)}` : ""}`;
+      routed(s, undefined, why, pick.candidates);
+      throw new Refusal("no_account", `${s.callsign}: ${why}`);
+    }
+    // аккаунт сессии с тёплым кэшем полон, а окна его открыты: этот вызов уходит на соседа, привязка прежняя; у новой сессии кэша нет — она переходит
+    if (bound && (s.info.warm ?? 0) > t && skipped.has(bound) && fits(all[bound], fable, t, true)) {
+      routed(s, to, `${bound} полон: вызов ушёл на ${to}, привязка прежняя`, pick.candidates);
+      return go(to);
+    }
+    const reason = !bound ? (seat.account ? "прежний аккаунт выбыл" : "новая сессия") : !hot ? "кэш остыл, выбран заново" : !all[bound]!.ok ? "токен не принят" : isFull(bound) && skipped.has(bound) ? "аккаунт полон" : "лимит";
+    seatOf(s).update((x) => ({ ...x, account: to, at: t, cut: undefined, wait: undefined }));
+    s.sync();
+    routed(s, to, `${reason}${pick.spare ? " · из запаса Fable" : ""}`, pick.candidates);
+    if (seat.account && seat.account !== to) host.log.info("account.moved", { callsign: s.callsign, account: to, from: seat.account, why: `${s.callsign}: ${seat.account} → ${to} · ${reason}` });
+    return go(to);
+  }
+
+  /** Аккаунт выбыл или окно закрыто: строка журнала. */
+  function mark(name: string, fn: (a: Account) => void): void {
+    write((all) => { if (all[name]) fn(all[name]!); });
+  }
 
   const api: AccountsApi = {
-    async route(sessionId) {
+    async route(sessionId, skip = []) {
       const s = sessionOf(sessionId);
       if (!s) throw new Refusal("unknown_session", `сессии ${sessionId} на ${host.machine} нет`);
-      const name = s.spec.slot;
-      if (!name || slotOf(s)) return { to: ANTHROPIC };
-      const config = values.has(name!) ? seatOf(s).get()?.key : await takeKey(name!);
-      if (config && !seatOf(s).get()?.key) seatOf(s).update((x) => ({ ...x, key: config }));
-      const key = values.get(name!);
+      const name = s.spec.key;
+      if (!name) throw new Refusal("key_required", `${s.callsign}: в документе сессии нет провайдера — session.update { key, model }`);
+      if (name === CLAUDE) {
+        if (!tokens.size) await load().catch((e) => { throw new Refusal("no_account", `аккаунты Claude не прочитаны: ${say(e)}`); });
+        return claudeRoute(s, new Set(skip));
+      }
+      const config = values.has(name) ? seatOf(s).get()?.key : (await seatKey(s)).key;
+      const key = values.get(name);
       if (!key) throw new Refusal("no_key", `${s.callsign}: ключа ${name} нет`);
-      return { to: config?.base ?? ANTHROPIC, key, provider: config?.provider };
+      return { callsign: s.callsign, to: config?.base ?? ANTHROPIC, key, name, ...(s.spec.model ? { model: catalogModel(s.spec.model) } : {}) };
     },
+
+    answer(route, r) {
+      const req = r.headers["request-id"];
+      const line = { callsign: route.callsign, path: r.path, status: r.status, ms: r.ms, hops: r.hops, ...(r.model ? { model: r.model } : {}), ...(typeof req === "string" ? { req } : {}) };
+      const name = route.account;
+      if (!name) {
+        host.log[r.status < 400 ? "info" : "warn"]("call", { ...line, key: route.name });
+        return { act: "pass" };
+      }
+      const t = now();
+      const fresh = read(r.headers, t);
+      const was = book()[name];
+      // на диск — только когда числа изменились: вызовов много, окна меняются редко
+      if (was && Object.entries(fresh).some(([n, w]) => was.limits[n]?.used !== w.used || was.limits[n]?.resets !== w.resets)) mark(name, (a) => void Object.assign(a.limits, fresh));
+      let kind: string | undefined;
+      let verdict: Verdict = { act: "pass" };
+      if (r.status === 401) {
+        kind = "token";
+        verdict = { act: "next" };
+        const why = `${name}: Claude не принял токен аккаунта (401) — аккаунт выбыл из выбора; замените токен во «Флоте»`;
+        mark(name, (a) => void Object.assign(a, { ok: false, why: "токен не принят" }));
+        host.log.error("account.token", { account: name, callsign: route.callsign, word: "bad_token", why });
+        void host.call(incidentRaise, { to: `@${host.machine}`, kind: ACCOUNT_INCIDENT, key: name, text: why }).catch((e: unknown) => host.log.warn("incident", { account: name, why: `обращение «аккаунт» не открыто: ${say(e)}` }));
+      } else if (r.status === 429) {
+        const window = closed(r.headers);
+        const after = Number(r.headers["retry-after"]);
+        if (window) {
+          kind = KIND[window.name];
+          verdict = { act: "next" };
+          mark(name, (a) => void (a.limits[window.name] = { used: 1, resets: window.resets, at: t }));
+          host.log.warn("account.closed", { account: name, callsign: route.callsign, kind, why: `${name}: ${WINDOW_WORD[window.name]} выбрано${window.resets ? ` — закрыто до ${clock(window.resets)}` : ""}` });
+          plan();
+        } else if (after > 0 && after <= THROTTLE_MAX_S && !r.waited) {
+          kind = "throttle";
+          verdict = { act: "wait", ms: after * 1000 };
+        } else {
+          kind = "concurrents";
+          verdict = { act: "next" };
+          const n = flying.get(name) ?? 1;
+          full.set(name, n);
+          host.log.warn("account.full", { account: name, callsign: route.callsign, kind, flying: n, why: `${name}: аккаунт полон — Claude отказал при ${n} вызовах разом; новые сессии идут на другие` });
+        }
+      } else if (r.status === 529) kind = "overloaded";
+      host.log[r.status < 400 ? "info" : "warn"]("call", { ...line, account: name, ...(kind ? { kind } : {}), ...(r.status >= 400 ? { headers: refusalHeaders(r.headers) } : {}) });
+      return verdict;
+    },
+
+    done(route) {
+      const name = route.account;
+      if (!name) return;
+      const n = Math.max(0, (flying.get(name) ?? 1) - 1);
+      flying.set(name, n);
+      // вызовов стало меньше, чем при отказе, — аккаунт снова в выборе
+      if (full.has(name) && n < full.get(name)!) full.delete(name);
+    },
+
     async keyRoute(name) {
-      const config = await takeKey(name);
-      return { to: config.base ?? ANTHROPIC, key: values.get(name)!, provider: config.provider, env: { ...keyEnv(config), ...(config.model ? { ANTHROPIC_MODEL: config.model } : {}) } };
+      const [config, models] = await Promise.all([takeKey(name), catalog(name)]);
+      return { callsign: `key.check ${name}`, to: config.base ?? ANTHROPIC, key: values.get(name)!, name, ...(models[0] ? { model: models[0].id } : {}), env: { ...config.env, ANTHROPIC_API_KEY: FLEET_WORD } };
+    },
+
+    async offers() {
+      const { keys } = await within(host.call(keysList, {}), READ_MS, `список ключей флота: службы не ответили за ${READ_MS / 1000} с`);
+      const names = [...(keys.some((k) => k.protocol === CLAUDE) ? [CLAUDE] : []), ...keys.filter((k) => k.protocol !== CLAUDE).map((k) => k.name)];
+      // каталог одного провайдера не ответил — остальные в списке остаются
+      const lists = await Promise.all(names.map((n) => catalog(n).then((ms) => ms.map((m) => ({ key: n, model: m.id, ...(m.name ? { name: m.name } : {}), ...(m.family ? { family: m.family } : {}), doc: docModel(n, m) })), () => [])));
+      return lists.flat();
     },
   };
-
-  function assertLogin(email: string): void {
-    const a = book().accounts[email];
-    if (!a) throw new Refusal("no_account", `аккаунта ${email} на ${host.machine} нет`);
-    if (a.login !== "ok") throw new Refusal("not_logged_in", `${email}: входа нет`);
-  }
-
-  /** Снять очередь: ссылки обоих мест и запись. */
-  async function dropSlot(slot: string): Promise<void> {
-    for (const lane of LANES) await dirs.unplace(slot, lane);
-    write((b) => void delete b.slots[slot]);
-  }
-
-  /** Завести, изменить, удалить очередь: имени нет — заводится; пустой список удаляет очередь без сессий. */
-  async function slotSet(slot: string, order: string[]): Promise<void> {
-    if (!SLOT_NAME.test(slot)) throw new Refusal("bad_input", `имя очереди ${JSON.stringify(slot)}: латиница, цифры, «-» и «_»`);
-    const { accounts } = book();
-    const ghost = order.find((n) => !accounts[n]);
-    if (ghost) throw new Refusal("no_account", `${ghost}: такого аккаунта на машине нет`);
-    if (!order.length) {
-      if (queued(slot).length) throw new Refusal("has_sessions", `на очереди ${slot} есть сессии: ${queued(slot).map((s) => s.callsign).join(", ")}`);
-      await dropSlot(slot);
-      return plan();
-    }
-    if (!order.some((n) => accounts[n]!.login === "ok")) throw new Refusal("no_reserve", "в списке нет вошедшего аккаунта");
-    const existed = !!book().slots[slot];
-    write((b) => void (b.slots[slot] = order));
-    // место, чей аккаунт ушёл из списка, выбирает заново
-    await repick(slot, existed ? "новый порядок" : "новая очередь");
-  }
-
-  /** Удаление одним запросом: сначала видно, что каждому месту с сессиями есть куда встать, потом шаги. */
-  async function accountRemove(name: string): Promise<void> {
-    if (!book().accounts[name]) throw new Refusal("no_account", `аккаунта ${name} на машине нет`);
-    const inside = slotNames().filter((n) => book().slots[n]!.includes(name));
-    for (const slot of inside) {
-      const rest = book().slots[slot]!.filter((n) => n !== name);
-      const p = place(rest, book().accounts, { fable: current(slot, "fable"), other: current(slot, "other") }, now());
-      const stuck = LANES.find((l) => current(slot, l) === name && !p[l] && queued(slot, l).length);
-      if (stuck) throw new Refusal("no_reserve", `очередь ${slot}: годного вошедшего аккаунта в списке нет — на ней остались бы сессии без аккаунта`);
-    }
-    for (const slot of inside) {
-      const rest = book().slots[slot]!.filter((n) => n !== name);
-      // очередь есть, пока в ней есть аккаунт
-      if (!rest.length) { await dropSlot(slot); continue; }
-      write((b) => void (b.slots[slot] = rest));
-      await repick(slot, "удаление аккаунта");
-      for (const lane of LANES) if (current(slot, lane) === name) await dirs.unplace(slot, lane);
-    }
-    plan();
-    try {
-      rmSync(dirs.accDir(name), { recursive: true, force: true });
-    } catch (e) {
-      throw new Refusal("account_dir_busy", `${name}: папка аккаунта занята — ${say(e)}`);
-    }
-    write((b) => void delete b.accounts[name]);
-    host.log.info("account_remove", { why: `${name}: аккаунт удалён` });
-  }
-
-  /** «Сменить сейчас» у места очереди: названный аккаунт или следующий годный. Место стоит на нём, пока он годен и пока не сбросилась неделя. */
-  async function slotSwap(slot: string, lane: Lane, account: string | undefined): Promise<string> {
-    if (!book().slots[slot]) throw new Refusal("no_slot", `очереди ${slot} на ${host.machine} нет; ${slotsWord()}`);
-    const cur = current(slot, lane);
-    if (account) {
-      assertLogin(account);
-      if (account === cur) return account;
-      if (!book().slots[slot]!.includes(account)) write((b) => void b.slots[slot]!.push(account));
-    }
-    const to = account ?? place(book().slots[slot]!, book().accounts, {}, now(), cur ? { lane, account: cur } : undefined)[lane];
-    if (!to) throw new Refusal("no_reserve", `в очереди ${slot} нет другого вошедшего аккаунта ниже порога`);
-    await put(slot, lane, to, "по запросу");
-    settled(slot);
-    return to;
-  }
-
-  function rowOf(name: string, a: Account, t: number): AccountOut {
-    // сколько сессий идёт на аккаунте сейчас — по всем местам, где он стоит
-    const sessions = host.sessions().filter((s) => accountOf(s) === name).length;
-    const at = Math.max(0, ...Object.values(a.limits).map((w) => w.at ?? 0));
-    return {
-      id: name, kind: "claude", email: name, ...(a.plan ? { plan: a.plan } : {}),
-      limits: Object.entries(shown(a, t).limits).map(([w, v]) => ({
-        name: w, used: v.utilization, ...(v.resetsAt ? { resets: v.resetsAt * 1000 } : {}), ...(v.at ? { at: v.at * 1000 } : {}),
-        ...(v.fable !== undefined ? { fable: v.fable } : {}), ...(v.hold !== undefined ? { hold: v.hold } : {}),
-      })),
-      ...(at ? { at: at * 1000 } : {}), ...(a.expires ? { expires: a.expires * 1000 } : {}),
-      ok: a.login === "ok", ...(a.login === "ok" ? {} : { why: "входа нет" }), sessions,
-    };
-  }
-
-  /** Очередь наружу: список, кто стоит на каждом месте, час сброса у ждущего места, идут ли остальные из запаса Fable, сколько на ней сессий. */
-  function slotRow(name: string): SlotOut {
-    const t = now();
-    const lane = (l: Lane) => {
-      const account = current(name, l), wait = waitAt(name, l), a = account ? book().accounts[account] : undefined;
-      const over = l === "other" && !wait && !!a && !fits(a, "other", t) && fits(a, "fable", t);
-      return { ...(account ? { account } : {}), ...(wait ? { wait: wait * 1000 } : {}), ...(over ? { over } : {}) };
-    };
-    return { name, order: book().slots[name]!, lanes: { fable: lane("fable"), other: lane("other") }, sessions: queued(name).length };
-  }
-
-  /** Ключ флота с таким именем есть; ни очереди, ни ключа — отказ no_slot с очередями машины. */
-  async function keyOf(name: string): Promise<KeyConfig> {
-    try {
-      return await takeKey(name);
-    } catch (e) {
-      if ((e as Refusal).word !== "no_account") throw e;
-      throw new Refusal("no_slot", `${name}: ни очереди, ни ключа флота с таким именем нет; ${slotsWord()}`);
-    }
-  }
 
   return {
     name: "host-accounts",
     api,
     spec: {
-      async slot(value) {
-        const name = value as string;
-        if (book().slots[name]) {
-          // места ещё не расставлены (старт службы, новая очередь) — запрос дожидается расстановки
-          if (!LANES.some((l) => current(name, l))) await serial(() => repick(name, "запуск"));
-          const cur = current(name, "fable") ?? current(name, "other");
-          if (!cur) throw new Refusal("not_logged_in", `очередь ${name} на ${host.machine} пуста: поставьте в неё аккаунт`);
-          return assertLogin(cur);
-        }
-        // закрепления за почтой нет: один аккаунт — очередь из одного
-        if (EMAIL.test(name)) throw new Refusal("no_slot", `${name} — почта, а не очередь; ${slotsWord()}`);
-        await keyOf(name);
+      key(value) {
+        if (typeof value !== "string" || !value) throw new Refusal("bad_spec", "key — имя провайдера: claude или имя ключа флота");
       },
     },
     fill: {
-      /** Очередь не названа: на машине одна — в неё, и её имя встаёт в документ; несколько — назвать; ни одной — входа нет. */
-      slot() {
-        const names = slotNames();
-        if (names.length === 1) return names[0];
-        if (names.length) throw new Refusal("slot_required", `назовите очередь: ${slotsWord()}`);
-        throw new Refusal("not_logged_in", `на ${host.machine} нет входа Claude: войдите в аккаунт или выберите ключ флота`);
+      /** Провайдера называют всегда: значения «по умолчанию» нет. */
+      key() {
+        throw new Refusal("key_required", "назовите провайдера и модель: key — claude или имя ключа флота (keys.list), model — точное имя из его каталога (keys.models)");
       },
     },
-    async applied(s, keys) {
-      const live = s.state !== "stopped" && s.state !== "failed";
-      if (keys.includes("slot")) {
-        if (slotOf(s)) seatOf(s).set(undefined);
-        else seatOf(s).set({ key: await takeKey(s.spec.slot!) });
-        // новый аккаунт вступает в силу с новым процессом
-        if (live) void s.restart();
-        return;
-      }
-      // модель перешла границу Fable: сессия идёт на другом месте очереди — вход другой, процесс новый
-      if (keys.includes("model") && slotOf(s) && live && started.has(s.callsign) && started.get(s.callsign) !== laneOfSession(s)) void s.restart();
+    /** Провайдер и модель согласованы: модель есть в каталоге провайдера. Нет — отказ словом, документ не меняется. */
+    async doc(spec, keys) {
+      if (!keys.includes("key") && !keys.includes("model")) return;
+      if (!spec.key) throw new Refusal("key_required", "назовите провайдера: key — claude или имя ключа флота (keys.list)");
+      if (!spec.model) throw new Refusal("model_required", `назовите модель: model — точное имя из каталога провайдера ${spec.key} (keys.models)`);
+      const key = spec.key, model = spec.model;
+      const models = await catalog(key);
+      const m = models.find((x) => x.id === catalogModel(model));
+      if (m && (model === m.id || model === docModel(key, m))) return;
+      const near = findModels(catalogModel(model).split(/[-.]/).filter((w) => w.length > 2 && w !== "claude")[0] ?? model, models.map((x) => ({ key, model: x.id }))).slice(0, 6).map((o) => o.model);
+      throw new Refusal("no_model", `у провайдера ${key} нет модели ${model}${near.length ? `; похожие: ${near.join(", ")}` : ""}`);
     },
-    // подъём настройки ключа берёт из записи сессии и флот не спрашивает: на старте связи ещё нет
-    async compose(s) {
-      const name = s.spec.slot;
-      if (!name) throw new Refusal("no_slot", `у ${s.callsign} не названа очередь; ${slotsWord()}`);
-      if (slotOf(s)) {
-        const lane = laneOfSession(s);
-        // места ещё не расставлены (старт службы, новая очередь) — сессия дожидается расстановки, а не падает
-        if (!current(name, lane)) await serial(() => repick(name, "запуск"));
-        if (!current(name, lane)) throw new Refusal("not_logged_in", `очередь ${name} на ${host.machine} пуста: поставьте в неё аккаунт`);
-        started.set(s.callsign, lane);
-        return { env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: dirs.laneDir(name, lane), ...(s.spec.model ? {} : { ANTHROPIC_MODEL: DEFAULT_MODEL }) } };
+    async applied(s, keys) {
+      if (!keys.includes("key") && !keys.includes("model")) return;
+      const was = seatOf(s).get();
+      if (onClaude(s)) {
+        // модель у того же провайдера ставит ядро на живом процессе; смена провайдера — другое окружение, процесс новый
+        if (!keys.includes("key")) return;
+        seatOf(s).set(undefined);
+      } else {
+        const seat = await seatKey(s);
+        if (!keys.includes("key") && seat.window === was?.window) return;
       }
-      started.delete(s.callsign);
-      let config = seatOf(s).get()?.key;
-      if (!config) {
-        config = await keyOf(name);
-        seatOf(s).update((x) => ({ ...x, key: config }));
-      }
-      // вход пустой: плательщик молча не меняется; сам ключ ставит прокси
-      // переменные и настройки ключа — как их завели на флоте: alias моделей, окно контекста
+      s.sync();
+      if (alive(s)) void s.restart();
+    },
+    // подъём берёт настройки ключа из записи сессии и флот не спрашивает: на старте связи ещё нет
+    async compose(s): Promise<QueryPart> {
+      if (!s.spec.key) throw new Refusal("key_required", `у ${s.callsign} не назван провайдер — session.update { key, model }`);
+      // своего входа у процесса нет: вместо токена слово, настоящий ставит прокси
+      if (onClaude(s)) return { env: { CLAUDE_CODE_OAUTH_TOKEN: FLEET_WORD } };
+      const seat = seatOf(s).get()?.key ? seatOf(s).get()! : await seatKey(s);
       return {
-        env: { ...keyEnv(config), CLAUDE_SECURESTORAGE_CONFIG_DIR: keyHome, ...(config.model && !s.spec.model ? { ANTHROPIC_MODEL: config.model } : {}) },
-        ...(config.settings && Object.keys(config.settings).length ? { defaults: { settings: config.settings } } : {}),
+        env: { ...seat.key!.env, ANTHROPIC_API_KEY: FLEET_WORD, ...(seat.window ? { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(seat.window) } : {}) },
+        ...(seat.key!.settings && Object.keys(seat.key!.settings).length ? { defaults: { settings: seat.key!.settings } } : {}),
       };
     },
     row(s) {
-      const slot = slotOf(s);
-      const account = slot ? current(slot, laneOfSession(s)) : s.spec.slot;
-      // место ждёт сброса лимита — сессия на нём стоит до этого часа
-      const wait = slot ? waitAt(slot, laneOfSession(s)) : null;
-      return { ...(account ? { account } : {}), ...(wait ? { wait: wait * 1000 } : {}) };
+      if (!onClaude(s)) return {};
+      const seat = seatOf(s).get();
+      return { ...(seat?.account ? { account: seat.account } : {}), ...(seat?.cut && seat.wait ? { wait: seat.wait } : {}) };
     },
     on: {
-      event(s, m) {
-        // у ключа флота нет окон и запасных: 429 — обычная ошибка хода, сессия видит её словами
-        const slot = slotOf(s);
-        if (!slot) return;
-        const lane = laneOfSession(s);
-        const cur = current(slot, lane);
-        if (!cur) return;
-        const msg = m as { type: string; error?: string; rate_limit_info?: { status?: string; rateLimitType?: string; resetsAt?: number } };
-        if (msg.type === "rate_limit_event" && msg.rate_limit_info?.status === "rejected") rejected(s, slot, lane, cur, msg.rate_limit_info);
-        if (msg.type === "assistant" && msg.error === "rate_limit" && !foreign.has(s.callsign) && !seatOf(s).get()?.cut) seatOf(s).update((x) => ({ ...x, cut: cur }));
-        // сессия работает: числа её аккаунта не старше порога свежести
-        tick(cur);
-        if (msg.type !== "result") return;
-        const cut = seatOf(s).get()?.cut;
-        // отказ без события лимита: место уходит на конце хода
-        if (!foreign.delete(s.callsign) && cut && cut === current(slot, lane)) moved(cut, "отказ", { lane, account: cut }, slot);
-      },
       state(s, state) {
-        if (state === "idle") resume(s);
-      },
-      removed(callsign) {
-        started.delete(callsign);
+        if (state === "idle" && seatOf(s).get()?.cut) revive();
       },
       changed(what) {
-        // ключи флота сменили: значения забыты, следующий вызов возьмёт новые
-        if (what === "keys") values.clear();
+        if (what !== "keys") return;
+        // ключи флота сменили: значения забыты, аккаунты перечитаны; ждавшие сессии продолжают на новом аккаунте
+        values.clear();
+        tokens.clear();
+        void load().then(() => (revive(), plan()), (e) => host.log.warn("accounts", { why: `аккаунты Claude не перечитаны: ${say(e)}` }));
       },
     },
     requests: {
       async "account.list"() {
-        const stale_ = Object.entries(book().accounts).filter(([, a]) => a.login === "ok" && stale(a, FRESH_S, now())).map(([n]) => n);
-        await Promise.all(stale_.map((n) => poll(n)));
-        // свежие числа — повод пересмотреть места
-        if (stale_.length) for (const slot of slotNames()) background(() => repick(slot, "порог"));
+        if (!tokens.size) await load().catch((e) => host.log.warn("accounts", { why: `аккаунты Claude не прочитаны: ${say(e)}` }));
         const t = now();
-        const accounts = Object.entries(book().accounts).map(([n, a]) => rowOf(n, a, t));
-        // ключи флота: список у службы; не ответила — только входы
-        const keys = await within(host.call(keysList, {}), READ_MS).then((r) => r.keys, () => []);
-        // имя сначала ищется среди очередей: сессия с именем очереди на ключе не считается
-        for (const k of keys) accounts.push({ id: k.name, kind: "key", ok: true, sessions: host.sessions().filter((s) => s.spec.slot === k.name && !slotOf(s)).length, provider: k.provider, ...(k.base ? { base: k.base } : {}), ...(k.model ? { model: k.model } : {}), ...(k.models && Object.keys(k.models).length ? { models: k.models } : {}) });
-        return { accounts, slots: slotNames().map(slotRow) };
-      },
-      async "account.login"() {
-        const { url } = await auth.login();
-        return { login: "login", url };
-      },
-      async "account.code"({ code }: { code: string }) {
-        const { email } = await auth.code(code);
-        return { account: rowOf(email, book().accounts[email]!, now()) };
-      },
-      async "account.remove"({ account }: { account: string }) {
-        await serial(() => accountRemove(account));
-        return {};
-      },
-      async "slot.set"({ slot, order }: { slot: string; order: string[] }) {
-        await serial(() => slotSet(slot, order));
-        return {};
-      },
-      async "slot.swap"({ slot, lane, account }: { slot: string; lane: Lane; account?: string }) {
-        return { account: await serial(() => slotSwap(slot, lane, account)) };
+        const accounts: AccountOut[] = Object.entries(book()).map(([name, a]) => ({ name, ok: a.ok, ...(a.why ? { why: a.why } : {}), limits: shown(a, t), keep: a.keep, ...(isFull(name) ? { full: true } : {}) }));
+        return { accounts };
       },
     },
     start(h) {
       host = h;
-      dirs = folders(h.dataDir);
-      keyHome = join(h.dataDir, "fleetkeys");
-      mkdirSync(keyHome, { recursive: true });
-      auth = signin(() => host, dirs, {
-        read: () => book().accounts,
-        edit(email, patch) {
-          write((b) => void (b.accounts[email] = { ...b.accounts[email]!, ...patch }));
-          plan();
-        },
-        lost,
-        landed,
-      });
-      auth.start();
-      // очередь без ссылки места (новая раскладка, новая машина) встаёт по правилу
-      for (const slot of slotNames()) if (LANES.some((l) => !current(slot, l))) background(() => repick(slot, "запуск"));
+      // связи на старте может не быть: первый вызов сессии прочитает аккаунты сам
+      void load().then(() => (revive(), plan()), (e) => host.log.warn("accounts", { why: `аккаунты Claude не прочитаны: ${say(e)}` }));
       plan();
     },
-    async stop() {
+    stop() {
       stopping = true;
-      clearTimeout(wake);
-      auth.stop();
-      for (const p of polls) p.close();
-      await tail;
+      host.clock.clearTimeout(wake);
     },
   };
 }

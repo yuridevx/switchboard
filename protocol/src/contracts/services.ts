@@ -182,24 +182,62 @@ export const prefsSet = request("prefs.set", {
 
 /* ===== Ключи флота (keys) ===== */
 
-/** Дополнения ключа: models — имена моделей claude → модели провайдера; window — окно контекста, токены; settings — настройки сессии на этом ключе; env — окружение сессии. */
-const KeyOpts = { models: z.record(z.string(), z.string()).optional(), window: z.number().optional(), settings: z.record(z.string(), z.unknown()).optional(), env: z.record(z.string(), z.string()).optional() };
+/** Имя провайдера «аккаунты Claude флота» в документе сессии (key) и в keys.models. Ключ флота так назвать нельзя. */
+export const CLAUDE = "claude";
+/** Дополнения ключа провайдера: settings — настройки сессии на этом ключе; env — окружение сессии. */
+const KeyOpts = { settings: z.record(z.string(), z.unknown()).optional(), env: z.record(z.string(), z.string()).optional() };
+/** Ключ флота — провайдер: один ключ открывает весь каталог его моделей. protocol — вид его API:
+ *  claude — аккаунт Claude (имя — почта, значение — годовой токен claude setup-token); остальное — провайдер с протоколом Claude (Messages API) по адресу base. */
 export const KeyRow = z.object({
-  name: z.string(), provider: z.string(), base: z.string().optional(), model: z.string().optional(), at: z.number(), tail: z.string(), ...KeyOpts,
+  name: z.string(), protocol: z.string(), base: z.string().optional(), at: z.number(), tail: z.string(), ...KeyOpts,
+  /** у аккаунта Claude: беречь запас недели под Fable */
+  keep: z.boolean().optional(),
+  /** у аккаунта Claude: до какого времени действует токен, мс — год от записи значения */
+  expires: z.number().optional(),
   /** сколько сессий флота сейчас идёт на этом ключе */
   sessions: z.number().optional(),
 });
 export type KeyRow = z.infer<typeof KeyRow>;
 export const keysList = request("keys.list", {
-  owner: "keys", target: "service", tool: "Ключи флота: ключи API для сессий без входа Claude — провайдер, адрес, модели, число сессий на ключе. Значений в ответе нет.",
+  owner: "keys", target: "service", tool: "Ключи флота — провайдеры моделей: аккаунты Claude (protocol claude, имя — почта) и ключи API провайдеров с адресом; число сессий на ключе. Значений в ответе нет. Модели провайдера — keys_models.",
   input: Empty, output: z.object({ keys: z.array(KeyRow) }),
 });
 /** value не задан — правятся только свойства уже записанного ключа. */
 export const keysSet = request("keys.set", {
   owner: "keys", target: "service", admin: true,
-  tool: "Записать ключ флота: name — имя, provider — провайдер, value — значение ключа, base — адрес API, model — модель по умолчанию, models — соответствие имён моделей.",
-  input: z.object({ name: z.string(), provider: z.string(), value: z.string().optional(), base: z.string().optional(), model: z.string().optional(), ...KeyOpts }), output: Done,
+  tool: "Записать ключ флота: name — имя (у аккаунта Claude — почта), protocol — вид API (claude — аккаунт Claude, value — токен claude setup-token), value — значение ключа, base — адрес API провайдера, keep — беречь запас недели аккаунта под Fable.",
+  input: z.object({ name: z.string(), protocol: z.string(), value: z.string().optional(), base: z.string().optional(), keep: z.boolean().optional(), ...KeyOpts }), output: Done,
 });
+/** Модель каталога провайдера, как её отдал сам провайдер: id — точное имя для документа сессии; family — семейство (группа в списке); window — окно контекста, токены. */
+export const Model = z.object({ id: z.string(), name: z.string().optional(), family: z.string().optional(), window: z.number().optional() });
+export type Model = z.infer<typeof Model>;
+/** Каталог моделей провайдера: служба спрашивает провайдера на каждый запрос и копии не держит. name — имя ключа; claude — каталог Claude по токену любого аккаунта. */
+export const keysModels = request("keys.models", {
+  owner: "keys", target: "service", tool: "Каталог моделей провайдера: name — имя ключа флота или claude. В ответе точные имена моделей для документа сессии (key и model), семейство и окно контекста.",
+  input: z.object({ name: z.string() }), output: z.object({ models: z.array(Model) }),
+});
+/** Суффикс Claude Code у имени модели: включает окно контекста в миллион токенов. */
+const WIDE = "[1m]";
+/** Имя модели для документа сессии и процесса: точное имя каталога; у модели Claude с окном от миллиона — с суффиксом [1m], которым Claude Code включает это окно.
+ *  Одно правило: его зовут страница при выборе и машина для «/model слова». */
+export const docModel = (key: string, m: Model): string => (key === CLAUDE && (m.window ?? 0) >= 1_000_000 ? m.id + WIDE : m.id);
+/** Имя каталога по имени из документа: без суффикса [1m]. С ним сверяют каталог провайдера и модель ответа. */
+export const catalogModel = (model: string): string => (model.endsWith(WIDE) ? model.slice(0, -WIDE.length) : model);
+/** Предложение списка моделей: провайдер и модель каталога. */
+export type Offer = { key: string; model: string; name?: string; family?: string };
+/** Одно правило «слова → модели»: его зовут и поиск списка на странице, и машина для «/model слова» из сообщения.
+ *  Слово — часть имени модели, её семейства или провайдера; подходят модели, где нашлись все слова. Точное имя модели выигрывает у остальных. */
+export function findModels<T extends Offer>(words: string, offers: T[]): T[] {
+  const flat = (t: string) => t.toLowerCase().replace(/[._]/g, "-");
+  const parts = flat(words).split(/\s+/).filter(Boolean);
+  if (!parts.length) return offers;
+  const exact = offers.filter((o) => flat(o.model) === parts.join(" "));
+  if (exact.length) return exact;
+  return offers.filter((o) => {
+    const hay = flat([o.key, o.model, o.name ?? "", o.family ?? ""].join(" "));
+    return parts.every((p) => hay.includes(p));
+  });
+}
 /** probe — проба: ничего не удаляет, отвечает, какие сессии сейчас идут на ключе. */
 export const keysRemove = request("keys.remove", {
   owner: "keys", target: "service", admin: true,
@@ -208,7 +246,7 @@ export const keysRemove = request("keys.remove", {
 /** Значение ключа — только машине. */
 export const keysValue = request("keys.value", {
   owner: "keys", target: "service", machineOnly: true,
-  input: z.object({ name: z.string() }), output: z.object({ value: z.string(), provider: z.string(), base: z.string().optional(), model: z.string().optional(), ...KeyOpts }),
+  input: z.object({ name: z.string() }), output: z.object({ value: z.string(), protocol: z.string(), base: z.string().optional(), keep: z.boolean().optional(), ...KeyOpts }),
 });
 
 /* ===== GitHub (github) ===== */
@@ -224,8 +262,8 @@ export type Prices = Record<string, { input?: number; output?: number; cacheRead
 
 export const analyticsQuery = request("analytics.query", {
   owner: "analytics", target: "service",
-  tool: "Расход флота: вызовы модели и токены. by — разрез (day, model, machine, session, person, project), since и until — даты.",
-  input: z.object({ by: z.enum(["day", "model", "machine", "session", "person", "project"]), since: z.string(), until: z.string(), machine: z.string().optional() }),
+  tool: "Расход флота: вызовы модели и токены. by — разрез (day, model, machine, session, person, project, account — аккаунт Claude, на котором прошёл вызов), since и until — даты.",
+  input: z.object({ by: z.enum(["day", "model", "machine", "session", "person", "project", "account"]), since: z.string(), until: z.string(), machine: z.string().optional() }),
   output: z.object({ rows: z.array(z.object({ key: z.string(), calls: z.number(), input: z.number(), output: z.number(), cacheRead: z.number(), cacheWrite: z.number(), cost: z.number().optional() })) }),
 });
 /** Состояние аналитики. on — ClickHouse подключён; ok и ms — ответил ли и за сколько; по машинам: rows — строк, last — время последнего вызова в нём,
@@ -236,6 +274,29 @@ export const analyticsState = request("analytics.state", {
   output: z.object({ on: z.boolean(), ok: z.boolean(), ms: z.number().optional(), error: z.string().optional(), machines: z.array(z.object({ machine: z.string(), rows: z.number(), last: z.number().optional(), pending: z.number() })) }),
 });
 export const analyticsFill = request("analytics.fill", { owner: "analytics", target: "service", admin: true, input: z.object({ since: z.number() }), output: z.object({ queued: z.number() }) });
+
+/* ===== История флота (analytics) — журналы машин в ClickHouse ===== */
+
+/** Пачка строк журнала машины. file — имя файла журнала, pos — место начала пачки в файле, байты; lines — строки файла как есть, по порядку.
+ *  Служба пишет пачку в ClickHouse внутри запроса и отвечает после записи: отказ — машина место не сдвигает и шлёт пачку снова.
+ *  Ключ строки — машина (из пропуска), файл, начало пачки, номер строки в пачке: повтор пачки строк не добавляет. Только машине. */
+export const logWrite = request("log.write", {
+  owner: "analytics", target: "service", machineOnly: true,
+  input: z.object({ file: z.string(), pos: z.number(), lines: z.array(z.string()) }), output: Done,
+});
+/** Строка истории: at — мс; session — позывной; account — аккаунт Claude; status — статус ответа провайдера; kind — вид отказа или события; text — причина словами; data — остальные поля строки журнала. */
+export const LogRow = z.object({
+  at: z.number(), machine: z.string(), part: z.string(), level: z.string(), msg: z.string(),
+  session: z.string().optional(), account: z.string().optional(), status: z.number().optional(), kind: z.string().optional(), text: z.string().optional(), data: z.unknown().optional(),
+});
+export type LogRow = z.infer<typeof LogRow>;
+/** Чтение истории из ClickHouse, новые первыми. msg — имя строки или его начало: call — вызов модели, route — решение о выборе аккаунта, account. — события аккаунтов. */
+export const logQuery = request("log.query", {
+  owner: "analytics", target: "service",
+  tool: "История флота из ClickHouse — строки журналов всех машин, новые первыми. msg — имя строки или его начало (call — вызовы модели, route — выбор аккаунта со счётом кандидатов, account. — события аккаунтов: переход, полон, окно закрыто, токен не годен); machine, session (позывной), account (почта), level; since и before — время, мс.",
+  input: z.object({ msg: z.string().optional(), machine: z.string().optional(), session: z.string().optional(), account: z.string().optional(), level: z.enum(["info", "warn", "error"]).optional(), since: z.number().optional(), before: z.number().optional(), limit: z.number().optional() }),
+  output: z.object({ lines: z.array(LogRow), more: z.boolean() }),
+});
 
 /* ===== Наблюдение (obs) ===== */
 

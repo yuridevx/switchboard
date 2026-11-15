@@ -93,7 +93,6 @@ export class Kernel {
   private eliciter: Module | undefined;
   private abort = new AbortController();
   private inflight = new Set<Promise<unknown>>();
-  private probes = new Set<{ close(): void }>();
   private hosts = new Map<Module, HostApi>();
   private link: Link | null = null;
   /** объект машины принял соединение (hello.ok): до него кадры не идут */
@@ -342,9 +341,12 @@ export class Kernel {
     this.connect();
     const work = [
       ...files.filter((f) => !live.some((s) => s.callsign === f.id)).map((f) => this.killOrphan(f)),
-      ...live.map((s) => {
-        quiet(s.launch(files.some((f) => f.id === s.callsign) ? "attach" : "resume"));
-        return s.settled();
+      ...live.map(async (s) => {
+        const held = files.find((f) => f.id === s.callsign);
+        quiet(s.launch(held ? "attach" : "resume"));
+        await s.settled();
+        // сессия не поднялась на процессе, пережившем подмену Host: процесс без хозяина снимается — запуск начнёт с разговора
+        if (held && s.state === "failed") await this.killOrphan(held, "сессия не поднялась");
       }),
     ];
     await Promise.race([Promise.all(work), new Promise((r) => this.abort.signal.addEventListener("abort", r))]);
@@ -352,9 +354,9 @@ export class Kernel {
     this.log.info("ready", { build: this.o.build });
   }
 
-  /** Процесс, которого нет в списке сессий: kill, старт ждёт его выхода с пределом. */
-  private async killOrphan(f: HoldFile): Promise<void> {
-    this.log.warn("orphan_kill", { callsign: f.id, why: `процесс ${f.id} (pid ${f.pid}) не в списке сессий — kill` });
+  /** Процесс без хозяина — его нет в списке сессий или сессия на нём не поднялась: kill, старт ждёт его выхода с пределом. */
+  private async killOrphan(f: HoldFile, why = "не в списке сессий"): Promise<void> {
+    this.log.warn("orphan_kill", { callsign: f.id, why: `процесс ${f.id} (pid ${f.pid}): ${why} — kill` });
     const h = this.holders.connect(f);
     h.destroy();
     await within<unknown>(this.clock, h.exited, KILL_MS, () => this.log.warn("orphan_late", { callsign: f.id, why: `держатель ${f.id} не вышел за ${KILL_MS / 1000} с после kill` }));
@@ -556,25 +558,6 @@ export class Kernel {
 
   // ───────────────────────── Host глазами модуля ─────────────────────────
 
-  private probe(o: { env?: Record<string, string> } = {}) {
-    let finish = () => {};
-    const closed = new Promise<void>((r) => (finish = r));
-    const prompt = (async function* () {
-      await closed;
-    })();
-    const q = this.sdk.query({ prompt, options: { env: this.env(o.env), permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true, pathToClaudeCodeExecutable: this.sdk.bin } });
-    const probe = {
-      sdk: (name: string, ...args: unknown[]) => quiet(Promise.resolve().then(() => q[name](...args))),
-      close: () => {
-        this.probes.delete(probe);
-        finish();
-        q.close();
-      },
-    };
-    this.probes.add(probe);
-    return probe;
-  }
-
   hostFacade(m: Module): HostApi {
     let host = this.hosts.get(m);
     if (!host) {
@@ -598,7 +581,6 @@ export class Kernel {
         store: <T>() => this.disk.section<T>(m.name),
         config: <T>() => (config?.[m.name] ?? {}) as T,
         cli: (args, o = {}) => this.sdk.cli(args, this.env(o.env), o.input),
-        probe: (o) => this.probe(o),
         module: <T>(name: string) => this.mods.find((x) => x.name === name)?.api as T | undefined,
         clock: this.clock,
         meter: this.meter,
@@ -637,7 +619,6 @@ export class Kernel {
       this.log.error("shutdown_late", { why: `остановка не успела за ${SHUTDOWN_MS / 1000} с: ждёт ${waits} — жёсткий выход 1 · ${why}` });
       return 1;
     });
-    for (const p of [...this.probes]) p.close();
     this.link?.close();
     this.holders.close();
     if (code === 0) this.log.info("exit", { why: `выход 0 · ${why}` });
