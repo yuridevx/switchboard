@@ -131,7 +131,8 @@ await step("дочь с фоновой командой отвечает два�
   return got.map((t) => t.replace(/\s+/g, " ").slice(0, 40)).join(" ‖ ");
 });
 
-await step("подмена Host посреди хода дочери — итог дошёл родителю, задача не пришла дважды", async () => {
+// NO_SWAP=1 — без подмены Host: на флоте с чужими сессиями подмену делает сама выкладка сборки
+if (!process.env.NO_SWAP) await step("подмена Host посреди хода дочери — итог дошёл родителю, задача не пришла дважды", async () => {
   await Promise.all([idle(parent), idle(child)]);
   const before = (await incoming(parent, child, "result")).length;
   const tasks = (await incoming(child, parent, "task")).length;

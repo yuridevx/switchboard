@@ -289,7 +289,15 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
     const { wing: _wing, parent: _parent, ...kept } = got.session.spec ?? ({} as Partial<Spec>);
     // провайдер и модель, названные при подъёме, сильнее документа точки: у точки прежней системы их нет, а модель точки провайдер мог уже снять
     const spec: Spec = { ...kept, ...(key ? { key } : {}), ...(model ? { model } : {}), name: name ?? sessionName(got.session.callsign) ?? basename(dir), cwd: tildePath(dir, homedir()), backup: true, ...(got.session.project ? { project: got.session.project } : {}) };
-    const s = await host.open(spec, { by: ctx.from, resume: sid, fork: !move });
+    // точка — снимок прошлого: её проекта во флоте может уже не быть (проект убран, у точки прежней системы записано имя вместо номера).
+    // Такая сессия поднимается без проекта, и это названо в журнале; остальные отказы открытия идут как есть.
+    const open = (doc: Spec) => host.open(doc, { by: ctx.from, resume: sid, fork: !move });
+    const s = await open(spec).catch((e: unknown) => {
+      if (!(e instanceof Refusal) || e.word !== "no_project" || !spec.project) throw e;
+      ctx.log.warn("raise_project", { sid, point: got.point.point, word: "no_project", why: `проекта точки ${spec.project} во флоте нет — сессия поднята без проекта` });
+      const { project: _gone, ...rest } = spec;
+      return open(rest);
+    });
     // ветка линии: перенос продолжает точку своей же сессии, копия — точку чужой
     markOf(s).update((m) => ({ ...m, ...(move ? { point: got.point.point } : { origin: `${sid}/${got.point.point}` }) }));
     ctx.log.info("raise", { callsign: s.callsign, sid, point: got.point.point, why: move ? "перенос" : "копия" });
