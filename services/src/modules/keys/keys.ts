@@ -10,12 +10,15 @@ const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS keys (name TEXT PRIMARY KEY, provider TEXT, value TEXT, base TEXT, at INTEGER)",
   // дополнения ключа одним объектом: настройки и окружение сессии; у аккаунта Claude — флаг запаса Fable и когда записан токен
   "CREATE TABLE IF NOT EXISTS keyopts (name TEXT PRIMARY KEY, opts TEXT NOT NULL)",
+  // окна лимитов аккаунта Claude, одни на флот: что последней увидела любая машина
+  "CREATE TABLE IF NOT EXISTS limits (name TEXT NOT NULL, win TEXT NOT NULL, used REAL NOT NULL, resets INTEGER, at INTEGER NOT NULL, PRIMARY KEY (name, win))",
 ];
 const db = (env: Env, fleet: string) => records(env, fleet, NAME, SCHEMA);
 
 /** keep — беречь запас недели под Fable; since — когда записано значение, мс. */
 type Opts = { settings?: Record<string, unknown>; env?: Record<string, string>; keep?: boolean; since?: number };
 type Stored = { name: string; provider: string; value: string; base: string | null; at: number; opts: string | null };
+type Seen = { name: string; win: string; used: number; resets: number | null; at: number };
 type Input = { name: string; protocol: string; value?: string; base?: string; keep?: boolean; settings?: Record<string, unknown>; env?: Record<string, string> };
 
 const SELECT = "SELECT keys.name, keys.provider, keys.value, keys.base, keys.at, keyopts.opts AS opts FROM keys LEFT JOIN keyopts ON keyopts.name = keys.name";
@@ -85,13 +88,16 @@ export const keys: Module = {
   name: NAME,
   handlers: {
     async "keys.list"(_i, ctx) {
-      const [rows, on] = await Promise.all([db(ctx.env, ctx.fleet).all<Stored>(`${SELECT} ORDER BY keys.name`), sessionsOn(ctx)]);
+      const d = db(ctx.env, ctx.fleet);
+      const [rows, on, seen] = await Promise.all([d.all<Stored>(`${SELECT} ORDER BY keys.name`), sessionsOn(ctx), d.all<Seen>("SELECT name, win, used, resets, at FROM limits ORDER BY name, win")]);
+      const limitsOf = (name: string) => seen.filter((l) => l.name === name).map((l) => ({ name: l.win, used: l.used, ...(l.resets ? { resets: l.resets } : {}), at: l.at }));
       return {
         keys: rows.map((s) => {
           const since = optsOf(s).since;
           return {
             name: s.name, protocol: s.provider, at: s.at, tail: s.value.slice(-4), ...extras(s),
             ...(s.provider === CLAUDE && since ? { expires: since + TOKEN_MS } : {}), sessions: on.get(s.name)?.length ?? 0,
+            ...(s.provider === CLAUDE && limitsOf(s.name).length ? { limits: limitsOf(s.name) } : {}),
           };
         }),
       };
@@ -126,8 +132,21 @@ export const keys: Module = {
       await db(ctx.env, ctx.fleet).batch([
         ["DELETE FROM keys WHERE name = ?", i.name],
         ["DELETE FROM keyopts WHERE name = ?", i.name],
+        ["DELETE FROM limits WHERE name = ?", i.name],
       ]);
       await told(ctx);
+      return {};
+    },
+
+    /** Окна аккаунта от машины: по окну остаётся последнее по времени. Машинам об этом не рассылается: числа они берут со списком ключей. */
+    async "keys.limits"(i: { name: string; limits: Array<{ name: string; used: number; resets?: number; at: number }> }, ctx) {
+      const d = db(ctx.env, ctx.fleet);
+      const s = await d.first<Stored>(`${SELECT} WHERE keys.name = ?`, i.name);
+      if (!s || s.provider !== CLAUDE) throw new Refusal("not_found", `аккаунта Claude ${i.name} у флота нет`);
+      if (i.limits.length) await d.batch(i.limits.map((l) => [
+        "INSERT INTO limits (name, win, used, resets, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (name, win) DO UPDATE SET used = excluded.used, resets = excluded.resets, at = excluded.at WHERE excluded.at >= limits.at",
+        i.name, l.name, l.used, l.resets ?? null, l.at,
+      ]));
       return {};
     },
 

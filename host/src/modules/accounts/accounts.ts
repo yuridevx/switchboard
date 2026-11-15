@@ -1,14 +1,14 @@
 // Аккаунты и модели сессий машины. Аккаунт Claude — ключ флота с протоколом claude: годовой токен, один на весь флот.
 // Машина держит токены только в памяти; у процесса сессии вместо токена слово-заглушка, настоящий ставит прокси.
 // Сессия привязана к аккаунту, пока кэш её разговора тёплый; новая и остывшая выбирают лучший по счёту (limits.ts). Порядка аккаунтов нет нигде.
-// Числа окон — только из заголовков ответов Claude этой машине. Каждый вызов, решение и событие аккаунта — строка журнала машины
+// Числа окон — из заголовков ответов Claude; они общие для флота: машина сообщает их службе ключей и берёт оттуда то, что видели другие. Каждый вызов, решение и событие аккаунта — строка журнала машины
 // (call, route, account.*): историю читают из ClickHouse, от него выбор не зависит.
 // Аккаунт без свежих ответов (новый, без сессий) машина пробует сама, когда её спрашивают об аккаунтах: разовый claude с ответом в одно слово
 // идёт через прокси этим аккаунтом — окна приходят теми же заголовками, что у любого вызова.
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { CLAUDE, catalogModel, docModel, findModels, incidentRaise, keysList, keysModels, keysValue, READ_MS, Refusal, within, type Account as AccountOut, type Model, type Offer } from "@sb/protocol";
+import { CLAUDE, catalogModel, docModel, findModels, incidentRaise, keysLimits, keysList, keysModels, keysValue, READ_MS, Refusal, within, type Account as AccountOut, type Model, type Offer } from "@sb/protocol";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
 import { choose, closed, FABLE, FIVE, fits, isFable, nextReset, read, refusalHeaders, shown, WEEK, type Account, type Candidate } from "./limits.ts";
 
@@ -49,7 +49,7 @@ const CONTINUE = "Продолжай";
 const HOUR_MS = 3_600_000;
 /** Короткая пауза Claude: ждём не дольше. */
 const THROTTLE_MAX_S = 60;
-/** Окна аккаунта старше этого — проба при вопросе об аккаунтах: расход на других машинах виден только в ответе Claude. */
+/** Окна аккаунта во всём флоте старше этого — проба при вопросе об аккаунтах: расход вне флота виден только в ответе Claude. */
 const FRESH_MS = 120_000;
 /** Предел пробы: ответ на account.list не ждёт дольше. */
 const PROBE_MS = READ_MS - 2_000;
@@ -75,8 +75,10 @@ export function make(): Module {
   /** «полон»: при скольких вызовах в полёте Claude отказал аккаунту */
   const full = new Map<string, number>();
   let loading: Promise<void> | null = null;
-  /** когда аккаунт последний раз назвал свои окна этой машине */
+  /** когда аккаунт последний раз назвал свои окна — этой машине или, по словам службы ключей, любой машине флота */
   const seen = new Map<string, number>();
+  /** когда эта машина последний раз сообщала окна аккаунта флоту */
+  const reported = new Map<string, number>();
   /** идущие пробы: id разового claude → аккаунт; на аккаунт — одна */
   const probes = new Map<string, string>();
   const probing = new Map<string, Promise<void>>();
@@ -117,7 +119,13 @@ export function make(): Module {
           for (const k of rows) {
             const was = all[k.name];
             // хвост значения сменился — токен новый: аккаунт снова в выборе
-            all[k.name] = { ...(was && was.tail === k.tail ? was : { limits: was?.limits ?? {}, ok: true }), keep: k.keep !== false, tail: k.tail };
+            const a = (all[k.name] = { ...(was && was.tail === k.tail ? was : { limits: was?.limits ?? {}, ok: true }), keep: k.keep !== false, tail: k.tail });
+            // окна — общие для флота: что другая машина видела позже, то и верно
+            for (const l of k.limits ?? []) {
+              const at = l.at ?? 0;
+              if (at > (a.limits[l.name]?.at ?? 0)) a.limits[l.name] = { used: l.used, resets: l.resets ?? 0, at };
+              seen.set(k.name, Math.max(seen.get(k.name) ?? 0, at));
+            }
           }
           for (const n of Object.keys(all)) if (!rows.some((k) => k.name === n)) delete all[n];
         });
@@ -252,6 +260,13 @@ export function make(): Module {
     return go(s.callsign, to);
   }
 
+  /** Окна аккаунта — флоту: так другие машины его не пробуют и не шлют на него вызов впустую. Не дошло — строка журнала, числа уйдут со следующим ответом. */
+  function report(name: string, windows: Record<string, { used: number; resets: number }>, t: number): void {
+    reported.set(name, t);
+    const limits = Object.entries(windows).map(([n, w]) => ({ name: n, used: w.used, ...(w.resets ? { resets: w.resets } : {}), at: t }));
+    void host.call(keysLimits, { name, limits }).catch((e: unknown) => host.log.warn("accounts", { account: name, why: `окна ${name} флоту не сообщены: ${say(e)}` }));
+  }
+
   /** Аккаунт выбыл или окно закрыто: строка журнала. */
   function mark(name: string, fn: (a: Account) => void): void {
     write((all) => { if (all[name]) fn(all[name]!); });
@@ -292,7 +307,10 @@ export function make(): Module {
       if (Object.keys(fresh).length) seen.set(name, t);
       const was = book()[name];
       // на диск — только когда числа изменились: вызовов много, окна меняются редко
-      if (was && Object.entries(fresh).some(([n, w]) => was.limits[n]?.used !== w.used || was.limits[n]?.resets !== w.resets)) mark(name, (a) => void Object.assign(a.limits, fresh));
+      const changed = !!was && Object.entries(fresh).some(([n, w]) => was.limits[n]?.used !== w.used || was.limits[n]?.resets !== w.resets);
+      if (changed) mark(name, (a) => void Object.assign(a.limits, fresh));
+      // флоту — когда числа изменились, и не реже порога свежести, пока аккаунт отвечает
+      if (Object.keys(fresh).length && (changed || (reported.get(name) ?? 0) < t - FRESH_MS)) report(name, fresh, t);
       let kind: string | undefined;
       let verdict: Verdict = { act: "pass" };
       if (r.status === 401) {
@@ -309,6 +327,8 @@ export function make(): Module {
           kind = KIND[window.name];
           verdict = { act: "next" };
           mark(name, (a) => void (a.limits[window.name] = { used: 1, resets: window.resets, at: t }));
+          seen.set(name, t);
+          report(name, { [window.name]: { used: 1, resets: window.resets } }, t);
           host.log.warn("account.closed", { account: name, callsign: route.callsign, kind, why: `${name}: ${WINDOW_WORD[window.name]} выбрано${window.resets ? ` — закрыто до ${clock(window.resets)}` : ""}` });
           plan();
         } else if (after > 0 && after <= THROTTLE_MAX_S && !r.waited) {

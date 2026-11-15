@@ -1,16 +1,16 @@
-// Аккаунты Claude на экране флота: аккаунт — ключ флота с протоколом claude; его числа — из ответов Claude каждой машине, столбец берёт самое свежее.
+// Аккаунты Claude на экране флота: аккаунт — ключ флота с протоколом claude; его числа — общие для флота, их отдаёт машина, которую спросил экран.
 import { CLAUDE, type Account, type KeyRow } from "@sb/protocol";
 
 export type LimitRow = Account["limits"][number];
-/** Столбец аккаунта: один на флот, сколько бы машин о нём ни знало. */
+/** Столбец аккаунта: один на флот. */
 export type Column = {
   name: string;
-  /** токен принят на всех машинах, которые о нём ответили */
+  /** токен принят машиной, которую спросил экран */
   ok: boolean;
   why?: string;
   /** беречь запас недели под Fable */
   keep: boolean;
-  /** Claude ответил «аккаунт полон» хотя бы одной машине */
+  /** Claude ответил этой машине «аккаунт полон» */
   full: boolean;
   /** до какого времени действует токен, мс */
   expires?: number;
@@ -27,18 +27,12 @@ export const limitTone = (used: number): "teal" | "orange" | "red" => (used > BA
 /** Аккаунты Claude среди ключей флота. */
 export const claudeKeys = (keys: KeyRow[]) => keys.filter((k) => k.protocol === CLAUDE);
 
-/** Столбцы экрана аккаунтов: по ключу флота на аккаунт; окно — замер посвежее, при равных — большее использование. */
-export function columns(keys: KeyRow[], byMachine: Record<string, Account[]>): Column[] {
+/** Столбцы экрана аккаунтов: по ключу флота на аккаунт; числа и годность — от машины, которую спросили. */
+export function columns(keys: KeyRow[], accounts: Account[]): Column[] {
   return claudeKeys(keys).map((k) => {
-    const seen = Object.values(byMachine).flatMap((list) => list.filter((a) => a.name === k.name));
-    const limits: LimitRow[] = [];
-    for (const l of seen.flatMap((a) => a.limits)) {
-      const was = limits.find((x) => x.name === l.name);
-      if (!was) limits.push({ ...l });
-      else if ((l.at ?? 0) > (was.at ?? 0) || ((l.at ?? 0) === (was.at ?? 0) && l.used > was.used)) Object.assign(was, l);
-    }
-    const bad = seen.find((a) => !a.ok);
-    return { name: k.name, ok: !bad, ...(bad ? { why: bad.why ?? "Claude не принял токен" } : {}), keep: k.keep !== false, full: seen.some((a) => a.full), ...(k.expires !== undefined ? { expires: k.expires } : {}), limits };
+    const a = accounts.find((x) => x.name === k.name);
+    const bad = a && !a.ok;
+    return { name: k.name, ok: !bad, ...(bad ? { why: a.why ?? "Claude не принял токен" } : {}), keep: k.keep !== false, full: !!a?.full, ...(k.expires !== undefined ? { expires: k.expires } : {}), limits: a?.limits ?? [] };
   });
 }
 

@@ -24,7 +24,7 @@ export const Account = z.object({
 export type Account = z.infer<typeof Account>;
 
 export const accountList = request("account.list", {
-  owner: "host-accounts", target: "machine", tool: "Аккаунты Claude глазами машины: принят ли токен, окна лимитов из последних ответов Claude, флаг «беречь Fable», полон ли аккаунт. Какая сессия на каком аккаунте — поле account её строки.",
+  owner: "host-accounts", target: "machine", tool: "Аккаунты Claude флота через эту машину: окна лимитов — общие для флота (последние ответы Claude любой машине; аккаунт без свежих чисел машина пробует сама), принят ли токен этой машиной, флаг «беречь Fable», полон ли аккаунт. Какая сессия на каком аккаунте — поле account её строки.",
   input: toMachine, output: z.object({ accounts: z.array(Account) }),
 });
 export const keyCheck = request("key.check", {

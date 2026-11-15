@@ -115,16 +115,17 @@ describe("аккаунты", () => {
   const key = (name: string, o: Partial<KeyRow> = {}): KeyRow => ({ name, protocol: CLAUDE, at: T, tail: "…", keep: true, ...o });
   it("столбцы стоят по сбросу недели: раньше сброс — левее; без замера — за ними; негодный токен — в конце", () => {
     const week = (resets: number) => [{ name: "seven_day", used: 0.3, resets }];
-    const cols = columns([key("a@b.c"), key("b@b.c"), key("c@b.c"), key("d@b.c")], { laptop: [acc("a@b.c", { limits: week(T + 5000) }), acc("b@b.c", { limits: week(T + 1000) }), acc("c@b.c", { ok: false, why: "Claude не принял токен", limits: week(T + 10) })] });
+    const cols = columns([key("a@b.c"), key("b@b.c"), key("c@b.c"), key("d@b.c")], [acc("a@b.c", { limits: week(T + 5000) }), acc("b@b.c", { limits: week(T + 1000) }), acc("c@b.c", { ok: false, why: "Claude не принял токен", limits: week(T + 10) })]);
     expect(byReset(cols).map((c) => c.name)).toEqual(["b@b.c", "a@b.c", "d@b.c", "c@b.c"]);
   });
   it("аккаунт — ключ флота: в столбцы идут только ключи с протоколом claude; флаг запаса и «полон» видны", () => {
-    const cols = columns([key("a@b.c", { keep: false }), { name: "orca", protocol: "anthropic", at: T, tail: "…" }], { laptop: [acc("a@b.c"), acc("gone@b.c")], server: [acc("a@b.c", { full: true })] });
+    const cols = columns([key("a@b.c", { keep: false }), { name: "orca", protocol: "anthropic", at: T, tail: "…" }], [acc("a@b.c", { full: true }), acc("gone@b.c")]);
     expect(cols).toEqual([{ name: "a@b.c", ok: true, keep: false, full: true, limits: [] }]);
   });
-  it("мок отдаёт аккаунты машины с окнами недели и Fable и временем замера", async () => {
+  it("мок отдаёт через машину аккаунты флота с окнами недели и Fable и временем замера", async () => {
     const r = await ask(quiet()).call(accountList, { to: "@laptop" });
-    expect(r.accounts.map((a) => a.name)).toEqual(["yuri@example.com", "work@example.com", "team@example.com"]);
+    // аккаунты — ключи флота: машина знает все, а не только те, на которых у неё шли сессии
+    expect(r.accounts.map((a) => a.name)).toEqual(["yuri@example.com", "work@example.com", "team@example.com", "ops@example.com", "night@example.com", "anya@example.com"]);
     expect(r.accounts[0]!.limits.map((l) => l.name)).toEqual(["seven_day", "seven_day_overage_included"]);
     expect(r.accounts[0]!.limits[0]!.at).toBeLessThan(T);
   });

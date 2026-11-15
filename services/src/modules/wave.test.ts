@@ -162,6 +162,20 @@ describe("ключи флота: каталог моделей", () => {
 describe("ключи флота: свойства и сессии", () => {
   const list = async (s: Stand) => ((await s.ask("keys.list")).result as { keys: KeyRow[] }).keys;
 
+  // чьё: слово пользователя 15 нояб. — «не флудить серверы Anthropic»: окна аккаунта — одни на флот, у службы ключей
+  it("машина сообщила окна аккаунта — список ключей отдаёт их; более старое сообщение свежего не затирает; сообщает только машина", async () => {
+    const s = stand();
+    await s.ask("keys.set", { name: "a@example.com", protocol: "claude", value: "sk-ant-oat01-good" });
+    const T = 1_794_700_000_000;
+    expect((await s.ask("keys.limits", { name: "a@example.com", limits: [{ name: "seven_day", used: 0.4, resets: T + 9, at: T }, { name: "seven_day_overage_included", used: 0.2, at: T }] }, "klaptop")).ok).toBe(true);
+    expect((await s.ask("keys.limits", { name: "a@example.com", limits: [{ name: "seven_day", used: 0.3, at: T - 60_000 }] }, "klaptop")).ok).toBe(true);
+    expect((await list(s))[0]!.limits).toEqual([{ name: "seven_day", used: 0.4, resets: T + 9, at: T }, { name: "seven_day_overage_included", used: 0.2, at: T }]);
+    expect((await s.ask("keys.limits", { name: "a@example.com", limits: [{ name: "seven_day", used: 0.45, at: T + 60_000 }] }, "klaptop")).ok).toBe(true);
+    expect((await list(s))[0]!.limits![0]).toEqual({ name: "seven_day", used: 0.45, at: T + 60_000 });
+    expect(await s.ask("keys.limits", { name: "a@example.com", limits: [] }, "kanya1")).toMatchObject({ ok: false });
+    expect(await s.ask("keys.limits", { name: "нет@example.com", limits: [] }, "klaptop")).toMatchObject({ ok: false, error: "not_found" });
+  });
+
   it("настройки и окружение хранятся с ключом и отдаются машине; значение при правке свойств не нужно; модели, соответствия имён и окна у ключа нет", async () => {
     const s = stand();
     await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-orca-9999", base: "https://api.orca.example", model: "orca/flash", models: { "claude-fable-5-2": "orca/flash" }, window: 128000 });

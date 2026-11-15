@@ -114,9 +114,9 @@ describe("архив: найденная запись и сводка", () => {
 
 describe("аккаунты: время замера и срок токена", () => {
   const acc = (limits: Account["limits"]): Account => ({ name: "a@b.c", ok: true, keep: true, limits });
-  it("числа аккаунта знает каждая машина из ответов Claude ей самой: столбец берёт окно с замером посвежее", () => {
+  it("числа аккаунта — от машины, которую спросил экран; срок токена — от ключа флота", () => {
     const key = { name: "a@b.c", protocol: CLAUDE, at: T, tail: "…", keep: true, expires: T + 1 };
-    const [c] = columns([key], { laptop: [acc([{ name: "seven_day", used: 0.9, at: T - 3 * 60 * MIN }])], server: [acc([{ name: "seven_day", used: 0.2, at: T }])] });
+    const [c] = columns([key], [acc([{ name: "seven_day", used: 0.2, at: T }])]);
     expect(c!.limits).toEqual([{ name: "seven_day", used: 0.2, at: T }]);
     expect(c!.expires).toBe(T + 1);
   });
