@@ -479,4 +479,15 @@ describe("проба окон аккаунта", () => {
     await listed();
     expect(api.hits).toHaveLength(2);
   });
+
+  // чьё: факт прода 15 нояб. — выбранный аккаунт девять машин пробовали каждые две минуты, все пробы — отказ
+  it("неделя аккаунта закрыта до сброса — пробы нет; сброс прошёл — проба", async () => {
+    const api = await fleet({ [A]: { week: 1, hours: 2 } }, () => ({ headers: windows({ week: 0.01, hours: 168 }) }));
+    liveCli();
+    await listed();
+    expect(api.hits).toHaveLength(0);
+    st!.clock.advance(2 * HOUR + 1000);
+    expect((await listed())[0]!.limits.map((l) => [l.name, l.used])).toEqual([["seven_day", 0.01]]);
+    expect(api.hits).toHaveLength(1);
+  });
 });
