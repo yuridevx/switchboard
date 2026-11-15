@@ -1,4 +1,5 @@
 // Ядро Host: реестр модулей, старт и остановка, связь, вход запросов и кадров, сборка опций запуска, Host глазами модуля.
+import { Spec as SessionDoc } from "@sb/protocol";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -494,7 +495,14 @@ export class Kernel {
   async open(given: Spec, o: OpenOpts): Promise<Session> {
     if (this.shutting) throw new Refusal("shutting_down");
     const taken = (name: string) => this.sessions.has(`${name}@${this.machine}`) || this.opening.has(`${name}@${this.machine}`);
-    let spec = given;
+    // документ входит в ядро по договору, откуда бы он ни пришёл — из запроса, от ведущей пары, из точки архива или правила обращений:
+    // ключа, которого в договоре нет, в документе новой сессии не будет
+    const doc = SessionDoc.safeParse(given);
+    if (!doc.success) throw new Refusal("bad_spec", doc.error.issues.map((i) => `${i.path.join(".")} — ${i.message}`).join("; "));
+    let spec: Spec = doc.data;
+    // снятое названо в журнале: потеря не молчаливая
+    const dropped = Object.keys(given).filter((key) => !(key in spec));
+    if (dropped.length) this.log.warn("doc_keys", { callsign: `${spec.name}@${this.machine}`, keys: dropped, why: `ключей ${dropped.join(", ")} нет в договоре документа сессии — в документ новой сессии они не вошли` });
     if (o.number) {
       let n = 1;
       while (taken(`${given.name}-${n}`)) n++;
