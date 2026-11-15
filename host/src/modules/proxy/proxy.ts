@@ -296,6 +296,8 @@ export function make(): Module {
         server.listen(saved.get()?.port ?? 0, "127.0.0.1", () => done());
       });
       port = (server.address() as { port: number }).port;
+      // пробы аккаунтов идут через этот же прокси
+      host.module<AccountsApi>("host-accounts")?.proxied(`http://127.0.0.1:${port}`);
       saved.set({ port });
       void muse().catch((e) => host.log.warn("muse_version", { word: "muse_version", why: String((e as { why?: string }).why ?? e) }));
     },

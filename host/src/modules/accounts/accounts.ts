@@ -3,6 +3,11 @@
 // Сессия привязана к аккаунту, пока кэш её разговора тёплый; новая и остывшая выбирают лучший по счёту (limits.ts). Порядка аккаунтов нет нигде.
 // Числа окон — только из заголовков ответов Claude этой машине. Каждый вызов, решение и событие аккаунта — строка журнала машины
 // (call, route, account.*): историю читают из ClickHouse, от него выбор не зависит.
+// Аккаунт без свежих ответов (новый, без сессий) машина пробует сама, когда её спрашивают об аккаунтах: разовый claude с ответом в одно слово
+// идёт через прокси этим аккаунтом — окна приходят теми же заголовками, что у любого вызова.
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { CLAUDE, catalogModel, docModel, findModels, incidentRaise, keysList, keysModels, keysValue, READ_MS, Refusal, within, type Account as AccountOut, type Model, type Offer } from "@sb/protocol";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
 import { choose, closed, FABLE, FIVE, fits, isFable, nextReset, read, refusalHeaders, shown, WEEK, type Account, type Candidate } from "./limits.ts";
@@ -17,7 +22,7 @@ type Seat = { account?: string; at?: number; cut?: boolean; wait?: number; key?:
 
 /** Куда идёт вызов модели. account и token — аккаунт Claude: токен подписки идёт только в Authorization.
  *  key — ключ провайдера; model — модель сессии: побочный вызов с именем чужой модели уходит на неё. */
-export type Route = { callsign: string; to: string; account?: string; token?: string; key?: string; name?: string; model?: string; env?: Record<string, string> };
+export type Route = { /** позывной сессии; у пробы аккаунта и проверки ключа сессии нет */ callsign: string; to: string; account?: string; token?: string; key?: string; name?: string; model?: string; env?: Record<string, string> };
 /** Что делать с ответом: отдать сессии; послать тот же вызов на следующий аккаунт; подождать и повторить на том же. */
 export type Verdict = { act: "pass" } | { act: "next" } | { act: "wait"; ms: number };
 export type Answered = { status: number; headers: Record<string, string | string[] | undefined>; path: string; ms: number; hops: number; waited: boolean; model?: string };
@@ -28,6 +33,8 @@ export type AccountsApi = {
   answer(route: Route, r: Answered): Verdict;
   /** Вызов кончился: ответ отдан или оборван. */
   done(route: Route): void;
+  /** Адрес прокси машины: через него идут пробы аккаунтов. Называет прокси при старте. */
+  proxied(url: string): void;
   /** Маршрут проверки ключа провайдера: без сессии. */
   keyRoute(name: string): Promise<Route>;
   /** Модели всех провайдеров флота: для «/model слова» из сообщения. doc — имя для документа сессии. */
@@ -42,6 +49,12 @@ const CONTINUE = "Продолжай";
 const HOUR_MS = 3_600_000;
 /** Короткая пауза Claude: ждём не дольше. */
 const THROTTLE_MAX_S = 60;
+/** Окна аккаунта старше этого — проба при вопросе об аккаунтах: расход на других машинах виден только в ответе Claude. */
+const FRESH_MS = 120_000;
+/** Предел пробы: ответ на account.list не ждёт дольше. */
+const PROBE_MS = READ_MS - 2_000;
+/** Кто делает вызов пробы: в строке журнала вместо позывного. */
+const PROBE = "проба";
 /** Вид обращения в «Инциденты»: токен аккаунта не принят. */
 const ACCOUNT_INCIDENT = "account";
 const WINDOW_WORD: Record<string, string> = { [WEEK]: "неделя", [FABLE]: "окно Fable", [FIVE]: "пять часов" };
@@ -62,6 +75,12 @@ export function make(): Module {
   /** «полон»: при скольких вызовах в полёте Claude отказал аккаунту */
   const full = new Map<string, number>();
   let loading: Promise<void> | null = null;
+  /** когда аккаунт последний раз назвал свои окна этой машине */
+  const seen = new Map<string, number>();
+  /** идущие пробы: id разового claude → аккаунт; на аккаунт — одна */
+  const probes = new Map<string, string>();
+  const probing = new Map<string, Promise<void>>();
+  let proxyUrl = "";
 
   const now = () => host.clock.now();
   const shelf = () => host.store<Book>();
@@ -169,6 +188,37 @@ export function make(): Module {
     return seatOf(s).update(() => ({ key, ...(window ? { window } : {}) }))!;
   }
 
+  /** Вызов уходит этим аккаунтом: он в полёте, пока не назван done. */
+  const go = (callsign: string, account: string): Route => {
+    flying.set(account, (flying.get(account) ?? 0) + 1);
+    // адрес Claude — из настройки модуля: на стенде на его месте подделка
+    return { callsign, to: host.config<{ api?: string }>().api ?? ANTHROPIC, account, token: tokens.get(account)! };
+  };
+
+  /** Проба окон аккаунта: разовый claude с ответом в одно слово через прокси машины, без инструментов и своих настроек. Одновременно на аккаунт — одна.
+   *  Модель — Fable из каталога: её ответ называет и неделю, и окно Fable. Отказ пробы — строка журнала вызова, как у любого вызова. */
+  function probe(name: string): Promise<void> {
+    const going = probing.get(name);
+    if (going) return going;
+    const run = (async () => {
+      const models = await catalog(CLAUDE);
+      const model = (models.find((m) => isFable(m.id)) ?? models[0])?.id;
+      if (!model || !proxyUrl || stopping) return;
+      const sid = randomUUID();
+      const dir = mkdtempSync(join(host.dataDir, "probe-"));
+      probes.set(sid, name);
+      try {
+        const args = ["-p", "ok", "--output-format", "json", "--no-session-persistence", "--session-id", sid, "--model", model, "--system-prompt", "Ответь одним словом: ok", "--tools", "", "--strict-mcp-config", "--setting-sources", ""];
+        await host.cli(args, { env: { ANTHROPIC_BASE_URL: proxyUrl, CLAUDE_CODE_OAUTH_TOKEN: FLEET_WORD, CLAUDE_CONFIG_DIR: dir, CLAUDE_CODE_MAX_RETRIES: "0" } });
+      } finally {
+        probes.delete(sid);
+        rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+      }
+    })().catch((e) => host.log.warn("accounts", { account: name, why: `проба окон ${name}: ${say(e)}` })).finally(() => probing.delete(name));
+    probing.set(name, run);
+    return run;
+  }
+
   /** Маршрут сессии на аккаунте Claude: привязка держится, пока аккаунт годен и кэш тёплый; иначе выбор заново. */
   function claudeRoute(s: SessionApi, skipped: Set<string>): Route {
     const t = now();
@@ -179,12 +229,7 @@ export function make(): Module {
     const hot = !!bound && warm(s, seat, t);
     // тёплая сессия своего аккаунта не пропускает, даже если он полон; новая и остывшая полный обходят
     const pick = choose(all, fable, warmBy(t, s.callsign), t, (n) => !tokens.has(n) || skipped.has(n) || (isFull(n) && !(n === bound && hot)));
-    const go = (account: string): Route => {
-      flying.set(account, (flying.get(account) ?? 0) + 1);
-      // адрес Claude — из настройки модуля: на стенде на его месте подделка
-      return { callsign: s.callsign, to: host.config<{ api?: string }>().api ?? ANTHROPIC, account, token: tokens.get(account)! };
-    };
-    if (bound && hot && pick.candidates.some((c) => c.account === bound)) return go(bound);
+    if (bound && hot && pick.candidates.some((c) => c.account === bound)) return go(s.callsign, bound);
     const to = pick.account;
     if (!to) {
       seatOf(s).update((x) => ({ ...x, cut: true, ...(pick.wait ? { wait: pick.wait } : {}) }));
@@ -197,14 +242,14 @@ export function make(): Module {
     // аккаунт сессии с тёплым кэшем полон, а окна его открыты: этот вызов уходит на соседа, привязка прежняя; у новой сессии кэша нет — она переходит
     if (bound && (s.info.warm ?? 0) > t && skipped.has(bound) && fits(all[bound], fable, t, true)) {
       routed(s, to, `${bound} полон: вызов ушёл на ${to}, привязка прежняя`, pick.candidates);
-      return go(to);
+      return go(s.callsign, to);
     }
     const reason = !bound ? (seat.account ? "прежний аккаунт выбыл" : "новая сессия") : !hot ? "кэш остыл, выбран заново" : !all[bound]!.ok ? "токен не принят" : isFull(bound) && skipped.has(bound) ? "аккаунт полон" : "лимит";
     seatOf(s).update((x) => ({ ...x, account: to, at: t, cut: undefined, wait: undefined }));
     s.sync();
     routed(s, to, `${reason}${pick.spare ? " · из запаса Fable" : ""}`, pick.candidates);
     if (seat.account && seat.account !== to) host.log.info("account.moved", { callsign: s.callsign, account: to, from: seat.account, why: `${s.callsign}: ${seat.account} → ${to} · ${reason}` });
-    return go(to);
+    return go(s.callsign, to);
   }
 
   /** Аккаунт выбыл или окно закрыто: строка журнала. */
@@ -214,6 +259,12 @@ export function make(): Module {
 
   const api: AccountsApi = {
     async route(sessionId, skip = []) {
+      // вызов пробы идёт названным аккаунтом и ни на какой другой не уходит
+      const probed = probes.get(sessionId);
+      if (probed) {
+        if (skip.includes(probed) || !tokens.has(probed)) throw new Refusal("no_account", `проба ${probed}: аккаунт отказал`);
+        return go(PROBE, probed);
+      }
       const s = sessionOf(sessionId);
       if (!s) throw new Refusal("unknown_session", `сессии ${sessionId} на ${host.machine} нет`);
       const name = s.spec.key;
@@ -230,7 +281,7 @@ export function make(): Module {
 
     answer(route, r) {
       const req = r.headers["request-id"];
-      const line = { callsign: route.callsign, path: r.path, status: r.status, ms: r.ms, hops: r.hops, ...(r.model ? { model: r.model } : {}), ...(typeof req === "string" ? { req } : {}) };
+      const line = { ...(route.callsign === PROBE ? { probe: true } : { callsign: route.callsign }), path: r.path, status: r.status, ms: r.ms, hops: r.hops, ...(r.model ? { model: r.model } : {}), ...(typeof req === "string" ? { req } : {}) };
       const name = route.account;
       if (!name) {
         host.log[r.status < 400 ? "info" : "warn"]("call", { ...line, key: route.name });
@@ -238,6 +289,7 @@ export function make(): Module {
       }
       const t = now();
       const fresh = read(r.headers, t);
+      if (Object.keys(fresh).length) seen.set(name, t);
       const was = book()[name];
       // на диск — только когда числа изменились: вызовов много, окна меняются редко
       if (was && Object.entries(fresh).some(([n, w]) => was.limits[n]?.used !== w.used || was.limits[n]?.resets !== w.resets)) mark(name, (a) => void Object.assign(a.limits, fresh));
@@ -281,6 +333,10 @@ export function make(): Module {
       flying.set(name, n);
       // вызовов стало меньше, чем при отказе, — аккаунт снова в выборе
       if (full.has(name) && n < full.get(name)!) full.delete(name);
+    },
+
+    proxied(url) {
+      proxyUrl = url;
     },
 
     async keyRoute(name) {
@@ -367,7 +423,11 @@ export function make(): Module {
     },
     requests: {
       async "account.list"() {
-        if (!tokens.size) await load().catch((e) => host.log.warn("accounts", { why: `аккаунты Claude не прочитаны: ${say(e)}` }));
+        // список аккаунтов — у службы ключей: только что добавленный виден сразу, без ожидания кадра «изменилось»
+        await load().catch((e) => host.log.warn("accounts", { why: `аккаунты Claude не прочитаны: ${say(e)}` }));
+        const stale = Object.keys(book()).filter((n) => book()[n]!.ok && tokens.has(n) && (seen.get(n) ?? 0) < now() - FRESH_MS);
+        // ответ не ждёт пробу дольше предела: её числа придут к следующему вопросу
+        await within(Promise.all(stale.map(probe)), PROBE_MS, "проба не успела").catch(() => {});
         const t = now();
         const accounts: AccountOut[] = Object.entries(book()).map(([name, a]) => ({ name, ok: a.ok, ...(a.why ? { why: a.why } : {}), limits: shown(a, t), keep: a.keep, ...(isFull(name) ? { full: true } : {}) }));
         return { accounts };
