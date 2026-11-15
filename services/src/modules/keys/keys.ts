@@ -138,15 +138,20 @@ export const keys: Module = {
       return {};
     },
 
-    /** Окна аккаунта от машины: по окну остаётся последнее по времени. Машинам об этом не рассылается: числа они берут со списком ключей. */
+    /** Окна аккаунта от машины: по окну остаётся последнее по времени. Обычные числа машинам не рассылаются — они берут их со списком ключей.
+     *  Закрытое окно открылось раньше своего часа (человек сбросил лимиты у Claude) — машины перечитывают аккаунты: сами они до этого часа его не спросят. */
     async "keys.limits"(i: { name: string; limits: Array<{ name: string; used: number; resets?: number; at: number }> }, ctx) {
       const d = db(ctx.env, ctx.fleet);
       const s = await d.first<Stored>(`${SELECT} WHERE keys.name = ?`, i.name);
       if (!s || s.provider !== CLAUDE) throw new Refusal("not_found", `аккаунта Claude ${i.name} у флота нет`);
-      if (i.limits.length) await d.batch(i.limits.map((l) => [
+      if (!i.limits.length) return {};
+      const was = await d.all<Seen>("SELECT name, win, used, resets, at FROM limits WHERE name = ?", i.name);
+      await d.batch(i.limits.map((l) => [
         "INSERT INTO limits (name, win, used, resets, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (name, win) DO UPDATE SET used = excluded.used, resets = excluded.resets, at = excluded.at WHERE excluded.at >= limits.at",
         i.name, l.name, l.used, l.resets ?? null, l.at,
       ]));
+      const reopened = i.limits.some((l) => l.used < 1 && was.some((w) => w.win === l.name && w.used >= 1 && l.at >= w.at && (w.resets ?? 0) > l.at));
+      if (reopened) await told(ctx);
       return {};
     },
 
