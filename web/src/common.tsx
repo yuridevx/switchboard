@@ -93,7 +93,7 @@ export function useLabels(): { of(addr: string): string | undefined; name(addr: 
 }
 const NO_LABELS: Record<string, string> = {};
 /** Правка документа сессии вступит в силу после идущего хода. */
-export const AfterTurn = ({ on }: { on: boolean }) => (on ? <span className="after-turn">после хода</span> : null);
+export const AfterTurn = ({ on, brief }: { on: boolean; /** в ряду значков — точкой, слово в подсказке */ brief?: boolean }) => (!on ? null : brief ? <span className="after-turn brief" role="img" aria-label="после хода" title="после хода" /> : <span className="after-turn">после хода</span>);
 /** Имя машины для людей; нет — её имя во флоте. */
 export const useMachineName = () => {
   const labels = useLabels();
@@ -147,7 +147,7 @@ export class Boundary extends Component<{ name: string; children: ReactNode }, {
 
 /** Состояние оболочки. */
 type Ui = { inspector: boolean; set(p: Partial<Ui>): void };
-export const useUi = create<Ui>((set) => ({ inspector: true, set: (p) => set(p) }));
+export const useUi = create<Ui>((set) => ({ inspector: false, set: (p) => set(p) }));
 
 const WIDE = "(min-width: 861px)";
 export const useWide = (): boolean => useMediaQuery(WIDE, typeof window !== "undefined" && window.matchMedia(WIDE).matches, { getInitialValueInEffect: false }) ?? true;

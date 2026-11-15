@@ -59,20 +59,27 @@
 .rule span { overflow-wrap: anywhere; }
 .tree-mark { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
-/* ряд под полем ввода: одна строка — значения документа сессии через точку, действия значками справа; на телефоне строка прокручивается вбок */
-.composer-opts { display: flex; align-items: center; gap: 10px; margin: 4px 0 0 44px; font-size: 12.5px; min-height: 28px; min-width: 0; }
-.docvals { display: flex; align-items: center; min-width: 64px; flex: 1 1 auto; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
-.docvals::-webkit-scrollbar { display: none; }
-.docval { border: 0; background: none; padding: 4px 0; font: inherit; color: var(--muted); cursor: pointer; white-space: nowrap; text-decoration: none; flex: none; }
-.docval.still { cursor: default; }
-.docval:not(.still):hover, .docval:focus-visible { color: var(--mantine-color-text); }
-.docvals > .docval + .docval::before { content: "·"; margin: 0 7px; color: var(--muted); }
-.docval.take { flex: none; }
+/* ряд под полем ввода: значения документа сессии значками слева, действия значками справа.
+   Ничего не обрезается и не прокручивается: в узкой колонке значения переходят в краткий вид, а действия — на вторую строку. */
+.composer-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; margin: 4px 0 0 44px; font-size: 12.5px; min-height: 28px; min-width: 0; }
+/* значения занимают не меньше своих несжимаемых частей: не помещаются вместе с действиями — действия уходят на вторую строку */
+.docvals { display: flex; align-items: center; gap: 2px; flex: 1 1 0; min-width: min-content; }
+.docval { display: inline-flex; align-items: center; gap: 5px; flex: none; min-height: 28px; max-width: 100%; border: 0; background: none; padding: 4px 6px; border-radius: 6px; font: inherit; color: var(--muted); cursor: pointer; white-space: nowrap; text-decoration: none; }
+.docval:hover, .docval:focus-visible, .docval[aria-expanded="true"] { background: var(--surface-2); color: var(--mantine-color-text); }
+.docval svg { flex: none; }
+.docval .word, .docval .mp-word { overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+/* в ряду шириной от 600 сжимается только одно — имена кусочков */
+.docval:has(> .w.word) { width: 30px; flex: 1 1 30px; min-width: 30px; max-width: max-content; }
+.docval > .w.word { max-width: 220px; min-width: 0; }
+.docval .n { display: none; font-variant-numeric: tabular-nums; }
+.effort rect { fill: var(--line); }
+.effort rect.on { fill: currentColor; }
+.menu-face { display: inline-flex; align-items: center; gap: 8px; }
+.after-turn.brief { width: 6px; height: 6px; border-radius: 50%; background: var(--st-waiting); flex: none; }
 .docacts { display: flex; align-items: center; gap: 2px; flex: none; margin-left: auto; }
-.docacts .far { margin-left: 14px; }
+.docacts .far { margin-left: 10px; }
 @media (max-width: 860px) {
   .composer-opts { margin-left: 0; }
-  .docval { padding-block: 8px; }
   .docacts > * { min-width: 32px; min-height: 32px; }
 }
 
@@ -177,13 +184,10 @@ button.todos.folded:focus-visible { outline: 2px solid var(--st-busy); outline-o
 .pm-t b { font-weight: 600; }
 .pm-t > span { font-size: 12.5px; }
 
-/* действия под полем ввода: все значки в одном ряду; кольцо занятости контекста сжимает разговор */
+/* действия под полем ввода: все значки в одном ряду */
 .docacts .mantine-ActionIcon-root { min-width: 28px; min-height: 28px; }
-@media (max-width: 860px) { .docacts .mantine-ActionIcon-root, .docacts .ctxring { min-width: 32px; min-height: 32px; } }
-/* час кэша в ряду действий; на телефоне — одно кольцо: минуты называет подсказка */
-@media (max-width: 860px) { .docacts .cacheclock { justify-content: center; padding: 4px; min-width: 32px; min-height: 32px; } .docacts .cacheclock > span { display: none; } }
-/* на телефоне посреди хода часов нет: ряд занят выбором «когда взять сообщение», а кэш во время хода тёплый */
-@media (max-width: 860px) { .composer-opts:has(> .take) .cacheclock { display: none; } }
+@media (max-width: 860px) { .docacts .mantine-ActionIcon-root { min-width: 32px; min-height: 32px; } }
+/* кольцо занятости контекста сжимает разговор */
 .ctxring { display: inline-flex; align-items: center; gap: 5px; flex: none; border: 0; background: none; padding: 4px 6px; border-radius: 6px; font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); cursor: pointer; min-height: 28px; white-space: nowrap; }
 .ctxring:hover:not(:disabled), .ctxring:focus-visible { background: var(--surface-2); color: var(--mantine-color-text); }
 .ctxring:disabled { cursor: default; }
@@ -199,10 +203,19 @@ button.todos.folded:focus-visible { outline: 2px solid var(--st-busy); outline-o
 .runs-head svg, .runs-head > span:first-of-type { flex: none; }
 .runs-head + .run-row { border-top: 1px solid var(--line); }
 
-/* низ разговора в узкой колонке (вид «обе», узкое окно): значения прокручиваются вбок, значки не переносятся, лишние колонки строк уходят */
+/* низ разговора в узкой колонке (вид «обе», узкое окно, телефон): значения — в кратком виде, действия — второй строкой, лишние колонки строк уходят */
 .dock-in { container: dock / inline-size; }
 @container dock (max-width: 640px) { .run-n.steps { display: none; } }
 @container dock (max-width: 480px) { .run-main > .run-now { display: none; } }
+@container dock (max-width: 600px) {
+  .docvals { flex: 0 0 auto; }
+  .docval, .ctxring, .cacheclock { padding-inline: 4px; }
+  .docval:has(> .w.word) { width: auto; flex: none; max-width: none; }
+  /* провайдер модели остаётся и в узком ряду: по нему видно, чья это модель */
+  .docval .w, .cacheclock .w { display: none; }
+  .docval .n { display: inline; }
+  .docval .mp-word { max-width: 96px; }
+}
 @container dock (max-width: 560px) {
   .composer-opts { margin-left: 0; }
   .run-main .toolchip { width: auto; max-width: 96px; }

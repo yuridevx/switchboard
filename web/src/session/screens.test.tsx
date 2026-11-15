@@ -109,14 +109,14 @@ describe("ввод", () => {
     fireEvent.keyDown(again, { key: "Enter" });
     await waitFor(() => expect(talk.aside).toHaveBeenCalledWith("а ссылки проверены?"));
   });
-  it("подсказка следующего сообщения берётся кликом; у занятой сессии — срочность и «Прервать»", () => {
+  it("подсказка следующего сообщения берётся кликом; у занятой сессии — две кнопки отправки и «Прервать ход»", () => {
     const { unmount } = page(<Composer s={session()} talk={fake()} hint="Покажи, что изменилось" />);
     fireEvent.click(screen.getByText("Покажи, что изменилось"));
     expect((screen.getByLabelText("Сообщение сессии") as HTMLTextAreaElement).value).toBe("Покажи, что изменилось");
     unmount();
     page(<Composer s={mock.state.sessions["site@laptop"]} talk={fake()} />);
-    expect(screen.getByLabelText("Когда взять сообщение")).toBeTruthy();
-    expect(screen.getAllByText("Прервать").length).toBeGreaterThan(0);
+    for (const name of ["Отправить следующим", "Отправить сейчас", "Прервать ход"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+    expect(screen.queryByLabelText("Когда взять сообщение")).toBeNull();
   });
 });
 
@@ -128,7 +128,8 @@ describe("разговор на моке", () => {
     const box = screen.getByLabelText("Сообщение сессии");
     fireEvent.change(box, { target: { value: "И подвал тоже" } });
     fireEvent.keyDown(box, { key: "Enter" });
-    await waitFor(() => expect(screen.getByText(/в очереди, уйдёт после хода/)).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("в очереди").length).toBeGreaterThan(0));
+    expect(screen.queryByText(/после хода/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
     await waitFor(() => expect(screen.getByText(/снято с очереди/)).toBeTruthy());
   });

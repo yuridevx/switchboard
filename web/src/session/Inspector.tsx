@@ -8,12 +8,11 @@ import { Link } from "react-router";
 import { act, api, sayError } from "../api.ts";
 import { CONTEXT_PARTS, STATUS_LABELS } from "../chat/words.ts";
 import type { View } from "../chat/fold.ts";
-import { AfterTurn, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels, useWide } from "../common.tsx";
+import { AfterTurn, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels } from "../common.tsx";
 import { Sortable } from "../lib/Sortable.tsx";
 import { ago, bytesWord, count, day, hhmm, kilo, nPoints, nTurns } from "../lib/time.ts";
 import { DeleteTyped } from "../lib/DeleteTyped.tsx";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
-import { DocFields } from "./DocFields.tsx";
 import { patchDoc, useLater } from "./doc.ts";
 
 type Any = Record<string, any>;
@@ -55,13 +54,11 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
   const machine = machineOfCall(s.callsign);
   const people = useCall(peopleList, {});
   const off = useFleet((f) => f.machines[machine]?.online === false);
-  const wide = useWide();
   const later = useLater(s);
   const labels = useLabels();
   const qc = useQueryClient();
   return (
     <Stack gap="sm" p="md">
-      {!wide && !off && <DocFields s={s} />}
       <Field label="Заголовок" disabled={off} value={s.spec.title ?? ""} placeholder={s.title} onSave={(title) => patchDoc(s, { title })} />
       <Field label="Папка" mono disabled={off} value={s.spec.cwd} note={<AfterTurn on={later.includes("cwd")} />} onSave={(cwd) => patchDoc(s, { cwd })} />
       <Select label="Проект" clearable disabled={off} data={(people.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={s.spec.project ?? null} onChange={(v) => patchDoc(s, { project: v ?? undefined })} />

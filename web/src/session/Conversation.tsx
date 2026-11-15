@@ -4,14 +4,14 @@ import { prefsSet, sessionCall, sessionRemove, sessionRewind, sessionStart, sess
 import { ActionIcon, Button, Checkbox, Group, Loader, Menu, SegmentedControl, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { useSplit } from "../lib/Split.tsx";
 import { Page } from "../shell/Page.tsx";
-import { IconArrowDown, IconArrowLeft, IconCheck, IconDots, IconEraser, IconFocus2, IconLayoutSidebarRight, IconPlayerPlay, IconUserMinus, IconUserPlus } from "@tabler/icons-react";
+import { IconArrowDown, IconArrowLeft, IconDots, IconEraser, IconFocus2, IconHandStop, IconLayoutSidebarRight, IconListCheck, IconLockOpen, IconPencilCheck, IconPlayerPlay, IconPuzzle, IconRobot, IconUserMinus, IconUserPlus } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { act } from "../api.ts";
 import { useLocal } from "../lib/local.ts";
 import { exportMd, focused } from "../chat/focus.ts";
-import { AfterTurn, confirmDanger, Failed, Lamp, MODES, personWord, STATE_WORD, useCall, useLabels, useMachineName, useMyPrefs, useUi, useWide } from "../common.tsx";
+import { AfterTurn, confirmDanger, EFFORTS, Failed, Lamp, MODES, STATE_WORD, useCall, useLabels, useMyPrefs, useUi, useWide } from "../common.tsx";
 import { day, hhmm } from "../lib/time.ts";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { AskCard } from "./Ask.tsx";
@@ -26,48 +26,62 @@ import { type Talk, useMarkRead, useTalk } from "./talk.ts";
 
 const isLive = (s: SessionRow) => s.state !== "stopped" && s.state !== "failed";
 
-/** Значение документа сессии в ряду под полем ввода: само значение без слова-ярлыка, ярлык — в подсказке и в меню; замена — один запрос session.update. */
-function Chip({ label, value, word, options, later, onPick, render }: { label: string; value?: string; word?: string; options: ReadonlyArray<readonly [string, string]>; later?: boolean; onPick: (v: string) => void; /** свой вид значения и вариантов; нет — словом */ render?: (v: string) => React.ReactNode }) {
+/** Значение документа сессии в ряду под полем ввода: лицо — значок, полоски или короткое слово; что это и чему равно — в подсказке и в меню; замена — один запрос session.update. */
+function Chip({ label, word, value, options, later, onPick, face, item, loud }: { label: string; /** значение словом — для подсказки */ word: string; value?: string; options: ReadonlyArray<readonly [string, string]>; later?: boolean; onPick: (v: string) => void; face: React.ReactNode; /** свой вид варианта в меню; нет — словом */ item?: (v: string) => React.ReactNode; /** значение не обычное — лицо цветом */ loud?: boolean }) {
   return (
     <Menu position="top-start" withinPortal>
       <Menu.Target>
-        <button type="button" className="docval" aria-label={label} title={label}>{(value && render?.(value)) ?? word ?? options.find(([v]) => v === value)?.[1] ?? value}<AfterTurn on={!!later} /></button>
+        <button type="button" className={`docval${loud ? " loud" : ""}`} aria-label={label} title={`${label}: ${word}`}>{face}<AfterTurn on={!!later} brief /></button>
       </Menu.Target>
       <Menu.Dropdown>
         <Menu.Label>{label}</Menu.Label>
-        {options.map(([v, w]) => <Menu.Item key={v} onClick={() => onPick(v)} fw={v === value ? 700 : undefined}>{render?.(v) ?? w}</Menu.Item>)}
+        {options.map(([v, w]) => <Menu.Item key={v} onClick={() => onPick(v)} fw={v === value ? 700 : undefined}>{item?.(v) ?? w}</Menu.Item>)}
       </Menu.Dropdown>
     </Menu>
   );
 }
 
-/** Что стоит в шапке разговора: человек выбирает сам, выбор помнит устройство. */
-export const HEAD_PARTS = [["model", "Модель"], ["effort", "Усилие"], ["pieces", "Кусочки"], ["machine", "Машина"], ["owner", "Владелец"]] as const;
-export const HEAD_DEFAULT: string[] = ["model", "effort", "pieces"];
-const HEAD_KEY = "head.parts";
-/** Переключить часть шапки: порядок частей — всегда как в списке. */
-export const toggleHeadPart = (parts: string[], id: string): string[] => (parts.includes(id) ? parts.filter((p) => p !== id) : HEAD_PARTS.map(([p]) => p as string).filter((p) => p === id || parts.includes(p)));
+const MODE_ICON = { all: IconLockOpen, ask: IconHandStop, plan: IconListCheck, edits: IconPencilCheck, auto: IconRobot } as const;
 
-/** Значения документа сессии одной строкой: режим · модель · усилие · кусочки. Аккаунта здесь нет: его выбирает машина.
+/** Усилие ступеньками: сколько закрашено — такое усилие; ни одной — как у модели. Ступенек столько, сколько усилий бывает. */
+function EffortBars({ level }: { level: number }) {
+  const w = EFFORTS.length * 4 - 1;
+  return (
+    <svg className="effort" width={w} height="12" viewBox={`0 0 ${w} 12`} aria-hidden="true">
+      {EFFORTS.map((_, i) => <rect key={i} x={i * 4} y={9 - i * 2} width="3" height={3 + i * 2} rx="1" className={i < level ? "on" : undefined} />)}
+    </svg>
+  );
+}
+
+/** Значения документа сессии одной строкой значков: режим, модель, усилие, кусочки, контекст, час кэша. Аккаунта здесь нет: его выбирает машина.
  *  ask — «/model слова» из поля ввода: список моделей открывается с этим поиском. */
 function DocValues({ s, ask }: { s: SessionRow; ask?: { n: number; q: string } }) {
   const [piecesOpen, setPiecesOpen] = useState(false);
   const d = useDoc(s);
   const offerWord = useModelWord();
   const picked = s.spec.pieces ?? [];
-  const [parts] = useLocal<string[]>(HEAD_KEY, HEAD_DEFAULT);
-  const machineName = useMachineName();
-  const on = (p: string) => parts.includes(p);
+  const mode = (s.spec.mode ?? "all") as keyof typeof MODE_ICON;
+  const modeWord = MODES.find(([m]) => m === mode)![1];
+  const ModeIcon = MODE_ICON[mode];
+  const effort = EFFORTS.findIndex(([e]) => e === s.spec.effort) + 1;
+  const piecesWord = picked.length ? picked.map(d.title).join(" + ") : "нет";
+  const live = isLive(s);
   return (
     <div className="docvals" role="group" aria-label="Документ сессии">
-      <Chip label="Режим" value={s.spec.mode ?? "all"} options={MODES} onPick={(mode) => patchDoc(s, { mode: mode as never })} />
-      {(on("model") || s.answers || ask) && <ModelPicker value={s.spec} loud={!!s.answers} ask={ask} onPick={(o) => pickModel(s, o)}
-        title={s.answers ? `Модель: выбрана ${offerWord(s.spec.model)}, отвечает ${offerWord(s.answers)}` : "Модель"}
-        face={<><ModelFace s={s} /><AfterTurn on={d.later.includes("model") || d.later.includes("key")} /></>} />}
-      {on("effort") && <Chip label="Усилие" value={s.spec.effort} word={s.spec.effort ? undefined : "усилие модели"} options={d.efforts} later={d.later.includes("effort")} onPick={(effort) => patchDoc(s, { effort: effort as never })} />}
-      {on("pieces") && <button type="button" className="docval" aria-label="Кусочки" title="Кусочки" onClick={() => setPiecesOpen(true)}>{picked.length ? picked.map(d.title).join(" + ") : "без кусочков"}<AfterTurn on={d.later.includes("pieces")} /></button>}
-      {on("machine") && <Link className="docval" to={`/machine/${machineOfCall(s.callsign)}`} title="Машина">{machineName(machineOfCall(s.callsign))}</Link>}
-      {on("owner") && <span className="docval still" title="Открыл">{personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</span>}
+      <Chip label="Режим" word={modeWord} value={mode} options={MODES} loud={mode !== "all"} onPick={(m) => patchDoc(s, { mode: m as never })}
+        face={<><ModeIcon size={15} />{mode !== "all" && <span className="w">{modeWord}</span>}</>}
+        item={(v) => { const I = MODE_ICON[v as keyof typeof MODE_ICON]; return <span className="menu-face"><I size={15} />{MODES.find(([m]) => m === v)![1]}</span>; }} />
+      <ModelPicker value={s.spec} loud={!!s.answers} ask={ask} onPick={(o) => pickModel(s, o)}
+        title={s.answers ? `Модель: выбрана ${offerWord(s.spec.model)}, отвечает ${offerWord(s.answers)}` : `Модель: ${offerWord(s.spec.model)}`}
+        face={<><ModelFace s={s} /><AfterTurn on={d.later.includes("model") || d.later.includes("key")} brief /></>} />
+      <Chip label="Усилие" word={effort ? EFFORTS[effort - 1]![1] : "как у модели"} value={s.spec.effort} options={d.efforts} later={d.later.includes("effort")} onPick={(e) => patchDoc(s, { effort: e as never })}
+        face={<EffortBars level={effort} />}
+        item={(v) => <span className="menu-face"><EffortBars level={EFFORTS.findIndex(([e]) => e === v) + 1} />{EFFORTS.find(([e]) => e === v)![1]}</span>} />
+      <button type="button" className="docval" aria-label="Кусочки" title={`Кусочки: ${piecesWord}`} onClick={() => setPiecesOpen(true)}>
+        <IconPuzzle size={15} />{picked.length > 0 && <><span className="w word">{piecesWord}</span><span className="n">{picked.length}</span></>}<AfterTurn on={d.later.includes("pieces")} brief />
+      </button>
+      {live && <CtxRing s={s} />}
+      {live && <CacheClock s={s} />}
       <Page name="pieces" opened={piecesOpen} onClose={() => setPiecesOpen(false)} title={`Кусочки ${s.callsign}`}>
         <Stack gap="sm">
           {d.pieces.map((p) => (
@@ -126,7 +140,7 @@ function CacheClock({ s }: { s: SessionRow }) {
           {warm && <circle cx="9" cy="9" r={r} className="arc" strokeDasharray={`${c * Math.min(1, left / CACHE_HOUR)} ${c}`} transform="rotate(-90 9 9)" />}
           {compact && <line className="notch" x1={9 + (r - 3) * Math.cos(a)} y1={9 + (r - 3) * Math.sin(a)} x2={9 + (r + 2) * Math.cos(a)} y2={9 + (r + 2) * Math.sin(a)} />}
         </svg>
-        {warm && <span>{Math.ceil(left / 60_000)}</span>}
+        {warm && <span className="w">{Math.ceil(left / 60_000)}</span>}
       </span>
     </Tooltip>
   );
@@ -140,20 +154,16 @@ function save(name: string, text: string) {
   URL.revokeObjectURL(a.href);
 }
 
-/** Все действия над разговором — в одном месте, значками в ряду под полем ввода: фокус, час кэша, контекст, ведомый, инспектор, «ещё», очистить. */
+/** Все действия над разговором — в одном месте, значками в ряду под полем ввода: фокус, ведомый, инспектор, «ещё», очистить. */
 function DocActs({ s, talk, offline, focus, onFocus, insp, onInsp }: { s: SessionRow; talk: Talk; offline: boolean; focus: boolean; onFocus(): void; /** инспектор этой сессии открыт */ insp: boolean; onInsp(): void }) {
   const prefs = useMyPrefs();
-  const wide = useWide();
   const pins = (prefs.values.pins as string[] | undefined) ?? [];
   const pinned = pins.includes(s.callsign);
-  const [parts, setParts] = useLocal<string[]>(HEAD_KEY, HEAD_DEFAULT);
   const live = isLive(s) && !offline;
   const midTurn = s.state === "busy" || s.state === "waiting";
   return (
     <div className="docacts" role="group" aria-label="Действия">
       <Tooltip label={focus ? "Вся лента" : "Фокус: только итоги ходов"}><ActionIcon variant={focus ? "light" : "subtle"} color="gray" size="md" aria-label="Фокус" aria-pressed={focus} onClick={onFocus}><IconFocus2 size={16} /></ActionIcon></Tooltip>
-      {live && <CacheClock s={s} />}
-      {live && <CtxRing s={s} />}
       {live && !s.spec.wing && !s.lead && <Tooltip label="Открыть ведомого"><ActionIcon variant="subtle" color="gray" size="md" aria-label="Открыть ведомого" onClick={() => act(sessionUpdate, { to: s.callsign, patch: {}, pair: true })}><IconUserPlus size={16} /></ActionIcon></Tooltip>}
       {live && s.spec.wing && <Tooltip label="Убрать ведомого"><ActionIcon variant="subtle" color="gray" size="md" aria-label="Убрать ведомого" onClick={() => confirmDanger({ title: `Убрать ведомого ${s.spec.wing}?`, body: `${s.spec.wing} перестанет получать задачи от ${s.callsign}, и его сессия будет убрана с машины. Точки в архиве останутся.`, confirm: "Убрать ведомого", onConfirm: () => void patchDoc(s, { wing: null }) })}><IconUserMinus size={16} /></ActionIcon></Tooltip>}
       <Tooltip label="Инспектор (I)"><ActionIcon variant={insp ? "light" : "subtle"} color="gray" size="md" aria-label="Инспектор" aria-pressed={insp} onClick={onInsp}><IconLayoutSidebarRight size={16} /></ActionIcon></Tooltip>
@@ -161,16 +171,6 @@ function DocActs({ s, talk, offline, focus, onFocus, insp, onInsp }: { s: Sessio
         <Menu.Target><ActionIcon variant="subtle" color="gray" size="md" aria-label="Ещё"><IconDots size={16} /></ActionIcon></Menu.Target>
         <Menu.Dropdown>
           <Menu.Item onClick={() => prefs.save("pins", pinned ? pins.filter((p) => p !== s.callsign) : [...pins, s.callsign])}>{pinned ? "Открепить" : "Закрепить"}</Menu.Item>
-          {wide && (
-            <Menu.Sub>
-              <Menu.Sub.Target><Menu.Sub.Item>Поля под вводом</Menu.Sub.Item></Menu.Sub.Target>
-              <Menu.Sub.Dropdown>
-                {HEAD_PARTS.map(([id, word]) => <Menu.Item key={id} closeMenuOnClick={false} leftSection={parts.includes(id) ? <IconCheck size={14} /> : <span style={{ width: 14, display: "inline-block" }} />} onClick={() => setParts(toggleHeadPart(parts, id))}>{word}</Menu.Item>)}
-                <Menu.Divider />
-                <Menu.Item onClick={() => setParts(HEAD_DEFAULT)}>Вернуть</Menu.Item>
-              </Menu.Sub.Dropdown>
-            </Menu.Sub>
-          )}
           <Menu.Item onClick={() => save(`${s.callsign}.md`, exportMd(s.callsign, talk.view))}>Выгрузить разговор в Markdown</Menu.Item>
           {live && <Menu.Item onClick={() => act(sessionStop, { to: s.callsign })}>Остановить сессию</Menu.Item>}
           <Menu.Item color="red" disabled={offline} onClick={() => confirmDanger({

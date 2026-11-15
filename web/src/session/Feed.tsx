@@ -274,7 +274,7 @@ function Reply({ parts, view }: { parts: Part[]; view: View }) {
   );
 }
 
-const ME_NOTE: Partial<Record<MeState, string>> = { sending: "уходит…", queued: "в очереди, уйдёт после хода", taken: "доставлено", cancelled: "снято с очереди", lost: "не ушло" };
+const ME_NOTE: Partial<Record<MeState, string>> = { sending: "уходит…", queued: "в очереди", taken: "доставлено", cancelled: "снято с очереди", lost: "не ушло" };
 
 function Mine({ r }: { r: Extract<Row, { k: "me" }> }) {
   const env = useContext(Env);

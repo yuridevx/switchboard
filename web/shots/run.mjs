@@ -19,6 +19,8 @@ const server = await preview({ root: web, preview: { port, strictPort: true }, b
 const base = `http://localhost:${port}/?still`;
 
 const click = (text) => async (p) => void (await p.getByText(text, { exact: true }).first().click());
+/** Вкладка панели сессии: панель после загрузки закрыта — её открывает кнопка ряда под полем ввода. */
+const tab = (text) => async (p) => { await p.getByRole("button", { name: "Инспектор" }).first().click(); await p.getByText(text, { exact: true }).first().click(); };
 const key = (k) => async (p) => void (await p.keyboard.press(k));
 
 /** имя, путь, действия после загрузки, только широкий или только узкий */
@@ -42,15 +44,15 @@ const SHOTS = [
   ["session-pair-phone", "/work/lead@laptop", async (p) => void (await p.getByRole("radiogroup", { name: "Кого показать" }).getByText("▸ ведомый", { exact: true }).click()), "narrow"],
   ["session-head-parts", "/work/site@laptop", async (p) => { await p.getByLabel("Ещё").first().click(); await p.getByText("Шапка", { exact: true }).hover(); await p.getByRole("menuitem", { name: "Машина" }).click(); }, "wide"],
   ["session-name", "/work/site@laptop", async (p) => void (await p.getByTitle("Назвать сессию").first().click()), "wide"],
-  ["session-inspector-context", "/work/site@laptop", click("Контекст"), "wide"],
-  ["session-inspector-points", "/work/site@laptop", click("Точки"), "wide"],
+  ["session-inspector-context", "/work/site@laptop", tab("Контекст"), "wide"],
+  ["session-inspector-points", "/work/site@laptop", tab("Точки"), "wide"],
   ["session-model-menu", "/work/site@laptop", async (p) => void (await p.getByLabel("Модель").first().click()), "wide"],
   ["session-sheet", "/work/site@laptop", async (p) => void (await p.getByLabel("Инспектор").first().click()), "narrow"],
   ["session-offline", "/work/crawler@base2"],
   ["session-queued", "/work/site@laptop", async (p) => { const box = p.getByLabel("Сообщение сессии"); await box.fill("И подвал тоже проверь на 390"); await box.press("Enter"); }],
   ["session-focus", "/work/site@laptop", async (p) => { await p.getByLabel("Ещё").first().click(); await p.getByText("Фокус: только итоги ходов").click(); }, "wide"],
   ["session-background", "/work/ingest@server", async (p) => void (await p.getByText("Вывод", { exact: true }).first().click())],
-  ["session-inspector-files", "/work/site@laptop", click("Файлы"), "wide"],
+  ["session-inspector-files", "/work/site@laptop", tab("Файлы"), "wide"],
   ["session-inspector-log", "/work/hotfix@laptop", click("Почему"), "wide"],
   ["session-deny", "/work/deploy@server", async (p) => void (await p.locator(".askcard:not(.inline)").getByText("Отклонить", { exact: true }).click())],
   ["session-commands", "/work/docs@laptop", async (p) => void (await p.getByLabel("Сообщение сессии").fill("/"))],

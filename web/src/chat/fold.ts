@@ -236,7 +236,7 @@ function text(v: View, m: Msg, body: string, pics: string[]) {
     const mode = m.origin.fromMode;
     return push(v, { k: "in", uuid: m.uuid, via: "session", from: m.origin.name ?? m.origin.from ?? "", ...(mode && mode !== "default" ? { tag: mode } : {}), text: body, at: timeOf(m) });
   }
-  // сообщение в очереди ждёт конца идущего хода: прошлый ход им не закрывается
+  // сообщение в очереди ждёт, пока его возьмёт ход: прошлый ход им не закрывается
   const known = typeof m.uuid === "string" ? v.status[m.uuid] : undefined;
   const state: MeState | undefined = known ?? (m._local ? ((m._state as MeState | undefined) ?? (m._queued ? "queued" : "sent")) : undefined);
   if (state !== "queued" && state !== "cancelled") closeTurn(v);
