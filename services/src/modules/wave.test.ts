@@ -176,6 +176,25 @@ describe("ключи флота: свойства и сессии", () => {
     expect(await s.ask("keys.limits", { name: "нет@example.com", limits: [] }, "klaptop")).toMatchObject({ ok: false, error: "not_found" });
   });
 
+  // чьё: слово пользователя 16 нояб. — «я использовал ресет лимитов, а панель его не схватила»: остальные машины сами закрытый аккаунт до его часа не спросят
+  it("закрытое окно открылось раньше своего часа — машинам уходит «ключи изменились»; обычные числа и сброс в свой час не рассылаются", async () => {
+    const s = stand();
+    await s.ask("keys.set", { name: "a@example.com", protocol: "claude", value: "sk-ant-oat01-good" });
+    const T = 1_794_700_000_000, HOUR = 3_600_000;
+    const told = () => s.seen.broadcasts.filter((b) => b.frame.what === "keys").length;
+    const base = told();
+    await s.ask("keys.limits", { name: "a@example.com", limits: [{ name: "seven_day", used: 0.4, resets: T + 40 * HOUR, at: T }] }, "klaptop");
+    await s.ask("keys.limits", { name: "a@example.com", limits: [{ name: "seven_day", used: 1, resets: T + 40 * HOUR, at: T + 1000 }] }, "klaptop");
+    expect(told()).toBe(base);
+    // сброс руками: до часа сброса ещё 39 часов, а окно почти пусто
+    await s.ask("keys.limits", { name: "a@example.com", limits: [{ name: "seven_day", used: 0.02, resets: T + 168 * HOUR, at: T + HOUR }] }, "klaptop");
+    expect(told()).toBe(base + 1);
+    // окно закрылось и открылось в свой час — машины знают этот час сами
+    await s.ask("keys.limits", { name: "a@example.com", limits: [{ name: "seven_day", used: 1, resets: T + 168 * HOUR, at: T + 2 * HOUR }] }, "klaptop");
+    await s.ask("keys.limits", { name: "a@example.com", limits: [{ name: "seven_day", used: 0.01, resets: T + 336 * HOUR, at: T + 169 * HOUR }] }, "klaptop");
+    expect(told()).toBe(base + 1);
+  });
+
   it("настройки и окружение хранятся с ключом и отдаются машине; значение при правке свойств не нужно; модели, соответствия имён и окна у ключа нет", async () => {
     const s = stand();
     await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-orca-9999", base: "https://api.orca.example", model: "orca/flash", models: { "claude-fable-5-2": "orca/flash" }, window: 128000 });
