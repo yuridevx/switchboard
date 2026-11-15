@@ -29,9 +29,22 @@ describe("свёртка разговора", () => {
     expect(task.result?.text).toMatch(/три файла/);
     expect(v.rows.filter((r) => r.k === "me").length).toBe(1);
   });
-  it("сообщение от другой сессии — строка с отправителем", () => {
-    const v = fold([{ type: "user", uuid: "u1", message: { role: "user", content: '<fleet-message from="lead@laptop">\nНайди вызовы\n</fleet-message>' } }]);
-    expect(v.rows[0]).toMatchObject({ k: "in", from: "lead@laptop", text: "Найди вызовы" });
+  it("входящее от флота — строка с отправителем и видом из поля peer; тег страница не разбирает", () => {
+    const say = (uuid: string, content: string, peer?: object) => ({ type: "user", uuid, message: { role: "user", content }, ...(peer ? { peer } : {}) });
+    const v = fold([
+      say("u1", '<fleet from="lead@laptop" kind="task">\nНайди вызовы\n</fleet>', { from: "lead@laptop", kind: "task", text: "Найди вызовы" }),
+      say("u2", '<fleet from="wing@laptop" kind="question" ask="q7">\nКакую ветку брать?\n</fleet>', { from: "wing@laptop", kind: "question", text: "Какую ветку брать?", ask: "q7" }),
+      say("u3", '<fleet from="@laptop" kind="incident" incident="disk" key="c:">\nДиск занят на 91%\n</fleet>', { from: "@laptop", kind: "incident", text: "Диск занят на 91%", incident: "disk", key: "c:" }),
+    ]);
+    expect(v.rows[0]).toMatchObject({ k: "in", via: "session", from: "lead@laptop", kind: "task", text: "Найди вызовы" });
+    expect(v.rows[1]).toMatchObject({ k: "in", from: "wing@laptop", kind: "question", ref: "q7", text: "Какую ветку брать?" });
+    expect(v.rows[2]).toMatchObject({ k: "in", via: "service", from: "@laptop", kind: "incident", ref: "disk · c:" });
+  });
+  // прежние теги из кода ушли целиком: старая запись разговора без поля peer показывается текстом, как есть
+  it("запись прежней системы с тегом и без peer — обычный текст", () => {
+    const old = '<fleet-message from="lead@laptop">\nНайди вызовы\n</fleet-message>';
+    const v = fold([{ type: "user", uuid: "u1", message: { role: "user", content: old } }]);
+    expect(v.rows[0]).toMatchObject({ k: "me", text: old });
   });
   it("история итогов хода не хранит: новый ввод после ответа закрывает прошлый ход строкой «ход закончен»", () => {
     const say = (uuid: string, text: string, extra = {}) => ({ type: "user", uuid, message: { role: "user", content: text }, ...extra });

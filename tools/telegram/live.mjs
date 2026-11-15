@@ -20,7 +20,7 @@ const reactionOf = async (c, peer, id) => {
   const [m] = await c.getMessages(peer, { ids: [id] });
   return m?.reactions?.results?.map((x) => x.reaction?.emoticon).join("") ?? "";
 };
-const rowOf = async (callsign) => must(await call("fleet.list"), "fleet.list").sessions.find((s) => s.callsign === callsign);
+const rowOf = async (callsign) => must(await call("fleet.list", { full: true }), "fleet.list").sessions.find((s) => s.callsign === callsign);
 const waitRow = async (callsign, test, ms = 90_000) => {
   const until = Date.now() + ms;
   while (Date.now() < until) {

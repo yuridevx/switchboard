@@ -2,7 +2,7 @@
 import {
   type Account, type ArchPoint, type ArchSession, type Ask, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type Link, type LogRow, type MachineRow,
   type ObsRow, type PassRow, type PersonRow, type Piece, type Project, type Reply, type SessionRow, type Span, type Transport, fail, machineOf, newId, ok, Refusal,
-  catalogModel, CLAUDE,
+  catalogModel, CLAUDE, kindOf, type Kind,
 } from "@sb/protocol";
 import { iter2Handlers } from "./iter2.ts";
 import { iter4Handlers } from "./iter4.ts";
@@ -10,6 +10,10 @@ import { screenHandlers } from "./screens.ts";
 import { done, type Ev, got, liveSteps, peer, reply, researchTurn, say, shortTurn, siteTurn, text, uid, use } from "./convo.ts";
 
 const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
+/** Окно модели, пока каталог провайдера его не назвал. */
+const WINDOW = 200_000;
+/** Занятое в контексте в строке сессии: доля окна модели → токены по последнему ответу. */
+const filled = (share: number, until = 0, window = WINDOW) => ({ until, size: Math.round(share * window) });
 const ME = "~yuri@example.com", ANYA = "~anya@example.com", OLEG = "~oleg@example.com";
 const MY_ADDR = "pult" + ME;
 
@@ -48,13 +52,18 @@ export function createMock(o: MockOptions = {}) {
   const M = "claude-fable-5-2";
   // вопрос адресован тому, кто дал задачу; видели его те, кто смотрел сессию
   const ask = (a: Omit<Ask, "id" | "at">, minAgo: number): Ask => ({ id: uid("q"), at: T - minAgo * MIN, to: ME, seen: [MY_ADDR, "phone" + ME], ...a });
-  const row = (callsign: string, state: SessionRow["state"], project: string | undefined, r: Partial<SessionRow> & { cwd?: string; model?: string; pieces?: string[]; mode?: SessionRow["spec"]["mode"] } = {}): SessionRow => {
-    const { cwd, model, pieces, mode, ...rest } = r;
+  // context — доля занятого контекста: в строку идёт числом токенов по последнему ответу модели; кэш у строки по умолчанию холодный
+  /** окно модели сессии по каталогу её провайдера: встаёт, когда каталоги мока собраны */
+  let windowOf: (spec: { key?: string; model?: string }) => number = () => WINDOW;
+  const shares = new Map<string, number>();
+  const row = (callsign: string, state: SessionRow["state"], project: string | undefined, r: Partial<SessionRow> & { cwd?: string; model?: string; pieces?: string[]; mode?: SessionRow["spec"]["mode"]; context?: number } = {}): SessionRow => {
+    const { cwd, model, pieces, mode, context = 0.31, ...rest } = r;
+    shares.set(callsign, context);
     const name = callsign.slice(0, callsign.indexOf("@"));
     return {
       callsign, state, by: ME, since: T - 8 * HOUR, last: T - 30 * MIN,
       spec: { name, cwd: cwd ?? `~/projects/${name}`, model: model ?? M, key: CLAUDE, effort: "high", mode: mode ?? "all", pieces: pieces ?? ["base"], backup: true, ...(project ? { project } : {}) },
-      account: "yuri@example.com", context: 0.31, ...rest,
+      account: "yuri@example.com", cache: filled(context, 0, windowOf({ key: CLAUDE, model: model ?? M })), ...rest,
     };
   };
   const sessions: Record<string, SessionRow> = {};
@@ -101,7 +110,12 @@ export function createMock(o: MockOptions = {}) {
   talk("docs@laptop").push(...shortTurn(T - 2 * HOUR, "Что у нас написано про откат сборки?", "В разделе «Выпуски» одна строка: откат делается той же командой с прежним номером. Примера нет."), ...siteTurn(T - 50 * MIN, "Допиши раздел про выкладку: шаги, откат, пример команды.").slice(0, 1),
     reply([text("Дописал раздел «Выкладка»: три шага, откат и пример.\n\n```bash\nnpm run deploy -- prod 412   # выложить\nnpm run deploy -- prod 411   # откатить\n```\n\nПроверил ссылки в разделе — 14 из 14 открываются.")], T - 15 * MIN), done(T - 14 * MIN, 96_000, 0.31, 5, 36_000));
   talk("lead@laptop").push(...researchTurn(T - 30 * MIN, "Надо уйти со старого клиента оплаты. Разберись, где он используется, и предложи замену."), say("Делай обёртку. Поиск оставшихся вызовов отдай ведомому.", T - 4 * MIN), reply([text("Отдал поиск ведомому `wing@laptop`, сам пишу обёртку.")], T - 3 * MIN));
-  talk("wing@laptop").push(peer("lead@laptop", "Найди все оставшиеся вызовы payments/legacy после правки обёртки и пришли список файлов.", T - 3 * MIN));
+  // пара: ведущая дала ведомому задачу; до этого он сдал итог прошлого хода и спросил, какую ветку брать
+  talk("lead@laptop").push(
+    peer("wing@laptop", "Обёртка payments/client.ts готова: старый клиент вызывается из **трёх** мест — checkout.ts, renew.ts, refund.ts. Тесты обёртки 12 из 12.", T - 6 * MIN, "result"),
+    peer("wing@laptop", "От какой ветки делать правку вызовов?\n· main — свежая, без обёртки\n· payments-wrap — с обёрткой", T - 5 * MIN, "question", { ask: "q7" }),
+  );
+  talk("wing@laptop").push(peer("lead@laptop", "Найди все оставшиеся вызовы payments/legacy после правки обёртки и пришли список файлов.", T - 3 * MIN, "task"));
   talk("survey@laptop").push(say("Перенеси сайт на новую сборку. Перед началом спроси, что нужно решить.", T - 9 * MIN), reply([text("Собрал четыре решения, без которых перенос не начать.")], T - 5 * MIN));
   // идут сейчас: три субагента с шагами и фоновая команда — блок над полем ввода
   talk("audit@server").push(
@@ -177,7 +191,7 @@ export function createMock(o: MockOptions = {}) {
     ] as const).map(([id, name, family, window]) => ({ id, name, family, window })) },
   };
   // час кэша разговора: until — до какого времени кэш тёплый; compact — час, когда машина сожмёт разговор сама (правило считает она, страница его не знает)
-  const warm = (c: string, min: number, compact?: number, account?: string) => sessions[c] && Object.assign(sessions[c]!, { cache: { until: T + min * MIN, ...(compact ? { compact: T + compact * MIN } : {}) }, ...(account ? { account } : {}) });
+  const warm = (c: string, min: number, compact?: number, account?: string) => sessions[c] && Object.assign(sessions[c]!, { cache: { ...sessions[c]!.cache, until: T + min * MIN, ...(compact ? { compact: T + compact * MIN } : {}) }, ...(account ? { account } : {}) });
   warm("site@laptop", 58);
   warm("lead@laptop", 44, 38, "work@example.com");
   warm("wing@laptop", 59, undefined, "work@example.com");
@@ -187,9 +201,12 @@ export function createMock(o: MockOptions = {}) {
   warm("forms@anya-pc", 51);
   warm("design@anya-pc", 43, 37);
   // выбрана Fable, а последний ответ пришёл от Opus: расхождение называет машина в строке сессии
-  if (sessions["docs@laptop"]) Object.assign(sessions["docs@laptop"]!, { answers: "claude-opus-5-5", cache: { until: T + 46 * MIN } });
+  if (sessions["docs@laptop"]) Object.assign(sessions["docs@laptop"]!, { answers: "claude-opus-5-5", cache: { ...sessions["docs@laptop"]!.cache, until: T + 46 * MIN } });
   // сессии на провайдере: аккаунта Claude у них нет
   for (const [c, model] of [["audit@server", "glm-5.3"], ["crawler@base2", "deepseek-v4"]] as const) if (sessions[c]) { sessions[c]!.spec = { ...sessions[c]!.spec, key: "orca", model }; delete sessions[c]!.account; }
+  // каталоги собраны: занятое в контексте — доля окна модели каждой сессии
+  windowOf = (spec) => catalogs[spec.key ?? CLAUDE]?.models.find((m) => m.id === catalogModel(spec.model ?? ""))?.window ?? WINDOW;
+  for (const s of Object.values(sessions)) s.cache = { ...s.cache!, size: Math.round((shares.get(s.callsign) ?? 0.31) * windowOf(s.spec)) };
   for (const s of Object.values(sessions)) if (s.callsign.endsWith("@server") && s.spec.key === CLAUDE && s.account === "yuri@example.com" && s.callsign !== "ingest@server") s.account = "ops@example.com";
   const pieces: Piece[] = [
     { id: "base", repo: "github.com/example/sb-base", title: "Основа", about: "Правила работы, общие скилы и хуки", has: { скилы: 6, хуки: 3, настройки: 1 }, rev: "a41f9c2", ok: true },
@@ -206,6 +223,8 @@ export function createMock(o: MockOptions = {}) {
     sid: `s${(1000 + i * 37).toString(16)}`, machine: machine as string, callsign: `${name}@${machine}`, title: title as string, model: i % 4 === 3 ? "claude-sonnet-5-5" : M,
     cwd: `~/projects/${name}`, project: ["site", "site", "research", "infra", "infra", "infra", "site", "site", "research", "site", "infra", "infra"][i], points: points as number,
     last: T - (minAgo as number) * MIN, bytes: 400_000 + i * 173_000, tokens: 180_000 + i * 61_000,
+    // провайдер из документа точки: у трёх старых сессий — точки прежней системы, провайдера и точной модели в них нет
+    ...(i < 9 ? { key: CLAUDE } : {}),
   }));
   const POINT_LABELS = ["Задача принята, план из трёх шагов", "Найдена причина: стили меню на узких экранах", "Правка внесена, тесты 5 из 6", "Тесты 6 из 6, снимки приложены", "Ревью: два замечания исправлены", "Раздел дописан, ссылки проверены", "Откат правки: ломала вход", "Вторая попытка: тесты зелёные", "Выложено на тестовый стенд", "Готово: итог отправлен"];
   /** Точка называется тем, чем закончился ход. */
@@ -319,10 +338,16 @@ export function createMock(o: MockOptions = {}) {
     else sessions[c] = { ...sessions[c], ...patch };
     delta({ sessions: [{ callsign: c, row: patch === null ? null : sessions[c] }] });
   };
-  /** Весть ведущему от ведомого: тем же сообщением, что и итог хода. */
-  const tellLead = (wing: string, words: string) => {
-    const lead = sessions[wing]?.lead;
-    if (lead && sessions[lead]) emit(lead, [{ type: "user", uuid: uid("w"), from: wing, timestamp: new Date(now()).toISOString(), message: { role: "user", content: words } } as Ev]);
+  /** Входящее от флота во ввод сессии, как у машины: отправитель — родитель адресата, значит задача; остальные виды называет отправитель. */
+  const fromFleet = (c: string, from: string, body: string, kind: Kind, attrs: { ask?: string } = {}): Ev => {
+    const ev = peer(from, body, now(), kind, attrs);
+    emit(c, [ev]);
+    return ev;
+  };
+  /** Весть родителю о дочери: разговор очистил или откатил не он. */
+  const news = (child: string, words: string) => {
+    const parent = sessions[child]?.spec.parent;
+    if (parent && sessions[parent]) fromFleet(parent, child, words, "news");
   };
   /** последние события ленты по сессиям: из них дочитывается пропущенное */
   const recent = new Map<string, Ev[]>();
@@ -449,11 +474,11 @@ export function createMock(o: MockOptions = {}) {
       // как Host: провайдер и точная модель обязательны; аккаунт Claude выбирает машина
       if (!f.spec.key) throw new Refusal("key_required", "назовите провайдера: claude или имя ключа флота");
       if (!f.spec.model) throw new Refusal("model_required", "назовите модель: точное имя из каталога провайдера");
-      sessions[c] = { callsign: c, state: "starting", spec: { mode: "all", pieces: ["base"], backup: true, ...f.spec, name, ...(wing ? { wing } : {}) }, by: MY_ADDR, since: now(), last: now(), ...(f.spec.key === CLAUDE ? { account: pickAccount(m) } : {}), context: 0.02, ...(f.prompt ? { title: String(f.prompt).slice(0, 60) } : {}) };
+      sessions[c] = { callsign: c, state: "starting", spec: { mode: "all", pieces: ["base"], backup: true, ...f.spec, name, ...(wing ? { wing } : {}) }, by: MY_ADDR, since: now(), last: now(), ...(f.spec.key === CLAUDE ? { account: pickAccount(m) } : {}), cache: filled(0.02, 0, windowOf(f.spec)), ...(f.prompt ? { title: String(f.prompt).slice(0, 60) } : {}) };
       if (f.resume) talks.set(c, [...shortTurn(now() - 30 * MIN, "Продолжим с прошлого раза.", `Разговор ${f.resume} продолжен${f.fork ? " копией" : ""}.`)]);
       delta({ sessions: [{ callsign: c, row: sessions[c] }] });
       if (wing) {
-        sessions[wing] = { callsign: wing, state: "idle", spec: { ...sessions[c].spec, name: `${name}-wing`, wing: undefined, parent: c }, by: c, lead: c, since: now(), last: now(), ...(sessions[c].account ? { account: sessions[c].account } : {}), context: 0.02 };
+        sessions[wing] = { callsign: wing, state: "idle", spec: { ...sessions[c].spec, name: `${name}-wing`, wing: undefined, parent: c }, by: c, lead: c, since: now(), last: now(), ...(sessions[c].account ? { account: sessions[c].account } : {}), cache: filled(0.02, 0, windowOf(f.spec)) };
         delta({ sessions: [{ callsign: wing, row: sessions[wing] }] });
       }
       setTimeout(() => {
@@ -487,7 +512,7 @@ export function createMock(o: MockOptions = {}) {
       } else {
         if (f.pair && !s.spec.wing) {
           wing = `${s.spec.name}-wing@${machineOf(c)}`;
-          sessions[wing] = { callsign: wing, state: "idle", spec: { ...s.spec, name: `${s.spec.name}-wing`, wing: undefined, parent: c }, by: c, lead: c, since: now(), last: now(), account: s.account, context: 0.02 };
+          sessions[wing] = { callsign: wing, state: "idle", spec: { ...s.spec, name: `${s.spec.name}-wing`, wing: undefined, parent: c }, by: c, lead: c, since: now(), last: now(), account: s.account, cache: filled(0.02, 0, windowOf(s.spec)) };
           delta({ sessions: [{ callsign: wing, row: sessions[wing] }] });
           patch.wing = wing;
         }
@@ -524,8 +549,9 @@ export function createMock(o: MockOptions = {}) {
       const mark = { type: "conversation_reset", uuid: uid("r"), text: said } as Ev;
       all.push(mark);
       emit(c, [mark], true);
-      setRow(c, { state: "idle", doing: undefined, ask: null, context: all.length ? 0.2 : 0.02, last: now() });
-      tellLead(c, f.upto ? `Ведомый ${c} откачен${text ? ` к сообщению «${text.slice(0, 60)}»` : " к полученной задаче"}: ушло записей — ${out.cut}${f.files ? ", файлы возвращены" : ""}.` : `Ведомый ${c} очищен: разговор начат заново.`);
+      setRow(c, { state: "idle", doing: undefined, ask: null, cache: filled(all.length ? 0.2 : 0.02, s.cache?.until, windowOf(s.spec)), last: now() });
+      // просил человек со страницы, а не родитель: родителю — весть
+      news(c, f.upto ? `Разговор откачен${text ? ` к сообщению «${text.slice(0, 60)}»` : " к полученной задаче"}: ушло записей — ${out.cut}${f.files ? ", файлы возвращены" : ""}.` : "Разговор очищен: начат заново.");
       void s;
       return out;
     },
@@ -545,7 +571,7 @@ export function createMock(o: MockOptions = {}) {
         return {};
       }
       if (f.method === "contextUsage") {
-        const max = 200_000, total = Math.round((sessions[c].context ?? 0.3) * max);
+        const max = windowOf(sessions[c].spec), total = sessions[c].cache?.size ?? Math.round(0.3 * max);
         const cat = (name: string, share: number, kind = "used") => ({ name, tokens: Math.round(total * share), color: "#888", kind });
         return { categories: [cat("Messages", 0.55), cat("System tools", 0.2), cat("Memory files", 0.1), cat("MCP tools", 0.08), cat("Skills", 0.05), cat("System prompt", 0.02), { name: "Free space", tokens: max - total, color: "#ccc", kind: "free" }], totalTokens: total, maxTokens: max, rawMaxTokens: max, percentage: (total / max) * 100, gridRows: [], model: sessions[c].spec.model ?? M, memoryFiles: [], mcpTools: [], agents: [] };
       }
@@ -568,12 +594,11 @@ export function createMock(o: MockOptions = {}) {
       setRow(c, { compacting: true });
       setTimeout(() => {
         if (!sessions[c]) return;
-        setRow(c, { compacting: undefined, context: 0.12 });
+        setRow(c, { compacting: undefined, cache: filled(0.12, sessions[c].cache?.until, windowOf(sessions[c].spec)) });
         emit(c, [
           { type: "system", subtype: "compact_boundary", uuid: uid("cb"), compact_metadata: { trigger: "manual", pre_tokens: 68_000, post_tokens: 12_000 } } as Ev,
           { type: "user", uuid: uid("cs"), isCompactSummary: true, timestamp: new Date(now()).toISOString(), message: { role: "user", content: "Summary:\nРазобрана причина: стили меню на узких экранах. Правка внесена в Header.tsx и header.css, тесты 6 из 6. Осталось: снять экран на 390 и приложить к итогу." } } as Ev,
         ]);
-        tellLead(c, `Ведомый ${c} сжат: контекст 12%.`);
       }, 2500);
       return {};
       }
@@ -585,7 +610,9 @@ export function createMock(o: MockOptions = {}) {
       const uuid = uid("m");
       const pics = ((f.files ?? []) as Array<{ name: string; mime: string; base64: string }>).filter((x) => x.mime.startsWith("image/"));
       const content = pics.length ? [{ type: "text", text: String(f.text) }, ...pics.map((p) => ({ type: "image", source: { type: "base64", media_type: p.mime, data: p.base64 } }))] : String(f.text);
-      const event = { type: "user", uuid, from: MY_ADDR, timestamp: new Date(now()).toISOString(), message: { role: "user", content } } as Ev;
+      // от сессии — тегом с видом: отправитель — родитель адресата, значит задача; человек пишет без тега
+      const sender = typeof f.from === "string" && kindOf(f.from) === "session" ? f.from : undefined;
+      const event = sender ? { ...peer(sender, String(f.text), now(), s.spec.parent === sender ? "task" : "message"), uuid } : ({ type: "user", uuid, from: MY_ADDR, timestamp: new Date(now()).toISOString(), message: { role: "user", content } } as Ev);
       if (s.state === "busy" && f.priority !== "now") {
         (queue.get(c) ?? (queue.set(c, []), queue.get(c)!)).push({ uuid, text: String(f.text), from: MY_ADDR, at: now(), event });
         // сообщение в очереди видно зрителям сразу, а в разговор попадает, когда его возьмёт ход
@@ -604,6 +631,13 @@ export function createMock(o: MockOptions = {}) {
       return { queued: waits, uuid };
     },
     "message.cancel": (f) => cancelQueued(sess(f).c, f.uuid),
+    /** Итог хода дочери, её вопрос и весть: служебный запрос машины — вид называет она. */
+    notice: (f) => {
+      const { c, s } = sess(f);
+      if (s.state === "stopped" || s.state === "failed") throw new Refusal("stopped", `${c}: сессия ${s.state} — запускает session.start`);
+      const ev = fromFleet(c, typeof f.from === "string" ? f.from : "@" + machineOf(c), String(f.text), f.kind as Kind, f.ask ? { ask: String(f.ask) } : {});
+      return { queued: s.state !== "idle", uuid: ev.uuid };
+    },
     "session.history": (f) => {
       const all = talk(String(f.to));
       const end = f.before ? Math.max(0, all.findIndex((e) => e.uuid === f.before)) : all.length;

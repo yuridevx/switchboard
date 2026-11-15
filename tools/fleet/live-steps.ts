@@ -41,7 +41,7 @@ async function step(label: string, fn: () => Promise<string>) {
   }
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const rowOf = async (cs: string): Promise<SessionRow | undefined> => (await api.call(fleetList, { machine: cs.split("@")[1]! })).sessions.find((s) => s.callsign === cs);
+const rowOf = async (cs: string): Promise<SessionRow | undefined> => ((await api.call(fleetList, { machine: cs.split("@")[1]!, full: true })).sessions as SessionRow[]).find((s) => s.callsign === cs);
 async function until<T>(what: string, fn: () => Promise<T | undefined | false | null>, ms = 90_000): Promise<T> {
   const end = Date.now() + ms;
   for (;;) {

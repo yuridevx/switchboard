@@ -11,7 +11,7 @@ export const SAY: Record<string, string> = {
   not_client: "Ответить может только человек", permission_denied: "Отказано в разрешении",
   // сессии
   already_answered: "На вопрос уже ответили", unknown_question: "Такого вопроса нет", unknown_session: "Такой сессии нет", open_failed: "Сессия не открылась", bad_spec: "Документ сессии не подходит",
-  bad_dir: "Папка не подходит", has_wing: "У сессии есть ведомый", pair_inside: "Сессия уже в паре", has_sessions: "На нём идут сессии", not_started: "Сессия не запущена", running: "Уже идёт",
+  bad_dir: "Папка не подходит", no_project: "Такого проекта нет", has_wing: "У сессии есть ведомый", pair_inside: "Сессия уже в паре", has_sessions: "На нём идут сессии", not_started: "Сессия не запущена", running: "Уже идёт",
   stopped: "Остановлено", sdk_error: "Ошибка Claude", waiting: "Сессия ждёт ответа", bad_attachment: "Вложение не подходит", not_text: "Нужен текст",
   // аккаунты и ключи
   no_account: "Нет годного аккаунта", no_accounts: "Аккаунтов нет", bad_code: "Код не подошёл", catalog_failed: "Каталог моделей не получен", key_required: "Назовите провайдера", model_required: "Назовите модель", no_model: "Такой модели у провайдера нет", many_models: "Подходит несколько моделей",

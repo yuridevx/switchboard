@@ -300,12 +300,14 @@ function Mine({ r }: { r: Extract<Row, { k: "me" }> }) {
   );
 }
 
-const VIA: Record<string, string> = { session: "сессия", agent: "субагент", owner: "вам", service: "служба" };
+const VIA: Record<string, string> = { session: "сессия", owner: "вам", service: "служба" };
+/** Вид входящего от флота словом; у обычного сообщения слова нет. */
+const KIND: Record<string, string> = { task: "задача", result: "итог", question: "вопрос", news: "весть", incident: "обращение" };
 /** Режим разрешений отправителя словами страницы: SDK зовёт режимы по-своему. */
 const SDK_MODE: Record<string, string> = { bypassPermissions: "all", default: "ask", plan: "plan", acceptEdits: "edits", auto: "auto" };
 const modeWord = (tag: string) => MODES.find(([m]) => m === (SDK_MODE[tag] ?? tag))?.[1] ?? tag;
 
-/** Сообщение от сессии флота, субагента или службы: разметкой; длинное свёрнуто и сворачивается обратно. */
+/** Сообщение от сессии флота или службы: разметкой; длинное свёрнуто и сворачивается обратно. */
 function Incoming({ r }: { r: Extract<Row, { k: "in" }> }) {
   const env = useContext(Env);
   const [whole, setWhole] = useState(false);
@@ -313,8 +315,8 @@ function Incoming({ r }: { r: Extract<Row, { k: "in" }> }) {
   return (
     <div className={`peer via-${r.via}`}>
       <Text size="xs" className="muted peer-from">
-        {r.via === "agent" ? <Icon name="bot" size={13} /> : r.via === "session" ? <Icon name="messages-square" size={13} /> : null}
-        <span><span className="mono">{r.from ? (env.name?.(r.from) ?? r.from) : VIA[r.via]}</span>{r.from && r.via !== "session" ? ` · ${VIA[r.via]}` : ""}{r.tag ? ` · ${modeWord(r.tag)}` : ""}{r.at ? ` · ${r.at}` : ""}</span>
+        {r.via === "session" ? <Icon name="messages-square" size={13} /> : null}
+        <span><span className="mono">{r.from ? (env.name?.(r.from) ?? r.from) : VIA[r.via]}</span>{r.kind ? (KIND[r.kind] ? ` · ${KIND[r.kind]}` : "") : r.from && r.via !== "session" ? ` · ${VIA[r.via]}` : ""}{r.ref ? <> <span className="mono">{r.ref}</span></> : null}{r.tag ? ` · ${modeWord(r.tag)}` : ""}{r.at ? ` · ${r.at}` : ""}</span>
       </Text>
       <div className={long && !whole ? "peer-clamp" : undefined}><Md text={r.text} /></div>
       {long && <button type="button" className="linkbtn" aria-expanded={whole} onClick={() => setWhole((w) => !w)}>{whole ? "свернуть" : "показать всё"}</button>}

@@ -1,5 +1,5 @@
 // Разговоры мока: настоящие формы сообщений SDK — текст, вызовы инструментов, субагент, список дел, итог хода.
-import type { SdkEvent } from "@sb/protocol";
+import type { Kind, Peer, SdkEvent } from "@sb/protocol";
 
 let n = 0;
 export const uid = (p = "u") => `${p}${(++n).toString(36)}`;
@@ -89,4 +89,6 @@ export function liveSteps(now: () => number, about: string): Array<() => Ev[]> {
   ];
 }
 
-export const peer = (from: string, body: string, at: number): Ev => say(`<fleet-message from="${from}">\n${body}\n</fleet-message>`, at);
+/** Входящее от флота, как его отдаёт машина: во вводе модели — тег с отправителем и видом, странице — разобранное поле peer. */
+export const peer = (from: string, body: string, at: number, kind: Kind = "message", attrs: Pick<Peer, "ask" | "incident" | "key"> = {}): Ev =>
+  say(`<fleet from="${from}" kind="${kind}"${Object.entries(attrs).map(([k, v]) => ` ${k}="${v}"`).join("")}>\n${body}\n</fleet>`, at, { from, peer: { from, kind, text: body, ...attrs } });

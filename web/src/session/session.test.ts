@@ -267,7 +267,7 @@ describe("мок отвечает в формах Host", () => {
     const call = (method: any, args?: unknown) => api.call(sessionCall, { to: "site@laptop", method, args });
     expect((await call("commands") as any[])[0]).toMatchObject({ name: "compact", description: "Сжать контекст" });
     for (const gone of ["models", "usage"]) expect(sessionCall.input.safeParse({ to: "site@laptop", method: gone }).success).toBe(false);
-    expect(await call("contextUsage")).toMatchObject({ maxTokens: 200_000, categories: expect.any(Array) });
+    expect(await call("contextUsage")).toMatchObject({ maxTokens: 1_000_000, categories: expect.any(Array) });
     expect((await call("mcpStatus") as any[]).map((s) => s.status)).toEqual(["connected", "connected", "needs-auth", "failed"]);
     await call("mcpToggle", ["playwright", false]);
     expect((await call("mcpStatus") as any[])[1]).toEqual({ name: "playwright", status: "disabled" });

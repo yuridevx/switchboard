@@ -1,4 +1,5 @@
 // Свёртка разговора: сообщения SDK по порядку → строки ленты, карточки инструментов, задачи и состояние хода. Чистая функция: живое и история идут одним шагом; шаг на вид записи — своя функция.
+import type { Kind, Peer } from "@sb/protocol";
 import { duration, hhmm, kilo, limitName, plural } from "../lib/time.ts";
 import { askedOf, askOutcome } from "./answers.ts";
 import { API_ERRORS, FALLBACK_WHY, modelName, REFUSAL_AREAS, RESULT_ERRORS, TASK_END } from "./words.ts";
@@ -7,7 +8,7 @@ export type Msg = Record<string, any>;
 export type Part = { k: "text"; text: string; live?: boolean } | { k: "think"; text: string; live?: boolean } | { k: "tool"; id: string };
 export type Row =
   | { k: "me"; key: string; uuid?: string; text: string; pics: string[]; /** имена приложенных документов */ files?: string[]; /** кто написал: устройство человека; своё — без подписи */ from?: string; state?: MeState }
-  | { k: "in"; key: string; uuid?: string; via: "session" | "agent" | "owner" | "service"; from: string; tag?: string; text: string; at: string }
+  | { k: "in"; key: string; uuid?: string; via: "session" | "owner" | "service"; from: string; /** вид входящего от флота: его называет машина */ kind?: Kind; /** номер вопроса или вид и ключ обращения */ ref?: string; tag?: string; text: string; at: string }
   | { k: "reply"; key: string; parts: Part[] }
   | { k: "cmd"; key: string; name: string; args: string; out?: string }
   | { k: "sys"; key: string; icon: string; text: string; tone?: "wait" | "swap"; retry?: boolean; boundary?: boolean }
@@ -54,7 +55,6 @@ export type View = {
   n: number;
 };
 
-const TAGGED = /^\s*<(fleet-message|fleet-question|cross-session-message|agent-message)\b([^>]*)>\n?([\s\S]*?)\n?<\/\1>(?:\n\(Задача от родителя[^\n]*\))?\s*$/;
 const COMMAND = /<command-name>\s*([^<]*?)\s*<\/command-name>|<command-message>\s*([^<]*?)\s*<\/command-message>/;
 const ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
 const STDOUT = /^\s*<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/;
@@ -160,11 +160,10 @@ function summary(v: View, text: string) {
   else push(v, { k: "sum", stats: NO_STATS, text: summaryText(text) });
 }
 
-function tagged(v: View, m: Msg, [, tag, attrs, inner]: RegExpExecArray) {
-  const attr = (name: string) => new RegExp(`\\b${name}="([^"]*)"`).exec(attrs)?.[1];
-  const mode = attr("from-mode");
-  const text = tag === "fleet-question" ? inner.replace(/\n?Ответь инструментом fleet\.answer:[^\n]*$/, "") : inner;
-  push(v, { k: "in", uuid: m.uuid, via: tag === "agent-message" ? "agent" : "session", from: attr("from") ?? attr("from-name") ?? "", ...(mode && mode !== "default" ? { tag: mode } : {}), text, at: timeOf(m) });
+/** Входящее от флота: отправителя, вид и текст машина отдаёт готовыми полями — тег страница не разбирает. */
+function incoming(v: View, m: Msg, p: Peer) {
+  const ref = p.ask ?? (p.incident ? [p.incident, p.key].filter(Boolean).join(" · ") : undefined);
+  push(v, { k: "in", uuid: m.uuid, via: /^[.@]/.test(p.from) ? "service" : "session", from: p.from, kind: p.kind, ...(ref ? { ref } : {}), text: p.text, at: timeOf(m) });
 }
 
 /** Конец задачи: один раз на задачу, откуда бы ни пришёл. */
@@ -256,8 +255,8 @@ function user(v: View, m: Msg) {
   if (m.parent_tool_use_id || (!body.trim() && !pics.length && !attached)) return;
   v.hint = "";
   if (m.isCompactSummary) return summary(v, body);
-  const peer = TAGGED.exec(body);
-  if (peer) return (closeTurn(v), tagged(v, m, peer));
+  const peer = m.peer as Peer | undefined;
+  if (peer && typeof peer.from === "string" && typeof peer.text === "string") return (closeTurn(v), incoming(v, m, peer));
   text(v, m, body, pics);
 }
 

@@ -22,12 +22,10 @@ h2 { font-size: 21px; }
 section { display: flex; flex-direction: column; gap: 14px; border-radius: 14px; }
 section.read > h2::after { content: " ✓ прочитал"; font: 500 12px Inter, sans-serif; color: var(--accent); }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
-.chg { background: var(--chg); border-radius: 4px; }
-.dia text.chg { paint-order: stroke; stroke: var(--chg); stroke-width: 6px; stroke-linejoin: round; }
-.chg.wrap { padding: 8px; border-radius: 16px; display: flex; flex-direction: column; gap: 10px; }
-.et.chg { padding: 10px 6px; }
+/* правки приняты словом пользователя 16 нояб.: жёлтое снято */
+.chg.wrap { display: flex; flex-direction: column; gap: 14px; }
 #rules-out { white-space: pre-wrap; overflow-wrap: anywhere; }
-.say div.chg { padding: 0 4px 4px; margin-top: 6px; }
+.say div.chg { margin-top: 6px; }
 .say { border-left: 3px solid var(--accent); background: var(--soft); border-radius: 0 10px 10px 0; padding: 10px 14px; min-height: 44px; }
 .say b { font-weight: 600; }
 .say pre { margin: 8px 0 0; }
@@ -450,7 +448,7 @@ ol.steps li.human { counter-increment: none; }
     <div class="et chg" data-chg="et-raise"><div class="in">Точка архива прежней системы: в документе нет провайдера и точной модели<small>чьё: факт — перенос 15 нояб., подъём такой точки отказывает key_required; устав — поля формы не прячутся</small></div><div class="ar">→</div><div class="out">Поле модели в окне подъёма есть всегда: заполнено из точки, у этой — пустое; с выбранной моделью сессия поднята</div></div>
     <div class="et chg" data-chg="et-project"><div class="in">session_open с проектом, которого у флота нет<small>чьё: слово пользователя 15 нояб. — «ллм просто фантазировали проект»</small></div><div class="ar">→</div><div class="out">Отказ no_project со списком «номер — имя»; сессия не открыта</div></div>
     <div class="et chg" data-chg="et-project-offline"><div class="in">session_open с проектом, флот на список проектов не ответил<small>чьё: код — так же отказывает сверка модели с каталогом; устав — запрос не прошёл: отказ словом</small></div><div class="ar">→</div><div class="out">Отказ словом; сессия не открыта</div></div>
-    <div class="et chg" data-chg="et-project-parent"><div class="in">Сессия открывает дочь и проект не называет<small>чьё: решение этого дизайна, ждёт вашего «да»; повод — слово пользователя 15 нояб. о выдуманных проектах</small></div><div class="ar">→</div><div class="out">Дочь в проекте родителя</div></div>
+    <div class="et chg" data-chg="et-project-parent"><div class="in">Сессия открывает дочь и проект не называет<small>чьё: слово пользователя 16 нояб. — «да»; повод — слово пользователя 15 нояб. о выдуманных проектах</small></div><div class="ar">→</div><div class="out">Дочь в проекте родителя</div></div>
     <span class="et-g">Одна форма входящего</span>
     <div class="et"><div class="in">Сообщение от родителя; от соседа; первая задача при открытии<small>чьё: слово пользователя 15 нояб. — «редизайн API коммуникации»; устав — одна форма на один смысл</small></div><div class="ar">→</div><div class="out">kind task; kind message; kind task — и она видна в ленте</div></div>
     <div class="et"><div class="in">Дочь задала вопрос с вариантами<small>чьё: факт описи — сейчас вопрос вложен в тег сообщения</small></div><div class="ar">→</div><div class="out">Один тег kind question с номером вопроса; ответ инструментом answer снимает вопрос</div></div>

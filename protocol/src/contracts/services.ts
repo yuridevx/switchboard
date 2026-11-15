@@ -57,6 +57,8 @@ export const ledgerRead = request("ledger.read", {
 
 export const ArchSession = z.object({
   sid: z.string(), machine: z.string(), callsign: z.string(), title: z.string().optional(), model: z.string().optional(),
+  /** провайдер из документа сессии на последней точке: вместе с model — чем окно подъёма заполняет выбор модели; у точки прежней системы его нет */
+  key: z.string().optional(),
   cwd: z.string().optional(), project: z.string().optional(), points: z.number(), last: z.number(), bytes: z.number().optional(), tokens: z.number().optional(),
   /** строка с найденным словом: до 60 знаков по обе стороны от него */
   hit: z.string().optional(),

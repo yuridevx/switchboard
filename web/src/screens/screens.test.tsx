@@ -536,6 +536,19 @@ describe("наблюдение и журнал", () => {
     expect(r.sessions.every((s) => s.callsign.endsWith("@server"))).toBe(true);
     expect(r.people[0]).toMatchObject({ person: "~yuri@example.com", devices: expect.arrayContaining(["pult~yuri@example.com"]) });
   });
+  // чьё: факт прода — 46 311 знаков на 57 сессий, 68% знаков всех ответов инструментов
+  it("картина флота для модели: у сессии короткая строка — без документа и начала ответа; full: true — полная", async () => {
+    const api = ask(quiet());
+    const brief = (await api.call(fleetList, {})).sessions.find((s) => s.callsign === "wing@laptop")!;
+    expect(brief).toMatchObject({ callsign: "wing@laptop", state: "busy", cwd: expect.any(String), key: "claude", model: expect.any(String), parent: "lead@laptop", project: "research", doing: expect.any(String) });
+    expect(Object.keys(brief)).not.toEqual(expect.arrayContaining(["spec"]));
+    for (const gone of ["spec", "result", "unread", "cache", "account", "since"]) expect(brief).not.toHaveProperty(gone);
+    const full = (await api.call(fleetList, { full: true, state: "busy" })).sessions;
+    expect(full.every((s) => s.state === "busy" && "spec" in s)).toBe(true);
+    // вопрос в короткой строке — номером и текстом: по нему отвечают инструментом answer
+    const asked = (await api.call(fleetList, { state: "waiting" })).sessions.find((s) => "ask" in s && s.ask)!;
+    expect((asked as { ask: object }).ask).toEqual({ id: expect.any(String), kind: expect.any(String), text: expect.any(String) });
+  });
 });
 
 describe("экраны в отрисовке", () => {

@@ -47,6 +47,19 @@ const session = (s: SessionRow, machine: string, extra: { hit?: string; live?: b
   ...(s.bytes != null ? { bytes: s.bytes } : {}), ...(s.tokens != null ? { tokens: s.tokens } : {}),
   ...(extra.hit ? { hit: extra.hit } : {}), ...(extra.live ? { live: true } : {}), ...(extra.owner ? { owner: extra.owner } : {}),
 });
+/** Провайдер и точная модель из документа сессии на последней точке — в строку списка: с ними окно подъёма открывается уже заполненным. Один запрос на машину. */
+async function withDoc(ctx: Ctx, rows: ArchSession[]): Promise<ArchSession[]> {
+  const docs = new Map<string, { key: string | null; model: string | null }>();
+  await Promise.all([...new Set(rows.map((r) => r.machine))].map(async (m) => {
+    const sids = rows.filter((r) => r.machine === m).map((r) => r.sid);
+    for (const d of await db(ctx.env, ctx.fleet, m).all<{ sid: string; key: string | null; model: string | null }>("SELECT sid, json_extract(spec, '$.key') AS key, json_extract(spec, '$.model') AS model FROM specs WHERE sid IN (SELECT value FROM json_each(?))", JSON.stringify(sids))) docs.set(d.sid, d);
+  }));
+  return rows.map((r) => {
+    const d = docs.get(r.sid);
+    return d?.key && d.model ? { ...r, key: d.key, model: d.model } : r;
+  });
+}
+
 const point = (p: Pick<PointRow, "point" | "at" | "label" | "turns" | "bytes" | "git">, until?: number | null): ArchPoint => ({
   point: p.point, at: p.at,
   ...(p.label ? { label: p.label } : {}), ...(p.turns != null ? { turns: p.turns } : {}), ...(p.bytes != null ? { bytes: p.bytes } : {}), ...(p.git ? { git: p.git } : {}),
@@ -348,7 +361,7 @@ export const archive: Module = {
         const pts = await db(ctx.env, ctx.fleet, machine).all<PointRow>("SELECT * FROM points WHERE sid = ? ORDER BY at DESC", i.sid);
         const until = expiries(pts);
         const bases = new Map((await db(ctx.env, ctx.fleet, machine).all<{ point: string; base: string }>("SELECT point, base FROM bases WHERE sid = ?", i.sid)).map((b) => [b.point, b.base]));
-        return { sessions: [seen(row, machine)], points: pts.map((p) => ({ ...point(p, until.get(p.point)), ...(bases.has(p.point) ? { base: bases.get(p.point)! } : {}) })), more: false };
+        return { sessions: await withDoc(ctx, [seen(row, machine)]), points: pts.map((p) => ({ ...point(p, until.get(p.point)), ...(bases.has(p.point) ? { base: bases.get(p.point)! } : {}) })), more: false };
       }
       const words = i.q ? match(i.q) : "";
       const order = i.order === "tokens" ? "coalesce(tokens, 0) DESC, last DESC" : "last DESC";
@@ -379,7 +392,7 @@ export const archive: Module = {
         }),
       );
       const all = per.flat().sort(i.order === "tokens" ? (a, b) => (b.tokens ?? 0) - (a.tokens ?? 0) || b.last - a.last : (a, b) => b.last - a.last);
-      return { sessions: all.slice(0, limit), more: all.length > limit };
+      return { sessions: await withDoc(ctx, all.slice(0, limit)), more: all.length > limit };
     },
 
     /** Обзор архива: по объекту записей каждой машины, до которой человек достаёт. */
