@@ -6,7 +6,7 @@ import { Page } from "../../shell/Page.tsx";
 import { notifications } from "@mantine/notifications";
 import { IconArrowsShuffle, IconCalendarWeek, IconCheck, IconCopy, IconDots, IconHourglass, IconKey, IconKeyOff, IconMail, IconPlugConnected, IconPlus, IconSparkles, IconUsers } from "@tabler/icons-react";
 import { Link } from "react-router";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { act, api } from "../../api.ts";
 import { confirmDanger, Failed, useCall } from "../../common.tsx";
@@ -251,11 +251,10 @@ export function Accounts() {
   const machines = useFleet((f) => f.machines);
   const online = Object.values(machines).filter((m) => m.online).map((m) => m.name).sort();
   const keys = useCall(keysList, {});
-  // числа аккаунта знает каждая машина из ответов Claude ей самой: столбец берёт самое свежее
-  const lists = useQueries({ queries: online.map((m) => ({ queryKey: ["account.list", { to: "@" + m }], queryFn: () => api.call(accountList, { to: "@" + m }), retry: false })) });
-  const byMachine = Object.fromEntries(online.map((m, i) => [m, lists[i]?.data?.accounts ?? []]));
-  const failed = keys.error ?? lists.find((q) => q.error)?.error;
-  const cols = byReset(columns(keys.data?.keys ?? [], byMachine));
+  // числа аккаунта — общие для флота: их отдаёт одна машина, она же пробует аккаунт, о котором флот не знает свежего
+  const list = useCall(accountList, online[0] ? { to: "@" + online[0] } : null);
+  const failed = keys.error ?? list.error;
+  const cols = byReset(columns(keys.data?.keys ?? [], list.data?.accounts ?? []));
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["keys.list"] }), qc.invalidateQueries({ queryKey: ["account.list"] }), qc.invalidateQueries({ queryKey: ["keys.models"] })]);
   const [form, setForm] = useState<{ email?: string } | null>(null);
   const drop = async (c: Column) => {

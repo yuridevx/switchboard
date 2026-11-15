@@ -239,11 +239,8 @@ describe("«Работа»", () => {
 describe("аккаунты и провайдеры", () => {
   const acc = (name: string, o: Partial<Account> = {}): Account => ({ name, ok: true, keep: true, limits: [], ...o });
   const key = (name: string, o: Partial<KeyRow> = {}): KeyRow => ({ name, protocol: CLAUDE, at: 1, tail: "…", keep: true, ...o });
-  it("аккаунт на нескольких машинах — один столбец: окно — замер посвежее, при равных — большее; негодный токен виден", () => {
-    const cols = columns([key("a@x.io"), key("b@x.io")], {
-      laptop: [acc("a@x.io", { limits: [{ name: "seven_day", used: 0.4 }] }), acc("b@x.io", { ok: false, why: "токен отозван" })],
-      server: [acc("a@x.io", { limits: [{ name: "seven_day", used: 0.6, resets: 5 }] }), acc("b@x.io")],
-    });
+  it("аккаунт — один столбец с числами флота; негодный токен виден", () => {
+    const cols = columns([key("a@x.io"), key("b@x.io")], [acc("a@x.io", { limits: [{ name: "seven_day", used: 0.6, resets: 5 }] }), acc("b@x.io", { ok: false, why: "токен отозван" })]);
     expect(cols.map((c) => c.name)).toEqual(["a@x.io", "b@x.io"]);
     expect(cols[0]!.limits).toEqual([{ name: "seven_day", used: 0.6, resets: 5 }]);
     expect(cols[1]).toMatchObject({ ok: false, why: "токен отозван" });

@@ -1,7 +1,7 @@
 // Службы: выпуски, журнал флота, архив сессий, связь с людьми, настройки, ключи флота, GitHub, аналитика, наблюдение.
 import { Callsign, Done, Empty, Name, Person, request, z } from "../define.ts";
 import { SdkEvent, Spec } from "./session.ts";
-import { HostMetrics } from "./machine.ts";
+import { HostMetrics, Limit } from "./machine.ts";
 
 /* ===== Выпуски (builds) ===== */
 
@@ -196,8 +196,16 @@ export const KeyRow = z.object({
   expires: z.number().optional(),
   /** сколько сессий флота сейчас идёт на этом ключе */
   sessions: z.number().optional(),
+  /** у аккаунта Claude: окна лимитов, одни на флот — как их последней назвала любая машина; at — когда она их видела */
+  limits: z.array(Limit).optional(),
 });
 export type KeyRow = z.infer<typeof KeyRow>;
+/** Окна аккаунта Claude из ответа Claude машине: машина сообщает их, когда числа изменились, и не реже порога свежести, пока аккаунт отвечает.
+ *  Служба хранит по окну последнее по времени at; так машины не пробуют аккаунт, о котором флот уже знает свежее. Только машине. */
+export const keysLimits = request("keys.limits", {
+  owner: "keys", target: "service", machineOnly: true,
+  input: z.object({ name: z.string(), limits: z.array(z.object({ name: z.string(), used: z.number(), resets: z.number().optional(), at: z.number() })) }), output: Done,
+});
 export const keysList = request("keys.list", {
   owner: "keys", target: "service", tool: "Ключи флота — провайдеры моделей: аккаунты Claude (protocol claude, имя — почта) и ключи API провайдеров с адресом; число сессий на ключе. Значений в ответе нет. Модели провайдера — keys_models.",
   input: Empty, output: z.object({ keys: z.array(KeyRow) }),

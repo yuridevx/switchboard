@@ -93,8 +93,9 @@ async function fleet(all: Record<string, Preset>, answer: (hit: Hit, n: number) 
     writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: { accounts: book(all) } }));
   }
   st = await stand({ home, modules: [...(o.extra ?? []), accounts(), proxy(), incidents()], config: { "host-accounts": { api: api.url } } });
-  const names = { list: Object.keys(all) };
-  st.services.handlers["keys.list"] = () => ({ keys: [...names.list.map((n) => ({ name: n, protocol: "claude", at: 1, tail: "tail", keep: all[n]?.keep ?? false })), { name: "orca", protocol: "anthropic", base: api.url, at: 1, tail: "orca" }] });
+  /** limits — окна аккаунта, которые знает флот (служба ключей) */
+  const names: { list: string[]; limits: Record<string, Array<{ name: string; used: number; resets?: number; at: number }>> } = { list: Object.keys(all), limits: {} };
+  st.services.handlers["keys.list"] = () => ({ keys: [...names.list.map((n) => ({ name: n, protocol: "claude", at: 1, tail: "tail", keep: all[n]?.keep ?? false, ...(names.limits[n] ? { limits: names.limits[n] } : {}) })), { name: "orca", protocol: "anthropic", base: api.url, at: 1, tail: "orca" }] });
   st.services.handlers["keys.value"] = (f: any) => (f.name === "orca" ? { value: "sk-orca", protocol: "anthropic", base: api.url } : { value: `tok-${f.name}`, protocol: "claude" });
   st.services.handlers["keys.models"] = (f: any) => ({ models: f.name === "claude" ? CATALOG : ORCA });
   st.services.handlers["prefs.get"] = () => ({ values: { "proxy.rules": [] } });
@@ -478,6 +479,36 @@ describe("проба окон аккаунта", () => {
     st!.clock.advance(121_000);
     await listed();
     expect(api.hits).toHaveLength(2);
+  });
+
+  // чьё: слово пользователя 15 нояб. — «не флудить серверы Anthropic шумом»: числа аккаунта — общие для флота, проба — одна на флот
+  it("флот знает свежие числа аккаунта — на нём идёт сессия другой машины: пробы нет, в ответе числа флота", async () => {
+    const api = await fleet({ [A]: {} }, () => ({ headers: windows({ week: 0.9, hours: 40 }) }));
+    liveCli();
+    api.names.limits[A] = [{ name: "seven_day", used: 0.55, resets: T0 + 40 * HOUR, at: T0 - 30_000 }];
+    expect((await listed())[0]!.limits.map((l) => [l.name, l.used])).toEqual([["seven_day", 0.55]]);
+    expect(api.hits).toHaveLength(0);
+    // числа флота устарели — проба этой машиной, одна
+    st!.clock.advance(121_000);
+    await listed();
+    expect(api.hits).toHaveLength(1);
+  });
+
+  it("ответ Claude назвал окна — машина сообщает их флоту; те же числа раньше порога свежести второй раз не сообщаются, изменившиеся — сразу", async () => {
+    let week = 0.41;
+    await fleet({ [A]: {} }, () => ({ headers: windows({ week, hours: 40 }) }));
+    const { s } = await st!.open("site", claude(OPUS));
+    await call(s.rec.sessionId, OPUS);
+    const sent = () => st!.services.of("keys.limits");
+    await until(() => sent().length === 1, 5000, "окна сообщены флоту");
+    expect(sent()[0]).toMatchObject({ name: A, limits: [{ name: "seven_day", used: 0.41, resets: T0 + 40 * HOUR, at: T0 }] });
+    await call(s.rec.sessionId, OPUS);
+    await tick(20);
+    expect(sent()).toHaveLength(1);
+    week = 0.42;
+    await call(s.rec.sessionId, OPUS);
+    await until(() => sent().length === 2, 5000, "изменившиеся окна сообщены");
+    expect((sent()[1] as any).limits[0].used).toBe(0.42);
   });
 
   // чьё: факт прода 15 нояб. — выбранный аккаунт девять машин пробовали каждые две минуты, все пробы — отказ

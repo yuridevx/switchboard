@@ -638,7 +638,24 @@ export function createMock(o: MockOptions = {}) {
       return {};
     },
 
-    "account.list": (f) => ({ accounts: (accounts[mach(f)] ?? []).filter((a) => keys.some((k) => k.name === a.name)).map((a) => { const keep = keys.find((k) => k.name === a.name)?.keep !== false; return { ...a, keep, limits: a.limits.map((l) => (l.name === "seven_day" ? { ...l, hold: keep ? l.hold : undefined } : l)) }; }) }),
+    // числа аккаунта — общие для флота: по окну самое свежее из того, что видели машины; годность токена и «полон» — у спрошенной машины
+    "account.list": (f) => {
+      const here = accounts[mach(f)] ?? [];
+      const all = Object.values(accounts).flat();
+      return {
+        accounts: keys.filter((k) => k.protocol === "claude" && all.some((a) => a.name === k.name)).map((k) => {
+          const mine = here.find((a) => a.name === k.name) ?? all.find((a) => a.name === k.name)!;
+          const limits: typeof mine.limits = [];
+          for (const l of all.filter((a) => a.name === k.name).flatMap((a) => a.limits)) {
+            const was = limits.find((x) => x.name === l.name);
+            if (!was) limits.push({ ...l });
+            else if ((l.at ?? 0) > (was.at ?? 0) || ((l.at ?? 0) === (was.at ?? 0) && l.used > was.used)) Object.assign(was, l);
+          }
+          const keep = k.keep !== false;
+          return { ...mine, keep, limits: limits.map((l) => (l.name === "seven_day" ? { ...l, hold: keep ? l.hold : undefined } : l)) };
+        }),
+      };
+    },
     "key.check": (f) => (mach(f), { ok: true, word: "glm-abliterated ответила за 1,4 с" }),
     "profile.file": () => ({ text: "---\nname: deliver\ndescription: Доводит принятое до конца\n---\n\n# Порядок\n\n1. Код с тестами\n2. Выпуск и живой прогон\n3. Второй проход" }),
     "shell.info": (f) => ({ os: machines[mach(f)].os, shells: ["bash", "node"], home: "/home/yuri" }),
