@@ -146,6 +146,15 @@ describe("связь с людьми: Telegram", () => {
     expect((await hook(s, { message: { message_id: 1, chat: { id: 1 }, text: "x" } })).status).toBe(404);
   });
 
+  // чьё: факт описи — без позывного ответ человека из Telegram не находил сессию
+  it("сессия пишет человеку без позывного — служба ставит его по пропуску: уведомление идёт в тему этой сессии", async () => {
+    const s = await withBot();
+    await link(s, { id: 500 }, 9);
+    s.seen.net.length = 0;
+    expect((await s.ask("reach.send", { to: "~anya@example.com", title: "Нужен доступ", text: "какой адрес стенда?" }, "klaptop", "site@laptop")).result).toEqual({ sent: 1, online: false });
+    expect(calls(s)[0]).toEqual(["createForumTopic", { chat_id: 500, name: "site@laptop" }]);
+  });
+
   it("код привязки делает чат устройством; уведомление идёт в тему сессии; ответ из темы уходит сессии кадром message", async () => {
     const s = await withBot();
     const code = await link(s, { id: 500 }, 9);

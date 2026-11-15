@@ -53,6 +53,19 @@ function logRow(fleet: string, machine: string, file: string, pos: number, n: nu
   });
 }
 
+/** Строка журнала о вызове инструмента сервером MCP: msg tool, сессия — кто звал, машина — его машина; в data — инструмент, знаков ответа, время.
+ *  Ключ строки — время и случайный номер: повторов у неё нет. Аналитика не подключена — строки нет. */
+export async function toolLine(env: Env, f: typeof fetch, fleet: string, machine: string, l: { tool: string; from: string; ms: number; ok: boolean; chars: number; images?: number; trace?: string }): Promise<void> {
+  if (!env.CH_URL) return;
+  const at = Date.now();
+  const { from, ...data } = l;
+  await ensure(env, f, LOG, CREATE_LOG);
+  await ch(env, f, `INSERT INTO ${LOG} FORMAT JSONEachRow`, JSON.stringify({
+    fleet, machine, file: "tools", pos: at, n: Math.floor(Math.random() * 0xffffffff), at: at / 1000, part: "services", level: l.ok ? "info" : "warn", msg: "tool",
+    session: from, account: "", status: 0, kind: "", text: "", data: JSON.stringify(data),
+  }));
+}
+
 async function ch(env: Env, f: typeof fetch, query: string, body?: string, params: Record<string, string> = {}): Promise<string> {
   const url = new URL(env.CH_URL!);
   url.searchParams.set("query", query);

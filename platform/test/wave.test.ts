@@ -202,3 +202,24 @@ describe("картина для модели: фильтры", () => {
     expect(await list({ project: "site", state: "idle" })).toEqual([]);
   });
 });
+
+// чьё: факт прода 15 нояб. — 46 311 знаков на 57 сессий, 68% знаков всех ответов инструментов
+describe("картина для модели: короткая строка", () => {
+  it("fleet.list без параметров — короткая строка сессии; с full: true — полная", async () => {
+    const t = await trio();
+    const hl = await host(t.fleet, "laptop", t.laptop);
+    const ask1 = { id: "q7", kind: "question", text: "Какую ветку брать?", at: 5, options: [{ label: "main" }], input: { questions: [] }, seen: ["pult~yuri@example.com"] };
+    const full = { ...row("site@laptop"), state: "waiting", title: "Шапка сайта", doing: "Команда npm test", result: "Дописал раздел «Выкладка»: три шага", unread: ["~yuri@example.com"], account: "a@b.c", cache: { until: 9, size: 120_000 }, ask: ask1,
+      spec: { name: "site", cwd: "~/p", key: "claude", model: "claude-opus-5-5", effort: "high", mode: "all", parent: "lead@laptop", project: "q7k2", pieces: ["base"], title: "Шапка сайта" } };
+    hl.send({ type: "machine.hello", build: 1, sessions: [full] });
+    const py = await page(t.fleet, t.yuri);
+    await py.next((f) => (f.type === "roster" || f.type === "roster.delta") && JSON.stringify(f).includes("site@laptop"));
+    const list = async (f: Record<string, unknown>) => ((await ask(t.fleet, t.yuri, { type: "fleet.list", ...f })).result as { sessions: unknown[] }).sessions;
+    expect(await list({})).toEqual([{ callsign: "site@laptop", state: "waiting", title: "Шапка сайта", cwd: "~/p", key: "claude", model: "claude-opus-5-5", parent: "lead@laptop", project: "q7k2", doing: "Команда npm test", ask: { id: "q7", kind: "question", text: "Какую ветку брать?" } }]);
+    expect(await list({ full: true })).toMatchObject([{ callsign: "site@laptop", spec: { effort: "high", pieces: ["base"] }, result: "Дописал раздел «Выкладка»: три шага", unread: ["~yuri@example.com"] }]);
+    // отбор по проекту работает и с короткой строкой
+    expect(await list({ project: "q7k2" })).toHaveLength(1);
+    expect(await list({ project: "нет" })).toEqual([]);
+  });
+});
+

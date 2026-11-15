@@ -1,7 +1,7 @@
 // Связь с людьми: устройства человека вне страницы — подписки веб-пуша и чаты Telegram, записи одного вида.
 // Один запрос «позвать человека»: служба сама спрашивает платформу, на связи ли он; на связи — не шлёт.
 // Бот Telegram у каждого флота свой: его токен лежит в записях флота, вебхук приходит на адрес этого флота — общей для флотов записи нет.
-import { CALL_MS, errFields, type Frame, type Logger, newId, Refusal, sha256hex } from "@sb/protocol";
+import { CALL_MS, errFields, type Frame, kindOf, type Logger, newId, Refusal, sha256hex } from "@sb/protocol";
 import { outbound } from "../../env.ts";
 import type { Deps, Env, Module, Platform } from "../../env.ts";
 import { log } from "../../env.ts";
@@ -325,7 +325,8 @@ export const reach: Module = {
   name: NAME,
   handlers: {
     async "reach.send"(i: { to: string; title: string; text: string; callsign?: string; kind?: string; subject?: string; force?: boolean; ask?: string; options?: string[] }, ctx) {
-      return sendTo(ctx, i);
+      // позывной сессии, которая пишет человеку, ставит служба по пропуску: ответ человека из Telegram вернётся в эту сессию, называть себя модели не нужно
+      return sendTo(ctx, { ...i, ...(i.callsign === undefined && kindOf(ctx.who.addr) === "session" ? { callsign: ctx.who.addr } : {}) });
     },
 
     async "reach.key"(_i, ctx) {
