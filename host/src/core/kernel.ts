@@ -341,9 +341,12 @@ export class Kernel {
     this.connect();
     const work = [
       ...files.filter((f) => !live.some((s) => s.callsign === f.id)).map((f) => this.killOrphan(f)),
-      ...live.map((s) => {
-        quiet(s.launch(files.some((f) => f.id === s.callsign) ? "attach" : "resume"));
-        return s.settled();
+      ...live.map(async (s) => {
+        const held = files.find((f) => f.id === s.callsign);
+        quiet(s.launch(held ? "attach" : "resume"));
+        await s.settled();
+        // сессия не поднялась на процессе, пережившем подмену Host: процесс без хозяина снимается — запуск начнёт с разговора
+        if (held && s.state === "failed") await this.killOrphan(held, "сессия не поднялась");
       }),
     ];
     await Promise.race([Promise.all(work), new Promise((r) => this.abort.signal.addEventListener("abort", r))]);
@@ -351,9 +354,9 @@ export class Kernel {
     this.log.info("ready", { build: this.o.build });
   }
 
-  /** Процесс, которого нет в списке сессий: kill, старт ждёт его выхода с пределом. */
-  private async killOrphan(f: HoldFile): Promise<void> {
-    this.log.warn("orphan_kill", { callsign: f.id, why: `процесс ${f.id} (pid ${f.pid}) не в списке сессий — kill` });
+  /** Процесс без хозяина — его нет в списке сессий или сессия на нём не поднялась: kill, старт ждёт его выхода с пределом. */
+  private async killOrphan(f: HoldFile, why = "не в списке сессий"): Promise<void> {
+    this.log.warn("orphan_kill", { callsign: f.id, why: `процесс ${f.id} (pid ${f.pid}): ${why} — kill` });
     const h = this.holders.connect(f);
     h.destroy();
     await within<unknown>(this.clock, h.exited, KILL_MS, () => this.log.warn("orphan_late", { callsign: f.id, why: `держатель ${f.id} не вышел за ${KILL_MS / 1000} с после kill` }));
