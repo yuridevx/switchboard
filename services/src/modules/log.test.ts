@@ -128,8 +128,8 @@ describe("история флота: журнал машин в ClickHouse", () 
     };
     const r = (await s.ask("analytics.query", { by: "account", since: "2026-11-01", until: "2026-11-16" })).result as { rows: { key: string; calls: number }[] };
     expect(r.rows).toEqual([{ key: "a@example.com", calls: 2, input: 200, output: 40, cacheRead: 10, cacheWrite: 14 }, { key: "", calls: 1, input: 50, output: 5, cacheRead: 0, cacheWrite: 0 }]);
-    expect(asked).toContain("a.account AS key");
-    expect(asked).toMatch(/LEFT JOIN \(SELECT JSONExtractString\(data, 'req'\) AS req, argMax\(account, at\) AS account FROM sb2_log FINAL[\s\S]*msg = 'call'[\s\S]*HAVING req != ''\) AS a ON a\.req = c\.req/);
+    expect(asked).toContain("a.name AS key");
+    expect(asked).toMatch(/LEFT JOIN \(SELECT JSONExtractString\(data, 'req'\) AS req, argMax\(account, at\) AS name FROM sb2_log FINAL[\s\S]*msg = 'call'[\s\S]*HAVING req != ''\) AS a ON a\.req = c\.req/);
     // прочие разрезы журнал не читают
     await s.ask("analytics.query", { by: "day", since: "2026-11-01", until: "2026-11-16" });
     expect(asked).not.toContain("sb2_log");
