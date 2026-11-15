@@ -112,9 +112,10 @@ export async function consume(batch: MessageBatch<PointNote>, env: Env, deps: De
   }
 }
 
-const KEY: Record<string, string> = { day: "toString(toDate(c.at))", model: "c.model", machine: "c.machine", session: "c.callsign", person: "c.owner", project: "c.project", account: "a.account" };
-/** Аккаунт вызова: строка вызова журнала машины с тем же номером запроса Claude. Вызов без такой строки (провайдер, вызов до журнала) — с пустым аккаунтом. */
-const ACCOUNTS = `LEFT JOIN (SELECT JSONExtractString(data, 'req') AS req, argMax(account, at) AS account FROM ${LOG} FINAL
+const KEY: Record<string, string> = { day: "toString(toDate(c.at))", model: "c.model", machine: "c.machine", session: "c.callsign", person: "c.owner", project: "c.project", account: "a.name" };
+/** Аккаунт вызова: строка вызова журнала машины с тем же номером запроса Claude. Имя колонки итога — не account: ClickHouse подставил бы его в WHERE вместо колонки таблицы.
+ * Вызов без такой строки (провайдер, вызов до журнала) — с пустым аккаунтом. */
+const ACCOUNTS = `LEFT JOIN (SELECT JSONExtractString(data, 'req') AS req, argMax(account, at) AS name FROM ${LOG} FINAL
         WHERE fleet = {fleet:String} AND msg = 'call' AND account != '' AND at >= parseDateTimeBestEffort({from:String}) - INTERVAL 1 DAY AND at < parseDateTimeBestEffort({to:String}) + INTERVAL 1 DAY
         GROUP BY req HAVING req != '') AS a ON a.req = c.req`;
 
