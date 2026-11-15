@@ -33,14 +33,15 @@ const busy = async (cs: string) => {
 
 describe("план v2: сообщения", () => {
   // чьё: код — родитель ждёт итог хода дочери сам, отдельно писать ему не надо
-  it("родитель даёт задачу дочери: во вводе — обёртка и приписка «итог уйдёт сам»", async () => {
+  it("родитель даёт задачу дочери: во вводе — тег вида task; сосед — вида message; приписки о родителе нет", async () => {
     st = await stand({ modules: [chat()] });
     await st.open("lead");
     await st.open("kid", {}, "lead@laptop");
     await st.request("message", { to: "kid@laptop", text: "собери отчёт" }, "lead@laptop");
     const got = String((await until(() => st!.proc("kid@laptop").inputs.at(-1), 5000, "ввод дочери")).message.content);
-    expect(got).toContain('<fleet-message from="lead@laptop">');
-    expect(got).toContain("итог этого хода уйдёт ему сам");
+    expect(got).toBe('<fleet from="lead@laptop" kind="task">\nсобери отчёт\n</fleet>');
+    await st.request("message", { to: "kid@laptop", text: "я сосед" }, "docs@server");
+    expect(String((await until(() => st!.proc("kid@laptop").inputs.at(1), 5000, "ввод от соседа")).message.content)).toBe('<fleet from="docs@server" kind="message">\nя сосед\n</fleet>');
   });
 
   it("отмена сообщения: Claude отказал — sdk_error с позывным, сообщение остаётся в очереди", async () => {
@@ -157,15 +158,16 @@ describe("план v2: вести", () => {
     expect(st.services.of("reach.send")).toHaveLength(1);
   });
 
-  // устав: «процесс claude умер — один resume»; слово пользователя: ведущая узнаёт событиями
-  it("процесс ведомого умер и поднят — ведущей весть «снова на связи»", async () => {
+  // устав: «процесс claude умер — один resume»; слово пользователя 15 нояб.: вести ведущей — только то, что требует решения
+  it("процесс ведомого умер и поднят — ведущей вести нет: решать ей нечего", async () => {
     st = await stand({ modules: [chat()] });
     await st.request("session.open", { to: "@laptop", spec: { name: "lead", cwd: st.dir }, pair: true }, PULT);
     const wing = st.kernel.sessions.get("lead-wing@laptop")!;
     const before = st.proc("lead@laptop").inputs.length;
     st.proc("lead-wing@laptop").exit(1, "упал");
     await until(() => st!.holders.spawns.filter((x) => x.id === "lead-wing@laptop").length === 2 && wing.state === "idle", 5000, "resume ведомого");
-    await until(() => st!.proc("lead@laptop").inputs.slice(before).some((i) => String(i.message.content).includes("снова на связи")), 5000, "весть «снова на связи»");
+    await tick(40);
+    expect(st.proc("lead@laptop").inputs.slice(before)).toEqual([]);
   });
 });
 

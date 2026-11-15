@@ -1,6 +1,6 @@
 // Запросы ядра о сессиях: открыть, изменить документ, остановить, запустить, убрать, список, проход к SDK. Родитель и пара — здесь.
 import { randomUUID } from "node:crypto";
-import { kindOf, ledgerAdd, message, Refusal, sessionName, sessionRemove, sessionStart, sessionStop, TOOL_METHODS, type Spec, type SpecPatch } from "@sb/protocol";
+import { fleetList, kindOf, ledgerAdd, machineOf, message, notice, peopleList, READ_MS, Refusal, sessionName, sessionRemove, sessionStart, sessionStop, TOOL_METHODS, type SessionBrief, type Spec, type SpecPatch } from "@sb/protocol";
 import { limited } from "./clock.ts";
 import { tildePath } from "./paths.ts";
 import type { Ctx, Module, SessionApi } from "./contract.ts";
@@ -58,12 +58,28 @@ export function coreModule(k: Kernel): Module {
   const text = (v: unknown) => {
     if (typeof v !== "string" || !v) throw new Refusal("bad_spec", "значение — непустая строка");
   };
-  /** Весть ведущему о ведомом: старт и обрыв. Не дошла — строка журнала. */
-  const tellLead = (wing: Session, words: string) => {
-    const lead = [...k.sessions.values()].find((x) => x.rec.spec.wing === wing.callsign);
-    if (!lead || !lead.live) return;
-    quiet(k.call(message, { to: lead.callsign, text: words }, { from: wing.callsign }).catch((e: unknown) => k.log.warn("wing_news", { callsign: wing.callsign, to: lead.callsign, why: (e as Error).message })));
+  /** Весть родителю: разговор его дочери очистил или откатил кто-то другой — его представление о ней больше неверно. Кто просил, знает только обработчик отката. */
+  const rewound = (s: Session, by: string, words: string) => {
+    const parent = s.rec.spec.parent;
+    if (!parent || parent === by) return;
+    quiet(k.call(notice, { to: parent, kind: "news", text: words }, { from: s.callsign }).catch((e: unknown) => k.log.warn("news", { callsign: s.callsign, to: parent, why: (e as Error).message })));
   };
+
+  /** Проект сессии — номер из списка проектов флота: у одного понятия одно имя. Список хранит флот; машина спрашивает его при каждой проверке и у себя не держит.
+   *  Проекта нет — отказ называет «номер — имя»; флот не ответил — отказ словом: открытия «без проверки» нет. */
+  async function project(v: unknown): Promise<void> {
+    text(v);
+    const { projects } = await limited(k.clock, k.call(peopleList, {}), READ_MS, () => new Refusal("timeout", `проект ${String(v)} не проверен: флот не ответил за ${READ_MS / 1000} с`));
+    if (!projects.some((p) => p.id === v)) throw new Refusal("no_project", `проекта ${String(v)} нет; есть: ${projects.map((p) => `${p.id} — ${p.name}`).join(", ") || "ни одного"}`);
+  }
+
+  /** Проект сессии-родителя: из её документа — у себя, а если она на другой машине — из картины флота. */
+  async function projectOf(parent: string): Promise<string | undefined> {
+    const here = k.sessions.get(parent);
+    if (here) return here.rec.spec.project;
+    const { sessions } = await limited(k.clock, k.call(fleetList, { machine: machineOf(parent)! }), READ_MS, () => new Refusal("timeout", `проект родителя ${parent} не прочитан: флот не ответил за ${READ_MS / 1000} с`));
+    return (sessions.find((x) => x.callsign === parent) as SessionBrief | undefined)?.project;
+  }
 
   /** Открыть ведомого: та же папка и набор, что у ведущего; задачи ему даёт ведущий. */
   async function openWing(lead: Session, ctx: Ctx): Promise<string> {
@@ -76,7 +92,6 @@ export function coreModule(k: Kernel): Module {
     lead.sync();
     wing.sync();
     ledger("session.opened", wing.callsign, `${wing.callsign} открыта ведомым ${lead.callsign}`);
-    tellLead(wing, `Ведомый ${wing.callsign} открыт: задачи ему — инструмент message, итог его хода придёт сам.`);
     return wing.callsign;
   }
 
@@ -99,10 +114,14 @@ export function coreModule(k: Kernel): Module {
     async "session.open"({ spec, prompt, mkdir, number, resume, fork, pair }: { spec: Spec; prompt?: string; mkdir?: boolean; number?: boolean; resume?: string; fork?: boolean; pair?: boolean }, ctx) {
       if (fork && !resume) throw new Refusal("bad_spec", "fork — копия разговора: нужен resume с его id");
       if (spec.wing && pair) throw new Refusal("bad_spec", "pair открывает нового ведомого: wing в документе при этом не называют");
-      // сессия, открытая сессией, — её дочь: итог хода уйдёт родителю
-      const child = kindOf(ctx.from) === "session" && !spec.parent ? { ...spec, parent: ctx.from } : spec;
-      const s = await k.open(child, { by: ctx.from, prompt, mkdir, number, resume, fork });
+      // сессия, открытая сессией, — её дочь: итог хода уйдёт родителю; проект не назван — дочь встаёт в проект родителя, выдумывать его модели не приходится
+      const bySession = kindOf(ctx.from) === "session";
+      const inherited = bySession && !spec.project ? await projectOf(ctx.from) : undefined;
+      const child = { ...spec, ...(bySession && !spec.parent ? { parent: ctx.from } : {}), ...(inherited ? { project: inherited } : {}) };
+      const s = await k.open(child, { by: ctx.from, title: prompt, mkdir, number, resume, fork });
       ledger("session.opened", s.callsign, `${s.callsign} открыта · ${spec.cwd}`);
+      // первая задача идёт тем же путём, что любое сообщение: от родителя — видом task, от человека — без тега; она видна в ленте
+      if (prompt) await k.call(message, { to: s.callsign, text: prompt }, { from: ctx.from, trace: ctx.trace });
       const wing = pair ? await openWing(s, ctx) : undefined;
       return { callsign: s.callsign, ...(wing ? { wing } : {}) };
     },
@@ -187,7 +206,7 @@ export function coreModule(k: Kernel): Module {
     },
 
     /** Откат разговора в той же сессии: показать → прервать ход → файлы → перезапуск на обрезанном разговоре → сказать. Без upto — /clear самого Claude. */
-    async "session.rewind"({ to, upto, files, dry }: { to: string; upto?: string; files?: boolean; dry?: boolean }) {
+    async "session.rewind"({ to, upto, files, dry }: { to: string; upto?: string; files?: boolean; dry?: boolean }, ctx) {
       const s = session(to);
       const api = s.facade(self);
       if (!live(api)) throw new Refusal("stopped", `session.rewind ${to}: сессия ${api.state}`);
@@ -217,7 +236,7 @@ export function coreModule(k: Kernel): Module {
       if (!kept) {
         // очистка и откат к первому сообщению: разговор начинается заново командой самого Claude — событие сброса придёт от него
         api.input("/clear", { priority: "now" });
-        tellLead(s, `Ведомый ${to} очищен: разговор начат заново.`);
+        rewound(s, ctx.from, "Разговор очищен: начат заново.");
         return out;
       }
       try {
@@ -228,7 +247,7 @@ export function coreModule(k: Kernel): Module {
       const words = `Откат к ${text ? `«${text.slice(0, 60)}»` : "полученной задаче"}${changed ? ` · файлы возвращены: ${changed.filesChanged?.length ?? 0}` : ""}`;
       // след отката — в ленту и в историю: встаёт за последней оставшейся записью
       s.tell({ type: "conversation_reset", uuid: randomUUID(), after: kept, text: words });
-      tellLead(s, `Ведомый ${to} откачен${text ? ` к сообщению «${text.slice(0, 60)}»` : " к полученной задаче"}: ушло записей — ${cut}${changed ? ", файлы возвращены" : ""}.`);
+      rewound(s, ctx.from, `Разговор откачен${text ? ` к сообщению «${text.slice(0, 60)}»` : " к полученной задаче"}: ушло записей — ${cut}${changed ? ", файлы возвращены" : ""}.`);
       k.log.info("rewind", { callsign: to, cut, files: !!changed });
       return out;
     },
@@ -289,7 +308,7 @@ export function coreModule(k: Kernel): Module {
     title: text,
     parent: () => {},
     wing: () => {},
-    project: () => {},
+    project,
   };
 
   /** «Изменилось» от служб — всем модулям: каждый перечитывает своё. */
@@ -304,13 +323,6 @@ export function coreModule(k: Kernel): Module {
   self.on = {
     // режим сменили в самой сессии — документ следует за ней
     event(s, m) {
-      // ведущая узнаёт, что ведомого сжали
-      if (m?.type === "system" && m.subtype === "compact_boundary") {
-        const wing = k.sessions.get(s.callsign);
-        const meta = (m.compact_metadata ?? m.compactMetadata ?? {}) as { pre_tokens?: number; post_tokens?: number; preTokens?: number; postTokens?: number };
-        const pre = meta.pre_tokens ?? meta.preTokens, post = meta.post_tokens ?? meta.postTokens;
-        if (wing) tellLead(wing, `Ведомый ${s.callsign} сжат${pre ? `: ${Math.round(pre / 1000)} К${post ? ` → ${Math.round(post / 1000)} К` : ""} токенов` : ""}.`);
-      }
       const mode = (m as { permissionMode?: string }).permissionMode;
       if (!mode) return;
       const name = Object.keys(MODES).find((key) => MODES[key] === mode);
@@ -319,21 +331,9 @@ export function coreModule(k: Kernel): Module {
       rec.spec = { ...rec.spec, mode: name as Spec["mode"] };
       k.save();
     },
-    // ведущая узнаёт, что ведомый ждёт человека; вопрос самой ведущей уже пришёл ей вопросом
-    asked(view, ask) {
+    state(view, state) {
       const s = k.sessions.get(view.callsign);
       if (!s) return;
-      const lead = [...k.sessions.values()].find((x) => x.rec.spec.wing === s.callsign);
-      if (!lead || (ask.kind === "question" && ask.to === lead.callsign)) return;
-      tellLead(s, `Ведомый ${s.callsign} ждёт ответа человека: ${ask.kind === "question" ? "вопрос" : ask.kind === "plan" ? "план" : ask.kind === "permission" ? "разрешение" : "форма сервера"} — ${(ask.title ?? ask.text).slice(0, 120)}.`);
-    },
-    state(view, state, was) {
-      const s = k.sessions.get(view.callsign);
-      if (!s) return;
-      // ведущий узнаёт о ведомом: поднялся и оборвался
-      // подмена Host — не новость: процесс ведомого тот же
-      if (was === "starting" && (state === "idle" || state === "busy") && s.launched !== "attach" && s.launched !== "spawn") tellLead(s, `Ведомый ${s.callsign} снова на связи.`);
-      if (state === "failed") tellLead(s, `Ведомый ${s.callsign} остановился со сбоем: ${s.rec.error ?? "причина в журнале машины"}.`);
       // просили убрать после хода — ход кончился
       const by = s.rec.removeAfter;
       if (by && (state === "idle" || state === "stopped" || state === "failed")) {

@@ -1,5 +1,5 @@
 // Договор ядра с модулями Host: что модуль отдаёт ядру и что ядро даёт модулю.
-import type { Ask, Frame, InputOf, Logger, OutputOf, Priority, RequestDef, SessionRow, SessionState, Spec } from "@sb/protocol";
+import type { Frame, InputOf, Logger, OutputOf, Priority, RequestDef, SessionRow, SessionState, Spec } from "@sb/protocol";
 import type { Clock } from "./clock.ts";
 import type { Meter } from "./meter.ts";
 
@@ -19,7 +19,7 @@ export type QueryPart = {
   [option: string]: unknown;
 };
 
-export type InputOpts = { from?: string; priority?: Priority; uuid?: string; [k: string]: unknown };
+export type InputOpts = { priority?: Priority; uuid?: string; [k: string]: unknown };
 
 /** Сессия глазами модуля. */
 export interface SessionApi {
@@ -27,7 +27,7 @@ export interface SessionApi {
   readonly spec: Spec;
   readonly state: SessionState;
   /** разговор claude, папка, кто открыл, модель процесса */
-  readonly info: { sessionId: string; cwd: string; by: string; since: number; last?: number; model: string | null; /** сколько сообщений ждёт во вводе */ queue: number; /** до какого времени кэш разговора тёплый, мс: из последнего ответа модели */ warm?: number; /** в последнем ходе модель ответила: ход без ответа (сжатие, очистка, команда) не зовёт человека */ answered: boolean; /** как поднят нынешний процесс: attach — процесс пережил подмену Host и ввод у него на руках */ launch?: "spawn" | "resume" | "attach" | "fork" };
+  readonly info: { sessionId: string; cwd: string; by: string; since: number; last?: number; model: string | null; /** сколько сообщений ждёт во вводе */ queue: number; /** до какого времени кэш разговора тёплый, мс: из последнего ответа модели */ warm?: number; /** в последнем ходе модель ответила: ход без ответа (сжатие, очистка, команда) не зовёт человека */ answered: boolean; /** причина сбоя словами, пока сессия failed */ error?: string; /** как поднят нынешний процесс: attach — процесс пережил подмену Host и ввод у него на руках */ launch?: "spawn" | "resume" | "attach" | "fork" };
   /** текст или блоки — в очередь ввода */
   input(content: unknown, opts?: InputOpts): void;
   /** метод query() или функция SDK о разговоре */
@@ -80,8 +80,6 @@ export interface Module {
     /** сообщение SDK */
     event?(s: SessionApi, m: any): void;
     state?(s: SessionApi, state: SessionState, was: SessionState): void | Promise<void>;
-    /** в строке сессии появился вопрос */
-    asked?(s: SessionApi, ask: Ask): void;
     /** сессии больше нет */
     removed?(callsign: string): void;
     /** кадр «изменилось» от служб: что именно — ключи флота, настройка флота по имени */
@@ -93,7 +91,7 @@ export interface Module {
   stop?(): void | Promise<void>;
 }
 
-export type OpenOpts = { by: string; prompt?: string; resume?: string; fork?: boolean; mkdir?: boolean; /** к имени — первый свободный номер */ number?: boolean };
+export type OpenOpts = { by: string; /** заголовок до первого слова SDK: начало первой задачи */ title?: string; resume?: string; fork?: boolean; mkdir?: boolean; /** к имени — первый свободный номер */ number?: boolean };
 
 /** Host глазами модуля. */
 export interface HostApi {

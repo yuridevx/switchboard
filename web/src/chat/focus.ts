@@ -72,7 +72,7 @@ export function exportMd(cs: string, v: View): string {
   const out = [`# ${cs}\n`];
   for (const r of v.rows) {
     if (r.k === "me") out.push(`## ${r.from ? r.from.replace(/^.*~/, "") : "Вы"}\n\n${r.text}\n`);
-    else if (r.k === "in") out.push(r.via === "owner" ? `## ${r.from} → вам\n\n${r.text}\n` : `## ${r.from || (r.via === "agent" ? "субагент" : "сессия")} → сессии\n\n${r.text}\n`);
+    else if (r.k === "in") out.push(r.via === "owner" ? `## ${r.from} → вам\n\n${r.text}\n` : `## ${r.from || "сессия"} → сессии\n\n${r.text}\n`);
     else if (r.k === "reply") {
       const text = r.parts.flatMap((p) => (p.k === "text" ? [p.text] : p.k === "tool" ? [`- \`${v.tools[p.id]?.name}\` ${JSON.stringify(v.tools[p.id]?.input ?? {})}`] : [])).join("\n\n");
       if (text) out.push(`## Claude\n\n${text}\n`);

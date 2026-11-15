@@ -124,8 +124,13 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
       passes.unshift({ kid, addr, person: ME, wait: true, at: now(), by: MY_ADDR, online: false });
       return { code: `home:${kid}:${newId()}${newId()}`, kid, addr, client: { name: host, uri: f.client } };
     },
+    // у сессии короткая строка — как у объекта флота; полная — по full
     "fleet.list": (f) => ({
-      machines: Object.values(machines).filter((m) => !f.machine || m.name === f.machine), sessions: Object.values(sessions).filter((s) => !f.machine || machineOf(s.callsign) === f.machine),
+      machines: Object.values(machines).filter((m) => !f.machine || m.name === f.machine),
+      sessions: Object.values(sessions).filter((s) => (!f.machine || machineOf(s.callsign) === f.machine) && (!f.project || s.spec.project === f.project) && (!f.state || s.state === f.state)).map((s) => (f.full ? s : {
+        callsign: s.callsign, state: s.state, ...(s.title ?? s.spec.title ? { title: s.title ?? s.spec.title } : {}), cwd: s.spec.cwd, ...(s.spec.key ? { key: s.spec.key } : {}), ...(s.spec.model ? { model: s.spec.model } : {}),
+        ...(s.spec.parent ? { parent: s.spec.parent } : {}), ...(s.spec.project ? { project: s.spec.project } : {}), ...(s.doing ? { doing: s.doing } : {}), ...(s.ask ? { ask: { id: s.ask.id, kind: s.ask.kind, text: s.ask.text } } : {}),
+      })),
       people: people.filter((p) => devicesOf(p.person).some((d) => d.online && !d.addr.startsWith("@"))).map((p) => ({ person: p.person, ...(p.name ? { name: p.name } : {}), devices: devicesOf(p.person).filter((d) => d.online && !d.addr.startsWith("@")).map((d) => d.addr) })),
     }),
 
@@ -238,8 +243,13 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
       const name = f.name ?? src.callsign.split("@")[0];
       const cs = `${name}@${m}`;
       if (sessions[cs]) throw new Refusal("name_taken", `сессия ${cs} уже есть`);
+      // как Host: провайдер и модель — названные в запросе, иначе из документа точки; нет ни там, ни там — отказ
+      const key = f.key ?? src.key, model = f.model ?? (src.key ? src.model : undefined);
+      if (!key) throw new Refusal("key_required", "назовите провайдера: claude или имя ключа флота");
+      if (!model) throw new Refusal("model_required", "назовите модель: точное имя из каталога провайдера");
       c.talks.set(cs, [...c.talk(src.callsign)]);
-      sessions[cs] = c.row(cs, "idle", src.project, { title: src.title, cwd: f.cwd ?? src.cwd, last: now(), since: now() });
+      sessions[cs] = c.row(cs, "idle", src.project, { title: src.title, cwd: f.cwd ?? src.cwd, last: now(), since: now(), model });
+      sessions[cs].spec = { ...sessions[cs].spec, key };
       c.delta({ sessions: [{ callsign: cs, row: sessions[cs] }] });
       // перенос: прежняя машина отпускает сессию
       if (f.move && sessions[src.callsign] && src.callsign !== cs) c.setRow(src.callsign, null);

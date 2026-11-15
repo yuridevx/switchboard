@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { kindOf, message, newId, Refusal } from "@sb/protocol";
+import { kindOf, newId, notice, Refusal } from "@sb/protocol";
 import type { Ctx, HostApi, Module } from "../../core/contract.ts";
 import { clientPath } from "../../core/paths.ts";
 import { argsOf, killTree, pathOf, scriptOf, SHELLS, versionOf, WIN, type Shell } from "./os.ts";
@@ -100,7 +100,7 @@ export function make({ root = join(tmpdir(), "sb2-shell") }: { root?: string } =
     // сессия пустила запуск и не дождалась — конец придёт ей сообщением
     if (r.owner && !r.waited && !r.waiting) {
       const text = `Запуск ${r.id} на ${host.machine} кончился: ${state}${r.code !== undefined ? `, код ${r.code}` : ""}. Вывод — shell_wait с run ${r.id}.`;
-      void host.call(message, { to: r.owner, text }).catch((e: unknown) => host.log.warn("run_message", { run: r.id, to: r.owner, why: (e as Error).message }));
+      void host.call(notice, { to: r.owner, kind: "news", text }).catch((e: unknown) => host.log.warn("run_message", { run: r.id, to: r.owner, why: (e as Error).message }));
     }
   }
 

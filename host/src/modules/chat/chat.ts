@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { opendir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { findModels, kindOf, personOf, reachSend, Refusal, sessionUpdate, toolLine, type Frame, type Priority, type SessionState } from "@sb/protocol";
+import { findModels, kindOf, notice, personOf, reachSend, Refusal, sessionUpdate, toolLine, type Frame, type Kind, type Peer, type Priority, type SessionState } from "@sb/protocol";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
 import type { AccountsApi } from "../accounts/contract.ts";
 import { questions } from "./ask.ts";
@@ -30,8 +30,11 @@ const MODELS_SHOWN = 12;
 type FileIn = { name: string; mime: string; base64: string };
 /** Итог хода для истории: файл разговора его не хранит. after — запись разговора, за которой он встаёт. */
 type TurnEnd = { after: string; event: Record<string, unknown> };
-/** Раздел сессии: люди разговора, у кого непрочитанное, начало последнего ответа, итоги последних ходов. */
-type Part = { people?: string[]; unread?: string[]; result?: string; title?: string; asker?: string; ends?: TurnEnd[] };
+/** Раздел сессии: люди разговора, у кого непрочитанное, начало последнего ответа, итоги последних ходов.
+ *  opens — номера принятых входящих, которые откроют задачу родителя, когда ход их возьмёт; open — задача родителя открыта: итог хода уходит ему. */
+type Part = { people?: string[]; unread?: string[]; result?: string; title?: string; asker?: string; ends?: TurnEnd[]; opens?: string[]; open?: boolean };
+/** Виды входящего, взятие которых открывает задачу родителя: его задача, итог своей дочери, весть о своей работе. */
+const OPENS = new Set<Kind>(["task", "result", "news"]);
 /** Сколько итогов ходов хранит сессия. */
 const ENDS_MAX = 200;
 /** Поля итога хода, которые идут в историю: время, шаги, цена, токены; текст ответа — уже в записи модели. */
@@ -48,11 +51,14 @@ const doingOf = (b: Block): string => toolLine(b.name ?? "", b.input ?? {}, DOIN
 
 const blocksOf = (m: { message?: { content?: unknown } }): Block[] => (Array.isArray(m.message?.content) ? (m.message!.content as Block[]) : []);
 
-/** Что видит модель адресата: сообщение другой сессии или службы. */
-export const wrap = (from: string, text: string): string => `<fleet-message from="${from}">\n${text}\n</fleet-message>`;
-const WRAPPED = /^<fleet-message from="([^"]+)">\n([\s\S]*)\n<\/fleet-message>/;
-/** Задача от родителя: итог хода уйдёт ему сам. */
-export const task = (from: string, text: string): string => `${wrap(from, text)}\n(Задача от родителя ${from}: итог этого хода уйдёт ему сам — писать ему отдельно не нужно.)`;
+const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const unesc = (v: string) => v.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+/** Поля вида: номер вопроса; вид и ключ обращения. */
+export type Attrs = Pick<Peer, "ask" | "incident" | "key">;
+/** Всё входящее от флота — один тег с отправителем и видом. Собирает и разбирает его только этот модуль: вид следует из пути сообщения, а не из текста. */
+export const envelope = (from: string, kind: Kind, text: string, attrs: Attrs = {}): string =>
+  `<fleet from="${esc(from)}" kind="${kind}"${Object.entries(attrs).filter(([, v]) => v !== undefined).map(([k, v]) => ` ${k}="${esc(v as string)}"`).join("")}>\n${text}\n</fleet>`;
+const ENVELOPE = /^<fleet ([^>]*)>\n([\s\S]*)\n<\/fleet>\s*$/;
 
 /** Только переписка с людьми: их сообщения, сообщения им, вопросы человеку и ответы на них. */
 export function peopleOnly<T extends { type?: string; peer?: { from: string }; message?: { content?: unknown } }>(events: T[]): T[] {
@@ -69,10 +75,15 @@ export function peopleOnly<T extends { type?: string; peer?: { from: string }; m
   });
 }
 
-/** Запись разговора с тегом несёт разобранное: адрес отправителя больше нигде не хранится. */
+/** Запись разговора с тегом несёт разобранное — отправителя, вид и текст: страница тег не разбирает. Вложения стоят блоками после текста. */
 function withPeer<T extends { message?: { content?: unknown } }>(m: T): T {
-  const tag = typeof m.message?.content === "string" ? m.message.content.match(WRAPPED) : null;
-  return tag ? { ...m, peer: { from: tag[1], text: tag[2] } } : m;
+  const c = m.message?.content;
+  const text = typeof c === "string" ? c : Array.isArray(c) && (c[0] as Block | undefined)?.type === "text" ? ((c[0] as Block).text ?? "") : "";
+  const tag = ENVELOPE.exec(text);
+  if (!tag) return m;
+  const attrs = Object.fromEntries([...tag[1]!.matchAll(/([a-z]+)="([^"]*)"/g)].map((a) => [a[1]!, unesc(a[2]!)]));
+  if (!attrs.from || !attrs.kind) return m;
+  return { ...m, peer: { ...attrs, text: tag[2]! } };
 }
 
 function block({ name, mime, base64 }: FileIn) {
@@ -127,9 +138,60 @@ export function make(): Module {
   const results = new Map<string, string>();
   const part = (s: SessionApi): Part => s.store<Part>().get() ?? {};
   const merge = (s: SessionApi, p: Part) => s.store<Part>().update((cur) => ({ ...cur, ...p }));
+  /** Входящее от флота — во ввод сессии тегом своего вида. Задача родителя, итог своей дочери и весть о своей работе запоминаются: ход, который их возьмёт, откроет задачу родителя. */
+  function accept(s: SessionApi, from: string, kind: Kind, text: string, o: { priority?: Priority; files?: FileIn[]; ask?: string } = {}): { queued: boolean; uuid: string } {
+    const to = s.callsign;
+    if (down(s)) throw new Refusal("stopped", `${to}: сессия ${s.state} — запускает session.start`);
+    const uuid = randomUUID();
+    const body = content(envelope(from, kind, text, o.ask ? { ask: o.ask } : {}), o.files);
+    if (kind === "task") merge(s, { asker: from });
+    if (s.spec.parent && OPENS.has(kind)) merge(s, { opens: [...(part(s).opens ?? []), uuid] });
+    return deliver(s, from, text, body, uuid, o.priority ?? "next");
+  }
+
+  /** Сообщение — во ввод процесса и в ленту сразу: процесс свой ввод зрителям не повторяет; номер тот же, что будет у записи разговора. */
+  function deliver(s: SessionApi, from: string, text: string, body: unknown, uuid: string, priority: Priority): { queued: boolean; uuid: string } {
+    const to = s.callsign;
+    s.input(body, { priority, uuid });
+    push(to, withPeer({ type: "user", uuid, from, at: Date.now(), message: { role: "user", content: body } }));
+    lastUuid.set(to, uuid);
+    // сессия занята — сообщение ждёт в очереди: его видно зрителям и его можно отменить
+    const waits = s.state !== "idle";
+    if (waits) {
+      queued.set(to, [...(queued.get(to) ?? []), { uuid, from, text, at: Date.now() }]);
+      status(to, uuid, "queued");
+    }
+    return { queued: waits, uuid };
+  }
+
+  /** Ход взял сообщение: если оно из тех, что открывают задачу родителя, — задача открыта. */
+  function took(s: SessionApi, uuid: string): void {
+    const { opens = [] } = part(s);
+    if (opens.includes(uuid)) merge(s, { opens: opens.filter((x) => x !== uuid), open: true });
+  }
+
+  /** Конец хода при открытой задаче: ответ уходит родителю видом result. Фоновой работы не осталось — задача сдана; осталась — открыта дальше,
+   *  и итог следующего хода уйдёт родителю, кто бы этот ход ни начал. Родитель остановлен — тот же отказ, что у любого сообщения, и строка журнала. */
+  function report(s: SessionApi, text: string): void {
+    const parent = s.spec.parent;
+    if (!parent || !part(s).open) return;
+    const waits = running.get(s.callsign)?.size ?? 0;
+    if (!waits) merge(s, { open: false });
+    if (!text) return;
+    host.log.info("report", { callsign: s.callsign, to: parent, chars: text.length, open: waits > 0 });
+    void host.call(notice, { to: parent, kind: "result", text }, { from: s.callsign }).catch((e: unknown) => host.log.warn("report", { callsign: s.callsign, to: parent, word: (e as Refusal).word ?? "offline", why: `итог хода не дошёл родителю: ${(e as Error).message}` }));
+  }
+
+  /** Весть родителю о своей дочери: событие, по которому ему решать. Не дошла — строка журнала. */
+  function news(s: SessionApi, text: string): void {
+    const parent = s.spec.parent;
+    if (!parent) return;
+    void host.call(notice, { to: parent, kind: "news", text }, { from: s.callsign }).catch((e: unknown) => host.log.warn("news", { callsign: s.callsign, to: parent, why: (e as Error).message }));
+  }
+
   /** Кто дал задачу: последний писавший, иначе открывший. */
   const asker = (s: SessionApi) => part(s).asker ?? s.info.by;
-  const ask = questions(() => host, asker, { viewers: (cs) => [...(viewers.get(cs) ?? [])], push: (cs, e) => push(cs, e) });
+  const ask = questions(() => host, asker, { viewers: (cs) => [...(viewers.get(cs) ?? [])], push: (cs, e) => push(cs, e), news });
   const session = (to: string) => host.session(to)!;
 
   function flush(cs: string) {
@@ -159,10 +221,12 @@ export function make(): Module {
     const cs = s.callsign;
     const watching = new Set([...(viewers.get(cs) ?? [])].map((a) => personOf(a)));
     const { people = [], unread = [] } = part(s);
-    const result = (results.get(cs) ?? "").slice(0, RESULT_MAX);
+    const whole = results.get(cs) ?? "";
+    const result = whole.slice(0, RESULT_MAX);
     results.delete(cs);
     // ход без ответа модели (сжатие, очистка, команда): непрочитанного нет, человека не зовём — работу сессия не заканчивала
     if (!s.info.answered) return;
+    report(s, whole);
     merge(s, { unread: [...new Set([...unread, ...people.filter((p) => !watching.has(p))])], ...(result ? { result } : {}) });
     reach(s, "done", result);
     // заголовок разговора: строка меняется, только если он сменился
@@ -264,34 +328,23 @@ export function make(): Module {
         const command = MODEL_COMMAND.exec(text.trim());
         if (command) return setModel(to, (command[1] ?? "").trim(), ctx);
         const s = session(to);
-        if (down(s)) throw new Refusal("stopped", `${to}: сессия ${s.state} — запускает session.start`);
         const from = ctx.from;
-        const uuid = randomUUID();
-        let body: unknown;
-        if (isHuman(from)) {
-          const person = personOf(from)!;
-          // негодное вложение — отказ до первой записи: строка сессии не меняется
-          body = content(text, attached);
-          const { people = [], unread = [] } = part(s);
-          merge(s, { people: [...new Set([...people, person])], unread: unread.filter((p) => p !== person), asker: from });
-          s.input(body, { from, priority, uuid });
-          s.sync();
-        } else {
-          // итог хода дочери и сообщения других сессий — с пометкой отправителя; задача от родителя — с припиской
-          body = s.spec.parent === from ? task(from, text) : wrap(from, text);
-          if (s.spec.parent === from) merge(s, { asker: from });
-          s.input(body, { from, priority, uuid });
-        }
-        // сообщение — в ленту сразу: процесс свой ввод зрителям не повторяет; номер тот же, что будет у записи разговора
-        push(to, withPeer({ type: "user", uuid, from, at: Date.now(), message: { role: "user", content: body } }));
-        lastUuid.set(to, uuid);
-        // сессия занята — сообщение ждёт в очереди: его видно зрителям и его можно отменить
-        const waits = s.state !== "idle";
-        if (waits) {
-          queued.set(to, [...(queued.get(to) ?? []), { uuid, from, text, at: Date.now() }]);
-          status(to, uuid, "queued");
-        }
-        return { queued: waits, uuid };
+        // от сессии или службы — тегом: вид ставит эта машина — отправитель родитель сессии, значит задача; у инструмента поля вида нет
+        if (!isHuman(from)) return accept(s, from, s.spec.parent === from ? "task" : "message", text, { priority, files: attached });
+        if (down(s)) throw new Refusal("stopped", `${to}: сессия ${s.state} — запускает session.start`);
+        const person = personOf(from)!;
+        // человек пишет без тега; негодное вложение — отказ до первой записи: строка сессии не меняется
+        const body = content(text, attached);
+        const { people = [], unread = [] } = part(s);
+        merge(s, { people: [...new Set([...people, person])], unread: unread.filter((p) => p !== person), asker: from });
+        const r = deliver(s, from, text, body, randomUUID(), priority);
+        s.sync();
+        return r;
+      },
+
+      /** Итог хода дочери, её вопрос и весть: шлёт машина отправителя — вид называет она, а не модель. */
+      notice({ to, kind, text, ask: id }: { to: string; kind: "result" | "question" | "news"; text: string; ask?: string }, ctx: Ctx) {
+        return accept(session(to), ctx.from, kind, text, { ask: id });
       },
 
       /** Отмена своего сообщения, пока ход его не взял. */
@@ -401,9 +454,12 @@ export function make(): Module {
         // у живого события своего времени нет — время машины: по нему страница считает, сколько идёт работа
         if (msg && typeof msg === "object" && msg.at === undefined && msg.timestamp === undefined) msg = { ...msg, at: Date.now() };
         push(cs, msg);
-        // ход взял сообщения из очереди
+        // ход взял сообщения: процесс называет их номера на ответах модели и на итоге хода
         const taken = (msg as { user_message_uuids?: unknown }).user_message_uuids;
-        for (const uuid of Array.isArray(taken) ? (taken as string[]) : msg?.type === "user" && typeof msg.uuid === "string" ? [msg.uuid as string] : []) status(cs, uuid, "taken");
+        for (const uuid of Array.isArray(taken) ? (taken as string[]) : msg?.type === "user" && typeof msg.uuid === "string" ? [msg.uuid as string] : []) {
+          status(cs, uuid, "taken");
+          took(s, uuid);
+        }
         track(s, msg);
       },
       state(s, state: SessionState, was: SessionState) {
@@ -412,11 +468,18 @@ export function make(): Module {
           doing.delete(s.callsign);
           compacting.delete(s.callsign);
         }
-        // процесса нет — очереди ввода и идущих работ у него тоже нет
-        if (state === "stopped" || state === "failed") queued.delete(s.callsign);
+        // процесса нет — очереди ввода и идущих работ у него тоже нет; принятое и не взятое ушло вместе с ним
+        if (state === "stopped" || state === "failed") {
+          queued.delete(s.callsign);
+          if (part(s).opens?.length || part(s).open) merge(s, { opens: [], open: false });
+        }
         if (state === "stopped" || state === "failed" || (state === "starting" && s.info.launch !== "attach")) running.delete(s.callsign);
         if (state === "idle" && (was === "busy" || was === "waiting")) turnEnd(s);
-        if (state === "failed") reach(s, "failed", "сессия остановилась со сбоем");
+        if (state === "failed") {
+          reach(s, "failed", "сессия остановилась со сбоем");
+          // о сбое дочери говорит то же место, что зовёт человека
+          news(s, `Остановилась со сбоем: ${s.info.error ?? "причина в журнале машины"}. Запустить заново — session_start.`);
+        }
       },
       removed(cs) {
         viewers.delete(cs);

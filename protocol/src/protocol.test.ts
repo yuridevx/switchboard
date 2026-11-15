@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { socketLink } from "./client.ts";
-import { accountList, CLAUDE, contract, createApi, fail, findModels, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, sessionOpen, Spec, TOOL_METHODS, z, type Transport } from "./index.ts";
+import { accountList, CLAUDE, contract, createApi, fail, findModels, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, fleetList, Kind, notice, sessionOpen, Spec, TOOL_METHODS, TOOL_TEXT_MAX, toolText, z, type Transport } from "./index.ts";
 
 describe("protocol", () => {
   it("адреса по форме; голое имя — не адрес", () => {
@@ -130,5 +130,32 @@ describe("инструменты: одна таблица для страниц�
     } finally {
       vi.useRealTimers();
     }
+  });
+  // эталон «каждый инструмент договора»: слово пользователя 15 нояб. — «все доки MCP с примерами»; факт — Claude Code обрезает описание на 4 096 знаках
+  it("у каждого инструмента есть пример: он проходит схему входа без потерь, описание с примером не длиннее предела Claude Code", () => {
+    const tools = contract.tools();
+    expect(tools.length).toBeGreaterThan(50);
+    for (const d of tools) {
+      expect(d.example, `${d.name}: примера нет`).toBeDefined();
+      const got = d.input.safeParse(d.example);
+      expect(got.success, `${d.name}: пример не проходит схему входа`).toBe(true);
+      // ключ примера, которого нет в схеме, схема молча снимает — это тоже провал: переименованное поле осталось бы в примере
+      expect(got.data, `${d.name}: схема изменила пример`).toEqual(d.example);
+      expect(toolText(d).length, `${d.name}: описание с примером длиннее ${TOOL_TEXT_MAX}`).toBeLessThanOrEqual(TOOL_TEXT_MAX);
+      expect(toolText(d)).toContain("Пример: {");
+    }
+    // пометку «читает» пишет хозяин запроса: меняющий запрос её не несёт
+    for (const name of ["fleet.list", "session.history", "keys.models", "people.list"]) expect(contract.request(name)!.reads, name).toBe(true);
+    for (const name of ["message", "session.open", "session.remove", "shell.run", "keys.set"]) expect(contract.request(name)!.reads, name).toBeUndefined();
+  });
+  // эталон «вид ставит машина»: у инструмента message поля вида нет; итог, вопрос и весть — служебный запрос только для машины
+  it("вид входящего: шесть видов; служебный запрос notice — не инструмент и только машине; message вида не принимает", () => {
+    expect(Kind.options).toEqual(["task", "message", "result", "question", "news", "incident"]);
+    expect(notice.tool).toBeUndefined();
+    expect(notice.machineOnly).toBe(true);
+    expect(notice.input.safeParse({ to: "a@b", kind: "task", text: "x" }).success).toBe(false);
+    expect(contract.request("message")!.input.parse({ to: "a@b", text: "x", kind: "result" })).toEqual({ to: "a@b", text: "x" });
+    // картина для модели — короткая строка; полная — по full
+    expect(fleetList.input.parse({ full: true })).toEqual({ full: true });
   });
 });

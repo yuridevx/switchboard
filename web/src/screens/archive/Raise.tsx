@@ -4,6 +4,7 @@ import { Button, Group, SegmentedControl, Select, Stack, Text, TextInput } from 
 import { useState } from "react";
 import { api, sayError } from "../../api.ts";
 import { useMachineName } from "../../common.tsx";
+import { ModelPicker, offerWord, useOffers } from "../../session/ModelPicker.tsx";
 import { nFiles } from "../../lib/time.ts";
 import { useFleet } from "../../store/fleet.ts";
 
@@ -27,9 +28,10 @@ export function checkWord(c: Check, files: "keep" | "point"): { word: string; ba
 }
 
 /** Ввод points.raise по виду действия. Перенос живой сессии идёт без точки: прежняя машина снимает свежую. */
-export function raiseInput(kind: RaiseKind, s: ArchSession, f: { machine: string; name: string; cwd: string; files: "keep" | "point"; point?: string }): InputOf<typeof pointsRaise> {
-  const base = { to: "@" + f.machine, sid: s.sid, files: f.files, ...(f.cwd && f.cwd !== s.cwd ? { cwd: f.cwd } : {}) };
-  if (kind === "rollback") return { to: "@" + s.machine, sid: s.sid, files: f.files, ...(f.point ? { point: f.point } : {}) };
+export function raiseInput(kind: RaiseKind, s: ArchSession, f: { machine: string; name: string; cwd: string; files: "keep" | "point"; point?: string; /** провайдер и точная модель новой сессии: выбраны — уходят всегда */ key?: string; model?: string }): InputOf<typeof pointsRaise> {
+  const doc = f.key && f.model ? { key: f.key, model: f.model } : {};
+  const base = { to: "@" + f.machine, sid: s.sid, files: f.files, ...(f.cwd && f.cwd !== s.cwd ? { cwd: f.cwd } : {}), ...doc };
+  if (kind === "rollback") return { to: "@" + s.machine, sid: s.sid, files: f.files, ...(f.point ? { point: f.point } : {}), ...doc };
   if (kind === "move") return { ...base, move: true };
   if (kind === "copy") return { ...base, name: f.name, ...(f.point ? { point: f.point } : {}) };
   return { ...base, move: true, ...(f.name && f.name !== s.callsign.split("@")[0] ? { name: f.name } : {}), ...(f.point ? { point: f.point } : {}) };
@@ -61,10 +63,13 @@ export function Raise({ kind, s, point, onDone, onClose }: { kind: RaiseKind; s:
   const [name, setName] = useState(kind === "copy" ? base + "-copy" : base);
   const [cwd, setCwd] = useState(s.cwd ?? "");
   const [files, setFiles] = useState<"keep" | "point">("point");
+  // провайдер и модель — из документа точки; у точки прежней системы их нет — поле пустое, и выбрать их нужно здесь
+  const [doc, setDoc] = useState<{ key?: string; model?: string }>(s.key && s.model ? { key: s.key, model: s.model } : {});
+  const offers = useOffers();
   const [check, setCheck] = useState<Check | null>(null);
   const [steps, setSteps] = useState<Step[] | null>(null);
   const [why, setWhy] = useState("");
-  const form = { machine: machine ?? "", name, cwd, files, point };
+  const form = { machine: machine ?? "", name, cwd, files, point, ...doc };
   const running = !!live && live.state !== "stopped" && live.state !== "failed";
   const probe = async () => {
     setWhy("");
@@ -113,6 +118,7 @@ export function Raise({ kind, s, point, onDone, onClose }: { kind: RaiseKind; s:
         : <Select label="Машина" data={targets.map((m) => ({ value: m, label: nameOf(m) + (m === s.machine ? " · здесь была" : near.includes(m) ? " · проект уже здесь" : "") }))} value={machine} onChange={(m) => (setMachine(m), setCheck(null))} allowDeselect={false} error={!targets.length ? "Других машин на связи нет" : undefined} />}
       {(kind === "copy" || kind === "raise") && <TextInput label="Имя сессии" className="mono" value={name} onChange={(e) => setName(e.currentTarget.value.toLowerCase())} error={badName ? "латиница, цифры, дефис" : undefined} />}
       {kind !== "rollback" && <TextInput label="Папка" className="mono" value={cwd} onChange={(e) => (setCwd(e.currentTarget.value), setCheck(null))} />}
+      <ModelPicker field value={doc} onPick={(o) => setDoc({ key: o.key, model: o.doc })} face={<span className={doc.model ? undefined : "muted"}>{offerWord(offers, doc.model)}</span>} />
       <SegmentedControl value={files} onChange={(v) => (setFiles(v as "keep" | "point"), setCheck(null))} data={[{ value: "point", label: "Файлы папки — как в точке" }, { value: "keep", label: "Файлы не трогать" }]} aria-label="Что делать с файлами папки" />
       {said && <Text size="sm" c={said.bad ? "red" : undefined}>{said.word}</Text>}
       {why && <Text size="sm" c="red">{why}</Text>}

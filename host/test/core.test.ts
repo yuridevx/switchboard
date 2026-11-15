@@ -148,7 +148,8 @@ describe("ядро Host", () => {
     expect(line).toMatchObject({ part: "host", type: "session.stop", ok: false, word: "not_found", from: "pult~yuri@example.com", machine: "laptop" });
   });
 
-  it("итог хода дочерней сессии уходит родителю кадром message", async () => {
+  // чьё: код — «итог придёт сам»; слово пользователя 15 нояб. — одна форма входящего: первая задача при открытии — тем же тегом, видом task
+  it("родитель дал задачу, дочь ответила: родителю пришёл итог видом result; ход по слову человека после сдачи родителю не уходит", async () => {
     st = await stand({ modules: [chat()] });
     await st.open("lead");
     // дочь открыта сессией lead: parent ставит ядро, первое сообщение — задача от родителя
@@ -157,9 +158,10 @@ describe("ядро Host", () => {
     const kid = st.kernel.sessions.get("kid@laptop")!;
     expect(kid.rec.spec.parent).toBe("lead@laptop");
     await until(() => st!.proc("kid@laptop").inputs.length === 1, 5000, "задача дошла");
+    expect(st.proc("kid@laptop").inputs[0]!.message.content).toBe('<fleet from="lead@laptop" kind="task">\nпроверь тесты\n</fleet>');
     await st.turn("kid@laptop", [], "тесты зелёные");
     await until(() => st!.proc("lead@laptop").inputs.length === 1, 5000, "итог у родителя");
-    expect(st.proc("lead@laptop").inputs[0]!.message.content).toBe('<fleet-message from="kid@laptop">\nтесты зелёные\n</fleet-message>');
+    expect(st.proc("lead@laptop").inputs[0]!.message.content).toBe('<fleet from="kid@laptop" kind="result">\nтесты зелёные\n</fleet>');
     // ход, начатый человеком, родителю не уходит
     await st.request("message", { to: "kid@laptop", text: "а теперь линтер" });
     await st.turn("kid@laptop", [], "линтер чист");

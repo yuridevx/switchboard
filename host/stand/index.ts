@@ -159,6 +159,8 @@ export async function stand(o: StandOptions = {}): Promise<Stand> {
   const holders = o.holders ?? new FakeHolders();
   const link = new FakeLink();
   const services = new FakeServices();
+  /** сколько сообщений ввода процесса уже взяли его ходы */
+  let turns: WeakMap<object, number> | undefined;
   const clock = new FakeClock();
   const exits: number[] = [];
   const kernel = new Kernel({
@@ -181,12 +183,17 @@ export async function stand(o: StandOptions = {}): Promise<Stand> {
     },
     proc: (callsign) => holders.procs.get(callsign)!,
     async turn(callsign, events = [], result = "готово") {
+      const taken = (turns ??= new WeakMap<object, number>());
       const p = holders.procs.get(callsign)!;
       const s = kernel.sessions.get(callsign)!;
       p.send({ type: "system", subtype: "session_state_changed", state: "running", session_id: "s" });
       await until(() => s.state === "busy", 5000, `${callsign} busy`);
       for (const e of events) p.send(e);
-      p.send({ type: "result", subtype: "success", result, session_id: "s" });
+      // как настоящий SDK: итог хода называет номера сообщений, которые ход взял, — всё принятое процессом с прошлого хода
+      const from = taken.get(p) ?? 0;
+      taken.set(p, p.inputs.length);
+      const uuids = p.inputs.slice(from).map((i) => i.uuid).filter((u): u is string => typeof u === "string");
+      p.send({ type: "result", subtype: "success", result, session_id: "s", ...(uuids.length ? { user_message_uuids: uuids } : {}) });
       p.send({ type: "system", subtype: "session_state_changed", state: "idle", session_id: "s" });
       await until(() => s.state === "idle", 5000, `${callsign} idle`);
     },

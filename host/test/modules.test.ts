@@ -106,7 +106,7 @@ describe("incidents", () => {
     expect(first).toMatchObject({ ok: true, result: { callsign: "disk-1@laptop" } });
     const proc = await until(() => st!.proc("disk-1@laptop"), 5000, "процесс инцидента");
     await until(() => proc.inputs.length === 1, 5000, "обращение во вводе");
-    expect(proc.inputs[0]!.message.content).toContain('<incident kind="disk" key="c:"');
+    expect(proc.inputs[0]!.message.content).toBe('<fleet from="@laptop" kind="incident" incident="disk" key="c:">\nместо кончается\n</fleet>');
     expect((st.sdk.last("disk-1@laptop")!.options as any).systemPrompt.append).toContain("инцидент disk");
     const second = await st.request("incident.raise", { to: "@laptop", kind: "disk", key: "c:", text: "стало хуже" }, "@laptop");
     expect(second).toMatchObject({ ok: true, result: { callsign: "disk-1@laptop" } });
@@ -195,8 +195,10 @@ describe("points", () => {
       point: { point: "p1", at: 1 },
       files: [{ path: "sid-old.jsonl", size: text.length, blocks: [{ hash, url: `${blocksServer.url}/b/${hash}` }] }],
     });
-    const raised = await st.request("points.raise", { to: "@laptop", sid: "sid-old", name: "docs-copy" });
+    // чьё: факт переноса 15 нояб. — в документе точки прежней системы нет провайдера и точной модели: их называют при подъёме
+    const raised = await st.request("points.raise", { to: "@laptop", sid: "sid-old", name: "docs-copy", model: "glm-5.3" });
     expect(raised).toMatchObject({ ok: true, result: { callsign: "docs-copy@laptop" } });
+    expect(st.kernel.sessions.get("docs-copy@laptop")!.rec.spec).toMatchObject({ model: "glm-5.3" });
     expect(readFileSync(join(projectDir(st.dir), "sid-old.jsonl"), "utf8")).toBe(text);
     expect(st.sdk.last("docs-copy@laptop")!.options).toMatchObject({ resume: "sid-old", forkSession: true });
     expect(st.kernel.sessions.get("docs-copy@laptop")!.rec.spec.backup).toBe(true);

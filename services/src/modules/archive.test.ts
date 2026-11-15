@@ -254,6 +254,20 @@ describe("архив: отказы словом", () => {
     expect(noPoint.result).toBeUndefined();
   });
 
+  // чьё: факт переноса 15 нояб. — у точек прежней системы нет провайдера и точной модели; устав — поле формы не прячется и заполнено тем, что есть
+  it("каталог несёт провайдера и точную модель из документа точки: окно подъёма открывается заполненным; у точки без документа провайдера нет", async () => {
+    const s = stand();
+    const p = await pointOf("sid1", "выкладка сайта");
+    const first = (await s.ask("points.put", { ...p.put, spec: { name: "site", cwd: "~/site", key: "orca", model: "glm-5.3" } }, "klaptop")).result as { upload: Record<string, string> };
+    for (const [i, h] of p.hashes.entries()) if (first.upload[h]) await s.env.FILES.put(blockKey(s.fleet, "laptop", h), await gzip(p.parts[i]!));
+    await s.ask("points.put", { ...p.put, spec: { name: "site", cwd: "~/site", key: "orca", model: "glm-5.3" }, commit: true }, "klaptop");
+    await save(s, "sid2", "старая точка");
+    const rows = Object.fromEntries((await list(s, {})).sessions.map((x) => [x.sid, x]));
+    expect(rows.sid1).toMatchObject({ key: "orca", model: "glm-5.3" });
+    expect(rows.sid2!.key).toBeUndefined();
+    expect((await list(s, { sid: "sid1" })).sessions[0]).toMatchObject({ key: "orca", model: "glm-5.3" });
+  });
+
   it("каталог по номеру сессии: сессии в архиве нет — not_found с причиной словами", async () => {
     const s = stand();
     await save(s, "sid1", "выкладка");

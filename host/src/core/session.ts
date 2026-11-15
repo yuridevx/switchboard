@@ -41,10 +41,6 @@ export class Session {
   readonly rec: CoreRecord;
   state: SessionState;
   model: string | null = null;
-  /** текст итога последнего хода */
-  result = "";
-  /** кто прислал последний ввод: итог хода, начатого родителем, уходит ему */
-  turnBy: string | undefined;
   private k: Kernel;
   private run: Run | null = null;
   private inbox: any[] = [];
@@ -64,8 +60,6 @@ export class Session {
   private turnEnds: Array<() => void> = [];
   private changed: Array<() => void> = [];
   private sent = "";
-  /** номер вопроса, о котором модули уже знают */
-  private asked: string | undefined;
   private views = new Map<Module, SessionApi>();
 
   constructor(k: Kernel, rec: CoreRecord) {
@@ -93,7 +87,7 @@ export class Session {
         },
         get info() {
           const { sessionId, cwd, by, since, last } = self.rec;
-          return { sessionId, cwd, by, since, last, model: self.model, queue: self.inbox.length, launch: self.launched, answered: self.answered, ...(self.rec.cache ? { warm: self.warmUntil() } : {}) };
+          return { sessionId, cwd, by, since, last, model: self.model, queue: self.inbox.length, launch: self.launched, answered: self.answered, ...(self.rec.cache ? { warm: self.warmUntil() } : {}), ...(self.rec.error ? { error: self.rec.error } : {}) };
         },
         input: (c, o) => self.input(c, o),
         sdk: (name, ...args) => self.call(name, args),
@@ -119,7 +113,7 @@ export class Session {
     return {
       callsign, state: this.state, spec, by, since, ...(last ? { last } : {}), ...(title ? { title } : {}), ...(lead ? { lead } : {}), ...(error && this.state === "failed" ? { error } : {}),
       // итог, а не правило: час кэша и час, когда машина сожмёт разговор сама; модель, которая ответила вместо названной
-      ...(cache ? { cache: { until: this.warmUntil(), ...(this.compact ? { compact: this.compact.at } : {}) } } : {}), ...(answers ? { answers } : {}),
+      ...(cache ? { cache: { until: this.warmUntil(), ...(this.compact ? { compact: this.compact.at } : {}), size: cache.size } } : {}), ...(answers ? { answers } : {}),
       ...this.k.rowsOf(this),
     };
   }
@@ -197,12 +191,6 @@ export class Session {
   sync(): void {
     if (this.k.sessions.get(this.callsign) !== this) return;
     const r = this.row();
-    // новый вопрос в строке — модулям: ядро зовёт ведущую
-    const ask = r.ask ?? undefined;
-    if (ask?.id !== this.asked) {
-      this.asked = ask?.id;
-      if (ask) this.k.each(this, "on.asked", (mod, view) => mod.on?.asked?.(view, ask));
-    }
     const text = JSON.stringify(r);
     if (text === this.sent) return;
     this.sent = text;
@@ -221,7 +209,6 @@ export class Session {
     this.arm();
     this.k.save();
     this.k.each(this, "on.state", (mod, view) => mod.on?.state?.(view, state, was));
-    this.k.stateChanged(this, state, was);
     this.sync();
     for (const f of this.changed.splice(0)) f();
   }
@@ -236,8 +223,7 @@ export class Session {
 
   // ───────────────────────── ввод и вызовы SDK ─────────────────────────
 
-  input(content: unknown, { from, ...o }: InputOpts = {}): void {
-    if (from) this.turnBy = from;
+  input(content: unknown, o: InputOpts = {}): void {
     this.inbox.push({ type: "user", message: { role: "user", content }, parent_tool_use_id: null, ...o });
     this.wake();
   }
@@ -401,11 +387,8 @@ export class Session {
       this.rec.cache = { ...this.rec.cache, at: this.k.clock.now(), size: meta.post_tokens ?? meta.postTokens ?? 0 };
     }
     if (m.type === "result") {
-      if (typeof m.result === "string") {
-        this.result = m.result;
-        // итог с текстом — тоже ответ модели; у хода сжатия и команд итог пустой
-        if (m.result) this.answered = true;
-      }
+      // итог с текстом — тоже ответ модели; у хода сжатия и команд итог пустой
+      if (typeof m.result === "string" && m.result) this.answered = true;
       this.turnEnded();
     }
     this.k.each(this, "on.event", (mod, view) => mod.on?.event?.(view, m));

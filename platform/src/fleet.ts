@@ -2,7 +2,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   contract, fail, formatPass, type Frame, kindOf, machineOf, type MachineRow, ok, parseFrame, parsePass, type PassRow, personOf, type PersonRow,
-  type Project, PROTO, Refusal, type Reply, type SessionRow, sha256hex, type Who,
+  type Project, PROTO, Refusal, type Reply, type SessionBrief, type SessionRow, sha256hex, type Who,
 } from "@sb/protocol";
 import { type Card, cardOf, type Drop, type Env, helloLimit, log, randomText, type RowsChange, s256, send, shut } from "./env.ts";
 
@@ -16,6 +16,16 @@ const machineRow = (m: MachineRec): MachineRow => ({
   name: m.name, owner: m.owner, online: !!m.online, since: m.since,
   ...(m.build != null ? { build: m.build } : {}), ...(m.sdk ? { sdk: m.sdk } : {}), ...(m.os ? { os: m.os } : {}), ...(m.keeper != null ? { keeper: !!m.keeper } : {}),
 });
+
+/** Короткая строка сессии для fleet.list: позывной, состояние, заголовок, папка, провайдер и модель, родитель, проект, чем занята, ждущий вопрос. */
+function brief(s: SessionRow): SessionBrief {
+  const { cwd, key, model, parent, project } = s.spec ?? ({} as SessionRow["spec"]);
+  const title = s.title ?? s.spec?.title;
+  return {
+    callsign: s.callsign, state: s.state, ...(title ? { title } : {}), cwd, ...(key ? { key } : {}), ...(model ? { model } : {}), ...(parent ? { parent } : {}), ...(project ? { project } : {}),
+    ...(s.doing ? { doing: s.doing } : {}), ...(s.ask ? { ask: { id: s.ask.id, kind: s.ask.kind, text: s.ask.text } } : {}),
+  };
+}
 
 export class FleetObject extends DurableObject<Env> {
   /** кто до каких машин достаёт; сбрасывается при любой смене людей, проектов и машин */
@@ -129,7 +139,7 @@ export class FleetObject extends DurableObject<Env> {
         return { result: { passes: this.passRows(rows) } };
       }
       case "fleet.list":
-        return { result: this.fleetList(who!, i.machine, i.project, i.state) };
+        return { result: this.fleetList(who!, i.machine, i.project, i.state, i.full) };
       case "revoke":
         return this.revoke(who!, i.kid);
       case "whoami":
@@ -168,13 +178,15 @@ export class FleetObject extends DurableObject<Env> {
   }
 
   /** Картина одним ответом: машины и сессии, до которых достаёт спросивший, и люди на связи. */
-  private fleetList(who: Who, machine?: string, project?: string, state?: string): { machines: MachineRow[]; sessions: SessionRow[]; people: Array<{ person: string; name?: string; devices: string[] }> } {
+  private fleetList(who: Who, machine?: string, project?: string, state?: string, full?: boolean): { machines: MachineRow[]; sessions: Array<SessionRow | SessionBrief>; people: Array<{ person: string; name?: string; devices: string[] }> } {
     const reach = this.reach(who.person);
     if (machine && !reach.has(machine)) throw new Refusal("forbidden", "до машины " + machine + " вы не достаёте");
     const seen = (m: string) => (machine ? m === machine : reach.has(m));
     const machines = this.machines().filter((m) => seen(m.name));
-    const sessions = this.q<{ machine: string; row: string }>("SELECT machine, row FROM sessions").filter((s) => seen(s.machine)).map((s) => JSON.parse(s.row) as SessionRow)
+    const rows = this.q<{ machine: string; row: string }>("SELECT machine, row FROM sessions").filter((s) => seen(s.machine)).map((s) => JSON.parse(s.row) as SessionRow)
       .filter((s) => (!project || s.spec?.project === project) && (!state || s.state === state));
+    // картину читает модель: по умолчанию — короткая строка, чтобы найти сессию и написать ей; документ, вопрос целиком и начало ответа — по full
+    const sessions = full ? rows : rows.map(brief);
     // люди на связи: сам спросивший, владельцы видимых машин и те, с кем общий проект; у админа — все
     const near = new Set<string>([
       who.person, ...machines.map((m) => m.owner),

@@ -1,5 +1,5 @@
 // Вопросы человеку: AskUserQuestion, разрешение инструмента, план и формы серверов MCP. Вопрос живёт в строке сессии; первый ответ выигрывает.
-import { kindOf, message, personOf, reachSend, Refusal, type Ask } from "@sb/protocol";
+import { fleetList, kindOf, notice, personOf, reachSend, READ_MS, Refusal, within, type Ask } from "@sb/protocol";
 import type { DecideOpts, HostApi, PermissionResult, SessionApi } from "../../core/contract.ts";
 
 const REFUSAL = "The user doesn't want to proceed with this tool use.";
@@ -24,28 +24,44 @@ const reasonOf = (r: unknown): string | undefined => (typeof r === "string" && r
 
 const isHuman = (a: string) => kindOf(a) === "device" || kindOf(a) === "person";
 
-/** Вопрос дочери во вводе сессии-родителя. */
-const asText = (from: string, id: string, qs: Q[]): string =>
-  `<fleet-question from="${from}" ask="${id}">\n` +
-  qs.flatMap((q) => [`${q.question ?? ""}${q.multiSelect ? " (можно несколько — через запятую)" : ""}`, ...(q.options ?? []).map((o) => `· ${o.label}${o.description ? ` — ${o.description}` : ""}`)]).join("\n") +
-  `\nОтветь инструментом answer: to — ${from}, ask — ${id}, answer — выбранный вариант.\n</fleet-question>`;
+/** Вопрос дочери во вводе сессии-родителя: текст и варианты; номер вопроса и отправитель — в теге. */
+const asText = (qs: Q[]): string =>
+  qs.flatMap((q) => [`${q.question ?? ""}${q.multiSelect ? " (можно несколько — через запятую)" : ""}`, ...(q.options ?? []).map((o) => `· ${o.label}${o.description ? ` — ${o.description}` : ""}`)]).join("\n");
+const KIND_WORDS: Record<string, string> = { question: "вопрос", plan: "план", permission: "разрешение", form: "форма сервера", url: "вход на сервер" };
 
-export function questions(host: () => HostApi, asker: (s: SessionApi) => string | undefined, feed: { viewers(cs: string): string[]; push(cs: string, event: unknown): void } = { viewers: () => [], push() {} }) {
+type Feed = { viewers(cs: string): string[]; push(cs: string, event: unknown): void; /** весть родителю сессии */ news(s: SessionApi, text: string): void };
+
+export function questions(host: () => HostApi, asker: (s: SessionApi) => string | undefined, feed: Feed = { viewers: () => [], push() {}, news() {} }) {
   const open = new Map<string, Map<string, Pending>>();
   const closed = new Map<string, Set<string>>();
   const of = (cs: string) => open.get(cs) ?? open.set(cs, new Map()).get(cs)!;
   const done = (cs: string) => closed.get(cs) ?? closed.set(cs, new Set()).get(cs)!;
 
-  /** Позвать того, кто дал задачу: человека — службой, сессию-родителя — во ввод. Звать ли человека на самом деле, решает служба. */
-  function call(s: SessionApi, ask: Ask, qs?: Q[]): void {
+  /** Владелец этой машины: машина его у себя не хранит — спрашивает флот, когда нужно. */
+  async function owner(): Promise<string | undefined> {
+    const h = host();
+    return (await within(h.call(fleetList, { machine: h.machine }), READ_MS)).machines.find((m) => m.name === h.machine)?.owner;
+  }
+
+  /** Позвать того, кто решает. Вопрос с вариантами — тому, кто дал задачу: человеку — службой, сессии-родителю — во ввод видом question.
+   *  Разрешение, план и форму решает только человек: давший задачу, а если её дала сессия или служба — владелец машины.
+   *  Родитель при этом узнаёт вестью, что дочь ждёт человека. Звать ли человека на самом деле, решает служба. */
+  async function call(s: SessionApi, ask: Ask, qs?: Q[]): Promise<void> {
     const who = asker(s);
-    if (!who) return;
-    const failed = (e: unknown) => host().log.warn("ask_call", { callsign: s.callsign, to: who, why: (e as Error).message });
-    if (isHuman(who)) {
-      void host().call(reachSend, { to: personOf(who)!, title: `${s.callsign} ${ask.kind === "question" ? "спрашивает" : "просит разрешения"}`, text: ask.text, callsign: s.callsign, kind: "ask", ask: ask.id, options: ask.kind === "question" ? (ask.options ?? []).map((o) => o.label) : Object.keys(ACTION_WORDS) }).catch(failed);
-    } else if (kindOf(who) === "session" && ask.kind === "question") {
-      void host().call(message, { to: who, text: asText(s.callsign, ask.id, qs ?? []) }, { from: s.callsign }).catch(failed);
+    const parent = s.spec.parent;
+    if (who && kindOf(who) === "session" && ask.kind === "question") {
+      await host().call(notice, { to: who, kind: "question", text: asText(qs ?? []), ask: ask.id }, { from: s.callsign });
+      return;
     }
+    if (parent) feed.news(s, `Ждёт ответа человека: ${KIND_WORDS[ask.kind] ?? ask.kind} — ${(ask.title ?? ask.text).slice(0, 120)}.`);
+    const human = who && isHuman(who) ? personOf(who)! : await owner();
+    if (!human) return void host().log.warn("ask_call", { callsign: s.callsign, why: "вопрос не дошёл никому: владелец машины не найден" });
+    if (!(who && isHuman(who))) {
+      // вопрос адресован человеку, а не сессии, давшей задачу: это видно в строке сессии
+      ask.to = human;
+      s.sync();
+    }
+    await host().call(reachSend, { to: human, title: `${s.callsign} ${ask.kind === "question" ? "спрашивает" : "просит разрешения"}`, text: ask.text, callsign: s.callsign, kind: "ask", ask: ask.id, options: ask.kind === "question" ? (ask.options ?? []).map((o) => o.label) : Object.keys(ACTION_WORDS) });
   }
 
   /** Задать вопрос и ждать первого ответа; сигнал отмены хода снимает его. */
@@ -81,7 +97,7 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
         },
       });
       s.sync();
-      call(s, ask, qs);
+      void call(s, ask, qs).catch((e: unknown) => host().log.warn("ask_call", { callsign: cs, ask: ask.id, why: (e as Error).message }));
     });
   }
 

@@ -237,7 +237,7 @@ try {
       if (fileOn(outside) !== "ok") throw new Error("файл не создан после разрешения");
     } finally {
       // режим возвращается и при сбое шага: следующие шаги идут на свободной сессии
-      const open = must("fleet.list", { machine }).sessions.find((x) => x.callsign === cs)?.ask;
+      const open = must("fleet.list", { machine, full: true }).sessions.find((x) => x.callsign === cs)?.ask;
       if (open) call("answer", { to: cs, ask: open.id, answer: { action: "deny" } });
       call("session.update", { to: cs, patch: { mode: "all" } });
       call("shell.run", { to: "@" + machine, shell: "node", script: `import fs from "node:fs";fs.rmSync(${JSON.stringify(cwd + "-out.txt")},{force:true})`, wait: 30 });

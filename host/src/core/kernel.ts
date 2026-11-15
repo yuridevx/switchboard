@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   CALL_MS, contract, createApi, errFields, fail, httpTransport, isReply, machineOf, newId, ok, PROTO, Refusal, socketLink, stopwatch,
-  type Api, type Frame, type Link, type LinkState, type Logger, type Reply, type RequestDef, type SessionState, type Spec, type Transport,
+  type Api, type Frame, type Link, type LinkState, type Logger, type Reply, type RequestDef, type Spec, type Transport,
 } from "@sb/protocol";
 import { realClock, within, type Clock } from "./clock.ts";
 import type { Ctx, DecideOpts, HostApi, Module, OpenOpts, PermissionResult, QueryPart, SessionApi } from "./contract.ts";
@@ -187,20 +187,6 @@ export class Kernel {
 
   specOwner(key: string): Module | undefined {
     return this.specOwners.get(key);
-  }
-
-  /** Сессия сменила состояние: итог хода дочерней сессии уходит родителю. */
-  stateChanged(s: Session, state: SessionState, was: SessionState): void {
-    if (state !== "idle" || (was !== "busy" && was !== "waiting")) return;
-    const { parent } = s.rec.spec;
-    if (!parent || !s.result || s.turnBy !== parent) return;
-    const text = s.result;
-    s.result = "";
-    quiet(
-      this.call(contract.request("message")!, { to: parent, text } as never, { from: s.callsign }).catch((e: unknown) =>
-        this.log.warn("report", { callsign: s.callsign, to: parent, ...errFields(e), why: `итог хода не дошёл родителю: ${errFields(e).why}` }),
-      ),
-    );
   }
 
   // ───────────────────────── опции запуска ─────────────────────────
@@ -519,8 +505,8 @@ export class Kernel {
     // один разговор — одна сессия: занятый продолжается только копией
     const holder = o.resume && !copy ? [...this.sessions.values()].find((x) => x.rec.sessionId === o.resume) : undefined;
     if (holder) throw new Refusal("conversation_taken", `разговор ${o.resume} ведёт ${holder.callsign}`);
-    // заголовок до первого слова SDK: из документа, иначе начало первого сообщения
-    const title = spec.title ?? (o.prompt ? o.prompt.trim().split(/\r?\n/)[0]!.slice(0, TITLE_MAX) : undefined);
+    // заголовок до первого слова SDK: из документа, иначе начало первой задачи
+    const title = spec.title ?? (o.title ? o.title.trim().split(/\r?\n/)[0]!.slice(0, TITLE_MAX) : undefined);
     const rec = { callsign, spec, cwd, sessionId: o.resume && !copy ? o.resume : randomUUID(), sdk: this.version, stopped: false, by: o.by, since: this.clock.now(), ...(copy ? { fork: copy } : {}), ...(title ? { title } : {}) };
     const s = new Session(this, rec);
     let parts: Parts;
@@ -545,7 +531,6 @@ export class Kernel {
     this.save();
     this.log.info("open", { callsign, cwd, from: o.by });
     s.sync();
-    if (o.prompt) s.input(o.prompt, { from: o.by });
     try {
       await s.launch(copy ? "fork" : o.resume ? "resume" : "spawn", parts);
     } catch (e) {

@@ -1,6 +1,6 @@
 // Разговор сессии: шапка — только кто это и чем занят; лента; над полем ввода — дела и «Идут сейчас»; под полем — документ сессии и все действия значками.
 // Рядом — инспектор (ширина тянется) или второй разговор пары; у пары шапка одна на обоих участников.
-import { prefsSet, sessionCall, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, type SessionRow } from "@sb/protocol";
+import { catalogModel, CLAUDE, prefsSet, sessionCall, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, type SessionRow } from "@sb/protocol";
 import { ActionIcon, Button, Checkbox, Group, Loader, Menu, SegmentedControl, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { useSplit } from "../lib/Split.tsx";
 import { Page } from "../shell/Page.tsx";
@@ -12,7 +12,7 @@ import { act } from "../api.ts";
 import { useLocal } from "../lib/local.ts";
 import { exportMd, focused } from "../chat/focus.ts";
 import { AfterTurn, confirmDanger, EFFORTS, Failed, Lamp, MODES, STATE_WORD, useCall, useLabels, useMyPrefs, useUi, useWide } from "../common.tsx";
-import { day, hhmm } from "../lib/time.ts";
+import { day, hhmm, kilo } from "../lib/time.ts";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 import { AskCard } from "./Ask.tsx";
 import { Composer, type ComposerHandle } from "./Composer.tsx";
@@ -20,7 +20,7 @@ import { Asides, Running } from "./Dock.tsx";
 import { patchDoc } from "./doc.ts";
 import { type FeedEnv, FeedEnvProvider, Rows, Tail, TodoList } from "./Feed.tsx";
 import { ModelFace, pickModel, useDoc } from "./DocFields.tsx";
-import { ModelPicker, useModelWord } from "./ModelPicker.tsx";
+import { ModelPicker, useModelWord, useOffers } from "./ModelPicker.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { type Talk, useMarkRead, useTalk } from "./talk.ts";
 
@@ -95,14 +95,18 @@ function DocValues({ s, ask }: { s: SessionRow; ask?: { n: number; q: string } }
   );
 }
 
-/** Занятость контекста кольцом, как в Claude: нажатие сжимает разговор; пока сжимает — кольцо пунктиром и слово «сжимаю». */
+/** Занятость контекста кольцом, как в Claude: нажатие сжимает разговор; пока сжимает — кольцо пунктиром и слово «сжимаю».
+ *  Сколько занято, машина называет в строке сессии с каждым ответом модели; окно модели — из каталога провайдера, который страница уже читает для выбора модели.
+ *  У сессии страница ничего не спрашивает. */
 function CtxRing({ s }: { s: SessionRow }) {
-  const usage = useCall(sessionCall, { to: s.callsign, method: "contextUsage" }, { refetch: 30_000 });
-  // после сжатия занятость другая — перечитать сразу
-  useEffect(() => { if (!s.compacting) void usage.refetch(); }, [s.compacting]); // eslint-disable-line react-hooks/exhaustive-deps
-  const pct = Math.round((usage.data as { percentage?: number } | undefined)?.percentage ?? 0);
+  const offers = useOffers();
+  const size = s.cache?.size ?? 0;
+  const window = offers.find((o) => o.key === (s.spec.key ?? CLAUDE) && o.model === catalogModel(s.spec.model ?? ""))?.window;
+  const pct = window ? Math.min(100, Math.round((size / window) * 100)) : 0;
+  // каталог ещё не ответил или окна в нём нет — занятое называется числом токенов
+  const said = window ? `${pct}%` : kilo(size);
   const r = 7, c = 2 * Math.PI * r;
-  const word = s.compacting ? "Сжимаю контекст" : `Контекст ${pct}% · сжать`;
+  const word = s.compacting ? "Сжимаю контекст" : `Контекст ${said} · сжать`;
   return (
     <Tooltip label={word}>
       <button type="button" className={`ctxring${pct >= 85 ? " bad" : pct >= 65 ? " warn" : ""}`} aria-label={word} disabled={!!s.compacting} onClick={() => act(sessionCall, { to: s.callsign, method: "compact" })}>
@@ -110,7 +114,7 @@ function CtxRing({ s }: { s: SessionRow }) {
           <circle cx="9" cy="9" r={r} className="track" />
           <circle cx="9" cy="9" r={r} className="arc" strokeDasharray={s.compacting ? "2.5 3" : `${(c * pct) / 100} ${c}`} transform="rotate(-90 9 9)" />
         </svg>
-        <span>{s.compacting ? "сжимаю" : `${pct}%`}</span>
+        <span>{s.compacting ? "сжимаю" : said}</span>
       </button>
     </Tooltip>
   );
