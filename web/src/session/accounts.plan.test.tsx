@@ -1,7 +1,7 @@
 /// <reference types="node" />
 // Эталоны страницы дизайна «Аккаунты и модели»: в разговоре нет аккаунта и его лимитов; список моделей один в трёх местах; закреп — личный и сверху;
 // «/model» ставит модель документом сессии; час кэша и расхождение модели приходят в строке сессии.
-import { CLAUDE, keysModels, message, sessionUpdate } from "@sb/protocol";
+import { CLAUDE, keysList, keysModels, message, sessionUpdate } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -36,7 +36,10 @@ const inList = (label: string) => listbox()!.querySelector(`[aria-label="${label
 /** Открыть список моделей кнопкой «Модель» и вернуть имена его строк по порядку: закреплённые — первыми. */
 async function modelList(): Promise<string[]> {
   fireEvent.click(await screen.findByRole("button", { name: /^Модель/ }));
-  await waitFor(() => expect(offers().length).toBeGreaterThan(20));
+  // каталоги провайдеров приходят по одному: список читается, когда пришли все
+  const keys = (await apiModule.api.call(keysList, {})).keys.filter((k) => k.protocol !== CLAUDE).map((k) => k.name);
+  const all = (await Promise.all([CLAUDE, ...keys].map((name) => apiModule.api.call(keysModels, { name })))).reduce((n, r) => n + r.models.length, 0);
+  await waitFor(() => expect(offers().length).toBe(all));
   return offers();
 }
 const row = () => screen.getByRole("group", { name: "Документ сессии" });
