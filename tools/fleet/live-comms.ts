@@ -135,8 +135,10 @@ await step("подмена Host посреди хода дочери — ито�
   await Promise.all([idle(parent), idle(child)]);
   const before = (await incoming(parent, child, "result")).length;
   const tasks = (await incoming(child, parent, "task")).length;
-  await api.call(message, { to: parent, text: `Вызови инструмент message сервера fleet один раз: to — ${child}, text — «Выполни инструментом Bash команду sleep 40 && echo podmena (не в фоне) и ответь: подмена пережита». После вызова ничего больше не делай.` });
+  await api.call(message, { to: parent, text: `Вызови инструмент message сервера fleet один раз: to — ${child}, text — «Выполни инструментом Bash одну команду, не в фоне: node -e \"setTimeout(()=>console.log(1),40000)\" — она идёт 40 секунд. Когда она закончится, ответь: подмена пережита». После вызова ничего больше не делай.` });
   await until("дочь занята", async () => (await rowOf(child))?.state === "busy", 120_000);
+  // подмена — когда команда уже идёт: строка «чем занят ход» называет её
+  await until("команда идёт", async () => /setTimeout|node/.test((await rowOf(child))?.doing ?? ""), 120_000);
   await api.call(hostRestart, { to: `.keeper@${machine}` });
   const got = await until("итог после подмены", async () => { const r = await incoming(parent, child, "result"); return r.length > before ? r.slice(before) : undefined; }, 300_000);
   const now = (await incoming(child, parent, "task")).length;
@@ -162,6 +164,7 @@ await step("правила пережили сжатие: сессия назы�
   return a.replace(/\s+/g, " ").slice(0, 90);
 });
 
-for (const cs of made.reverse()) await api.call(sessionRemove, { to: cs }).catch(() => {});
+// KEEP=1 — оставить сессии проверки для разбора
+if (!process.env.KEEP) for (const cs of made.reverse()) await api.call(sessionRemove, { to: cs }).catch(() => {});
 console.log(`\n${total - bad} из ${total}`);
 process.exit(bad ? 1 : 0);
