@@ -425,7 +425,9 @@ export function make(): Module {
       async "account.list"() {
         // список аккаунтов — у службы ключей: только что добавленный виден сразу, без ожидания кадра «изменилось»
         await load().catch((e) => host.log.warn("accounts", { why: `аккаунты Claude не прочитаны: ${say(e)}` }));
-        const stale = Object.keys(book()).filter((n) => book()[n]!.ok && tokens.has(n) && (seen.get(n) ?? 0) < now() - FRESH_MS);
+        // закрытое окно спрашивать незачем: до своего сброса оно не откроется
+        const open = (a: Account) => fits(a, true, now(), true) || fits(a, false, now(), true);
+        const stale = Object.keys(book()).filter((n) => open(book()[n]!) && tokens.has(n) && (seen.get(n) ?? 0) < now() - FRESH_MS);
         // ответ не ждёт пробу дольше предела: её числа придут к следующему вопросу
         await within(Promise.all(stale.map(probe)), PROBE_MS, "проба не успела").catch(() => {});
         const t = now();
