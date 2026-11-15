@@ -2,7 +2,7 @@
 // Живой ответ идёт с кареткой, размышление сворачивается, своё сообщение показывает свой статус.
 import { CopyButton, Text } from "@mantine/core";
 import {
-  IconAlertTriangle, IconAnchor, IconArchive, IconBell, IconBolt, IconBook, IconBrain, IconCalendarClock, IconCheck, IconChecklist, IconClipboardList, IconFile, IconFilePencil, IconFilePlus, IconFileText, IconFolderSearch,
+  IconAlertTriangle, IconAnchor, IconArchive, IconBell, IconBolt, IconBook, IconBrain, IconCalendarClock, IconCheck, IconChecklist, IconCircleCheck, IconClipboardList, IconFile, IconFilePencil, IconFilePlus, IconFileText, IconFolderSearch,
   IconGitBranch, IconInfoCircle, IconMessageQuestion, IconMessages, IconNotebook, IconPlayerStop, IconRadar, IconRefresh, IconRobot, IconRotate, IconSearch, IconShieldOff, IconSparkles, IconTerminal2, IconTool, IconWorld, IconX,
 } from "@tabler/icons-react";
 import { createContext, lazy, memo, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
@@ -49,7 +49,7 @@ const ICONS: Record<string, typeof IconTool> = {
   "list-checks": IconChecklist, bot: IconRobot, sparkles: IconSparkles, "message-circle-question": IconMessageQuestion, "clipboard-list": IconClipboardList, square: IconPlayerStop,
   "refresh-cw": IconRefresh, archive: IconArchive, info: IconInfoCircle, "book-open": IconBook,
   "notebook-pen": IconNotebook, radar: IconRadar, "calendar-clock": IconCalendarClock, bell: IconBell, "git-branch": IconGitBranch, "shield-off": IconShieldOff, anchor: IconAnchor,
-  "triangle-alert": IconAlertTriangle, zap: IconBolt, "rotate-ccw": IconRotate, "messages-square": IconMessages, x: IconX,
+  "triangle-alert": IconAlertTriangle, zap: IconBolt, "rotate-ccw": IconRotate, "messages-square": IconMessages, x: IconX, "circle-check": IconCircleCheck,
 };
 const Icon = ({ name, size = 15 }: { name?: string; size?: number }) => {
   const I = (name && ICONS[name]) || IconTool;
@@ -302,7 +302,6 @@ function Mine({ r }: { r: Extract<Row, { k: "me" }> }) {
 
 const VIA: Record<string, string> = { session: "сессия", owner: "вам", service: "служба" };
 /** Вид входящего от флота словом; у обычного сообщения слова нет. */
-const KIND: Record<string, string> = { task: "задача", result: "итог", question: "вопрос", news: "весть", incident: "обращение" };
 /** Режим разрешений отправителя словами страницы: SDK зовёт режимы по-своему. */
 const SDK_MODE: Record<string, string> = { bypassPermissions: "all", default: "ask", plan: "plan", acceptEdits: "edits", auto: "auto" };
 const modeWord = (tag: string) => MODES.find(([m]) => m === (SDK_MODE[tag] ?? tag))?.[1] ?? tag;
@@ -316,11 +315,48 @@ function Incoming({ r }: { r: Extract<Row, { k: "in" }> }) {
     <div className={`peer via-${r.via}`}>
       <Text size="xs" className="muted peer-from">
         {r.via === "session" ? <Icon name="messages-square" size={13} /> : null}
-        <span><span className="mono">{r.from ? (env.name?.(r.from) ?? r.from) : VIA[r.via]}</span>{r.kind ? (KIND[r.kind] ? ` · ${KIND[r.kind]}` : "") : r.from && r.via !== "session" ? ` · ${VIA[r.via]}` : ""}{r.ref ? <> <span className="mono">{r.ref}</span></> : null}{r.tag ? ` · ${modeWord(r.tag)}` : ""}{r.at ? ` · ${r.at}` : ""}</span>
+        <span><span className="mono">{r.from ? (env.name?.(r.from) ?? r.from) : VIA[r.via]}</span>{r.from && r.via !== "session" ? ` · ${VIA[r.via]}` : ""}{r.tag ? ` · ${modeWord(r.tag)}` : ""}{r.at ? ` · ${r.at}` : ""}</span>
       </Text>
       <div className={long && !whole ? "peer-clamp" : undefined}><Md text={r.text} /></div>
       {long && <button type="button" className="linkbtn" aria-expanded={whole} onClick={() => setWhole((w) => !w)}>{whole ? "свернуть" : "показать всё"}</button>}
       {r.via === "session" && r.uuid && env.rewind && env.canAct && <div><button type="button" className="linkbtn" onClick={() => env.rewind!(r.uuid!)}>Откатить сюда</button></div>}
+    </div>
+  );
+}
+
+/** Облик карточки входящего от флота по виду: слово и значок; цвет полосы — в стилях. У сообщения соседа слова нет: отправителя достаточно. */
+const PEER: Record<string, { word?: string; icon: string }> = {
+  task: { word: "Задача", icon: "clipboard-list" },
+  message: { icon: "messages-square" },
+  result: { word: "Итог", icon: "circle-check" },
+  question: { word: "Вопрос", icon: "message-circle-question" },
+  news: { word: "Весть", icon: "bell" },
+  incident: { word: "Обращение", icon: "triangle-alert" },
+};
+
+/** Входящее от флота — карточка своего вида: что это, от кого, когда; отправитель-сессия — ссылка на её разговор.
+ *  У обращения — его вид и ключ; у вопроса дочери — чем на него ответила эта сессия. Длинный текст свёрнут. */
+function PeerCard({ r, view }: { r: Extract<Row, { k: "in" }>; view: View }) {
+  const env = useContext(Env);
+  const [whole, setWhole] = useState(false);
+  const look = PEER[r.kind ?? "message"] ?? PEER.message!;
+  const name = env.name?.(r.from) ?? r.from;
+  const long = r.text.length > LONG;
+  // вопрос отвечен, если в этом разговоре есть вызов инструмента answer с его номером
+  const answered = r.kind === "question" && r.ref ? Object.values(view.tools).find((t) => /(^|__)answer$/.test(t.name ?? "") && t.input?.ask === r.ref) : undefined;
+  return (
+    <div className={`pcard pk-${r.kind ?? "message"}`} role="group" aria-label={`${look.word ?? "Сообщение"} от ${name}`}>
+      <div className="pcard-head">
+        <Icon name={look.icon} size={15} />
+        {look.word && <b>{look.word}</b>}
+        {r.via === "session" ? <a className="pcard-from mono" href={`#/work/${r.from}`}>{name}</a> : <span className="pcard-from mono">{name}</span>}
+        {r.kind === "incident" && r.ref && <span className="pcard-ref mono">{r.ref}</span>}
+        {r.at && <span className="pcard-at">{r.at}</span>}
+        {r.via === "session" && r.uuid && env.rewind && env.canAct && <button type="button" className="pcard-act" aria-label="Откатить сюда" title="Откатить сюда" onClick={() => env.rewind!(r.uuid!)}><IconRotate size={14} stroke={1.7} /></button>}
+      </div>
+      <div className={long && !whole ? "peer-clamp" : undefined}>{r.kind === "question" ? <div className="pcard-plain">{r.text}</div> : <Md text={r.text} />}</div>
+      {long && <button type="button" className="linkbtn" aria-expanded={whole} onClick={() => setWhole((w) => !w)}>{whole ? "свернуть" : "показать всё"}</button>}
+      {answered && <div className="pcard-answer"><IconCheck size={13} /><span>отвечено: {String(answered.input?.answer ?? "")}</span></div>}
     </div>
   );
 }
@@ -333,7 +369,8 @@ const RowView = memo(function RowView({ r, view }: { r: Item; view: View }) {
     case "me":
       return <Mine r={r} />;
     case "in":
-      return <Incoming r={r} />;
+      // входящее от флота несёт вид — карточка вида; сообщение другого устройства человека и запись без вида — прежней строкой
+      return r.kind ? <PeerCard r={r} view={view} /> : <Incoming r={r} />;
     case "reply":
       return <Reply parts={r.parts} view={view} />;
     case "cmd":
