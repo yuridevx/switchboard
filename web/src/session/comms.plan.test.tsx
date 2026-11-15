@@ -43,14 +43,33 @@ beforeEach(async () => {
 afterEach(() => (cleanup(), vi.useRealTimers(), vi.restoreAllMocks(), mock.stop()));
 
 describe("эталоны страницы «Связь сессий»", () => {
-  it("итог дочери и её вопрос в ленте — строка отправителя со словом вида; у вопроса — его номер", async () => {
-    // чьё: слово пользователя 15 нояб. — «редизайн API коммуникации»; вид ставит машина, страница получает его полем
+  it("входящее от флота — карточка своего вида: слово вида, отправитель-ссылка на его разговор; у обращения — вид и ключ; у вопроса видно, чем на него ответили", async () => {
+    // чьё: слово пользователя 16 нояб. — «нарисуй фронтенд карточки для всех новых форматов сообщения»; вид ставит машина, страница получает его полем
     page(<Conversation callsign="lead@laptop" />, "/work/lead@laptop");
-    const result = (await screen.findByText(/старый клиент вызывается из/)).closest(".peer") as HTMLElement;
-    expect(within(result).getByText("wing@laptop").className).toContain("mono");
-    expect(result.querySelector(".peer-from")!.textContent).toMatch(/^wing@laptop · итог/);
-    const question = screen.getByText(/От какой ветки делать правку/).closest(".peer") as HTMLElement;
-    expect(question.querySelector(".peer-from")!.textContent).toMatch(/^wing@laptop · вопрос q7/);
+    await screen.findByText(/старый клиент вызывается из/);
+    const card = (name: string) => screen.getAllByRole("group", { name });
+    const result = card("Итог от wing@laptop")[0]!;
+    expect(result.className).toBe("pcard pk-result");
+    expect(within(result).getByText("Итог").tagName).toBe("B");
+    expect(within(result).getByRole("link", { name: "wing@laptop" }).getAttribute("href")).toBe("#/work/wing@laptop");
+    expect(within(result).getByText(/старый клиент вызывается из/)).toBeTruthy();
+    // сообщение соседа — без слова вида: отправителя достаточно
+    const message = card("Сообщение от docs@laptop")[0]!;
+    expect(message.className).toBe("pcard pk-message");
+    expect(message.querySelector(".pcard-head b")).toBeNull();
+    expect(card("Весть от wing@laptop")[0]!.className).toBe("pcard pk-news");
+    // обращение службы компьютера: отправитель — машина, не ссылка; вид и ключ — в шапке
+    const incident = card("Обращение от @laptop")[0]!;
+    expect(incident.className).toBe("pcard pk-incident");
+    expect(within(incident).queryByRole("link")).toBeNull();
+    expect(incident.querySelector(".pcard-ref")!.textContent).toBe("disk · c:");
+    // два вопроса ведомого: на первый эта сессия ответила инструментом answer, второй ещё ждёт; номер вопроса человеку не показываем
+    const [answered, waiting] = card("Вопрос от wing@laptop");
+    expect(answered!.querySelector(".pcard-answer")!.textContent).toBe("отвечено: оставить");
+    expect(waiting!.querySelector(".pcard-answer")).toBeNull();
+    expect(waiting!.textContent).not.toContain("q7");
+    // строки вопроса стоят как пришли: варианты — каждый со своей строки
+    expect(waiting!.querySelector(".pcard-plain")!.textContent).toBe("От какой ветки делать правку вызовов?\n· main — свежая, без обёртки\n· payments-wrap — с обёрткой");
     // тега в ленте нет: текст входящего — без обёртки
     expect(document.querySelector(".feed, body")!.textContent).not.toContain("<fleet");
   });
@@ -60,8 +79,9 @@ describe("эталоны страницы «Связь сессий»", () => {
     page(<Conversation callsign="lead@laptop" />, "/work/lead@laptop");
     await screen.findByText(/старый клиент вызывается из/);
     await apiModule.api.call(notice, { to: "lead@laptop", kind: "news", text: "Ждёт ответа человека: разрешение — Bash: git push origin main." });
-    const news = (await screen.findByText(/Ждёт ответа человека: разрешение/)).closest(".peer") as HTMLElement;
-    expect(news.querySelector(".peer-from")!.textContent).toMatch(/ · весть/);
+    const news = (await screen.findByText(/git push origin main/)).closest(".pcard") as HTMLElement;
+    expect(news.className).toBe("pcard pk-news");
+    expect(news.getAttribute("aria-label")).toBe("Весть от @laptop");
   });
 
   it("заполнение контекста — из строки сессии; запросов сессии по таймеру нет", async () => {
