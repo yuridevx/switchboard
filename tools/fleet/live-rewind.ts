@@ -13,7 +13,7 @@ const [fleet = "test", device = "cli", machine = "devbox"] = process.argv.slice(
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
 const wire = httpTransport({ base: env.SB2_BASE!, key });
 const api = createApi({ ...wire, call: async (f) => { for (let i = 0; ; i++) { const r = await wire.call(f); if (r.ok || r.error !== "offline" || i >= 4) return r; await new Promise((x) => setTimeout(x, 3000)); } } });
-const SEAT = "muse";
+const SEAT = process.env.SB2_KEY ?? "muse";
 /** Модель тестовых сессий — SB2_MODEL или первая из каталога провайдера. */
 const DOC = { key: SEAT, model: process.env.SB2_MODEL ?? (await api.call(keysModels, { name: SEAT })).models[0]!.id };
 const tag = Date.now().toString(36).slice(-4);
@@ -165,33 +165,39 @@ await step("пара: ведущая сжимает и откатывает ве
   await idle(wing);
   await turn(lead, `Сделай по порядку и ничего больше: 1) инструментом session_history прочитай разговор ${wing}; 2) инструментом session_call с method compact сожми ${wing}; 3) инструментом session_rewind без upto очисти разговор ${wing}. В конце ответь, сколько сообщений было в истории ведомого.`);
   await sleep(5000);
-  const got = (await said(lead)).map((e) => JSON.stringify(e.message?.content ?? "")).filter((t) => t.includes("Ведомый"));
-  const has = (w: string) => got.some((t) => t.includes(w));
-  if (!has("очищен")) throw new Error("вести об очистке нет: " + got.map((t) => t.slice(0, 80)).join(" | "));
-  return `вестей ведущей ${got.length}: ${["открыт", "сжат", "очищен"].filter(has).join(", ")}`;
+  const from = (await said(lead)).filter((e) => (e as { peer?: { from: string; kind: string } }).peer?.from === wing).map((e) => (e as { peer?: { kind: string } }).peer!.kind);
+  if (!from.includes("result")) throw new Error("итога ведомого видом result у ведущей нет: " + from.join(", "));
+  // ведущая сама сжала и очистила ведомого: ответ инструмента она уже получила, вестей об этом нет
+  if (from.includes("news")) throw new Error("ведущей пришла весть о том, что она сделала сама");
+  return `от ведомого у ведущей: ${from.join(", ")}`;
 });
 
-/** Вести ведущей о ведомом — строки её разговора со словом «Ведомый». */
-const news = async () => (await said(lead)).map((e) => JSON.stringify(e.message?.content ?? "")).filter((t) => t.includes("Ведомый"));
+/** Вести ведущей о ведомом: входящие вида news от него. */
+const news = async () => (await said(lead)).map((e) => (e as { peer?: { from: string; kind: string; text: string } }).peer).filter((p) => p?.from === wing && p.kind === "news").map((p) => p!.text);
 
-await step("пара: ведомый с длинным разговором сжат — ведущей пришла весть «сжат»", async () => {
+await step("пара: ведомого очистил человек — ведущей пришла весть; сжатие ведомого вести не даёт", async () => {
   // почти пустой разговор Claude не сжимает: сначала ведомый набирает разговор
-  for (let i = 1; i <= 3; i++) await turn(wing, `Напиши связный текст на 400 слов о том, как устроен велосипед, часть ${i}. Инструменты не используй.`);
-  const before = (await news()).filter((t) => t.includes("сжат")).length;
+  for (let i = 1; i <= 2; i++) await turn(wing, `Напиши связный текст на 300 слов о том, как устроен велосипед, часть ${i}. Инструменты не используй.`);
+  const before = (await news()).length;
   await api.call(sessionCall, { to: wing, method: "compact" });
-  await until("весть «сжат» у ведущей", async () => (await news()).filter((t) => t.includes("сжат")).length > before, 180_000);
-  return "весть пришла";
+  await sleep(8000);
+  await idle(wing);
+  if ((await news()).length !== before) throw new Error("сжатие ведомого дало ведущей весть");
+  await api.call(sessionRewind, { to: wing });
+  const got = await until("весть «очищен» у ведущей", async () => { const n = await news(); return n.some((t) => t.includes("очищен")) ? n : undefined; }, 120_000);
+  await idle(wing);
+  return `вестей ${got.length - before}: ${got.at(-1)!.slice(0, 60)}`;
 });
 
 await step("пара: ведомый ждёт разрешения человека — ведущей пришла весть «ждёт ответа человека»", async () => {
   await idle(wing);
   await api.call(sessionUpdate, { to: wing, patch: { mode: "ask" } as never });
   await idle(wing);
-  const before = (await news()).filter((t) => t.includes("ждёт ответа человека")).length;
+  const before = (await news()).filter((t) => t.includes("Ждёт ответа человека")).length;
   // задачу даёт человек: вопрос идёт человеку, а не ведущей
   await api.call(message, { to: wing, text: "Создай файл ask-" + tag + ".txt со словом ok. Ничего больше." });
   const row = await until("вопрос у ведомого", async () => { const r = await rowOf(wing); return r?.ask ? r : undefined; }, 120_000);
-  await until("весть «ждёт ответа человека» у ведущей", async () => (await news()).filter((t) => t.includes("ждёт ответа человека")).length > before, 60_000);
+  await until("весть «ждёт ответа человека» у ведущей", async () => (await news()).filter((t) => t.includes("Ждёт ответа человека")).length > before, 60_000);
   await api.call(answer, { to: wing, ask: row.ask!.id, answer: { action: "allow" } });
   await idle(wing);
   await api.call(sessionUpdate, { to: wing, patch: { mode: "all" } as never });
