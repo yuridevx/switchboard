@@ -119,7 +119,7 @@ await step("история через сервер инструментов: п�
   const text = (await mcp("tools/call", { name: "session_history", arguments: { to: child, limit: 50 } })).content[0].text as string;
   for (const word of ['"signature"', '"usage"', '"modelUsage"', '"session_id"']) if (text.includes(word)) throw new Error(`в ответе модели осталось ${word}`);
   if (!text.includes('"uuid"')) throw new Error("номера события нет");
-  const line = await until("строка журнала", async () => (await api.call(logQuery, { msg: "tool", limit: 20 })).lines.find((l) => String(JSON.stringify(l)).includes("session_history")), 60_000);
+  const line = await until("строка журнала", async () => (await api.call(logQuery, { msg: "tool", session: parent, limit: 20 })).lines.find((l) => JSON.stringify(l).includes('"tool":"message"') || JSON.stringify(l).includes("message")), 60_000);
   return `знаков: странице ${raw.length}, модели ${text.length} (${(raw.length / text.length).toFixed(1)}×); строка: ${JSON.stringify(line).slice(0, 110)}`;
 });
 
