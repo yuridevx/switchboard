@@ -449,3 +449,34 @@ describe("провайдеры и модели", () => {
     expect(proc.inputs).toHaveLength(0);
   });
 });
+
+describe("проба окон аккаунта", () => {
+  /** Разовый claude стенда: делает через прокси тот же вызов, что сделал бы настоящий. */
+  const liveCli = () => {
+    st!.sdk.cli = async (args, env) => {
+      st!.sdk.cliCalls.push({ args, env });
+      const sid = args[args.indexOf("--session-id") + 1]!, model = args[args.indexOf("--model") + 1]!;
+      const r = await fetch(`${env.ANTHROPIC_BASE_URL}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${env.CLAUDE_CODE_OAUTH_TOKEN}`, "x-claude-code-session-id": sid }, body: JSON.stringify({ model, messages: [{ role: "user", content: "ok" }] }) });
+      return { code: r.ok ? 0 : 1, out: await r.text() };
+    };
+  };
+
+  // чьё: слово пользователя 15 нояб. — «после добавления нет механизма, который показывает и опрашивает API по лимитам»
+  it("аккаунт без единого вызова, спросили аккаунты машины — проба этим аккаунтом: в ответе его неделя и окно Fable; свежие числа второй раз не спрашиваются", async () => {
+    const api = await fleet({ [A]: {} }, () => ({ headers: windows({ week: 0.37, fable: 0.42, hours: 40 }) }));
+    liveCli();
+    expect((await listed())[0]!.limits.map((l) => [l.name, l.used])).toEqual([["seven_day", 0.37], ["seven_day_overage_included", 0.42]]);
+    expect(api.hits).toMatchObject([{ account: A, model: FABLE }]);
+    // у разового claude — слово-заглушка: токен ставит прокси
+    const run = st!.sdk.cliCalls.at(-1)!;
+    expect(run.env.CLAUDE_CODE_OAUTH_TOKEN).toBe("fleet");
+    expect(JSON.stringify(run.args)).not.toContain("tok-");
+    expect(journal("call")).toMatchObject([{ probe: true, account: A, status: 200 }]);
+    await listed();
+    expect(api.hits).toHaveLength(1);
+    // чьё: код — порог свежести две минуты
+    st!.clock.advance(121_000);
+    await listed();
+    expect(api.hits).toHaveLength(2);
+  });
+});
