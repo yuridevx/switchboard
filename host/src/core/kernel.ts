@@ -506,7 +506,7 @@ export class Kernel {
     if (o.number) {
       let n = 1;
       while (taken(`${given.name}-${n}`)) n++;
-      spec = { ...given, name: `${given.name}-${n}` };
+      spec = { ...spec, name: `${given.name}-${n}` };
     }
     const callsign = `${spec.name}@${this.machine}`;
     if (taken(spec.name)) throw new Refusal("name_taken", `${callsign} уже есть`);
