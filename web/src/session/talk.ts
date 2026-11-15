@@ -1,6 +1,6 @@
 // Разговор сессии на странице: история страницами, лента по подписке с номерами, свёртка в строки.
 // Своё сообщение видно сразу и ведёт свой статус: уходит, в очереди, принято, не ушло. Вопросы сбоку живут здесь же.
-import { message, messageCancel, sessionCall, sessionHistory, sessionRead, sessionUnwatch, sessionWatch, type Frame, type SdkEvent } from "@sb/protocol";
+import { message, messageCancel, sessionCall, sessionHistory, sessionRead, sessionUnwatch, sessionWatch, type Frame, type Priority, type SdkEvent } from "@sb/protocol";
 import { notifications } from "@mantine/notifications";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, sayError } from "../api.ts";
@@ -45,7 +45,7 @@ export function bindLocal(events: SdkEvent[], local: string, uuid: string, state
 const setState = (events: SdkEvent[], id: string, state: string, extra: object = {}): SdkEvent[] => events.map((e) => (e.uuid === id ? ({ ...e, _state: state, ...extra } as SdkEvent) : e));
 
 export type FileOut = { name: string; mime: string; base64: string };
-export type Priority = "now" | "next" | "later";
+export type { Priority };
 /** Вопрос сбоку: ответ Claude мимо разговора. */
 export type Aside = { id: string; q: string; a?: string; state: "wait" | "done" | "bad" };
 

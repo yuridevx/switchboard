@@ -10,12 +10,11 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
 import { UNDO_MS, usePending } from "../common.tsx";
-import { setLocal } from "../lib/local.ts";
 import type { Mock } from "../mock/fleet.ts";
 import { Steps } from "../shell/Page.tsx";
 import { useFleet } from "../store/fleet.ts";
 import { AskCard } from "./Ask.tsx";
-import { Conversation, HEAD_DEFAULT } from "./Conversation.tsx";
+import { Conversation } from "./Conversation.tsx";
 
 vi.hoisted(() => {
   (globalThis as any).window?.happyDOM?.setURL("http://localhost/?still");
@@ -56,7 +55,6 @@ beforeEach(async () => {
   });
   usePending.setState({ items: {} });
   localStorage.clear();
-  setLocal("head.parts", HEAD_DEFAULT as never);
 });
 afterEach(() => (cleanup(), vi.restoreAllMocks(), vi.useRealTimers(), mock.stop()));
 

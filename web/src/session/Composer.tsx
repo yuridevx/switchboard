@@ -1,8 +1,8 @@
 // Ввод в сессию: многострочный, вложения (кнопкой, из буфера, перетаскиванием), «/» команды, «@» файлы, «/btw» — вопрос сбоку, «/model» — выбор модели.
-// Черновик живёт на каждую сессию. Пока сессия занята — сообщение встаёт в очередь с выбранной срочностью; «Прервать» — здесь же.
+// Черновик живёт на каждую сессию. Пока идёт ход, кнопок отправки две: «следующим» (после нынешнего шага) и «сейчас» (прервёт ход); «Прервать» — здесь же.
 import { sessionCall, sessionFiles, type SessionRow } from "@sb/protocol";
-import { ActionIcon, Button, FileButton, Group, Menu, Paper, Textarea, Tooltip } from "@mantine/core";
-import { IconArrowUp, IconPaperclip, IconPlayerStop, IconX } from "@tabler/icons-react";
+import { ActionIcon, FileButton, Group, Paper, Textarea, Tooltip } from "@mantine/core";
+import { IconArrowUp, IconBolt, IconPaperclip, IconPlayerStop, IconX } from "@tabler/icons-react";
 import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { act, api } from "../api.ts";
 import { useCall } from "../common.tsx";
@@ -11,7 +11,6 @@ import { draft, type FileOut, type Priority, type Talk } from "./talk.ts";
 type Pick = { label: string; about?: string; insert: string };
 export type ComposerHandle = { setText(text: string): void; /** вернуть текст в поле, не затирая набранное */ giveBack(text: string): void; addFiles(files: File[]): void; focus(): void };
 
-const PRIORITY: Array<[Priority, string, string]> = [["next", "следующим", "после нынешнего шага"], ["now", "сейчас", "прервёт ход"], ["later", "потом", "после конца хода"]];
 /** Команды самой страницы рядом с командами Claude. */
 const OWN: Pick[] = [{ label: "/btw", about: "спросить сбоку, мимо разговора", insert: "/btw " }, { label: "/model", about: "выбрать модель: слова поиска", insert: "/model " }];
 
@@ -63,9 +62,9 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
   const [files, setFiles] = useState<File[]>([]);
   const [picks, setPicks] = useState<Pick[]>([]);
   const [at, setAt] = useState(0);
-  const [priority, setPriority] = useState<Priority>("next");
   const ref = useRef<HTMLTextAreaElement>(null);
-  const busy = s.state === "busy" || s.state === "starting" || s.state === "waiting";
+  /** идёт ход: сообщение можно отправить следующим или сейчас */
+  const turn = s.state === "busy" || s.state === "starting";
   const dead = s.state === "stopped" || s.state === "failed" || s.state === "stopping";
   const slash = /^\/(\S*)$/.exec(text);
   const commands = useCall(sessionCall, slash && !dead ? { to: s.callsign, method: "commands" } : null);
@@ -89,7 +88,7 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
     return () => void (alive = false);
   }, [text, s.callsign, commands.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const send = async () => {
+  const send = async (priority: Priority = "next") => {
     const body = text.trim();
     if (!body && !files.length) return;
     const q = sideQuestion(body);
@@ -99,15 +98,14 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
     if (model !== null) return onModel?.(model);
     const attached: FileOut[] = await Promise.all(files.map(async (f) => ({ name: f.name, mime: f.type || "application/octet-stream", base64: await toBase64(f) })));
     setFiles([]);
-    setPriority("next");
-    void talk.send(body, attached.length ? attached : undefined, busy ? priority : undefined);
+    void talk.send(body, attached.length ? attached : undefined, turn ? priority : undefined);
   };
   const choose = (p: Pick) => {
     setText(p.insert);
     setPicks([]);
     ref.current?.focus();
   };
-  const word = PRIORITY.find(([p]) => p === priority)![1];
+  const empty = !text.trim() && !files.length;
 
   return (
     <div style={{ position: "relative" }}>
@@ -132,7 +130,7 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
         </FileButton>
         <Textarea
           ref={ref} id={"composer-" + s.callsign} autosize minRows={1} maxRows={10} style={{ flex: 1 }} autoFocus={autoFocus} disabled={dead}
-          placeholder={dead ? "Сессия не работает" : busy ? "Сообщение встанет в очередь" : "Сообщение сессии"} aria-label="Сообщение сессии"
+          placeholder={dead ? "Сессия не работает" : "Сообщение сессии"} aria-label="Сообщение сессии"
           value={text} onChange={(e) => setText(e.currentTarget.value)}
           onPaste={(e) => {
             const pasted = [...e.clipboardData.files];
@@ -146,24 +144,16 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
             else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) (e.preventDefault(), void send());
           }}
         />
-        {busy && s.state !== "waiting" && <Button className="wide-only" variant="default" leftSection={<IconPlayerStop size={15} />} onClick={() => act(sessionCall, { to: s.callsign, method: "interrupt" })}>Прервать</Button>}
-        {busy && s.state !== "waiting" && <Tooltip label="Прервать ход"><ActionIcon className="narrow-only" size="lg" variant="default" aria-label="Прервать ход" onClick={() => act(sessionCall, { to: s.callsign, method: "interrupt" })}><IconPlayerStop size={17} /></ActionIcon></Tooltip>}
-        <ActionIcon size="lg" variant="filled" aria-label={busy ? "В очередь" : "Отправить"} disabled={dead || (!text.trim() && !files.length)} onClick={send}><IconArrowUp size={18} /></ActionIcon>
+        {turn && <Tooltip label="Прервать ход"><ActionIcon size="lg" variant="default" aria-label="Прервать ход" onClick={() => act(sessionCall, { to: s.callsign, method: "interrupt" })}><IconPlayerStop size={17} /></ActionIcon></Tooltip>}
+        {/* пока идёт ход, срочностей две и обе — кнопками: молния — сейчас, стрелка — следующим */}
+        {turn && <Tooltip label="Сейчас: прервёт ход"><ActionIcon size="lg" variant="default" aria-label="Отправить сейчас" disabled={empty} onClick={() => void send("now")}><IconBolt size={17} /></ActionIcon></Tooltip>}
+        <Tooltip label={turn ? "Следующим: после нынешнего шага" : "Отправить"}><ActionIcon size="lg" variant="filled" aria-label={turn ? "Отправить следующим" : "Отправить"} disabled={dead || empty} onClick={() => void send()}><IconArrowUp size={18} /></ActionIcon></Tooltip>
       </Group>
       {/* ряд под полем есть всегда: у стоящей сессии документ правится так же — модель той, что не запустилась, меняют здесь */}
-      {(
-        <div className="composer-opts">
-          {values}
-          {/* когда взять сообщение — выбор есть, только пока идёт ход */}
-          {!dead && (s.state === "busy" || s.state === "starting") && (
-            <Menu position="top-start" withinPortal>
-              <Menu.Target><button type="button" className="docval take" aria-label="Когда взять сообщение" title="Когда взять сообщение">взять {word}</button></Menu.Target>
-              <Menu.Dropdown>{PRIORITY.map(([pr, w, about]) => <Menu.Item key={pr} fw={pr === priority ? 700 : undefined} onClick={() => setPriority(pr)}>{w} — {about}</Menu.Item>)}</Menu.Dropdown>
-            </Menu>
-          )}
-          {acts}
-        </div>
-      )}
+      <div className="composer-opts">
+        {values}
+        {acts}
+      </div>
     </div>
   );
 });

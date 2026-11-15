@@ -10,12 +10,11 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
-import { setLocal } from "../lib/local.ts";
 import type { Mock } from "../mock/fleet.ts";
 import { NewForm } from "../shell/NewSession.tsx";
 import { Steps } from "../shell/Page.tsx";
 import { useFleet } from "../store/fleet.ts";
-import { Conversation, HEAD_DEFAULT } from "./Conversation.tsx";
+import { Conversation } from "./Conversation.tsx";
 import { Inspector } from "./Inspector.tsx";
 
 vi.hoisted(() => {
@@ -53,7 +52,6 @@ beforeEach(async () => {
     const link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), link.close(), done()) });
   });
   localStorage.clear();
-  setLocal("head.parts", HEAD_DEFAULT as never);
 });
 afterEach(() => (cleanup(), vi.restoreAllMocks(), mock.stop()));
 
@@ -108,7 +106,6 @@ describe("эталоны страницы «Аккаунты и модели»",
     first.unmount();
     // другое устройство того же человека: своей памяти нет — закреп приходит из его настроек
     localStorage.clear();
-    setLocal("head.parts", HEAD_DEFAULT as never);
     page(<NewForm />, "/new?machine=laptop&cwd=" + encodeURIComponent("~/projects/site"));
     const after = await modelList();
     expect(after.slice(0, 4)).toEqual(["claude/claude-fable-5-2", "orca/glm-5.3", "orca/deepseek-v4", "orca/kimi-k3"]);

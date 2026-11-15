@@ -592,14 +592,16 @@ export function createMock(o: MockOptions = {}) {
         emit(c, [event, { type: "message.status", uuid, status: "queued" } as Ev], true);
         return { queued: true, uuid };
       }
-      if (s.state === "busy") {
+      // «сейчас» во время хода: ход прерван, сообщение взято сразу; занятая сессия отвечает queued, как Host
+      const waits = s.state === "busy";
+      if (waits) {
         live.delete(c);
         emit(c, [say("[Request interrupted by user]", now())]);
       }
-      emit(c, [event]);
+      emit(c, waits ? [event, { type: "message.status", uuid, status: "taken" } as Ev] : [event]);
       startLive(c, String(f.text).slice(0, 40));
       setRow(c, { state: "busy", doing: "Читает сообщение", unread: [], error: undefined });
-      return { queued: false, uuid };
+      return { queued: waits, uuid };
     },
     "message.cancel": (f) => cancelQueued(sess(f).c, f.uuid),
     "session.history": (f) => {

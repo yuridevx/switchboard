@@ -198,17 +198,17 @@ describe("chat: строка и лента", () => {
     expect((far.result as any).events).toBeUndefined();
   }, 30_000);
 
-  it("своё сообщение занятой сессии: в очереди — статус и список у зрителя; отмена; ход взял — статус taken; приоритет доходит до SDK", async () => {
+  it("своё сообщение занятой сессии: в очереди — статус и список у зрителя; отмена; ход взял — статус taken; срочность «следующим» доходит до SDK", async () => {
     st = await stand({ modules: [chat()] });
     const { proc, s } = await st.open("site");
     await st.request("session.watch", { to: CS }, PULT);
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
     await until(() => s.state === "busy", 5000, "ход");
-    const m = await st.request("message", { to: CS, text: "ещё одно", priority: "later" }, PULT);
+    const m = await st.request("message", { to: CS, text: "ещё одно" }, PULT);
     expect(m.result).toMatchObject({ queued: true, uuid: expect.any(String) });
     const uuid = (m.result as any).uuid as string;
     await until(() => proc.inputs.length === 1, 5000, "ввод");
-    expect(proc.inputs[0]!.priority).toBe("later");
+    expect(proc.inputs[0]!.priority).toBe("next");
     await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === uuid && e.status === "queued"), 5000, "статус queued");
     expect((await st.request("session.watch", { to: CS }, PHONE)).result).toMatchObject({ queued: [{ uuid, from: PULT, text: "ещё одно" }] });
     expect((await st.request("message.cancel", { to: CS, uuid }, PULT)).result).toEqual({ cancelled: true });

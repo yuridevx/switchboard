@@ -8,7 +8,7 @@ import { tabInto } from "../shell/NewSession.tsx";
 import type { Picture } from "../store/fleet.ts";
 import { askOutcome, seenWord } from "../chat/answers.ts";
 import { returned } from "./Composer.tsx";
-import { pairOf, toggleHeadPart } from "./Conversation.tsx";
+import { pairOf } from "./Conversation.tsx";
 import { diffLines } from "./diff.ts";
 import { looksSvg, previewKind, svgUrl } from "./html.tsx";
 import { pairRows } from "./Inspector.tsx";
@@ -78,11 +78,6 @@ describe("пара в разговоре", () => {
     // аккаунта в панели сессии нет: его выбирает машина (слово пользователя 15 нояб.)
     expect(rows.map((r) => r[0])).toEqual(["Состояние", "Модель", "Кусочки", "Папка", "Открыта"]);
     expect(rows[0]).toEqual(["Состояние", "Ждёт итог", "ждёт вас"]);
-  });
-  it("части шапки: переключение держит порядок списка", () => {
-    expect(toggleHeadPart(["model", "pieces"], "machine")).toEqual(["model", "pieces", "machine"]);
-    expect(toggleHeadPart(["model", "pieces"], "effort")).toEqual(["model", "effort", "pieces"]);
-    expect(toggleHeadPart(["model", "pieces"], "model")).toEqual(["pieces"]);
   });
 });
 

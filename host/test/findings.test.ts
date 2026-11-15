@@ -22,7 +22,7 @@ describe("находки: разговор", () => {
     const { proc, s } = await st.open("site");
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
     await until(() => s.state === "busy", 5000, "ход");
-    const uuid = ((await st.request("message", { to: CS, text: "ещё одно", priority: "later" }, PULT)).result as any).uuid as string;
+    const uuid = ((await st.request("message", { to: CS, text: "ещё одно" }, PULT)).result as any).uuid as string;
     expect(await st.request("message.cancel", { to: CS, uuid }, ANYA)).toMatchObject({ ok: false, error: "not_owner" });
     expect(st.sdk.last(CS)!.calls.some((c) => c.name === "cancelAsyncMessage")).toBe(false);
     expect((await st.request("message.cancel", { to: CS, uuid }, PHONE)).result).toEqual({ cancelled: true });

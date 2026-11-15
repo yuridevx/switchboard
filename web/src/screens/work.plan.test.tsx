@@ -23,7 +23,7 @@ vi.hoisted(() => {
 import * as apiModule from "../api.ts";
 import { getLocal, setLocal } from "../lib/local.ts";
 import type { Mock } from "../mock/fleet.ts";
-import { HEAD_DEFAULT, pairKey } from "../session/Conversation.tsx";
+import { pairKey } from "../session/Conversation.tsx";
 import { useFleet } from "../store/fleet.ts";
 import { Work } from "./Work.tsx";
 
@@ -44,7 +44,7 @@ beforeEach(async () => {
     link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), done()) });
   });
   localStorage.clear();
-  for (const [k, v] of [["work.filter", "all"], ["work.view", "list"], ["work.closed", []], ["work.group", "project"], ["work.nested", true], ["head.parts", HEAD_DEFAULT]] as const) setLocal(k, v as never);
+  for (const [k, v] of [["work.filter", "all"], ["work.view", "list"], ["work.closed", []], ["work.group", "project"], ["work.nested", true]] as const) setLocal(k, v as never);
 });
 afterEach(() => (cleanup(), vi.restoreAllMocks(), link?.close(), mock.stop()));
 

@@ -60,6 +60,44 @@ try {
   await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
   await box.waitFor({ timeout: 15_000 });
 
+  await step("панель сессии после загрузки закрыта: кнопка открывает её и закрывает", async () => {
+    const panel = page.locator('aside.insp[aria-label="Инспектор"]');
+    if (await panel.count()) throw new Error("панель справа открыта сама");
+    const button = opts.getByRole("button", { name: "Инспектор", exact: true });
+    await button.click();
+    await panel.waitFor({ timeout: 8000 });
+    await button.click();
+    await panel.waitFor({ state: "detached", timeout: 8000 });
+  });
+
+  await step("Enter во время хода ставит сообщение в очередь: пометка «в очереди» и «Отменить», слов «после хода» нет", async () => {
+    // ход на полминуты: команда, которая ничего не делает
+    await box.fill("Выполни инструментом Bash одну команду: node -e \"setTimeout(()=>{},30000)\" — и после неё ответь одним словом: готово.");
+    await box.press("Enter");
+    for (const end = Date.now() + 60_000; state(cs) !== "busy"; await sleep(1000)) if (Date.now() > end) throw new Error(`${cs} не начала ход`);
+    for (const name of ["Отправить следующим", "Отправить сейчас", "Прервать ход"]) await page.getByRole("button", { name, exact: true }).waitFor({ timeout: 8000 });
+    if (await page.getByLabel("Когда взять сообщение").count()) throw new Error("меню срочности осталось");
+    await box.fill("Ответь одним словом: очередь");
+    await box.press("Enter");
+    const note = page.locator(".me-note").filter({ hasText: "в очереди" }).last();
+    await note.waitFor({ timeout: 15_000 });
+    await note.getByRole("button", { name: "Отменить" }).waitFor({ timeout: 5000 });
+    if (/после хода/.test(await note.innerText())) throw new Error("в пометке осталось «после хода»");
+    await shot("queued");
+  });
+
+  await step("молния прерывает ход: в ленте «прервано», сообщение взято сразу", async () => {
+    const t0 = Date.now();
+    await box.fill("Ответь одним словом: стоп");
+    await page.getByRole("button", { name: "Отправить сейчас", exact: true }).click();
+    await page.getByText(/^прервано/).last().waitFor({ timeout: 20_000 });
+    const ms = Date.now() - t0;
+    await shot("now");
+    await sleep(2500);
+    await idle(cs);
+    return `прервано через ${Math.round(ms / 1000)} с после нажатия`;
+  });
+
   await step("ход со страницы: сессия записала файл", async () => {
     await say("Создай инструментом Write файл page.txt ровно с одной строкой: первый. Больше ничего не делай.");
     await say("Перезапиши инструментом Write файл page.txt ровно с одной строкой: второй. Больше ничего не делай.");

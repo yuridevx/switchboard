@@ -1,5 +1,5 @@
 // Договор ядра с модулями Host: что модуль отдаёт ядру и что ядро даёт модулю.
-import type { Ask, Frame, InputOf, Logger, OutputOf, RequestDef, SessionRow, SessionState, Spec } from "@sb/protocol";
+import type { Ask, Frame, InputOf, Logger, OutputOf, Priority, RequestDef, SessionRow, SessionState, Spec } from "@sb/protocol";
 import type { Clock } from "./clock.ts";
 import type { Meter } from "./meter.ts";
 
@@ -19,7 +19,7 @@ export type QueryPart = {
   [option: string]: unknown;
 };
 
-export type InputOpts = { from?: string; priority?: "now" | "next" | "later"; uuid?: string; [k: string]: unknown };
+export type InputOpts = { from?: string; priority?: Priority; uuid?: string; [k: string]: unknown };
 
 /** Сессия глазами модуля. */
 export interface SessionApi {

@@ -176,12 +176,14 @@ export const sessionCall = request("session.call", {
 /* ===== Разговор ===== */
 
 export const FileIn = z.object({ name: z.string(), mime: z.string(), base64: z.string() });
+/** Срочность сообщения занятой сессии: now — прервать ход и взять сейчас; next — после нынешнего шага (по умолчанию). Набор объявлен один раз — здесь. */
+export const Priority = z.enum(["now", "next"]);
+export type Priority = z.infer<typeof Priority>;
 
 export const message = request("message", {
   owner: "host-chat", target: "session",
   tool: "Написать сессии флота: to — позывной вида site@laptop, text — сообщение. От сессии оно придёт адресату с пометкой отправителя. Текст «/model слова» меняет модель адресата: слова — часть имени модели, семейство или провайдер; подошла одна — она встала (model в ответе), несколько — отказ many_models со списком. Человеку (~почта) пишут инструментом reach_send.",
-  /** priority: now — прервать ход и взять сейчас; next — после нынешнего шага (по умолчанию); later — после хода */
-  input: z.object({ to: Callsign, text: z.string(), files: z.array(FileIn).optional(), priority: z.enum(["now", "next", "later"]).optional() }),
+  input: z.object({ to: Callsign, text: z.string(), files: z.array(FileIn).optional(), priority: Priority.optional() }),
   /** queued — сессия занята, сообщение ждёт в очереди; uuid — его номер: по нему приходит статус в ленте и отмена */
   /** model — «/model слова» поставило сессии эту модель: в разговор команда не ушла */
   output: z.object({ queued: z.boolean().optional(), uuid: z.string().optional(), model: z.string().optional() }).loose(),

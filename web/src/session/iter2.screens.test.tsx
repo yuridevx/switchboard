@@ -14,7 +14,7 @@ import { Work } from "../screens/Work.tsx";
 import { useFleet } from "../store/fleet.ts";
 import { AskCard } from "./Ask.tsx";
 import { Composer, type ComposerHandle } from "./Composer.tsx";
-import { Conversation, HEAD_DEFAULT, pairKey } from "./Conversation.tsx";
+import { Conversation, pairKey } from "./Conversation.tsx";
 import { Diff, Pics, TodoList } from "./Feed.tsx";
 import { HtmlFrame } from "./html.tsx";
 import { Inspector } from "./Inspector.tsx";
@@ -42,7 +42,7 @@ beforeEach(async () => {
   usePending.setState({ items: {} });
   localStorage.clear();
   // настройки устройства — как у нового человека
-  for (const [k, v] of [["work.filter", "mine"], ["work.view", "list"], ["work.closed", []], ["work.group", "project"], ["work.nested", true], ["head.parts", HEAD_DEFAULT], [pairKey("lead@laptop"), "lead"]] as const) setLocal(k, v as never);
+  for (const [k, v] of [["work.filter", "mine"], ["work.view", "list"], ["work.closed", []], ["work.group", "project"], ["work.nested", true], [pairKey("lead@laptop"), "lead"]] as const) setLocal(k, v as never);
 });
 afterEach(() => (cleanup(), vi.restoreAllMocks(), mock.stop()));
 
@@ -169,7 +169,8 @@ describe("пара", () => {
     const acts = await screen.findByRole("group", { name: "Действия" });
     for (const name of ["Фокус", "Инспектор", "Ещё", "Очистить"]) expect(within(acts).getByRole("button", { name })).toBeTruthy();
     expect(document.querySelector(".conv-head")!.querySelectorAll("button:not(.namebtn)")).toHaveLength(0);
-    const ring = await within(acts).findByRole("button", { name: /^Контекст \d+% · сжать$/ });
+    // кольцо занятости контекста стоит среди значений сессии
+    const ring = await within(screen.getByRole("group", { name: "Документ сессии" })).findByRole("button", { name: /^Контекст \d+% · сжать$/ });
     expect(ring.textContent).toMatch(/^\d+%$/);
     // нажатие на кольцо сжимает контекст — одним запросом сессии
     const calls = vi.spyOn(apiModule.api, "call");

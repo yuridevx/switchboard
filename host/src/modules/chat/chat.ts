@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { opendir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { findModels, kindOf, personOf, reachSend, Refusal, sessionUpdate, toolLine, type Frame, type SessionState } from "@sb/protocol";
+import { findModels, kindOf, personOf, reachSend, Refusal, sessionUpdate, toolLine, type Frame, type Priority, type SessionState } from "@sb/protocol";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
 import type { AccountsApi } from "../accounts/contract.ts";
 import { questions } from "./ask.ts";
@@ -260,7 +260,7 @@ export function make(): Module {
       return { ask: ask.first(s.callsign), unread, ...(result ? { result } : {}), ...(title ? { title } : {}), ...(now ? { doing: now } : {}), ...(compacting.has(s.callsign) ? { compacting: true } : {}) };
     },
     requests: {
-      message({ to, text, files: attached, priority = "next" }: { to: string; text: string; files?: FileIn[]; priority?: "now" | "next" | "later" }, ctx: Ctx) {
+      message({ to, text, files: attached, priority = "next" }: { to: string; text: string; files?: FileIn[]; priority?: Priority }, ctx: Ctx) {
         const command = MODEL_COMMAND.exec(text.trim());
         if (command) return setModel(to, (command[1] ?? "").trim(), ctx);
         const s = session(to);
