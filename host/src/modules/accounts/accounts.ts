@@ -51,6 +51,9 @@ const HOUR_MS = 3_600_000;
 const THROTTLE_MAX_S = 60;
 /** Окна аккаунта во всём флоте старше этого — проба при вопросе об аккаунтах: расход вне флота виден только в ответе Claude. */
 const FRESH_MS = 120_000;
+/** Обход аккаунтов: раз в этот срок машина сама спрашивает у Claude окна аккаунтов, о которых флот столько же ничего не слышал, — и закрытых:
+ *  сброс лимитов человеком иначе не заметить до прежнего часа. Срок — решение агента 16 нояб. (слово пользователя — «периодический перезапрос», без числа). */
+const ROUND_MS = 600_000;
 /** Предел пробы: ответ на account.list не ждёт дольше. */
 const PROBE_MS = READ_MS - 2_000;
 /** Кто делает вызов пробы: в строке журнала вместо позывного. */
@@ -67,6 +70,7 @@ export function make(): Module {
   let host: HostApi;
   let stopping = false;
   let wake: unknown;
+  let round: unknown;
   /** токены аккаунтов Claude и значения ключей провайдеров — только в памяти */
   const tokens = new Map<string, string>();
   const values = new Map<string, string>();
@@ -149,6 +153,28 @@ export function make(): Module {
       plan();
     }, Math.max(0, at - t));
     (wake as { unref?: () => void }).unref?.();
+  }
+
+  /** Обход: аккаунты с принятым токеном, о которых флот не слышал дольше срока, пробуются — открытые и закрытые. Числа уходят флоту, и другая машина их уже не пробует. */
+  async function sweep(): Promise<void> {
+    try {
+      await load();
+      const t = now();
+      const quiet = Object.keys(book()).filter((n) => tokens.has(n) && book()[n]!.ok && (seen.get(n) ?? 0) < t - ROUND_MS);
+      await within(Promise.all(quiet.map(probe)), PROBE_MS, "проба не успела").catch(() => {});
+      revive();
+      plan();
+    } catch (e) {
+      host.log.warn("accounts", { why: `обход аккаунтов: ${say(e)}` });
+    }
+  }
+
+  /** Следующий обход. Первый — со сдвигом по имени машины: машины флота стартуют разом, а пробовать аккаунт должна одна. */
+  function rounds(first = false): void {
+    if (stopping) return;
+    const shift = ([...host.machine].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261) >>> 0) % ROUND_MS;
+    round = host.clock.setTimeout(() => void sweep().then(() => rounds()), first ? shift : ROUND_MS);
+    (round as { unref?: () => void }).unref?.();
   }
 
   /** Сессии с оборванным ходом: годный аккаунт появился — продолжают, когда свободны. */
@@ -326,10 +352,12 @@ export function make(): Module {
         if (window) {
           kind = KIND[window.name];
           verdict = { act: "next" };
+          // проба закрытого окна, которое так и осталось закрытым, — не новость: второй строки о закрытии нет
+          const still = route.callsign === PROBE && was?.limits[window.name]?.used === 1 && was.limits[window.name]?.resets === window.resets;
           mark(name, (a) => void (a.limits[window.name] = { used: 1, resets: window.resets, at: t }));
           seen.set(name, t);
           report(name, { [window.name]: { used: 1, resets: window.resets } }, t);
-          host.log.warn("account.closed", { account: name, callsign: route.callsign, kind, why: `${name}: ${WINDOW_WORD[window.name]} выбрано${window.resets ? ` — закрыто до ${clock(window.resets)}` : ""}` });
+          if (!still) host.log.warn("account.closed", { account: name, callsign: route.callsign, kind, why: `${name}: ${WINDOW_WORD[window.name]} выбрано${window.resets ? ` — закрыто до ${clock(window.resets)}` : ""}` });
           plan();
         } else if (after > 0 && after <= THROTTLE_MAX_S && !r.waited) {
           kind = "throttle";
@@ -442,14 +470,19 @@ export function make(): Module {
       },
     },
     requests: {
-      async "account.list"() {
+      async "account.list"(i: { fresh?: boolean }) {
         // список аккаунтов — у службы ключей: только что добавленный виден сразу, без ожидания кадра «изменилось»
         await load().catch((e) => host.log.warn("accounts", { why: `аккаунты Claude не прочитаны: ${say(e)}` }));
-        // закрытое окно спрашивать незачем: до своего сброса оно не откроется
+        // закрытое окно само до своего сброса не откроется — его не спрашиваем; fresh — человек сбросил лимиты у Claude: спрашиваются все аккаунты
         const open = (a: Account) => fits(a, true, now(), true) || fits(a, false, now(), true);
-        const stale = Object.keys(book()).filter((n) => open(book()[n]!) && tokens.has(n) && (seen.get(n) ?? 0) < now() - FRESH_MS);
+        const stale = Object.keys(book()).filter((n) => tokens.has(n) && (i.fresh || (open(book()[n]!) && (seen.get(n) ?? 0) < now() - FRESH_MS)));
         // ответ не ждёт пробу дольше предела: её числа придут к следующему вопросу
         await within(Promise.all(stale.map(probe)), PROBE_MS, "проба не успела").catch(() => {});
+        // окно открылось раньше своего часа — сессии с оборванным ходом продолжают, побудка считается заново
+        if (i.fresh) {
+          revive();
+          plan();
+        }
         const t = now();
         const accounts: AccountOut[] = Object.entries(book()).map(([name, a]) => ({ name, ok: a.ok, ...(a.why ? { why: a.why } : {}), limits: shown(a, t), keep: a.keep, ...(isFull(name) ? { full: true } : {}) }));
         return { accounts };
@@ -460,10 +493,12 @@ export function make(): Module {
       // связи на старте может не быть: первый вызов сессии прочитает аккаунты сам
       void load().then(() => (revive(), plan()), (e) => host.log.warn("accounts", { why: `аккаунты Claude не прочитаны: ${say(e)}` }));
       plan();
+      rounds(true);
     },
     stop() {
       stopping = true;
       host.clock.clearTimeout(wake);
+      host.clock.clearTimeout(round);
     },
   };
 }

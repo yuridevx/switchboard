@@ -4,7 +4,7 @@ import { accountList, CLAUDE, keyCheck, keysList, keysRemove, keysSet, logQuery,
 import { ActionIcon, Button, CopyButton, Group, JsonInput, Menu, PasswordInput, Select, Stack, Text, Textarea, TextInput, Tooltip } from "@mantine/core";
 import { Page } from "../../shell/Page.tsx";
 import { notifications } from "@mantine/notifications";
-import { IconArrowsShuffle, IconCalendarWeek, IconCheck, IconCopy, IconDots, IconHourglass, IconKey, IconKeyOff, IconMail, IconPlugConnected, IconPlus, IconSparkles, IconUsers } from "@tabler/icons-react";
+import { IconArrowsShuffle, IconCalendarWeek, IconCheck, IconCopy, IconDots, IconHourglass, IconKey, IconKeyOff, IconMail, IconPlugConnected, IconPlus, IconRefresh, IconSparkles, IconUsers } from "@tabler/icons-react";
 import { Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -257,6 +257,17 @@ export function Accounts() {
   const cols = byReset(columns(keys.data?.keys ?? [], list.data?.accounts ?? []));
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["keys.list"] }), qc.invalidateQueries({ queryKey: ["account.list"] }), qc.invalidateQueries({ queryKey: ["keys.models"] })]);
   const [form, setForm] = useState<{ email?: string } | null>(null);
+  const [asking, setAsking] = useState(false);
+  // лимиты сбросили у Claude руками: машина сама закрытый аккаунт до его часа не спросит — спрашиваем все заново
+  const ask = async () => {
+    if (!online[0]) return;
+    setAsking(true);
+    try {
+      if (await act(accountList, { to: "@" + online[0], fresh: true })) await refresh();
+    } finally {
+      setAsking(false);
+    }
+  };
   const drop = async (c: Column) => {
     // проба: что сейчас идёт на аккаунте — до удаления
     const probe = await act(keysRemove, { name: c.name, probe: true });
@@ -274,7 +285,10 @@ export function Accounts() {
       <div className="card" data-card="claude">
         <Group justify="space-between" wrap="wrap">
           <Text fw={600}>Claude</Text>
-          {admin && <Tooltip label="Добавить аккаунт"><ActionIcon variant="default" size="sm" aria-label="Добавить аккаунт" onClick={() => setForm({})}><IconPlus size={15} /></ActionIcon></Tooltip>}
+          <Group gap={6}>
+            <Tooltip label="Обновить лимиты"><ActionIcon variant="default" size="sm" aria-label="Обновить лимиты" loading={asking} disabled={!online[0]} onClick={() => void ask()}><IconRefresh size={15} /></ActionIcon></Tooltip>
+            {admin && <Tooltip label="Добавить аккаунт"><ActionIcon variant="default" size="sm" aria-label="Добавить аккаунт" onClick={() => setForm({})}><IconPlus size={15} /></ActionIcon></Tooltip>}
+          </Group>
         </Group>
         <div className="acct-split">
           <div className="acols">

@@ -98,6 +98,20 @@ describe("аккаунты Claude", () => {
     // журнал флота лентой переходов не читается: история аккаунтов — одна, в ClickHouse
     expect(spy.mock.calls.some((c) => c[0] === ledgerRead)).toBe(false);
   });
+
+  it("2в · «Обновить лимиты» — одна машина спрашивает Claude заново обо всех аккаунтах, экран перечитывает числа", async () => {
+    // источник: слово пользователя 16 нояб. — «нужна кнопка рефреша лимитов: я использовал ресет лимитов, а панель его не схватила»
+    page(<Accounts />);
+    await waitFor(() => expect(document.querySelectorAll("[data-account]").length).toBeGreaterThan(0));
+    const spy = vi.spyOn(apiModule.api, "call");
+    const asked = () => spy.mock.calls.filter((c) => (c[0] as { name: string }).name === "account.list").map((c) => c[1] as { to: string; fresh?: boolean });
+    fireEvent.click(screen.getByRole("button", { name: "Обновить лимиты" }));
+    // сначала вопрос «заново», после ответа — обычное чтение чисел; машина одна и та же
+    await waitFor(() => expect(asked().length).toBe(2));
+    expect(asked()[0]!.fresh).toBe(true);
+    expect(asked()[1]!.fresh).toBeUndefined();
+    expect(new Set(asked().map((a) => a.to)).size).toBe(1);
+  });
 });
 
 describe("новая сессия", () => {

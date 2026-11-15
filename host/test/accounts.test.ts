@@ -521,4 +521,57 @@ describe("проба окон аккаунта", () => {
     expect((await listed())[0]!.limits.map((l) => [l.name, l.used])).toEqual([["seven_day", 0.01]]);
     expect(api.hits).toHaveLength(1);
   });
+
+  // чьё: слово пользователя 16 нояб. — «нужна кнопка рефреша лимитов: я использовал ресет лимитов, а панель его не схватила»
+  it("неделя закрыта, человек сбросил лимиты у Claude — вопрос «заново» пробует и закрытый аккаунт: окно открыто, числа ушли флоту, сессия с оборванным ходом продолжает", async () => {
+    const api = await fleet({ [A]: { week: 1, hours: 40 } }, () => ({ headers: windows({ week: 0.02, hours: 168 }) }));
+    liveCli();
+    const { s, proc } = await st!.open("site", claude(OPUS));
+    // годных аккаунтов нет — ход оборван, сессия ждёт сброса
+    expect((await call(s.rec.sessionId, OPUS)).status).toBe(429);
+    await listed();
+    expect(api.hits).toHaveLength(0);
+    const fresh = ((await st!.request("account.list", { to: "@laptop", fresh: true })).result as any).accounts as Array<{ limits: Array<{ name: string; used: number }> }>;
+    expect(api.hits).toMatchObject([{ account: A }]);
+    expect(fresh[0]!.limits.map((l) => [l.name, l.used])).toEqual([["seven_day", 0.02]]);
+    expect(st!.services.of("keys.limits").at(-1)).toMatchObject({ name: A, limits: [{ name: "seven_day", used: 0.02 }] });
+    await until(() => proc.inputs.some((i) => i.message.content === "Продолжай"), 5000, "сессия продолжила после сброса");
+  });
+
+  // чьё: слово пользователя 16 нояб. — «надо сделать периодический перезапрос лимитов»
+  it("неделя закрыта, человек сбросил лимиты, никто ничего не спрашивал — за срок обхода машина пробует закрытый аккаунт сама: окно открыто, сессия продолжает", async () => {
+    const api = await fleet({ [A]: { week: 1, hours: 40 } }, () => ({ headers: windows({ week: 0.02, hours: 168 }) }));
+    liveCli();
+    const { s, proc } = await st!.open("site", claude(OPUS));
+    expect((await call(s.rec.sessionId, OPUS)).status).toBe(429);
+    expect(api.hits).toHaveLength(0);
+    // чьё: решение агента — срок обхода десять минут; первый обход машины — внутри срока
+    st!.clock.advance(600_000);
+    await until(() => api.hits.length === 1, 5000, "обход попробовал закрытый аккаунт");
+    await until(() => proc.inputs.some((i) => i.message.content === "Продолжай"), 5000, "сессия продолжила после сброса");
+    expect(row().wait).toBeUndefined();
+  });
+
+  // чьё: слово пользователя 15 нояб. — «не флудить серверы Anthropic шумом»: аккаунт за срок пробует одна машина флота
+  it("обход: флот слышал об аккаунте недавно — другая машина его уже спросила — пробы нет", async () => {
+    const api = await fleet({ [A]: { week: 0.4, hours: 40 } }, () => ({ headers: windows({ week: 0.5, hours: 40 }) }));
+    liveCli();
+    api.names.limits[A] = [{ name: "seven_day", used: 0.45, resets: T0 + 40 * HOUR, at: T0 + 550_000 }];
+    st!.clock.advance(600_000);
+    await tick(50);
+    expect(api.hits).toHaveLength(0);
+    // прошёл ещё срок, флот молчал — проба этой машиной, одна
+    st!.clock.advance(600_000);
+    await until(() => api.hits.length === 1, 5000, "обход попробовал притихший аккаунт");
+  });
+
+  it("вопрос «заново», а окно так и закрыто — проба получает тот же отказ: аккаунт закрыт до того же часа, второй строки о закрытии в журнале нет", async () => {
+    const api = await fleet({ [A]: { week: 1, hours: 40 } }, () => rejected("7d", 40));
+    liveCli();
+    const before = journal("account.closed").length;
+    const fresh = ((await st!.request("account.list", { to: "@laptop", fresh: true })).result as any).accounts as Array<{ limits: Array<{ name: string; used: number; resets?: number }> }>;
+    expect(api.hits).toHaveLength(1);
+    expect(fresh[0]!.limits).toMatchObject([{ name: "seven_day", used: 1, resets: T0 + 40 * HOUR }]);
+    expect(journal("account.closed")).toHaveLength(before);
+  });
 });
