@@ -1,22 +1,22 @@
-// Прокси модели на 127.0.0.1: через него идёт каждый запрос claude к модели. Сессия — по x-claude-code-session-id, куда идти — route у модуля аккаунтов
-// на каждом вызове (слот может смениться между вызовами), правила флота — из ключа proxy.rules настроек флота. Переписку не пишет:
-// её пишет сам claude в файл сессии. Своих повторов нет: недоступный прокси и оборванный поток claude повторяет сам (замер 9 нояб.).
+// Прокси модели на 127.0.0.1: через него идёт каждый запрос claude к модели. Сессия — по x-claude-code-session-id; куда идти и чьим секретом —
+// маршрут модуля аккаунтов на каждом вызове. Прокси только везёт вызов: ставит токен аккаунта или ключ провайдера и по слову соседа отдаёт ответ,
+// шлёт тот же вызов на следующий аккаунт или ждёт короткую паузу. Правила флота — из ключа proxy.rules настроек флота.
+// Тела ответа не читает и переписку не пишет: её пишет сам claude в файл сессии. Недоступный прокси и оборванный поток claude повторяет сам.
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PROXY_RULES, prefsGet, READ_MS, Refusal, within } from "@sb/protocol";
+import type { Clock } from "../../core/clock.ts";
 import type { HostApi, Module } from "../../core/contract.ts";
-import type { AccountsApi } from "../accounts/contract.ts";
+import type { AccountsApi, Answered, Route } from "../accounts/contract.ts";
 import { compile, editRequest, type Rule, type Scope } from "./rules.ts";
 import { countTokens, messages, sendJson, anthropicError } from "./muse/handle.ts";
 import { museVersion } from "./muse/headers.ts";
 import { send } from "./upstream.ts";
 
 type Json = Record<string, any>;
-/** Куда идёт вызов: адрес провайдера и ключ флота; у входа Claude ключа нет — он идёт как есть. */
-type Route = { to: string; key?: string; env?: Record<string, string> };
 const refuse = (word: string, why?: string) => new Refusal(word, why);
 
 const RULES = PROXY_RULES;
@@ -53,17 +53,26 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
   });
 }
 
-/** Заголовки claude к провайдеру; у ключа флота слово fleet заменяет ключ — и в x-api-key, и в Authorization, как было у apiKeyHelper. */
-function headersOf(req: IncomingMessage, key: string | undefined): Record<string, string> {
+/** Заголовки claude к провайдеру: слово-заглушку заменяет настоящий секрет. Токен аккаунта Claude идёт только в Authorization;
+ *  ключ провайдера — и в x-api-key, и в Authorization. */
+export function headersOf(req: IncomingMessage, route: Pick<Route, "token" | "key">): Record<string, string> {
   const out: Record<string, string> = {};
   for (let i = 0; i < req.rawHeaders.length; i += 2) {
     const name = req.rawHeaders[i]!;
     const low = name.toLowerCase();
-    if (HOP.has(low) || (key !== undefined && (low === "x-api-key" || low === "authorization"))) continue;
+    if (HOP.has(low) || low === "x-api-key" || low === "authorization") continue;
     out[name] = req.rawHeaders[i + 1]!;
   }
-  return key === undefined ? out : { ...out, "x-api-key": key, authorization: `Bearer ${key}` };
+  if (route.token !== undefined) return { ...out, authorization: `Bearer ${route.token}` };
+  return { ...out, "x-api-key": route.key ?? "", authorization: `Bearer ${route.key ?? ""}` };
 }
+
+/** Пауза по часам ядра с обрывом: вызов снят или Host останавливается — ждать больше нечего. */
+const sleep = (clock: Clock, ms: number, signal: AbortSignal) =>
+  new Promise<void>((done, fail) => {
+    const t = clock.setTimeout(done, ms);
+    signal.addEventListener("abort", () => (clock.clearTimeout(t), fail(new Error("вызов снят во время паузы"))), { once: true });
+  });
 
 export function make(): Module {
   let host: HostApi;
@@ -116,19 +125,13 @@ export function make(): Module {
     return version;
   }
 
-  async function routeOf(sid: string): Promise<Route> {
-    const check = checks.get(sid);
-    if (check) return check;
-    return accounts().route(sid);
+  /** Вызов проверки ключа идёт своим маршрутом; вызов сессии — маршрутом модуля аккаунтов. */
+  async function routeOf(sid: string, tried: string[]): Promise<Route> {
+    return checks.get(sid) ?? accounts().route(sid, tried);
   }
 
-  /** Тело ответа провайдера — claude как есть: статус, заголовки, байты. */
-  async function forward(req: IncomingMessage, res: ServerResponse, url: string, key: string | undefined, body: Buffer, signal: AbortSignal) {
-    const t0 = Date.now();
-    const up = await send(url, { method: req.method ?? "GET", headers: headersOf(req, key), body: body.length ? body : undefined, signal });
-    // время провайдера — до заголовков ответа: у потока это время до первого слова
-    host.meter.time("provider", Date.now() - t0);
-    if (up.status >= 500 || up.status === 429) host.meter.count("provider.failed");
+  /** Ответ провайдера — claude как есть: статус, заголовки, байты. */
+  async function pass(up: Awaited<ReturnType<typeof send>>, res: ServerResponse): Promise<void> {
     const headers = Object.fromEntries(Object.entries(up.headers).filter(([k]) => !HOP.has(k)));
     res.writeHead(up.status, headers as Record<string, string | string[]>);
     await new Promise<void>((done) => {
@@ -150,60 +153,107 @@ export function make(): Module {
       if (!res.headersSent) sendJson(res, e.status, e.body);
       else res.destroy();
     };
-    try {
-      const sid = String(req.headers[SESSION_HEADER] ?? "");
-      const path = req.url ?? "/";
-      const body = await readBody(req);
-      let route: Route;
+    const sid = String(req.headers[SESSION_HEADER] ?? "");
+    const acc = checks.has(sid) ? null : accounts();
+    /** аккаунты, которые этот вызов уже пробовал: не больше, чем их есть — у соседа кончатся годные */
+    const tried: string[] = [];
+    /** Маршрут вызова; отказ — ответ сессии словом. */
+    const routed = async (): Promise<Route | null> => {
       try {
-        route = await routeOf(sid);
+        return await routeOf(sid, tried);
       } catch (e) {
         const { word, why } = e as { word: string; why?: string };
         host.log.warn("proxy", { word, why: `${sid || "без id сессии"}: ${why ?? word}` });
-        // чужому процессу маршрута нет; прочее — временно: claude повторит
-        return word === "unknown_session" ? say(403, "permission_error", word, why) : say(529, "overloaded_error", word, why);
+        // чужому процессу маршрута нет; годных аккаунтов нет — отказ лимита, сессия ждёт сброса; прочее — временно: claude повторит
+        if (word === "unknown_session") say(403, "permission_error", word, why);
+        else if (word === "no_account") say(429, "rate_limit_error", word, why);
+        else say(529, "overloaded_error", word, why);
+        return null;
       }
+    };
+    let route: Route | null = null;
+    try {
+      const path = req.url ?? "/";
+      const body = await readBody(req);
+      route = await routed();
+      if (!route) return;
       const set = rules ?? (await loadRules().catch((e) => e as Error));
       if (set instanceof Error) {
         const { word, why } = set as unknown as { word: string; why?: string };
         host.log.warn("proxy", { word, why });
         return say(529, "overloaded_error", word, why);
       }
-      const edits = req.method === "POST" && MESSAGES.test(path);
       let anth: Json | null = null;
-      let out = body;
-      if (edits) {
+      let edited = false;
+      if (req.method === "POST" && MESSAGES.test(path)) {
         try {
           anth = JSON.parse(body.toString("utf8"));
         } catch {
           return say(400, "invalid_request_error", "bad_json", "тело запроса — не JSON");
         }
-        if (Object.keys(editRequest(anth!, set)).length) out = Buffer.from(JSON.stringify(anth));
+        edited = Object.keys(editRequest(anth!, set)).length > 0;
       }
-      if (!isMeta(route.to)) return await forward(req, res, `${route.to.replace(/\/+$/, "")}${path}`, route.key, out, ac.signal);
-      if (!anth) return say(404, "not_found_error", "not_supported", `${req.method} ${path}: у Meta только /v1/messages`);
-      if (path.startsWith("/v1/messages/count_tokens")) return countTokens(res, anth);
-      const creds = { key: route.key ?? "", base: route.to.replace(/\/+$/, ""), version: await muse() };
-      await messages(res, anth, creds, ac.signal, (why) => host.log.info("gap", { why: `${sid}: ${why}` }));
+      const model = typeof anth?.model === "string" ? (anth.model as string) : undefined;
+      let waited = false;
+      for (;;) {
+        // побочный вызов сессии провайдера с именем чужой модели уходит на модель сессии
+        const foreign = !!route.key && !!route.model && !!anth && anth.model !== route.model;
+        if (foreign) anth!.model = route.model;
+        const sent = anth && (edited || foreign) ? Buffer.from(JSON.stringify(anth)) : body;
+        const seen = (status: number, headers: Answered["headers"], ms: number) => acc?.answer(route!, { status, headers, path, ms, hops: tried.length, waited, ...(model ? { model } : {}) }) ?? ({ act: "pass" } as const);
+        const t0 = Date.now();
+        if (isMeta(route.to)) {
+          if (!anth) return say(404, "not_found_error", "not_supported", `${req.method} ${path}: у Meta только /v1/messages`);
+          if (path.startsWith("/v1/messages/count_tokens")) return countTokens(res, anth);
+          const creds = { key: route.key ?? "", base: route.to.replace(/\/+$/, ""), version: await muse() };
+          await messages(res, anth, creds, ac.signal, (why) => host.log.info("gap", { why: `${sid}: ${why}` }));
+          seen(res.statusCode, {}, Date.now() - t0);
+          return;
+        }
+        const up = await send(`${route.to.replace(/\/+$/, "")}${path}`, { method: req.method ?? "GET", headers: headersOf(req, route), body: sent.length ? sent : undefined, signal: ac.signal });
+        // время провайдера — до заголовков ответа: у потока это время до первого слова
+        const ms = Date.now() - t0;
+        host.meter.time("provider", ms);
+        if (up.status >= 500 || up.status === 429) host.meter.count("provider.failed");
+        const verdict = seen(up.status, up.headers, ms);
+        if (verdict.act === "pass") return await pass(up, res);
+        // отказ сессии не достаётся: его тело не нужно
+        up.body.resume();
+        if (verdict.act === "wait") {
+          // короткая пауза Claude: тот же вызов на том же аккаунте
+          waited = true;
+          await sleep(host.clock, verdict.ms, ac.signal);
+          continue;
+        }
+        tried.push(route.account!);
+        waited = false;
+        acc?.done(route);
+        route = null;
+        route = await routed();
+        if (!route) return;
+      }
     } catch (e) {
       const { word, why } = e as { word?: string; why?: string };
       if (word) return say(529, "overloaded_error", word, why);
+      if (ac.signal.aborted) return void res.destroy();
       host.meter.count("provider.failed");
       host.log.warn("proxy", { word: "upstream", why: String((e as Error).message ?? e) });
       say(502, "api_error", "upstream", String((e as Error).message ?? e));
+    } finally {
+      if (route) acc?.done(route);
     }
   }
 
   /** Проверка ключа: разовый запуск claude через прокси, как у сессии на этом ключе; значение ключа не попадает ни в аргументы, ни в окружение. */
   async function keyCheck(name: string): Promise<{ ok: boolean; word: string }> {
-    if (!NAME.test(name)) throw refuse("bad_input", "имя ключа — латиница, цифры, - и _");
+      if (!NAME.test(name)) throw refuse("bad_input", "имя ключа — латиница, цифры, - и _");
     const route = await accounts().keyRoute(name);
     const sid = randomUUID();
     const dir = mkdtempSync(join(host.dataDir, "keycheck-"));
     checks.set(sid, route);
     try {
       const args = ["-p", CHECK_PROMPT, "--output-format", "json", "--no-session-persistence", "--session-id", sid];
-      const env = { ...route.env, ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`, CLAUDE_CONFIG_DIR: dir, CLAUDE_SECURESTORAGE_CONFIG_DIR: dir, CLAUDE_CODE_MAX_RETRIES: "0" };
+      const env = { ...route.env, ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`, CLAUDE_CONFIG_DIR: dir, CLAUDE_CODE_MAX_RETRIES: "0" };
       const { code, out } = await host.cli(args, { env });
       return checked(code, out);
     } finally {

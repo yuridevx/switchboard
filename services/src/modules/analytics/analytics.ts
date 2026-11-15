@@ -1,6 +1,7 @@
-// Аналитика — ClickHouse в стороне: вызовы модели и расход. Главной копии в нём нет: строки получены из блоков архива и доливаются заново.
-// Его отказ ломает только отчёты: точки, подъём и поиск от него не зависят.
-import { canReach, errFields, Refusal } from "@sb/protocol";
+// Аналитика — ClickHouse в стороне: вызовы модели, расход и история флота. Главной копии в нём нет: вызовы получены из блоков архива и доливаются заново,
+// история — из файлов журнала машин: машина шлёт их пачками с места остановки. Его отказ ломает только отчёты и чтение истории:
+// точки, подъём, поиск и вызовы модели от него не зависят.
+import { canReach, errFields, machineOf, Refusal, type LogRow } from "@sb/protocol";
 import { outbound } from "../../env.ts";
 import type { Ctx, Deps, Env, Module, PointNote } from "../../env.ts";
 import { log } from "../../env.ts";
@@ -14,11 +15,43 @@ const CH_MS = 30_000;
 /** После стольких подач очередь больше не повторяет: строка в журнал флота, пропущенное доливает агент. */
 const TRIES = 3;
 
+/** req — номер запроса Claude: по нему вызов соединяется со строкой вызова журнала машины. */
 const CREATE = `CREATE TABLE IF NOT EXISTS ${TABLE} (fleet String, machine String, owner String, sid String, callsign String, project String, call String, at DateTime64(3),
-  model String, input UInt64, output UInt64, cache_read UInt64, cache_write UInt64) ENGINE = ReplacingMergeTree ORDER BY (fleet, machine, sid, call)`;
+  model String, input UInt64, output UInt64, cache_read UInt64, cache_write UInt64, req String) ENGINE = ReplacingMergeTree ORDER BY (fleet, machine, sid, call)`;
 
-/** Таблица заведена в этом экземпляре Worker'а. */
-let created = false;
+/** История флота: строки журналов машин. Ключ строки — машина, файл журнала, начало пачки в файле и номер строки в пачке: повтор пачки строк не добавляет. */
+const LOG = "sb2_log";
+const CREATE_LOG = `CREATE TABLE IF NOT EXISTS ${LOG} (fleet String, machine String, file String, pos UInt64, n UInt32, at DateTime64(3), part String, level String, msg String,
+  session String, account String, status UInt16, kind String, text String, data String) ENGINE = ReplacingMergeTree ORDER BY (fleet, machine, file, pos, n)`;
+/** Поля строки журнала, у которых своя колонка; остальные идут в data. */
+const COLUMNS = new Set(["t", "part", "level", "msg", "callsign", "account", "status", "kind", "why", "fleet", "machine"]);
+/** Отбор по уровню — как у журнала машины: этот уровень и выше. */
+const LEVELS: Record<string, string[]> = { info: ["info", "warn", "error"], warn: ["warn", "error"], error: ["error"] };
+
+/** Таблицы, заведённые в этом экземпляре Worker'а. */
+const created = new Set<string>();
+async function ensure(env: Env, f: typeof fetch, table: string, ddl: string): Promise<void> {
+  if (created.has(table)) return;
+  await ch(env, f, ddl);
+  created.add(table);
+}
+
+/** Строка журнала машины → строка истории; недописанная строка — не запись. */
+function logRow(fleet: string, machine: string, file: string, pos: number, n: number, text: string): string | null {
+  let l: Record<string, unknown> | null;
+  try {
+    l = JSON.parse(text) as Record<string, unknown> | null;
+  } catch {
+    return null;
+  }
+  if (!l || typeof l.t !== "number" || typeof l.msg !== "string") return null;
+  const rest = Object.fromEntries(Object.entries(l).filter(([k]) => !COLUMNS.has(k)));
+  const word = (v: unknown) => (typeof v === "string" ? v : "");
+  return JSON.stringify({
+    fleet, machine, file, pos, n, at: l.t / 1000, part: word(l.part), level: word(l.level), msg: l.msg, session: word(l.callsign), account: word(l.account),
+    status: typeof l.status === "number" ? l.status : 0, kind: word(l.kind), text: word(l.why), data: Object.keys(rest).length ? JSON.stringify(rest) : "",
+  });
+}
 
 async function ch(env: Env, f: typeof fetch, query: string, body?: string, params: Record<string, string> = {}): Promise<string> {
   const url = new URL(env.CH_URL!);
@@ -46,10 +79,7 @@ async function feed(env: Env, deps: Deps, n: PointNote): Promise<number> {
   const calls = callsOf(lines);
   if (!calls.length) return 0;
   const owner = (await (deps.platform ?? env.PLATFORM).machines(n.fleet)).find((m) => m.name === n.machine)?.owner ?? "";
-  if (!created) {
-    await ch(env, f, CREATE);
-    created = true;
-  }
+  await ensure(env, f, TABLE, CREATE);
   const rows = calls.map((c) => JSON.stringify({ fleet: n.fleet, machine: n.machine, owner, sid: n.sid, callsign: session?.callsign ?? "", project: session?.project ?? "", ...c, at: c.at / 1000 })); // ClickHouse читает число как секунды: время вызова у нас в миллисекундах
   await ch(env, f, `INSERT INTO ${TABLE} FORMAT JSONEachRow`, rows.join("\n"));
   return rows.length;
@@ -82,7 +112,11 @@ export async function consume(batch: MessageBatch<PointNote>, env: Env, deps: De
   }
 }
 
-const KEY: Record<string, string> = { day: "toString(toDate(at))", model: "model", machine: "machine", session: "callsign", person: "owner", project: "project" };
+const KEY: Record<string, string> = { day: "toString(toDate(c.at))", model: "c.model", machine: "c.machine", session: "c.callsign", person: "c.owner", project: "c.project", account: "a.account" };
+/** Аккаунт вызова: строка вызова журнала машины с тем же номером запроса Claude. Вызов без такой строки (провайдер, вызов до журнала) — с пустым аккаунтом. */
+const ACCOUNTS = `LEFT JOIN (SELECT JSONExtractString(data, 'req') AS req, argMax(account, at) AS account FROM ${LOG} FINAL
+        WHERE fleet = {fleet:String} AND msg = 'call' AND account != '' AND at >= parseDateTimeBestEffort({from:String}) - INTERVAL 1 DAY AND at < parseDateTimeBestEffort({to:String}) + INTERVAL 1 DAY
+        GROUP BY req HAVING req != '') AS a ON a.req = c.req`;
 
 export const analytics: Module = {
   name: NAME,
@@ -92,8 +126,9 @@ export const analytics: Module = {
       if (i.machine && !canReach(ctx.who, i.machine)) throw new Refusal("forbidden", `до машины ${i.machine} вы не достаёте`);
       const machines = i.machine ? [i.machine] : ctx.who.machines;
       // разрез и модель: стоимость считается по модели, затем складывается по разрезу
-      const query = `SELECT ${KEY[i.by]} AS key, model, count() AS calls, sum(input) AS input, sum(output) AS output, sum(cache_read) AS cacheRead, sum(cache_write) AS cacheWrite
-        FROM ${TABLE} FINAL WHERE fleet = {fleet:String} AND has({machines:Array(String)}, machine) AND at >= parseDateTimeBestEffort({from:String}) AND at < parseDateTimeBestEffort({to:String})
+      const query = `SELECT ${KEY[i.by]} AS key, c.model AS model, count() AS calls, sum(c.input) AS input, sum(c.output) AS output, sum(c.cache_read) AS cacheRead, sum(c.cache_write) AS cacheWrite
+        FROM ${TABLE} AS c FINAL ${i.by === "account" ? ACCOUNTS : ""}
+        WHERE c.fleet = {fleet:String} AND has({machines:Array(String)}, c.machine) AND c.at >= parseDateTimeBestEffort({from:String}) AND c.at < parseDateTimeBestEffort({to:String})
         GROUP BY key, model ORDER BY key FORMAT JSON`;
       let text: string;
       try {
@@ -146,6 +181,57 @@ export const analytics: Module = {
           queued++;
         }
       return { queued };
+    },
+
+    /** Пачка строк журнала машины — в ClickHouse внутри запроса: ответ после записи. Не принял — отказ словом, машина пришлёт пачку снова с того же места. */
+    async "log.write"(i: { file: string; pos: number; lines: string[] }, ctx: Ctx) {
+      if (!ctx.env.CH_URL) throw new Refusal("analytics_unavailable", "аналитика не подключена");
+      const machine = machineOf(ctx.who.addr)!;
+      const rows = i.lines.map((text, n) => logRow(ctx.fleet, machine, i.file, i.pos, n, text)).filter((r): r is string => r !== null);
+      if (!rows.length) return {};
+      try {
+        await ensure(ctx.env, ctx.fetch, LOG, CREATE_LOG);
+        await ch(ctx.env, ctx.fetch, `INSERT INTO ${LOG} FORMAT JSONEachRow`, rows.join("\n"));
+      } catch (e) {
+        throw new Refusal("analytics_unavailable", e instanceof Error ? e.message : String(e));
+      }
+      return {};
+    },
+
+    /** История флота: строки журналов машин, до которых человек достаёт, новые первыми. */
+    async "log.query"(i: { msg?: string; machine?: string; session?: string; account?: string; level?: string; since?: number; before?: number; limit?: number }, ctx: Ctx) {
+      if (!ctx.env.CH_URL) throw new Refusal("analytics_unavailable", "аналитика не подключена");
+      if (i.machine && !canReach(ctx.who, i.machine)) throw new Refusal("forbidden", `до машины ${i.machine} вы не достаёте`);
+      const limit = Math.min(i.limit ?? 100, 1000);
+      const list = (items: string[]) => `[${items.map((m) => `'${m}'`).join(",")}]`;
+      const where = ["fleet = {fleet:String}", "has({machines:Array(String)}, machine)"];
+      const params: Record<string, string> = { fleet: ctx.fleet, machines: list(i.machine ? [i.machine] : ctx.who.machines), limit: String(limit + 1) };
+      const add = (cond: string, name: string, value: string | undefined) => {
+        if (value === undefined || value === "") return;
+        where.push(cond);
+        params[name] = value;
+      };
+      add("startsWith(msg, {msg:String})", "msg", i.msg);
+      add("session = {session:String}", "session", i.session);
+      add("account = {account:String}", "account", i.account);
+      add("has({levels:Array(String)}, level)", "levels", i.level ? list(LEVELS[i.level]!) : undefined);
+      add("at >= fromUnixTimestamp64Milli({since:Int64})", "since", i.since === undefined ? undefined : String(i.since));
+      add("at < fromUnixTimestamp64Milli({before:Int64})", "before", i.before === undefined ? undefined : String(i.before));
+      const query = `SELECT toUnixTimestamp64Milli(at) AS at, machine, part, level, msg, session, account, status, kind, text, data FROM ${LOG} FINAL
+        WHERE ${where.join(" AND ")} ORDER BY at DESC LIMIT {limit:UInt32} FORMAT JSON`;
+      let text: string;
+      try {
+        text = await ch(ctx.env, ctx.fetch, query, undefined, params);
+      } catch (e) {
+        throw new Refusal("analytics_unavailable", e instanceof Error ? e.message : String(e));
+      }
+      const data = (JSON.parse(text) as { data: Record<string, string | number>[] }).data;
+      const lines: LogRow[] = data.slice(0, limit).map((r) => ({
+        at: Number(r.at), machine: String(r.machine), part: String(r.part), level: String(r.level), msg: String(r.msg),
+        ...(r.session ? { session: String(r.session) } : {}), ...(r.account ? { account: String(r.account) } : {}), ...(Number(r.status) ? { status: Number(r.status) } : {}),
+        ...(r.kind ? { kind: String(r.kind) } : {}), ...(r.text ? { text: String(r.text) } : {}), ...(r.data ? { data: JSON.parse(String(r.data)) as unknown } : {}),
+      }));
+      return { lines, more: data.length > limit };
     },
   },
 };

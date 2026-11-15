@@ -1,7 +1,7 @@
 /// <reference types="node" />
 // Наблюдение первого класса и находки архива: ряды и числа Host, машины в сводке здоровья, оповещения о машине и сессии,
 // переход к найденной записи, сводка архива, время замера лимитов, номера сообщений вызова.
-import { accountList, createApi, HostMetrics, machineMetrics, obsHealth, obsSeries, pointsList, pointsStats, type Account } from "@sb/protocol";
+import { accountList, CLAUDE, createApi, HostMetrics, keysList, machineMetrics, obsHealth, obsSeries, pointsList, pointsStats, type Account } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { Steps } from "./shell/Page.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "./api.ts";
-import { mergeAccounts } from "./lib/accounts.ts";
+import { columns } from "./lib/accounts.ts";
 import { hostLine, HostNumbers, seriesPoints, sessionsWord } from "./lib/metrics.tsx";
 import { createMock } from "./mock/fleet.ts";
 import { runsOfRecord, statsLines } from "./screens/Archive.tsx";
@@ -112,21 +112,22 @@ describe("архив: найденная запись и сводка", () => {
   });
 });
 
-describe("аккаунты: время замера и срок входа", () => {
-  const acc = (o: Partial<Account>): Account => ({ id: "a@b.c", kind: "claude", email: "a@b.c", ok: true, ...o });
-  it("время замера берётся у окна, а если его нет — у аккаунта", () => {
-    const old = T - 3 * 60 * MIN;
-    const [m] = mergeAccounts({ laptop: [acc({ at: old, limits: [{ name: "five_hour", used: 0.4 }, { name: "seven_day", used: 0.2, at: T }] })] });
-    expect(m!.limits.map((l) => l.at)).toEqual([old, T]);
+describe("аккаунты: время замера и срок токена", () => {
+  const acc = (limits: Account["limits"]): Account => ({ name: "a@b.c", ok: true, keep: true, limits });
+  it("числа аккаунта знает каждая машина из ответов Claude ей самой: столбец берёт окно с замером посвежее", () => {
+    const key = { name: "a@b.c", protocol: CLAUDE, at: T, tail: "…", keep: true, expires: T + 1 };
+    const [c] = columns([key], { laptop: [acc([{ name: "seven_day", used: 0.9, at: T - 3 * 60 * MIN }])], server: [acc([{ name: "seven_day", used: 0.2, at: T }])] });
+    expect(c!.limits).toEqual([{ name: "seven_day", used: 0.2, at: T }]);
+    expect(c!.expires).toBe(T + 1);
   });
-  it("мок отдаёт время замера и срок входа в форме договора", async () => {
-    const { accounts } = await quiet().call(accountList, { to: "@laptop" });
-    const claude = accounts.filter((a) => a.kind === "claude");
+  it("мок отдаёт время замера окон и срок токена в форме договора", async () => {
+    const api = quiet();
+    const { accounts } = await api.call(accountList, { to: "@laptop" });
+    expect(accounts.length).toBeGreaterThan(0);
+    for (const a of accounts) for (const l of a.limits) expect(typeof l.at).toBe("number");
+    const claude = (await api.call(keysList, {})).keys.filter((k) => k.protocol === CLAUDE);
     expect(claude.length).toBeGreaterThan(0);
-    for (const a of claude) {
-      expect(typeof a.at).toBe("number");
-      expect(typeof a.expires).toBe("number");
-    }
+    for (const k of claude) expect(k.expires).toBeGreaterThan(T - 365 * 24 * 60 * MIN);
   });
 });
 

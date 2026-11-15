@@ -1,14 +1,14 @@
 // «Новая сессия»: одно поле и Enter — сессия пошла с разумными значениями; все поля — на одном уровне, ничего не спрятано.
 // Недавние места — пары «машина + папка»; папку можно создать; кусочки подхватываются от соседней сессии той же папки.
-import { accountList, machineConversations, machineDirs, peopleList, profileList, profileView, sessionOpen, type MachineRow, type SessionRow } from "@sb/protocol";
+import { catalogModel, CLAUDE, keysList, machineConversations, machineDirs, peopleList, profileList, profileView, sessionOpen, type MachineRow, type SessionRow } from "@sb/protocol";
 import { Badge, Button, Chip, Group, Select, SimpleGrid, Stack, Switch, Text, Textarea, TextInput } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { act, sayError } from "../api.ts";
-import { EFFORTS, MODELS, MODES, useCall, useMyPrefs } from "../common.tsx";
+import { EFFORTS, MODES, useCall, useMyPrefs } from "../common.tsx";
+import { ModelPicker, offerId, PINS, useOffers, type Offer } from "../session/ModelPicker.tsx";
 import { ago } from "../lib/time.ts";
 import { RoutePage } from "./Page.tsx";
-import { seatOptions } from "../lib/accounts.ts";
 import { useFleet } from "../store/fleet.ts";
 
 export const nameOf = (cwd: string) => (cwd.split(/[\\/]/).filter(Boolean).pop() ?? "session").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "session";
@@ -36,6 +36,13 @@ export const pushPlace = (list: Place[], p: Place): Place[] => [p, ...list.filte
 export function piecesFor(sessions: Record<string, SessionRow>, machine: string, cwd: string): string[] {
   const mate = Object.values(sessions).filter((s) => s.callsign.endsWith("@" + machine) && s.spec.cwd === cwd && s.spec.pieces?.length).sort((a, b) => (b.last ?? b.since) - (a.last ?? a.since))[0];
   return mate?.spec.pieces ?? [];
+}
+
+/** Модель новой сессии, пока человек не выбрал сам: как у последней сессии той же машины — если она есть в списке; иначе первая закреплённая; иначе выбирать человеку. */
+export function modelFor(offers: Offer[], sessions: Record<string, SessionRow>, machine: string, pins: string[]): Offer | undefined {
+  const mate = Object.values(sessions).filter((s) => s.callsign.endsWith("@" + machine) && s.spec.model).sort((a, b) => (b.last ?? b.since) - (a.last ?? a.since))[0];
+  const same = mate && offers.find((o) => o.key === (mate.spec.key ?? CLAUDE) && o.model === catalogModel(mate.spec.model!));
+  return same ?? pins.map((id) => offers.find((o) => offerId(o) === id)).find(Boolean);
 }
 
 /** Что набор кусочков ставит сам: слова для полей формы. */
@@ -82,10 +89,9 @@ export function NewForm() {
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [pieces, setPieces] = useState<string[] | null>(null);
-  const [model, setModel] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<Offer | null>(null);
   const [effort, setEffort] = useState<string | null>(null);
   const [mode, setMode] = useState("all");
-  const [seat, setSeat] = useState<string | null>(null);
   const [fast, setFast] = useState(false);
   const [thinking, setThinking] = useState(true);
   const [style, setStyle] = useState("");
@@ -96,12 +102,15 @@ export function NewForm() {
   const [number, setNumber] = useState(false);
   const [project, setProject] = useState<string | null>(preset?.project ?? null);
   const [busy, setBusy] = useState(false);
-  const setCwd = (v: string) => (setCwdRaw(v), setPieces(null), setSeat(null));
+  const setCwd = (v: string) => (setCwdRaw(v), setPieces(null));
   const { parent, leaf } = splitPath(cwd);
   const dirs = useCall(machineDirs, machine ? { to: "@" + machine } : null);
   const inside = useCall(machineDirs, machine && parent ? { to: "@" + machine, path: parent } : null);
   const list = useCall(profileList, machine ? { to: "@" + machine } : null);
-  const accounts = useCall(accountList, machine ? { to: "@" + machine } : null);
+  const offers = useOffers();
+  // у флота нет ни аккаунта Claude, ни провайдера — сессии не на чем идти
+  const providers = useCall(keysList, {});
+  const noModels = !!providers.data && !providers.data.keys.length;
   const people = useCall(peopleList, {});
   // разговор, который держит живая сессия, продолжается только копией: два процесса на один разговор не идут
   const held = (list0: Array<{ id: string; live?: string }> | undefined) => list0?.find((t) => t.id === resume)?.live;
@@ -119,18 +128,14 @@ export function NewForm() {
   const given = picked.length ? (view.data?.settings ?? {}) : {};
   const from = (key: string, none: string) => (given[key] ? `${String(given[key]!.value)} — из кусочков` : none);
   const finalName = name || freeName(nameOf(cwd), machine, sessions);
-  // на машине нет ни входа Claude, ни ключа флота — сессии не на чем идти
-  const seats = seatOptions(accounts.data, model);
-  // очередь новой сессии: выбранная, иначе первая годная очередь машины, иначе первый годный ключ
-  const account = seat && seats.some((o) => o.value === seat && !o.disabled) ? seat : (seats.find((o) => !o.disabled)?.value ?? "");
-  const seatModels = MODELS.map(([value, label]) => ({ value, label }));
-  const noAccount = !!accounts.data && !account;
+  // модель обязательна: провайдер и точное имя из каталога; значения «по умолчанию» нет
+  const model = chosen ?? modelFor(offers, sessions, machine, (prefs.values[PINS] as string[] | undefined) ?? []);
   const start = async () => {
-    if (!machine || !cwd) return;
+    if (!machine || !cwd || !model) return;
     setBusy(true);
     const r = await act(sessionOpen, {
       to: "@" + machine,
-      spec: { name: finalName, cwd, ...(model && seatModels.some((o) => o.value === model) ? { model } : {}), ...(effort ? { effort: effort as never } : {}), mode: mode as never, slot: account, pieces: picked, backup, ...(fast ? { fast: true } : {}), thinking, ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
+      spec: { name: finalName, cwd, key: model.key, model: model.doc, ...(effort ? { effort: effort as never } : {}), mode: mode as never, pieces: picked, backup, ...(fast ? { fast: true } : {}), thinking, ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
       ...(prompt.trim() ? { prompt: prompt.trim() } : {}), ...(missing ? { mkdir: true } : {}), ...(pair ? { pair: true } : {}), ...(number ? { number: true } : {}), ...(resume.trim() ? { resume: resume.trim(), ...(fork || held(talks.data?.conversations) ? { fork: true } : {}) } : {}),
     });
     setBusy(false);
@@ -196,10 +201,10 @@ export function NewForm() {
         )}
       </div>
       <SimpleGrid cols={{ base: 1, xs: 2, md: 3 }} spacing="sm">
-        <Select label="Модель" placeholder={from("model", "по умолчанию")} clearable data={seatModels} value={model && seatModels.some((o) => o.value === model) ? model : null} onChange={setModel} />
+        <ModelPicker field value={model ? { key: model.key, model: model.doc } : undefined} onPick={setChosen}
+          face={model ? <span>{model.label}{model.key !== CLAUDE ? <span className="mp-on"> · {model.key}</span> : null}</span> : <span className="muted">выберите модель</span>} />
         <Select label="Усилие" placeholder={from("effortLevel", "как у модели")} clearable data={EFFORTS.map(([value, label]) => ({ value, label }))} value={effort} onChange={setEffort} />
         <Select label="Режим" data={MODES.map(([value, label]) => ({ value, label }))} value={mode} onChange={(v) => v && setMode(v)} allowDeselect={false} />
-        <Select label="Очередь аккаунтов" data={seats} value={account || null} onChange={(v) => v && setSeat(v)} allowDeselect={false} />
         <Select label="Проект" placeholder="без проекта" clearable data={(people.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))} value={project} onChange={setProject} />
         <TextInput label="Стиль ответа" placeholder={from("outputStyle", "обычный")} value={style} onChange={(e) => setStyle(e.currentTarget.value)} />
       </SimpleGrid>
@@ -210,10 +215,10 @@ export function NewForm() {
         <Switch label="Сохранять точки в архив" checked={backup} onChange={(e) => setBackup(e.currentTarget.checked)} />
         <Switch label="Номер к имени" checked={number} onChange={(e) => setNumber(e.currentTarget.checked)} />
       </Group>
-      {noAccount && <Text size="sm" c="red" role="alert">На машине {machine} нет очереди аккаунтов и ключа флота: войдите в аккаунт во «Флоте».</Text>}
+      {noModels && <Text size="sm" c="red" role="alert">У флота нет ни аккаунта Claude, ни провайдера: добавьте во «Флот → Аккаунты».</Text>}
       <Group justify="space-between">
         <Text size="sm" className="mono muted">{finalName}{number ? "-N" : ""}@{machine}</Text>
-        <Button loading={busy} disabled={!machine || !cwd || noAccount} onClick={start}>{missing ? "Создать папку и открыть" : resume ? "Продолжить разговор" : prompt.trim() ? "Открыть и отправить" : "Открыть сессию"}</Button>
+        <Button loading={busy} disabled={!machine || !cwd || !model} onClick={start}>{missing ? "Создать папку и открыть" : resume ? "Продолжить разговор" : prompt.trim() ? "Открыть и отправить" : "Открыть сессию"}</Button>
       </Group>
     </Stack>
   );

@@ -10,11 +10,14 @@ export const Effort = z.enum(["low", "medium", "high", "xhigh", "max"]);
 export const Mode = z.enum(["all", "ask", "plan", "edits", "auto"]);
 
 /** Документ сессии: у каждого ключа один хозяин. Ядро: name, cwd, model, effort, mode, fast, style, thinking, title, parent, wing, project.
- *  accounts: slot · profiles: pieces · points: backup · remote: remote. */
+ *  accounts: key · profiles: pieces · points: backup. */
 export const Spec = z.object({
   name: Name,
   cwd: z.string().min(1),
+  /** точное имя модели из каталога провайдера (keys.models): псевдонимов и «по умолчанию» нет; открыть сессию без модели — отказ model_required */
   model: z.string().optional(),
+  /** провайдер модели: claude — аккаунты Claude флота (аккаунт выбирает машина), иначе имя ключа флота; открыть без него — отказ key_required */
+  key: z.string().optional(),
   effort: Effort.optional(),
   mode: Mode.optional(),
   /** быстрый режим Claude */
@@ -31,14 +34,10 @@ export const Spec = z.object({
   wing: Callsign.optional(),
   /** проект доски */
   project: z.string().optional(),
-  /** очередь аккаунтов машины или ключ флота: на каком аккаунте сессия идёт сейчас, решает очередь — он в поле account её строки */
-  slot: z.string().optional(),
   /** кусочки профиля */
   pieces: z.array(z.string()).optional(),
   /** сохранять точки в архив */
   backup: z.boolean().optional(),
-  /** открыть в приложении Claude (Remote Control) */
-  remote: z.boolean().optional(),
 });
 export type Spec = z.infer<typeof Spec>;
 export const SpecPatch = Spec.partial().omit({ name: true });
@@ -92,14 +91,14 @@ export const SessionRow = z.object({
   result: z.string().optional(),
   /** причина failed словами */
   error: z.string().optional(),
-  /** аккаунт, на котором идёт сейчас (после выбора auto) */
+  /** аккаунт Claude, к которому сессия привязана сейчас: выбирает машина; у сессии провайдера его нет */
   account: z.string().optional(),
+  /** час кэша разговора: until — до какого времени кэш тёплый, мс; compact — когда машина сама сожмёт разговор, мс (нет — сжимать не будет) */
+  cache: z.object({ until: z.number(), compact: z.number().optional() }).optional(),
+  /** модель, которая ответила вместо выбранной; нет — отвечает выбранная */
+  answers: z.string().optional(),
   /** доля занятого контекста, 0..1 */
   context: z.number().optional(),
-  /** ссылка Remote Control, если включён */
-  remoteUrl: z.string().optional(),
-  /** Remote Control не включился: причина */
-  remoteError: z.string().optional(),
   /** последняя точка в архив не удалась: причина */
   archiveError: z.string().optional(),
   /** когда Host повторит неудавшуюся точку сам, мс; раньше — при конце хода */
@@ -108,7 +107,7 @@ export const SessionRow = z.object({
   archiveUntil: z.number().optional(),
   /** идёт сжатие контекста */
   compacting: z.boolean().optional(),
-  /** очередь аккаунтов ждёт сброса лимита: когда он наступит, мс */
+  /** годных аккаунтов Claude нет: когда ближайший сброс лимита, мс — в этот час сессия продолжит сама */
   wait: z.number().optional(),
   /** ведущий пары — в строке ведомого */
   lead: Callsign.optional(),
@@ -121,7 +120,7 @@ const toSession = z.object({ to: Callsign });
 
 export const sessionOpen = request("session.open", {
   owner: "host", target: "machine",
-  tool: "Открыть новую сессию Claude Code на машине: to — машина вида @laptop, spec — документ сессии (name, cwd обязательны). prompt — первое сообщение сессии; mkdir — создать папку, если её нет; number — к имени первый свободный номер; pair — открыть вместе с ведомым <имя>-wing; resume — продолжить разговор с диска машины по его id, fork — его копией.",
+  tool: "Открыть новую сессию Claude Code на машине: to — машина вида @laptop, spec — документ сессии (name, cwd, key и model обязательны: key — провайдер, claude или имя ключа флота; model — точное имя модели из keys_models). prompt — первое сообщение сессии; mkdir — создать папку, если её нет; number — к имени первый свободный номер; pair — открыть вместе с ведомым <имя>-wing; resume — продолжить разговор с диска машины по его id, fork — его копией.",
   input: z.object({
     to: MachineAddr, spec: Spec, prompt: z.string().optional(),
     /** создать папку, если её нет */
@@ -139,7 +138,7 @@ export const sessionOpen = request("session.open", {
 
 export const sessionUpdate = request("session.update", {
   owner: "host", target: "session",
-  tool: "Изменить документ сессии: patch — ключи для замены (model, effort, mode, fast, style, thinking, title, slot — очередь аккаунтов или ключ флота, pieces, project, wing, backup, remote, cwd); wing: null — снять ведомого; pair: true — открыть ведомого <имя>-wing.",
+  tool: "Изменить документ сессии: patch — ключи для замены (key и model — провайдер и точное имя модели из keys_models, меняются вместе; effort, mode, fast, style, thinking, title, pieces, project, wing, backup, cwd); wing: null — снять ведомого; pair: true — открыть ведомого <имя>-wing.",
   input: z.object({ to: Callsign, patch: SpecPatch.extend({ wing: Callsign.nullable().optional() }), pair: z.boolean().optional() }),
   /** now — что подействовало сразу; later — что вступит в силу после хода, с новым процессом */
   output: z.object({ now: z.array(z.string()), later: z.array(z.string()), wing: Callsign.optional() }).loose(),
@@ -161,9 +160,9 @@ export const sessionRemove = request("session.remove", {
 /** Проход к методам SDK живой сессии: один список методов — здесь.
  *  compact — сжать контекст сейчас; permissionRules — правила разрешений сессии; renameSession — args: заголовок. */
 export const SDK_METHODS = [
-  "interrupt", "contextUsage", "commands", "models", "agents", "mcpStatus", "mcpToggle", "mcpReconnect", "mcpAuthenticate",
+  "interrupt", "contextUsage", "commands", "agents", "mcpStatus", "mcpToggle", "mcpReconnect", "mcpAuthenticate",
   "tasks", "taskStop", "taskOutput", "reload", "sideQuestion", "status", "hooks",
-  "usage", "renameSession", "getSessionInfo", "permissionRules", "compact",
+  "renameSession", "getSessionInfo", "permissionRules", "compact",
 ] as const;
 /** Методы, которые сессия зовёт у другой сессии инструментом: остальные — только страница. */
 export const TOOL_METHODS = ["interrupt", "compact", "reload", "mcpStatus", "mcpReconnect", "mcpToggle", "contextUsage", "status"] as const;
@@ -180,11 +179,12 @@ export const FileIn = z.object({ name: z.string(), mime: z.string(), base64: z.s
 
 export const message = request("message", {
   owner: "host-chat", target: "session",
-  tool: "Написать сессии флота: to — позывной вида site@laptop, text — сообщение. От сессии оно придёт адресату с пометкой отправителя. Человеку (~почта) пишут инструментом reach_send.",
+  tool: "Написать сессии флота: to — позывной вида site@laptop, text — сообщение. От сессии оно придёт адресату с пометкой отправителя. Текст «/model слова» меняет модель адресата: слова — часть имени модели, семейство или провайдер; подошла одна — она встала (model в ответе), несколько — отказ many_models со списком. Человеку (~почта) пишут инструментом reach_send.",
   /** priority: now — прервать ход и взять сейчас; next — после нынешнего шага (по умолчанию); later — после хода */
   input: z.object({ to: Callsign, text: z.string(), files: z.array(FileIn).optional(), priority: z.enum(["now", "next", "later"]).optional() }),
   /** queued — сессия занята, сообщение ждёт в очереди; uuid — его номер: по нему приходит статус в ленте и отмена */
-  output: z.object({ queued: z.boolean().optional(), uuid: z.string().optional() }).loose(),
+  /** model — «/model слова» поставило сессии эту модель: в разговор команда не ушла */
+  output: z.object({ queued: z.boolean().optional(), uuid: z.string().optional(), model: z.string().optional() }).loose(),
 });
 
 /** Отменить своё сообщение, пока ход его не взял. */

@@ -19,7 +19,8 @@ import { Composer, type ComposerHandle } from "./Composer.tsx";
 import { Asides, Running } from "./Dock.tsx";
 import { patchDoc } from "./doc.ts";
 import { type FeedEnv, FeedEnvProvider, Rows, Tail, TodoList } from "./Feed.tsx";
-import { useDoc } from "./DocFields.tsx";
+import { ModelFace, pickModel, useDoc } from "./DocFields.tsx";
+import { ModelPicker, useModelWord } from "./ModelPicker.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { type Talk, useMarkRead, useTalk } from "./talk.ts";
 
@@ -41,16 +42,18 @@ function Chip({ label, value, word, options, later, onPick, render }: { label: s
 }
 
 /** Что стоит в шапке разговора: человек выбирает сам, выбор помнит устройство. */
-export const HEAD_PARTS = [["model", "Модель"], ["effort", "Усилие"], ["account", "Очередь"], ["pieces", "Кусочки"], ["machine", "Машина"], ["owner", "Владелец"]] as const;
-export const HEAD_DEFAULT: string[] = ["model", "effort", "account", "pieces"];
+export const HEAD_PARTS = [["model", "Модель"], ["effort", "Усилие"], ["pieces", "Кусочки"], ["machine", "Машина"], ["owner", "Владелец"]] as const;
+export const HEAD_DEFAULT: string[] = ["model", "effort", "pieces"];
 const HEAD_KEY = "head.parts";
 /** Переключить часть шапки: порядок частей — всегда как в списке. */
 export const toggleHeadPart = (parts: string[], id: string): string[] => (parts.includes(id) ? parts.filter((p) => p !== id) : HEAD_PARTS.map(([p]) => p as string).filter((p) => p === id || parts.includes(p)));
 
-/** Значения документа сессии одной строкой: режим · модель · усилие · аккаунт · кусочки. */
-function DocValues({ s, running }: { s: SessionRow; running?: string }) {
+/** Значения документа сессии одной строкой: режим · модель · усилие · кусочки. Аккаунта здесь нет: его выбирает машина.
+ *  ask — «/model слова» из поля ввода: список моделей открывается с этим поиском. */
+function DocValues({ s, ask }: { s: SessionRow; ask?: { n: number; q: string } }) {
   const [piecesOpen, setPiecesOpen] = useState(false);
-  const d = useDoc(s, running);
+  const d = useDoc(s);
+  const offerWord = useModelWord();
   const picked = s.spec.pieces ?? [];
   const [parts] = useLocal<string[]>(HEAD_KEY, HEAD_DEFAULT);
   const machineName = useMachineName();
@@ -58,9 +61,10 @@ function DocValues({ s, running }: { s: SessionRow; running?: string }) {
   return (
     <div className="docvals" role="group" aria-label="Документ сессии">
       <Chip label="Режим" value={s.spec.mode ?? "all"} options={MODES} onPick={(mode) => patchDoc(s, { mode: mode as never })} />
-      {on("model") && <Chip label="Модель" value={d.model.value} word={d.model.label} options={d.models.map((m) => [m.value, m.label] as const)} later={d.later.includes("model")} onPick={(model) => patchDoc(s, { model })} />}
+      {(on("model") || s.answers || ask) && <ModelPicker value={s.spec} loud={!!s.answers} ask={ask} onPick={(o) => pickModel(s, o)}
+        title={s.answers ? `Модель: выбрана ${offerWord(s.spec.model)}, отвечает ${offerWord(s.answers)}` : "Модель"}
+        face={<><ModelFace s={s} /><AfterTurn on={d.later.includes("model") || d.later.includes("key")} /></>} />}
       {on("effort") && <Chip label="Усилие" value={s.spec.effort} word={s.spec.effort ? undefined : "усилие модели"} options={d.efforts} later={d.later.includes("effort")} onPick={(effort) => patchDoc(s, { effort: effort as never })} />}
-      {on("account") && <Chip label="Очередь" value={s.spec.slot} options={d.accountOptions} render={d.slotLine} later={d.later.includes("slot")} onPick={(slot) => patchDoc(s, d.toSlot(slot))} />}
       {on("pieces") && <button type="button" className="docval" aria-label="Кусочки" title="Кусочки" onClick={() => setPiecesOpen(true)}>{picked.length ? picked.map(d.title).join(" + ") : "без кусочков"}<AfterTurn on={d.later.includes("pieces")} /></button>}
       {on("machine") && <Link className="docval" to={`/machine/${machineOfCall(s.callsign)}`} title="Машина">{machineName(machineOfCall(s.callsign))}</Link>}
       {on("owner") && <span className="docval still" title="Открыл">{personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</span>}
@@ -98,6 +102,36 @@ function CtxRing({ s }: { s: SessionRow }) {
   );
 }
 
+const CACHE_HOUR = 60 * 60_000;
+
+/** Час кэша разговора из строки сессии: дуга — сколько кэшу осталось быть тёплым. Засечка на дуге — когда машина сожмёт разговор сама: её час называет машина,
+ *  страница порога не считает. Кэша нет (час вышел, разговор сжат или ещё не начат) — пустое кольцо: следующий ход запишет разговор заново. */
+function CacheClock({ s }: { s: SessionRow }) {
+  // часы идут сами: раз в 20 секунд кольцо перерисовывается по нынешнему времени
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 20_000); return () => clearInterval(t); }, []);
+  const now = Date.now();
+  const left = s.cache ? s.cache.until - now : 0;
+  const warm = left > 0;
+  const compact = warm ? s.cache!.compact : undefined;
+  const r = 7, c = 2 * Math.PI * r;
+  const word = !warm ? "Кэш разговора холодный: следующий ход запишет его заново" : `Кэш разговора тёплый до ${hhmm(s.cache!.until)}${compact ? ` · в ${hhmm(compact)} разговор сожмётся сам` : ""}`;
+  // засечка автосжатия: на том месте круга, где дуга окажется в час сжатия
+  const a = (compact ? (s.cache!.until - compact) / CACHE_HOUR : 0) * 2 * Math.PI - Math.PI / 2;
+  return (
+    <Tooltip label={word}>
+      <span className={`cacheclock${warm ? "" : " cold"}${compact && compact - now <= 6 * 60_000 ? " soon" : ""}`} role="img" aria-label={word} data-cache={warm ? "warm" : "cold"}>
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+          <circle cx="9" cy="9" r={r} className="track" />
+          {warm && <circle cx="9" cy="9" r={r} className="arc" strokeDasharray={`${c * Math.min(1, left / CACHE_HOUR)} ${c}`} transform="rotate(-90 9 9)" />}
+          {compact && <line className="notch" x1={9 + (r - 3) * Math.cos(a)} y1={9 + (r - 3) * Math.sin(a)} x2={9 + (r + 2) * Math.cos(a)} y2={9 + (r + 2) * Math.sin(a)} />}
+        </svg>
+        {warm && <span>{Math.ceil(left / 60_000)}</span>}
+      </span>
+    </Tooltip>
+  );
+}
+
 function save(name: string, text: string) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
@@ -106,7 +140,7 @@ function save(name: string, text: string) {
   URL.revokeObjectURL(a.href);
 }
 
-/** Все действия над разговором — в одном месте, значками в ряду под полем ввода: фокус, контекст, ведомый, инспектор, «ещё», очистить. */
+/** Все действия над разговором — в одном месте, значками в ряду под полем ввода: фокус, час кэша, контекст, ведомый, инспектор, «ещё», очистить. */
 function DocActs({ s, talk, offline, focus, onFocus, insp, onInsp }: { s: SessionRow; talk: Talk; offline: boolean; focus: boolean; onFocus(): void; /** инспектор этой сессии открыт */ insp: boolean; onInsp(): void }) {
   const prefs = useMyPrefs();
   const wide = useWide();
@@ -118,6 +152,7 @@ function DocActs({ s, talk, offline, focus, onFocus, insp, onInsp }: { s: Sessio
   return (
     <div className="docacts" role="group" aria-label="Действия">
       <Tooltip label={focus ? "Вся лента" : "Фокус: только итоги ходов"}><ActionIcon variant={focus ? "light" : "subtle"} color="gray" size="md" aria-label="Фокус" aria-pressed={focus} onClick={onFocus}><IconFocus2 size={16} /></ActionIcon></Tooltip>
+      {live && <CacheClock s={s} />}
       {live && <CtxRing s={s} />}
       {live && !s.spec.wing && !s.lead && <Tooltip label="Открыть ведомого"><ActionIcon variant="subtle" color="gray" size="md" aria-label="Открыть ведомого" onClick={() => act(sessionUpdate, { to: s.callsign, patch: {}, pair: true })}><IconUserPlus size={16} /></ActionIcon></Tooltip>}
       {live && s.spec.wing && <Tooltip label="Убрать ведомого"><ActionIcon variant="subtle" color="gray" size="md" aria-label="Убрать ведомого" onClick={() => confirmDanger({ title: `Убрать ведомого ${s.spec.wing}?`, body: `${s.spec.wing} перестанет получать задачи от ${s.callsign}, и его сессия будет убрана с машины. Точки в архиве останутся.`, confirm: "Убрать ведомого", onConfirm: () => void patchDoc(s, { wing: null }) })}><IconUserMinus size={16} /></ActionIcon></Tooltip>}
@@ -228,8 +263,7 @@ function StateCards({ s, onWhy }: { s: SessionRow; onWhy(): void }) {
           <Group gap="xs"><Button size="compact-xs" variant="default" onClick={() => act(sessionStart, { to: s.callsign })}>Запустить</Button><Button size="compact-xs" variant="subtle" onClick={onWhy}>Почему</Button></Group>
         </div>
       )}
-      {s.wait && <div className="statecard"><Text fw={600} size="sm">Ждёт сброса лимита</Text><Text size="sm">Аккаунты очереди исчерпали лимит. Сессия продолжит {day(s.wait)} в {hhmm(s.wait)}.</Text></div>}
-      {s.remoteError && <div className="statecard bad"><Text fw={600} size="sm">Remote Control не включился</Text><Text size="sm">{s.remoteError}</Text></div>}
+      {s.wait && <div className="statecard"><Text fw={600} size="sm">Ждёт сброса лимита</Text><Text size="sm">Годных аккаунтов Claude нет. Сессия продолжит {day(s.wait)} в {hhmm(s.wait)}.</Text></div>}
       {s.archiveError && <div className="statecard bad"><Text fw={600} size="sm">Последняя точка не сохранилась</Text><Text size="sm">{s.archiveError}</Text></div>}
     </>
   );
@@ -281,6 +315,7 @@ function FeedPane({ s, talk, focus, onFocus, insp, onInsp, autoFocus, pair, onWh
   const [stuck, setStuck] = useState(true);
   const [rewindAt, setRewindAt] = useState<string | null>(null);
   const [drop, setDrop] = useState(false);
+  const [modelAsk, setModelAsk] = useState<{ n: number; q: string }>();
   const stick = useRef(true);
   const items = useMemo(() => (focus ? focused(talk.view) : talk.view.rows), [focus, talk.view]);
   const toLast = () => {
@@ -351,7 +386,7 @@ function FeedPane({ s, talk, focus, onFocus, insp, onInsp, autoFocus, pair, onWh
           {/* машина без связи: писать некому, но инспектор и «ещё» остаются под рукой */}
           {offline
             ? <div className="composer-opts">{acts}</div>
-            : <Composer ref={composer} s={s} talk={talk} hint={s.state === "idle" ? talk.view.hint : undefined} autoFocus={autoFocus} values={<DocValues s={s} running={talk.view.model} />} acts={acts} />}
+            : <Composer ref={composer} s={s} talk={talk} hint={s.state === "idle" ? talk.view.hint : undefined} autoFocus={autoFocus} values={<DocValues s={s} ask={modelAsk} />} acts={acts} onModel={(q) => setModelAsk((a) => ({ n: (a?.n ?? 0) + 1, q }))} />}
         </div>
       </div>
     </>

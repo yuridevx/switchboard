@@ -192,7 +192,8 @@ export const pointsSince = (env: Env, fleet: string, machine: string, from: numb
 
 /* ===== Вызовы модели ===== */
 
-type Call = { call: string; at: number; model: string; input: number; output: number; cache_read: number; cache_write: number };
+/** req — номер запроса Claude: тот же, что в строке вызова журнала машины; по нему аналитика соединяет вызов с аккаунтом. */
+type Call = { call: string; req: string; at: number; model: string; input: number; output: number; cache_read: number; cache_write: number };
 
 /** Вызовы модели из строк разговора: у строк одного ответа общий номер — берётся один раз. */
 export function callsOf(lines: Record<string, unknown>[]): Call[] {
@@ -204,7 +205,7 @@ export function callsOf(lines: Record<string, unknown>[]): Call[] {
     if (!call) continue;
     const u = m.usage;
     by.set(call, {
-      call, at: Date.parse(String(l.timestamp ?? "")) || 0, model: m.model ?? "",
+      call, req: typeof l.requestId === "string" ? l.requestId : "", at: Date.parse(String(l.timestamp ?? "")) || 0, model: m.model ?? "",
       input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cache_read: u.cache_read_input_tokens ?? 0, cache_write: u.cache_creation_input_tokens ?? 0,
     });
   }

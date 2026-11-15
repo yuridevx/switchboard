@@ -4,8 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   accountList, consent, createApi, fleetList, invite, keysRemove, ledgerRead, obsHealth, obsRecent, obsReport, passes, peopleList, pointsCalls, pointsDelete, pointsHistory, pointsList,
-  pointsRaise, profileList, profileSync, profileView, ProxyRule, reachBot, reachSubscribe, rulesTest, sessionStop, slotSet, slotSwap, type Account, type ArchSession, type SessionRow,
-  laneOf,
+  pointsRaise, profileList, profileSync, profileView, ProxyRule, reachBot, reachSubscribe, rulesTest, sessionStop, sessionUpdate, CLAUDE, keysList, keysModels, keysSet, logQuery, type Account, type ArchSession, type KeyRow, type SessionRow,
 } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { Steps } from "../shell/Page.tsx";
@@ -15,7 +14,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
-import { limitTone, mergeAccounts, meterOf, otherMail, queueMove, seatOptions } from "../lib/accounts.ts";
+import { columns, limitTone, meterOf } from "../lib/accounts.ts";
 import { getLocal, setLocal } from "../lib/local.ts";
 import { deviceLabel, keyBytes, pushStateOf, subscriptionFields } from "../lib/push.ts";
 import { byDay, dayWord, leftWord, limitName, resetWord } from "../lib/time.ts";
@@ -237,29 +236,24 @@ describe("«Работа»", () => {
   });
 });
 
-describe("аккаунты и ключи", () => {
-  const acc = (id: string, o: Partial<Account> = {}): Account => ({ id, kind: "claude", email: id, ok: true, ...o });
-  it("аккаунт на нескольких машинах — одна строка: лимит — большее из известного, сессии — суммой, сбой входа виден", () => {
-    const m = mergeAccounts({
-      laptop: [acc("a@x.io", { limits: [{ name: "five_hour", used: 0.4 }], sessions: 2 }), acc("b@x.io", { ok: false, why: "вход устарел" })],
-      server: [acc("a@x.io", { limits: [{ name: "five_hour", used: 0.6, resets: 5 }], sessions: 3 }), { id: "k", kind: "key", ok: true }],
+describe("аккаунты и провайдеры", () => {
+  const acc = (name: string, o: Partial<Account> = {}): Account => ({ name, ok: true, keep: true, limits: [], ...o });
+  const key = (name: string, o: Partial<KeyRow> = {}): KeyRow => ({ name, protocol: CLAUDE, at: 1, tail: "…", keep: true, ...o });
+  it("аккаунт на нескольких машинах — один столбец: окно — замер посвежее, при равных — большее; негодный токен виден", () => {
+    const cols = columns([key("a@x.io"), key("b@x.io")], {
+      laptop: [acc("a@x.io", { limits: [{ name: "seven_day", used: 0.4 }] }), acc("b@x.io", { ok: false, why: "токен отозван" })],
+      server: [acc("a@x.io", { limits: [{ name: "seven_day", used: 0.6, resets: 5 }] }), acc("b@x.io")],
     });
-    expect(m.map((x) => x.id)).toEqual(["b@x.io", "a@x.io", "k"]);
-    const a = m[1]!;
-    expect(a.seats.map((s) => s.machine)).toEqual(["laptop", "server"]);
-    expect(a.limits).toEqual([{ name: "five_hour", used: 0.6, resets: 5 }]);
-    expect(a.sessions).toBe(5);
-    expect(m[0]!.ok).toBe(false);
+    expect(cols.map((c) => c.name)).toEqual(["a@x.io", "b@x.io"]);
+    expect(cols[0]!.limits).toEqual([{ name: "seven_day", used: 0.6, resets: 5 }]);
+    expect(cols[1]).toMatchObject({ ok: false, why: "токен отозван" });
   });
   it("страница показывает два числа Claude — неделю и Fable; остаток до сброса коротко", () => {
-    const limits = [{ name: "five_hour", used: 0.4 }, { name: "seven_day", used: 0.47, fable: 0.37, hold: 0.13, resets: 9 }, { name: "fable", used: 0.74, resets: 9 }];
+    const limits = [{ name: "five_hour", used: 0.4 }, { name: "seven_day", used: 0.47, fable: 0.37, hold: 0.13, resets: 9 }, { name: "seven_day_overage_included", used: 0.74, resets: 9 }];
     expect(meterOf(limits)).toEqual({ week: limits[1], fable: limits[2] });
     expect(meterOf([{ name: "five_hour", used: 1 }])).toEqual({ week: undefined, fable: undefined });
     const now = new Date(2026, 0, 1, 8, 0).getTime();
     expect([3 * 86_400_000 + 4 * 3_600_000, 7 * 3_600_000 + 12 * 60_000, 12 * 60_000].map((d) => leftWord(now + d, now))).toEqual(["3д 4ч", "7ч 12м", "12м"]);
-  });
-  it("сессия идёт на месте своей модели: Fable и модель без имени — на месте fable, остальные — на месте other", () => {
-    expect(["claude-fable-5-2", "fable", undefined, null, "claude-opus-5-5", "haiku", "opusplan"].map(laneOf)).toEqual(["fable", "fable", "fable", "fable", "other", "other", "other"]);
   });
   it("пороги цвета 70 и 90; имя окна — из одной таблицы; сброс не сегодня — с днём недели", () => {
     expect([0.5, 0.71, 0.91].map(limitTone)).toEqual(["teal", "orange", "red"]);
@@ -268,48 +262,48 @@ describe("аккаунты и ключи", () => {
     expect(resetWord(new Date(2026, 0, 20, 14, 0).getTime(), now)).toBe("20 янв.");
     expect(["five_hour", "seven_day", "seven_day_overage_included", "seven_day_opus"].map(limitName)).toEqual(["5 ч", "неделя", "неделя Fable", "неделя opus"]);
   });
-  it("перенос аккаунта: порядок в очереди, из входов в очередь, между очередями, вон из очереди; вход под другой почтой замечен", () => {
-    const slots = [{ name: "main", order: ["a", "b", "c"], lanes: { fable: {}, other: {} }, sessions: 0 }, { name: "night", order: ["c"], lanes: { fable: {}, other: {} }, sessions: 0 }];
-    expect(queueMove(slots, "main", "main", "c", "a")).toEqual([{ slot: "main", order: ["c", "a", "b"] }]);
-    expect(queueMove(slots, "main", "main", "a", "b")).toEqual([]);
-    expect(queueMove(slots, null, "night", "a", null)).toEqual([{ slot: "night", order: ["c", "a"] }]);
-    expect(queueMove(slots, "main", "night", "b", "c")).toEqual([{ slot: "main", order: ["a", "c"] }, { slot: "night", order: ["b", "c"] }]);
-    expect(queueMove(slots, "main", "night", "c", null)).toEqual([{ slot: "main", order: ["a", "b"] }]);
-    expect(queueMove(slots, "night", null, "c", null)).toEqual([{ slot: "night", order: [] }]);
-    const seats = { slots: [{ name: "main", order: ["a", "b"], lanes: { fable: { account: "a" }, other: { account: "b" } }, sessions: 1 }, { name: "empty", order: ["b"], lanes: { fable: {}, other: {} }, sessions: 0 }], accounts: [{ id: "orca", kind: "key" as const, ok: true, model: "glm" }] };
-    expect(seatOptions(seats)).toEqual([{ value: "main", label: "main · a" }, { value: "empty", label: "empty · пусто", disabled: true }, { value: "orca", label: "ключ orca · glm" }]);
-    expect(seatOptions(seats, "claude-opus-5-5")[0]).toEqual({ value: "main", label: "main · b" });
-    expect(otherMail("a@x.io", acc("B@x.io"))).toBe(true);
-    expect(otherMail("a@x.io", acc("A@X.io"))).toBe(false);
-    expect(otherMail(undefined, acc("b@x.io"))).toBe(false);
-  });
-  it("«сменить сейчас»: названный аккаунт или следующий годный; негодный — отказ", async () => {
+  it("мок в форме договора: аккаунт — ключ с протоколом claude; флаг запаса снимает штрих недели; каталог Claude — 15 моделей; история — новые первыми", async () => {
     const api = ask(quiet());
-    await expect(api.call(slotSwap, { to: "@server", slot: "main", lane: "fable" })).resolves.toEqual({ account: "ops@example.com" });
-    await expect(api.call(slotSwap, { to: "@server", slot: "night", lane: "other" })).resolves.toEqual({ account: "ops@example.com" });
-    await expect(api.call(slotSwap, { to: "@laptop", slot: "main", lane: "fable", account: "team@example.com" })).rejects.toMatchObject({ word: "no_reserve" });
-    await expect(api.call(slotSet, { to: "@laptop", slot: "orca-glm", order: ["yuri@example.com"] })).rejects.toMatchObject({ word: "name_taken" });
-    await api.call(slotSet, { to: "@laptop", slot: "docs", order: ["yuri@example.com"] });
-    expect((await api.call(accountList, { to: "@laptop" })).slots.map((q) => q.name)).toEqual(["main", "review", "docs"]);
-    await expect(api.call(slotSet, { to: "@laptop", slot: "main", order: [] })).rejects.toMatchObject({ word: "has_sessions" });
-    await api.call(slotSet, { to: "@laptop", slot: "docs", order: [] });
-    expect((await api.call(accountList, { to: "@laptop" })).slots.map((q) => q.name)).toEqual(["main", "review"]);
+    const hold = async () => (await api.call(accountList, { to: "@laptop" })).accounts.find((a) => a.name === "yuri@example.com")!.limits.find((l) => l.name === "seven_day")!.hold;
+    expect(await hold()).toBeGreaterThan(0);
+    await api.call(keysSet, { name: "yuri@example.com", protocol: CLAUDE, keep: false });
+    expect(await hold()).toBeUndefined();
+    expect((await api.call(keysList, {})).keys.find((k) => k.name === "yuri@example.com")).toMatchObject({ protocol: CLAUDE, keep: false });
+    const claude = (await api.call(keysModels, { name: CLAUDE })).models;
+    expect(claude).toHaveLength(15);
+    expect(new Set(claude.map((m) => m.family))).toEqual(new Set(["Fable", "Opus", "Sonnet", "Haiku"]));
+    await expect(api.call(keysModels, { name: "nobody" })).rejects.toMatchObject({ word: "not_found" });
+    const lines = (await api.call(logQuery, { msg: "account.", limit: 3 })).lines;
+    expect(lines.map((l) => l.msg)).toEqual(["account.moved", "account.moved", "account.full"]);
+    expect(lines[0]!.at).toBeGreaterThan(lines[2]!.at);
+    expect((await api.call(logQuery, { msg: "account.", account: "team@example.com" })).lines.map((l) => l.msg)).toEqual(["account.token"]);
   });
-  it("форма ключа: пары «a = b», настройки — объект JSON, новый ключ без значения не записать, старый — можно", () => {
+  it("модель сессии проверяется по каталогу провайдера: нет в списке — отказ словом, документ прежний; провайдер и модель меняются вместе", async () => {
+    // источник: слово пользователя 15 нояб. — «не могу выбрать нужную или выбранная не точно работает»
+    const m = quiet(), api = ask(m);
+    await expect(api.call(sessionUpdate, { to: "docs@laptop", patch: { key: "orca", model: "qwen-9" } })).rejects.toMatchObject({ word: "no_model" });
+    expect(m.state.sessions["docs@laptop"]!.spec).toMatchObject({ key: CLAUDE, model: "claude-fable-5-2" });
+    await api.call(sessionUpdate, { to: "docs@laptop", patch: { key: "orca", model: "qwen-3.5-coder" } });
+    expect(m.state.sessions["docs@laptop"]!.spec).toMatchObject({ key: "orca", model: "qwen-3.5-coder" });
+    // у сессии провайдера аккаунта Claude нет
+    expect(m.state.sessions["docs@laptop"]!.account).toBeUndefined();
+  });
+  it("форма провайдера: пары «a = b», настройки — объект JSON, новый ключ без значения не записать, старый — можно; имя claude занято", () => {
     expect(parsePairs("a = b\n\nплохо\n c=d = e ")).toEqual({ a: "b", c: "d = e" });
     expect(pairsText({ a: "b", c: "d" })).toBe("a = b\nc = d");
-    const f = { name: "orca", provider: "openai-compatible", value: "", base: "", model: "", models: "claude-fable-5-2 = glm", window: 128000 as number | "", settings: "", env: "", isNew: true };
+    const f = { name: "orca", protocol: "anthropic", value: "", base: "https://api.orca.example", settings: "", env: "A = 1", isNew: true };
     expect(keyInput(f)).toEqual({ ok: false, why: "Нужно значение ключа" });
-    expect(keyInput({ ...f, isNew: false })).toEqual({ ok: true, input: { name: "orca", provider: "openai-compatible", models: { "claude-fable-5-2": "glm" }, window: 128000 } });
+    expect(keyInput({ ...f, isNew: false })).toEqual({ ok: true, input: { name: "orca", protocol: "anthropic", base: "https://api.orca.example", env: { A: "1" } } });
     expect(keyInput({ ...f, value: "sk-1", settings: "[1]" })).toEqual({ ok: false, why: "Настройки сессии — объект JSON" });
     expect(keyInput({ ...f, value: "sk-1", settings: "{oops" })).toEqual({ ok: false, why: "Настройки сессии — не JSON" });
+    expect(keyInput({ ...f, name: "claude", value: "sk-1" })).toEqual({ ok: false, why: "Имя claude занято аккаунтами Claude" });
   });
-  it("удаление ключа: проба называет сессии и ничего не удаляет", async () => {
+  it("удаление ключа: проба называет идущие на нём сессии и ничего не удаляет", async () => {
     const m = quiet(), api = ask(m);
-    await expect(api.call(keysRemove, { name: "meta-muse", probe: true })).resolves.toEqual({ sessions: ["wing@laptop"] });
-    expect((await api.call(profileList, { to: "@laptop" })).pieces.length).toBe(4);
+    await expect(api.call(keysRemove, { name: "orca", probe: true })).resolves.toEqual({ sessions: ["audit@server", "crawler@base2"] });
+    expect((await api.call(keysList, {})).keys.some((k) => k.name === "orca")).toBe(true);
     await api.call(keysRemove, { name: "meta-muse" });
-    await expect(api.call(keysRemove, { name: "orca-glm", probe: true })).resolves.toEqual({ sessions: [] });
+    await expect(api.call(keysRemove, { name: "meta-muse", probe: true })).resolves.toEqual({ sessions: [] });
   });
 });
 
@@ -384,9 +378,10 @@ describe("архив", () => {
     expect(checkWord(c("other"), "point").bad).toBe(true);
   });
   it("ввод подъёма по виду: перенос — без точки и с move; копия — с именем; откат — на своей машине", () => {
-    const f = { machine: "server", name: "site-copy", cwd: "~/projects/site", account: "", files: "point" as const, point: "p3" };
+    const f = { machine: "server", name: "site-copy", cwd: "~/projects/site", files: "point" as const, point: "p3" };
     expect(raiseInput("move", s, f)).toEqual({ to: "@server", sid: "s1", files: "point", move: true });
-    expect(raiseInput("copy", s, { ...f, cwd: "~/else", account: "night" })).toEqual({ to: "@server", sid: "s1", files: "point", cwd: "~/else", slot: "night", name: "site-copy", point: "p3" });
+    // аккаунта в подъёме нет: провайдер и модель — из документа точки, аккаунт выбирает машина
+    expect(raiseInput("copy", s, { ...f, cwd: "~/else" })).toEqual({ to: "@server", sid: "s1", files: "point", cwd: "~/else", name: "site-copy", point: "p3" });
     expect(raiseInput("rollback", s, { ...f, files: "keep" })).toEqual({ to: "@laptop", sid: "s1", files: "keep", point: "p3" });
     expect(raiseInput("raise", s, { ...f, name: "site", point: undefined })).toEqual({ to: "@server", sid: "s1", files: "point", move: true });
     expect(stepsOf("rollback", s, "laptop", true)[0]).toBe("Остановить site@laptop");

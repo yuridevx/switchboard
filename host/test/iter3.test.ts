@@ -1,13 +1,10 @@
 // Эталоны третьей итерации Host: срок входа у аккаунта, предел повторов точки и точка остановленной сессии, снятие архива,
 // порт сервера инцидентов в журнале, ответ «из уведомления», числа Host для наблюдения.
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { createServer, type Server } from "node:http";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HostMetrics } from "@sb/protocol";
-import { make as accounts } from "../src/modules/accounts/accounts.ts";
-import { folders } from "../src/modules/accounts/links.ts";
 import { make as chat } from "../src/modules/chat/chat.ts";
 import { make as incidents } from "../src/modules/incidents/incidents.ts";
 import { make as machine } from "../src/modules/machine/machine.ts";
@@ -57,26 +54,6 @@ async function withConversation(o: { retryMs?: number; waitMs?: number } = {}) {
   };
   return { s, more, state };
 }
-
-describe("аккаунты", () => {
-  it("у входа Claude в списке — срок входа и время последнего замера лимитов", async () => {
-    const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
-    mkdirSync(join(home, "store"), { recursive: true });
-    const at = Math.floor(Date.now() / 1000), expires = at + 30 * 86400;
-    const book = { accounts: { "a@example.com": { login: "ok", plan: "max", expires, limits: { five_hour: { utilization: 0.2, resetsAt: at + 600, at: at - 30 }, seven_day: { utilization: 0.4, resetsAt: at + 9000, at } } } }, slots: { main: ["a@example.com"] } };
-    writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: book }));
-    mkdirSync(folders(home).accDir("a@example.com"), { recursive: true });
-    await folders(home).place("main", "fable", "a@example.com");
-    st = await stand({ home, modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => ({ keys: [] });
-    const reply = await st.request("account.list", { to: "@laptop" });
-    expect(reply.why ?? reply.error ?? "").toBe("");
-    const [a] = (reply.result as any).accounts;
-    expect(a.expires).toBe(expires * 1000);
-    expect(a.at).toBe(at * 1000);
-    expect(a.limits.find((l: any) => l.name === "five_hour").at).toBe((at - 30) * 1000);
-  });
-});
 
 describe("точки: предел повторов, остановленная сессия, снятие архива", () => {
   /** Двигать часы стенда шагами, пока условие не выполнится: повторы точек идут по часам ядра. */

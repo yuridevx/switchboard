@@ -65,23 +65,15 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
     await page.goBack();
     await page.waitForFunction(() => !/do=/.test(location.hash) && !document.querySelector("[data-step]"));
   });
-  await step("ключ флота — шаг, закрытие кнопкой убирает адрес шага", async () => {
+  await step("аккаунты и провайдеры — формы на месте: токен аккаунта и ключ провайдера; очередей нет", async () => {
     await open("/fleet/accounts");
-    await page.getByRole("button", { name: "Добавить ключ" }).first().click();
-    await at(/do=key/); await shot("key");
-    await page.locator("[data-step] header").getByRole("button", { name: "Назад" }).click();
-    await page.waitForFunction(() => !/do=/.test(location.hash) && !document.querySelector("[data-step]"));
-    if (!/#\/fleet\/accounts$/.test(page.url())) throw new Error("адрес после закрытия: " + page.url());
-  });
-  await step("аккаунты — очереди машины строками; «+ очередь» — страница шага", async () => {
-    await open("/fleet/accounts");
-    await page.getByText("main", { exact: true }).first().waitFor({ timeout: 15_000 });
-    await page.getByRole("button", { name: "+ очередь" }).first().click();
-    await at(/do=queue/); await title(/^Новая очередь на /);
-    await page.getByRole("textbox", { name: "Имя очереди" }).waitFor(); await shot("queue-new");
-    await page.goBack();
-    await page.waitForFunction(() => !/do=/.test(location.hash) && !document.querySelector("[data-step]"));
-    await shot("queues");
+    await page.locator("[data-card=claude]").waitFor({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Добавить аккаунт" }).first().click();
+    await page.getByLabel("Почта аккаунта").waitFor(); await page.getByLabel("Токен", { exact: true }).waitFor(); await shot("account-new");
+    await page.getByRole("button", { name: "Добавить провайдера" }).first().click();
+    await page.getByLabel("Протокол").first().waitFor(); await shot("provider-new");
+    if (await page.getByRole("button", { name: "+ очередь" }).count()) throw new Error("на экране осталась кнопка очереди");
+    if (!page.url().endsWith("#/fleet/accounts")) throw new Error("адрес экрана: " + page.url());
   });
   await step("пригласить устройство — форма, затем ссылка", async () => {
     await open("/settings/passes");

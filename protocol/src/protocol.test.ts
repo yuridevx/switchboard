@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { socketLink } from "./client.ts";
-import { accountList, contract, createApi, fail, kindOf, laneOf, machineOf, ok, parseFrame, parsePass, personOf, request, sessionOpen, slotSet, slotSwap, Spec, TOOL_METHODS, z, type Transport } from "./index.ts";
+import { accountList, CLAUDE, contract, createApi, fail, findModels, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, sessionOpen, Spec, TOOL_METHODS, z, type Transport } from "./index.ts";
 
 describe("protocol", () => {
   it("адреса по форме; голое имя — не адрес", () => {
@@ -72,22 +72,30 @@ describe("инструменты: одна таблица для страниц�
     expect(states).toEqual(["connecting", "open", "open", "closed"]);
     link.close();
   });
-  it("очереди аккаунтов: очередь сессии — поле slot её документа; slot.set и slot.swap называют очередь; account.list отдаёт очереди", () => {
-    expect(Spec.parse({ name: "site", cwd: "~/p", slot: "review" }).slot).toBe("review");
-    // закрепления за аккаунтом в документе нет: такого ключа схема не знает
-    expect("account" in Spec.parse({ name: "site", cwd: "~/p", account: "a@b.c" })).toBe(false);
-    expect(slotSet.input.safeParse({ to: "@laptop", order: ["a@b.c"] }).success).toBe(false);
-    expect(slotSet.input.safeParse({ to: "@laptop", slot: "review", order: [] }).success).toBe(true);
-    expect(slotSwap.input.safeParse({ to: "@laptop" }).success).toBe(false);
-    // «сменить сейчас» называет место очереди: без него запрос не принят
-    expect(slotSwap.input.safeParse({ to: "@laptop", slot: "main", account: "a@b.c" }).success).toBe(false);
-    expect(slotSwap.input.safeParse({ to: "@laptop", slot: "main", lane: "fable", account: "a@b.c" }).success).toBe(true);
-    expect(accountList.output.safeParse({ accounts: [] }).success).toBe(false);
-    // у очереди нет вида: один порядок и два места на нём
-    const queue = { name: "main", order: ["a@b.c", "c@d.e"], lanes: { fable: { account: "c@d.e" }, other: { account: "a@b.c", over: true } }, sessions: 2 };
-    expect(accountList.output.parse({ accounts: [], slots: [{ ...queue, model: "other" }] }).slots[0]).toEqual(queue);
-    expect(["claude-fable-5-2", undefined, null, "claude-opus-5-5", "haiku"].map(laneOf)).toEqual(["fable", "fable", "fable", "other", "other"]);
-    expect(contract.tools().map((d) => d.name)).toEqual(expect.arrayContaining(["slot.set", "slot.swap"]));
+  it("документ сессии называет провайдера и точную модель; очередей, входов и Remote Control в договоре нет", () => {
+    const doc = Spec.parse({ name: "site", cwd: "~/p", key: "orca", model: "qwen-3.5-coder", slot: "review", remote: true, account: "a@b.c" });
+    expect(doc).toEqual({ name: "site", cwd: "~/p", key: "orca", model: "qwen-3.5-coder" });
+    for (const gone of ["account.login", "account.code", "account.remove", "slot.set", "slot.swap"]) expect(contract.request(gone)).toBeUndefined();
+    const call = contract.request("session.call")!;
+    for (const method of ["models", "usage"]) expect(call.input.safeParse({ to: "a@b", method }).success).toBe(false);
+    // аккаунт глазами машины: имя, окна из ответов Claude, флаг запаса; очередей в ответе нет
+    const account = { name: "a@b.c", ok: true, limits: [{ name: "seven_day", used: 0.4, resets: 1 }], keep: true };
+    expect(accountList.output.parse({ accounts: [{ ...account, kind: "claude" }], slots: [] })).toEqual({ accounts: [account] });
+    expect(contract.tools().map((d) => d.name)).toEqual(expect.arrayContaining(["keys.models", "log.query", "account.list"]));
+    expect(contract.request("log.write")!.machineOnly).toBe(true);
+  });
+  // эталон «/model opus 4.8» и «/model opus — подходят несколько»: одно правило «слова → модели» для страницы и машины
+  it("слова → модели: все слова нашлись в имени, семействе или провайдере; точное имя выигрывает", () => {
+    const offers = [
+      { key: CLAUDE, model: "claude-opus-4-8", name: "Claude Opus 4.8", family: "Opus" }, { key: CLAUDE, model: "claude-opus-5-5", name: "Claude Opus 5.5", family: "Opus" },
+      { key: CLAUDE, model: "claude-fable-5-2", family: "Fable" }, { key: "orca", model: "glm-5.3" }, { key: "orca", model: "glm-5.3-air" },
+    ];
+    const found = (words: string) => findModels(words, offers).map((o) => `${o.key}/${o.model}`);
+    expect(found("opus 4.8")).toEqual(["claude/claude-opus-4-8"]);
+    expect(found("opus")).toEqual(["claude/claude-opus-4-8", "claude/claude-opus-5-5"]);
+    expect(found("orca")).toEqual(["orca/glm-5.3", "orca/glm-5.3-air"]);
+    expect(found("glm-5.3")).toEqual(["orca/glm-5.3"]);
+    expect(found("qwen")).toEqual([]);
   });
   it("ведущая управляет ведомым инструментами: откат и действия session.call из закрытого списка; отката файлов отдельным методом и запроса сжатия нет", () => {
     const tools = contract.tools().map((d) => d.name);

@@ -1,9 +1,11 @@
 // Машина: папки для выбора, журнал машины (строки Host, Keeper и держателей) и сбои из сообщений SDK — строками журнала.
+// Журнал машины уходит в историю флота (ClickHouse) пачками с места остановки: файл на машине — источник, вызовы модели отправку не ждут.
 import { existsSync, readdirSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { open, readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { obsMetrics, Refusal, type HostMetrics, type LogLine } from "@sb/protocol";
+import { logWrite, MAX_FRAME, obsMetrics, Refusal, type HostMetrics, type LogLine } from "@sb/protocol";
+import { limited } from "../../core/clock.ts";
 import type { Window } from "../../core/meter.ts";
 import type { Ctx, HostApi, Module } from "../../core/contract.ts";
 import { clientPath, tildePath } from "../../core/paths.ts";
@@ -84,8 +86,43 @@ async function journal(dir: string, q: JournalQuery, signal: AbortSignal): Promi
 
 /** Как часто Host отдаёт свои числа службе наблюдения. */
 export const METRICS_MS = 60_000;
+/** Как часто машина смотрит, не дописан ли журнал: отставание истории флота от файла. Пока есть что слать, пачки идут подряд. */
+export const SHIP_MS = 5_000;
+/** Через сколько машина шлёт пачку снова после отказа истории флота. */
+export const SHIP_RETRY_MS = 60_000;
+/** Срок одной пачки: служба пишет её в ClickHouse внутри запроса. */
+const SHIP_CALL_MS = 60_000;
+/** Пачка строк, байты файла: в кадр она идёт строками JSON (экранирование удлиняет), служба держит её в памяти Worker'а несколько раз. */
+const BATCH = MAX_FRAME / 8;
 
-export function make({ home = homedir(), metricsMs = METRICS_MS }: { home?: string; metricsMs?: number } = {}): Module {
+/** Места отправки: файл журнала → сколько его байт уже в истории флота. */
+type Shipped = { sent: Record<string, number> };
+type Batch = { file: string; pos: number; lines: string[]; next: number };
+
+/** Следующая пачка: первый файл журнала, дописанный после своего места, — целые строки от места, не больше предела. */
+async function nextBatch(dir: string, sent: Record<string, number>, limit: number): Promise<Batch | null> {
+  const names = (await readdir(dir).catch(() => [] as string[])).filter((n) => FILE.test(n)).sort();
+  for (const file of names) {
+    const pos = sent[file] ?? 0;
+    const path = join(dir, file);
+    if ((await stat(path)).size <= pos) continue;
+    const fd = await open(path, "r");
+    try {
+      const { bytesRead, buffer } = await fd.read(Buffer.alloc(limit), 0, limit, pos);
+      const end = buffer.subarray(0, bytesRead).lastIndexOf(0x0a);
+      // строка ещё дописывается
+      if (end < 0 && bytesRead < limit) continue;
+      // строка длиннее пачки в историю не идёт: место уходит за прочитанное
+      if (end < 0) return { file, pos, lines: [], next: pos + bytesRead };
+      return { file, pos, lines: buffer.subarray(0, end).toString("utf8").split("\n"), next: pos + end + 1 };
+    } finally {
+      await fd.close();
+    }
+  }
+  return null;
+}
+
+export function make({ home = homedir(), metricsMs = METRICS_MS, shipMs = SHIP_MS, batch = BATCH }: { home?: string; metricsMs?: number; shipMs?: number; batch?: number } = {}): Module {
   let host: HostApi;
   /** окно счётчиков, отданное последним */
   let last: Window = { counts: {}, times: {} };
@@ -110,6 +147,34 @@ export function make({ home = homedir(), metricsMs = METRICS_MS }: { home?: stri
     last = host.meter.take();
     await host.call(obsMetrics, numbers(last)).catch((e: unknown) => host.log.warn("metrics", { word: (e as { word?: string }).word ?? "offline", why: (e as Error).message }));
   };
+  let stopped = false;
+  let shipTimer: unknown;
+  /** история флота не приняла пачку: строка журнала — одна на отказ и одна на возврат */
+  let behind = false;
+  /** Отправка журнала: в полёте одна пачка, место файла сдвигается только после ответа службы. Отказ — строки ждут в файле, та же пачка уйдёт снова через минуту. */
+  const ship = async () => {
+    const places = host.store<Shipped>();
+    try {
+      for (;;) {
+        const sent = places.get()?.sent ?? {};
+        const b = await nextBatch(host.journalDir, sent, batch);
+        if (!b || stopped) break;
+        if (b.lines.length) await limited(host.clock, host.call(logWrite, { file: b.file, pos: b.pos, lines: b.lines }), SHIP_CALL_MS, () => new Refusal("timeout", `служба не ответила за ${SHIP_CALL_MS / 1000} с`));
+        else host.log.error("log_ship", { word: "line_too_long", why: `${b.file}: строка с места ${b.pos} длиннее пачки ${batch} байт — в историю флота не ушла` });
+        // остановка оборвала запрос: место прежнее, новая машина пришлёт пачку снова
+        if (stopped) break;
+        // мест удалённых файлов журнала в записи нет
+        const live = new Set(await readdir(host.journalDir).catch(() => [] as string[]));
+        places.set({ sent: { ...Object.fromEntries(Object.entries(sent).filter(([file]) => live.has(file))), [b.file]: b.next } });
+        if (behind) host.log.info("log_ship", { why: "история флота снова принимает журнал: отправка продолжилась с места остановки" });
+        behind = false;
+      }
+    } catch (e) {
+      if (!behind && !stopped) host.log.warn("log_ship", { word: (e as { word?: string }).word ?? "offline", why: `история флота не приняла журнал: ${(e as { why?: string }).why ?? (e as Error).message} — строки ждут в файле` });
+      behind = true;
+    }
+    if (!stopped) shipTimer = host.clock.setTimeout(() => void ship(), behind ? SHIP_RETRY_MS : shipMs);
+  };
   /** процессы, чей init уже записан: новый процесс сессии пишет его снова */
   const inited = new Set<string>();
   return {
@@ -118,9 +183,12 @@ export function make({ home = homedir(), metricsMs = METRICS_MS }: { home?: stri
       host = h;
       timer = setInterval(() => void tick(), metricsMs);
       timer.unref();
+      shipTimer = host.clock.setTimeout(() => void ship(), shipMs);
     },
     stop() {
+      stopped = true;
       clearInterval(timer);
+      host.clock.clearTimeout(shipTimer);
     },
     compose: () => ({ env: { CLAUDE_CODE_STARTUP_FAILURE_RESULTS: "1" } }),
     requests: {

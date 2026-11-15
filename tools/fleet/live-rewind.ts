@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CallError, createApi, fleetList, httpTransport, machineConversations, message, sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellRun, answer, type SessionRow } from "@sb/protocol";
+import { CallError, createApi, fleetList, httpTransport, machineConversations, message, sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellRun, answer, type SessionRow, keysModels } from "@sb/protocol";
 import { fleetEnv } from "../dev.mjs";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
@@ -14,6 +14,8 @@ const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8"
 const wire = httpTransport({ base: env.SB2_BASE!, key });
 const api = createApi({ ...wire, call: async (f) => { for (let i = 0; ; i++) { const r = await wire.call(f); if (r.ok || r.error !== "offline" || i >= 4) return r; await new Promise((x) => setTimeout(x, 3000)); } } });
 const SEAT = "muse";
+/** Модель тестовых сессий — SB2_MODEL или первая из каталога провайдера. */
+const DOC = { key: SEAT, model: process.env.SB2_MODEL ?? (await api.call(keysModels, { name: SEAT })).models[0]!.id };
 const tag = Date.now().toString(36).slice(-4);
 const cwd = machine === "wsl" ? `/tmp/sb2-rewind-${tag}` : `C:/Users/${os.userInfo().username}/AppData/Local/Temp/sb2-rewind-${tag}`;
 
@@ -60,7 +62,7 @@ async function file(name: string): Promise<string> {
 let cs = "";
 let u1 = "", u2 = "", u3 = "";
 await step("сессия на ключе флота: три хода правят один файл", async () => {
-  cs = (await api.call(sessionOpen, { to: "@" + machine, spec: { name: "rw-" + tag, cwd, slot: SEAT } as never, mkdir: true })).callsign;
+  cs = (await api.call(sessionOpen, { to: "@" + machine, spec: { name: "rw-" + tag, cwd, ...DOC } as never, mkdir: true })).callsign;
   made.push(cs);
   await idle(cs);
   u1 = await turn(cs, "Создай инструментом Write файл note.txt ровно с одной строкой: один. Больше ничего не делай.");
@@ -153,7 +155,7 @@ await step("очистка: история пуста, сессия та же", 
 /* Пара */
 let lead = "", wing = "";
 await step("пара: ведущая сжимает и откатывает ведомого инструментами и получает вести", async () => {
-  const o = await api.call(sessionOpen, { to: "@" + machine, spec: { name: "rwlead-" + tag, cwd, slot: SEAT } as never, pair: true });
+  const o = await api.call(sessionOpen, { to: "@" + machine, spec: { name: "rwlead-" + tag, cwd, ...DOC } as never, pair: true });
   lead = o.callsign;
   wing = o.wing!;
   made.push(lead);

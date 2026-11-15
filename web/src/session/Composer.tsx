@@ -1,4 +1,4 @@
-// Ввод в сессию: многострочный, вложения (кнопкой, из буфера, перетаскиванием), «/» команды, «@» файлы, «/btw» — вопрос сбоку.
+// Ввод в сессию: многострочный, вложения (кнопкой, из буфера, перетаскиванием), «/» команды, «@» файлы, «/btw» — вопрос сбоку, «/model» — выбор модели.
 // Черновик живёт на каждую сессию. Пока сессия занята — сообщение встаёт в очередь с выбранной срочностью; «Прервать» — здесь же.
 import { sessionCall, sessionFiles, type SessionRow } from "@sb/protocol";
 import { ActionIcon, Button, FileButton, Group, Menu, Paper, Textarea, Tooltip } from "@mantine/core";
@@ -13,7 +13,7 @@ export type ComposerHandle = { setText(text: string): void; /** вернуть �
 
 const PRIORITY: Array<[Priority, string, string]> = [["next", "следующим", "после нынешнего шага"], ["now", "сейчас", "прервёт ход"], ["later", "потом", "после конца хода"]];
 /** Команды самой страницы рядом с командами Claude. */
-const OWN: Pick[] = [{ label: "/btw", about: "спросить сбоку, мимо разговора", insert: "/btw " }];
+const OWN: Pick[] = [{ label: "/btw", about: "спросить сбоку, мимо разговора", insert: "/btw " }, { label: "/model", about: "выбрать модель: слова поиска", insert: "/model " }];
 
 async function toBase64(f: File): Promise<string> {
   const buf = new Uint8Array(await f.arrayBuffer());
@@ -26,11 +26,16 @@ async function toBase64(f: File): Promise<string> {
 export function commandPicks(list: unknown, typed: string): Pick[] {
   const raw = (Array.isArray(list) ? list : ((list as { commands?: unknown[] } | null)?.commands ?? [])) as Array<{ name?: string; description?: string; about?: string; argumentHint?: string }>;
   const all = [...raw.map((c) => ({ label: "/" + String(c.name ?? "").replace(/^\//, ""), about: [c.argumentHint, c.description ?? c.about].filter(Boolean).join(" · ") || undefined })).map((c) => ({ ...c, insert: c.label + " " })), ...OWN];
-  return all.filter((c) => c.label.startsWith("/" + typed)).slice(0, 12);
+  // своя команда страницы закрывает одноимённую команду Claude: «/model» ставит модель документом сессии
+  const own = new Set(OWN.map((c) => c.label));
+  return all.filter((c, i) => c.label.startsWith("/" + typed) && (i >= raw.length || !own.has(c.label))).slice(0, 12);
 }
 
 /** Вопрос сбоку: «/btw текст» — текст вопроса; иначе null. */
 export const sideQuestion = (text: string): string | null => /^\/btw\s+(\S[\s\S]*)$/.exec(text.trim())?.[1] ?? null;
+
+/** «/model слова»: слова поиска модели (пустая строка — список целиком); иначе null. Команда в разговор не уходит: модель ставит документ сессии. */
+export const modelAsk = (text: string): string | null => { const m = /^\/model(?:\s+(.*))?$/.exec(text.trim()); return m ? (m[1] ?? "").trim() : null; };
 
 /** Вложение до отправки: картинка — превью, остальное — имя; крестик убирает. */
 function Attached({ file, onDrop }: { file: File; onDrop(): void }) {
@@ -53,7 +58,7 @@ function Attached({ file, onDrop }: { file: File; onDrop(): void }) {
 /** Текст, вернувшийся в поле ввода (отменённое сообщение из очереди): к набранному добавляется с новой строки. */
 export const returned = (typed: string, text: string): string => (typed.trim() ? `${typed.replace(/\s+$/, "")}\n${text}` : text);
 
-export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; hint?: string; autoFocus?: boolean; /** ряд под полем: значения документа сессии слева, действия над разговором значками справа */ values?: ReactNode; acts?: ReactNode }>(function Composer({ s, talk, hint, autoFocus, values, acts }, handle) {
+export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; hint?: string; autoFocus?: boolean; /** ряд под полем: значения документа сессии слева, действия над разговором значками справа */ values?: ReactNode; acts?: ReactNode; /** «/model слова»: открыть список моделей с этим поиском */ onModel?: (q: string) => void }>(function Composer({ s, talk, hint, autoFocus, values, acts, onModel }, handle) {
   const [text, setTextRaw] = useState(() => draft.get(s.callsign));
   const [files, setFiles] = useState<File[]>([]);
   const [picks, setPicks] = useState<Pick[]>([]);
@@ -88,8 +93,10 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
     const body = text.trim();
     if (!body && !files.length) return;
     const q = sideQuestion(body);
+    const model = modelAsk(body);
     setText("");
     if (q) return talk.aside(q);
+    if (model !== null) return onModel?.(model);
     const attached: FileOut[] = await Promise.all(files.map(async (f) => ({ name: f.name, mime: f.type || "application/octet-stream", base64: await toBase64(f) })));
     setFiles([]);
     setPriority("next");
@@ -143,10 +150,10 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
         {busy && s.state !== "waiting" && <Tooltip label="Прервать ход"><ActionIcon className="narrow-only" size="lg" variant="default" aria-label="Прервать ход" onClick={() => act(sessionCall, { to: s.callsign, method: "interrupt" })}><IconPlayerStop size={17} /></ActionIcon></Tooltip>}
         <ActionIcon size="lg" variant="filled" aria-label={busy ? "В очередь" : "Отправить"} disabled={dead || (!text.trim() && !files.length)} onClick={send}><IconArrowUp size={18} /></ActionIcon>
       </Group>
-      {/* ряд под полем есть всегда: у стоящей сессии в нём остаются инспектор и «ещё» */}
+      {/* ряд под полем есть всегда: у стоящей сессии документ правится так же — модель той, что не запустилась, меняют здесь */}
       {(
         <div className="composer-opts">
-          {!dead && values}
+          {values}
           {/* когда взять сообщение — выбор есть, только пока идёт ход */}
           {!dead && (s.state === "busy" || s.state === "starting") && (
             <Menu position="top-start" withinPortal>

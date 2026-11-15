@@ -93,7 +93,6 @@ export class Kernel {
   private eliciter: Module | undefined;
   private abort = new AbortController();
   private inflight = new Set<Promise<unknown>>();
-  private probes = new Set<{ close(): void }>();
   private hosts = new Map<Module, HostApi>();
   private link: Link | null = null;
   /** объект машины принял соединение (hello.ok): до него кадры не идут */
@@ -556,25 +555,6 @@ export class Kernel {
 
   // ───────────────────────── Host глазами модуля ─────────────────────────
 
-  private probe(o: { env?: Record<string, string> } = {}) {
-    let finish = () => {};
-    const closed = new Promise<void>((r) => (finish = r));
-    const prompt = (async function* () {
-      await closed;
-    })();
-    const q = this.sdk.query({ prompt, options: { env: this.env(o.env), permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true, pathToClaudeCodeExecutable: this.sdk.bin } });
-    const probe = {
-      sdk: (name: string, ...args: unknown[]) => quiet(Promise.resolve().then(() => q[name](...args))),
-      close: () => {
-        this.probes.delete(probe);
-        finish();
-        q.close();
-      },
-    };
-    this.probes.add(probe);
-    return probe;
-  }
-
   hostFacade(m: Module): HostApi {
     let host = this.hosts.get(m);
     if (!host) {
@@ -598,7 +578,6 @@ export class Kernel {
         store: <T>() => this.disk.section<T>(m.name),
         config: <T>() => (config?.[m.name] ?? {}) as T,
         cli: (args, o = {}) => this.sdk.cli(args, this.env(o.env), o.input),
-        probe: (o) => this.probe(o),
         module: <T>(name: string) => this.mods.find((x) => x.name === name)?.api as T | undefined,
         clock: this.clock,
         meter: this.meter,
@@ -637,7 +616,6 @@ export class Kernel {
       this.log.error("shutdown_late", { why: `остановка не успела за ${SHUTDOWN_MS / 1000} с: ждёт ${waits} — жёсткий выход 1 · ${why}` });
       return 1;
     });
-    for (const p of [...this.probes]) p.close();
     this.link?.close();
     this.holders.close();
     if (code === 0) this.log.info("exit", { why: `выход 0 · ${why}` });

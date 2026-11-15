@@ -131,12 +131,14 @@ await r.step("второй человек флота: приглашён, в о�
   return `достаёт до машин: ${me.machines.join(", ")}`;
 });
 
+// модель сессий сценария — SB2_MODEL или первая из каталога провайдера
+const MODEL = process.env.SB2_MODEL ?? must(await call("keys.models", { name: "muse" }), "keys.models").models[0].id;
 const name = "tgask" + word();
 const callsign = name + "@wsl";
 let askMsg = null;
 await r.step("вопрос сессии приходит в личный чат кнопками", async () => {
   const last = (await c2.getMessages(bot, { limit: 1 }))[0]?.id ?? 0;
-  must(await call("session.open", { to: "@wsl", spec: { name, cwd: "/tmp", slot: "muse", mode: "ask" }, prompt: `Создай файл /tmp/${name}.txt со словом ok. Больше ничего не делай.` }, asTester), "session.open");
+  must(await call("session.open", { to: "@wsl", spec: { name, cwd: "/tmp", key: "muse", model: MODEL, mode: "ask" }, prompt: `Создай файл /tmp/${name}.txt со словом ok. Больше ничего не делай.` }, asTester), "session.open");
   await waitRow(callsign, (s) => s.state === "waiting" && s.ask);
   askMsg = await waitMessage(c2, bot, (m) => !m.out && m.replyMarkup?.rows?.length, { after: last, ms: 40_000 });
   if (!askMsg) throw new Error("сообщения с кнопками нет");
@@ -171,7 +173,7 @@ await r.step("итог хода приходит в чат; ответ текс�
 
 /** Сессия второго человека в режиме «спрашивать»: её вопрос о разрешении. */
 const askOf = async (n) => {
-  must(await call("session.open", { to: "@wsl", spec: { name: n, cwd: "/tmp", slot: "muse", mode: "ask" }, prompt: `Создай файл /tmp/${n}.txt со словом ok. Больше ничего не делай.` }, asTester), "session.open");
+  must(await call("session.open", { to: "@wsl", spec: { name: n, cwd: "/tmp", key: "muse", model: MODEL, mode: "ask" }, prompt: `Создай файл /tmp/${n}.txt со словом ok. Больше ничего не делай.` }, asTester), "session.open");
   return (await waitRow(n + "@wsl", (x) => x.state === "waiting" && x.ask)).ask;
 };
 

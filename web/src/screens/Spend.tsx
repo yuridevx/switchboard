@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Failed, modelWord, personWord, useCall, useWide } from "../common.tsx";
 import { day, kilo, num } from "../lib/time.ts";
 
-const BY = [["model", "Модели"], ["machine", "Машины"], ["session", "Сессии"], ["person", "Люди"], ["project", "Проекты"]] as const;
+const BY = [["model", "Модели"], ["account", "Аккаунты"], ["machine", "Машины"], ["session", "Сессии"], ["person", "Люди"], ["project", "Проекты"]] as const;
 const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
 /** Цвета слоёв столбика: средние тона, читаются в обеих темах. */
 const LAYERS = ["#5f7a71", "#2f6fde", "#c77700", "#2e8b62", "#8a6fd1", "#c5352b", "#8a9692"];

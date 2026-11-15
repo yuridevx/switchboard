@@ -27,7 +27,7 @@ export interface SessionApi {
   readonly spec: Spec;
   readonly state: SessionState;
   /** разговор claude, папка, кто открыл, модель процесса */
-  readonly info: { sessionId: string; cwd: string; by: string; since: number; last?: number; model: string | null; /** сколько сообщений ждёт во вводе */ queue: number; /** как поднят нынешний процесс: attach — процесс пережил подмену Host и ввод у него на руках */ launch?: "spawn" | "resume" | "attach" | "fork" };
+  readonly info: { sessionId: string; cwd: string; by: string; since: number; last?: number; model: string | null; /** сколько сообщений ждёт во вводе */ queue: number; /** до какого времени кэш разговора тёплый, мс: из последнего ответа модели */ warm?: number; /** в последнем ходе модель ответила: ход без ответа (сжатие, очистка, команда) не зовёт человека */ answered: boolean; /** как поднят нынешний процесс: attach — процесс пережил подмену Host и ввод у него на руках */ launch?: "spawn" | "resume" | "attach" | "fork" };
   /** текст или блоки — в очередь ввода */
   input(content: unknown, opts?: InputOpts): void;
   /** метод query() или функция SDK о разговоре */
@@ -123,8 +123,6 @@ export interface HostApi {
   config<T>(): T;
   /** команда claude */
   cli(args: string[], o?: { env?: Record<string, string>; input?: string }): Promise<{ code: number | null; out: string }>;
-  /** query() без разговора: вход и сведения аккаунта */
-  probe(o?: { env?: Record<string, string> }): { sdk(name: string, ...args: unknown[]): Promise<unknown>; close(): void };
   /** модуль этого Host по имени: договор между модулями — его publicApi */
   module<T = unknown>(name: string): T | undefined;
   /** часы ядра: такты и пределы модуля идут по ним */

@@ -88,8 +88,8 @@ describe("сервер MCP: внешний клиент", () => {
     expect(names).toEqual(expect.arrayContaining(["keys_list", "keys_set", "fleet_list", "obs_health", "points_calls"]));
     expect(names).not.toContain("keys_value");
     const call = (name: string, args: object, as = "kyura1") => mcp(s, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, as);
-    expect((await call("keys_set", { name: "deepseek", provider: "anthropic", value: "sk-secret-1234" }, "kanya1")).body.result.isError).toBe(true);
-    expect((await call("keys_set", { name: "deepseek", provider: "anthropic", value: "sk-secret-1234" })).body.result.isError).toBe(false);
+    expect((await call("keys_set", { name: "deepseek", protocol: "anthropic", value: "sk-secret-1234" }, "kanya1")).body.result.isError).toBe(true);
+    expect((await call("keys_set", { name: "deepseek", protocol: "anthropic", value: "sk-secret-1234" })).body.result.isError).toBe(false);
     const text = (await call("keys_list", {}, "kanya1")).body.result.content[0].text as string;
     expect(JSON.parse(text).keys).toMatchObject([{ name: "deepseek", tail: "1234" }]);
     expect(text).not.toContain("sk-secret");
@@ -98,28 +98,107 @@ describe("сервер MCP: внешний клиент", () => {
 
 /* ===== Ключи флота ===== */
 
+/** Каталог провайдера в сети стенда: что провайдер отдаёт сейчас. */
+const catalogNet = (s: Stand, lists: Record<string, () => Response>) => {
+  s.state.net = (url) => (Object.entries(lists).find(([base]) => url.startsWith(base))?.[1] ?? (() => new Response("нет", { status: 404 })))();
+};
+
+describe("ключи флота: каталог моделей", () => {
+  const models = async (s: Stand, name: string, as = "kanya1") => s.ask("keys.models", { name }, as);
+
+  // эталон: «Каталог Claude по токену аккаунта» — чьё: слово пользователя 15 нояб. — «все доступные в API модели»; факт опыта (15 моделей по токену подписки)
+  it("каталог Claude — токеном аккаунта: все модели API с семейством и окном; непринятый токен — следующим аккаунтом", async () => {
+    const s = stand();
+    expect(await models(s, "claude")).toMatchObject({ ok: false, error: "no_account" });
+    await s.ask("keys.set", { name: "a@example.com", protocol: "claude", value: "sk-ant-oat01-revoked" });
+    await s.ask("keys.set", { name: "b@example.com", protocol: "claude", value: "sk-ant-oat01-good" });
+    await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-orca", base: "https://api.orca.example" });
+    const listed = [
+      { id: "claude-fable-5-2", display_name: "Claude Fable 5.2", max_input_tokens: 1_000_000 }, { id: "claude-opus-4-8", display_name: "Claude Opus 4.8", max_input_tokens: 1_000_000 },
+      { id: "claude-sonnet-5-5", display_name: "Claude Sonnet 5.5", max_input_tokens: 500_000 }, { id: "claude-haiku-5-5", display_name: "Claude Haiku 5.5", max_input_tokens: 200_000 },
+    ];
+    s.state.net = (_url, init) => ((init?.headers as Record<string, string>).authorization === "Bearer sk-ant-oat01-good" ? Response.json({ data: listed, has_more: false }) : new Response("revoked", { status: 401 }));
+    expect((await models(s, "claude")).result).toEqual({ models: [
+      { id: "claude-fable-5-2", name: "Claude Fable 5.2", family: "Fable", window: 1_000_000 }, { id: "claude-opus-4-8", name: "Claude Opus 4.8", family: "Opus", window: 1_000_000 },
+      { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", family: "Sonnet", window: 500_000 }, { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", family: "Haiku", window: 200_000 },
+    ] });
+    const asked = s.seen.net.filter((n) => n.url.includes("/v1/models"));
+    expect(asked.map((n) => n.url)).toEqual(["https://api.anthropic.com/v1/models?limit=1000", "https://api.anthropic.com/v1/models?limit=1000"]);
+    expect(asked[1]!.init!.headers).toMatchObject({ authorization: "Bearer sk-ant-oat01-good", "anthropic-beta": "oauth-2025-04-20", "anthropic-version": "2023-06-01" });
+    // значение токена в ответе не появляется
+    expect(JSON.stringify(await models(s, "claude"))).not.toContain("sk-ant");
+    // Claude отказал не из-за токена — отказ словом, без перебора
+    s.state.net = () => new Response("overloaded", { status: 529 });
+    expect(await models(s, "claude")).toMatchObject({ ok: false, error: "catalog_failed", why: expect.stringContaining("529") });
+    // аккаунт Claude — не провайдер со своим каталогом
+    expect(await models(s, "a@example.com")).toMatchObject({ ok: false, error: "no_key" });
+    expect(await models(s, "нет")).toMatchObject({ ok: false, error: "no_key" });
+  });
+
+  // эталон: «Провайдер убрал модель из своего каталога» — чьё: слово пользователя 15 нояб. — «убрать любой десинк»
+  it("каталог провайдера — его ответ на этот запрос: убранная модель пропадает со следующим запросом, копии у службы нет", async () => {
+    const s = stand();
+    await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-orca-9999", base: "https://api.orca.example/" });
+    let listed = [{ id: "qwen-3.5-coder", context_length: 256_000, owned_by: "qwen" }, { id: "glm-5.3", context_length: 200_000 }];
+    catalogNet(s, { "https://api.orca.example": () => Response.json({ data: listed }) });
+    expect((await models(s, "orca")).result).toEqual({ models: [{ id: "qwen-3.5-coder", family: "qwen", window: 256_000 }, { id: "glm-5.3", window: 200_000 }] });
+    const asked = s.seen.net.at(-1)!;
+    expect(asked.url).toBe("https://api.orca.example/v1/models?limit=1000");
+    expect(asked.init!.headers).toMatchObject({ "x-api-key": "sk-orca-9999", authorization: "Bearer sk-orca-9999" });
+    listed = [{ id: "glm-5.3", context_length: 200_000 }];
+    expect((await models(s, "orca")).result).toEqual({ models: [{ id: "glm-5.3", window: 200_000 }] });
+    expect(s.seen.net.filter((n) => n.url.includes("/v1/models"))).toHaveLength(2);
+    // адрес провайдера уже назван с версией API — вторая версия в путь не идёт
+    await s.ask("keys.set", { name: "muse", protocol: "meta", value: "sk-meta", base: "https://api.meta.example/v1" });
+    catalogNet(s, { "https://api.meta.example": () => Response.json({ data: [{ id: "muse-2" }] }) });
+    expect((await models(s, "muse")).result).toEqual({ models: [{ id: "muse-2" }] });
+    expect(s.seen.net.at(-1)!.url).toBe("https://api.meta.example/v1/models?limit=1000");
+    // провайдер не ответил списком — отказ словом, прежний список не подставляется
+    catalogNet(s, { "https://api.orca.example": () => new Response("<html>", { status: 502 }) });
+    expect(await models(s, "orca")).toMatchObject({ ok: false, error: "catalog_failed", why: expect.stringContaining("502") });
+  });
+});
+
 describe("ключи флота: свойства и сессии", () => {
   const list = async (s: Stand) => ((await s.ask("keys.list")).result as { keys: KeyRow[] }).keys;
 
-  it("соответствие моделей, окно, настройки и окружение хранятся с ключом и отдаются машине; значение при правке свойств не нужно", async () => {
+  it("настройки и окружение хранятся с ключом и отдаются машине; значение при правке свойств не нужно; модели, соответствия имён и окна у ключа нет", async () => {
     const s = stand();
-    await s.ask("keys.set", { name: "orca", provider: "anthropic", value: "sk-orca-9999", base: "https://api.orca.example", model: "orca/flash", models: { "claude-fable-5-2": "orca/flash" }, window: 128000 });
-    expect(await list(s)).toMatchObject([{ name: "orca", base: "https://api.orca.example", model: "orca/flash", models: { "claude-fable-5-2": "orca/flash" }, window: 128000, tail: "9999", sessions: 0 }]);
+    await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-orca-9999", base: "https://api.orca.example", model: "orca/flash", models: { "claude-fable-5-2": "orca/flash" }, window: 128000 });
+    expect(await list(s)).toEqual([{ name: "orca", protocol: "anthropic", base: "https://api.orca.example", at: expect.any(Number), tail: "9999", sessions: 0 }]);
     // правка свойств без значения: значение прежнее, прежние свойства целы
-    expect((await s.ask("keys.set", { name: "orca", provider: "anthropic", base: "https://api.orca.example", model: "orca/flash", env: { ORCA_REGION: "eu" }, settings: { alwaysThinkingEnabled: false } })).ok).toBe(true);
+    expect((await s.ask("keys.set", { name: "orca", protocol: "anthropic", env: { ORCA_REGION: "eu" }, settings: { alwaysThinkingEnabled: false } })).ok).toBe(true);
     expect((await s.ask("keys.value", { name: "orca" }, "klaptop")).result).toEqual({
-      value: "sk-orca-9999", provider: "anthropic", base: "https://api.orca.example", model: "orca/flash",
-      models: { "claude-fable-5-2": "orca/flash" }, window: 128000, env: { ORCA_REGION: "eu" }, settings: { alwaysThinkingEnabled: false },
+      value: "sk-orca-9999", protocol: "anthropic", base: "https://api.orca.example", env: { ORCA_REGION: "eu" }, settings: { alwaysThinkingEnabled: false },
     });
     expect(s.seen.broadcasts.filter((b) => b.frame.what === "keys")).toHaveLength(2);
-    expect(await s.ask("keys.set", { name: "new", provider: "anthropic" })).toMatchObject({ ok: false, error: "not_found" });
+    expect(await s.ask("keys.set", { name: "new", protocol: "anthropic" })).toMatchObject({ ok: false, error: "not_found" });
+  });
+
+  // дизайн «Аккаунты и модели»: аккаунт Claude — ключ флота с протоколом claude; слово пользователя 15 нояб. — «флаги на аккаунте: Fable хранить или нет»
+  it("аккаунт Claude — ключ с протоколом claude: запас Fable бережётся, пока флаг не снят; срок токена — год от записи значения, правка флага его не двигает", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2026, 10, 15));
+    const s = stand();
+    const YEAR = 365 * DAY;
+    await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", value: "sk-ant-oat01-aaaa1111" });
+    expect(await list(s)).toEqual([{ name: "yuri@example.com", protocol: "claude", at: Date.UTC(2026, 10, 15), tail: "1111", keep: true, expires: Date.UTC(2026, 10, 15) + YEAR, sessions: 0 }]);
+    vi.setSystemTime(Date.UTC(2026, 10, 20));
+    await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", keep: false });
+    expect(await list(s)).toMatchObject([{ keep: false, expires: Date.UTC(2026, 10, 15) + YEAR, tail: "1111" }]);
+    expect((await s.ask("keys.value", { name: "yuri@example.com" }, "klaptop")).result).toEqual({ value: "sk-ant-oat01-aaaa1111", protocol: "claude", keep: false });
+    // новый токен — новый год; флаг прежний
+    await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", value: "sk-ant-oat01-bbbb2222" });
+    expect(await list(s)).toMatchObject([{ keep: false, expires: Date.UTC(2026, 10, 20) + YEAR, tail: "2222" }]);
+    // имя claude в документе сессии значит «аккаунты Claude флота»: ключ так не назвать
+    expect(await s.ask("keys.set", { name: "claude", protocol: "anthropic", value: "v" })).toMatchObject({ ok: false, error: "bad_input" });
   });
 
   it("число сессий на ключе — по картине; проба удаления называет сессии и ничего не удаляет", async () => {
     const s = stand();
-    await s.ask("keys.set", { name: "orca", provider: "anthropic", value: "sk-orca-9999" });
+    await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-orca-9999" });
     const row = (callsign: string, extra: Partial<SessionRow>): SessionRow => ({ callsign, state: "idle", spec: { name: callsign.split("@")[0]!, cwd: "~" }, by: "~yuri@example.com", since: 1, ...extra });
-    s.state.sessions = [row("a@laptop", { account: "orca" }), row("b@server", { spec: { name: "b", cwd: "~", slot: "orca" } }), row("c@laptop", { account: "yuri@example.com" })];
+    s.state.sessions = [row("a@laptop", { account: "orca" }), row("b@server", { spec: { name: "b", cwd: "~", key: "orca" } }), row("c@laptop", { spec: { name: "c", cwd: "~", key: "claude" }, account: "yuri@example.com" })];
     expect((await list(s))[0]!.sessions).toBe(2);
     expect((await s.ask("keys.remove", { name: "orca", probe: true })).result).toEqual({ sessions: ["a@laptop", "b@server"] });
     expect(await list(s)).toHaveLength(1);
@@ -391,7 +470,7 @@ describe("наблюдение: оповещение о сбоях", () => {
     const s = stand(undefined, { env: { VAPID_PRIVATE: await vapid() } });
     await subscribe(s, "kyura1");
     await s.ask("prefs.set", { scope: "fleet", name: "obs.alerts", value: { rate: 0.5, min: 6 } });
-    const refused = () => s.ask("keys.set", { name: "k", provider: "p", value: "v" }, "kanya1");
+    const refused = () => s.ask("keys.set", { name: "k", protocol: "p", value: "v" }, "kanya1");
     // до порога числа запросов (subscribe, prefs.set и три отказа — пять строк)
     for (let i = 0; i < 3; i++) await refused();
     expect(pushes(s)).toHaveLength(0);
@@ -409,7 +488,7 @@ describe("наблюдение: сводка и поиск", () => {
       { callsign: "c@oleg-mac", state: "failed", spec: { name: "c", cwd: "~" }, by: "~oleg@example.com", since: 1 },
     ];
     await s.ask("prefs.get", { scope: "me" });
-    await s.ask("keys.set", { name: "k", provider: "p", value: "v" }, "kanya1");
+    await s.ask("keys.set", { name: "k", protocol: "p", value: "v" }, "kanya1");
     await s.ask("ledger.add", { what: "host.failed", machine: "laptop", text: "второе падение" }, "klaptop");
     await s.ask("obs.report", { part: "web", level: "error", msg: "экран «Работа» упал", stack: "at Work" }, "kanya1");
     const h = (await s.ask("obs.health")).result as any;

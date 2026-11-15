@@ -1,97 +1,117 @@
-// Правила лимитов: чистые функции над записью аккаунта. Время — секунды, доли — 0..1.
-// Неделя аккаунта делится на запас Fable (его потолок — доля недели) и остальное. У очереди два места на одном списке аккаунтов:
-// место fable — сессии на Fable, место other — остальные модели. Место выбирает годный аккаунт с ближним сбросом недели.
-import type { Lane } from "@sb/protocol";
+// Правила выбора аккаунта Claude: чистые функции над записью аккаунта. Время — мс, доли — 0..1.
+// Числа окон — только из заголовков ответа Claude. Порога ниже ста нет: аккаунт работает до отказа, отказ сессии не достаётся.
+// Неделя аккаунта с флагом «беречь Fable» делится на запас Fable и остальное; без флага неделя целиком — любым моделям.
 
-/** Окно лимита. У недели: fable — сколько из неё потратил Fable; hold — сколько свободной недели держится для Fable. */
-export type Window = { utilization: number; resetsAt: number; at: number; fable?: number; hold?: number };
-/** Запись аккаунта; имя записи — почта. expires — конец входа по claude auth status; asked — когда лимиты спрашивали у Claude последний раз. */
-export type Account = { login: "ok" | "none"; plan?: string; expires?: number; limits: Record<string, Window>; asked?: number };
+/** Окно лимита: used — доля; resets — час сброса, мс (0 — неизвестен); at — когда пришло. */
+export type Window = { used: number; resets: number; at: number };
+/** Запись аккаунта; имя записи — почта. tail — хвост значения ключа: сменился — токен новый. */
+export type Account = { ok: boolean; why?: string; keep: boolean; tail?: string; limits: Record<string, Window> };
 
-export const FIVE = "five_hour", WEEK = "seven_day", FABLE = "fable";
-/** Порог окна: дальше место уходит. У Fable — ниже ста: на 100 % Claude без вопроса берёт платные кредиты. */
-const NEAR: Record<string, number> = { [FIVE]: 0.95, [WEEK]: 0.98, [FABLE]: 0.98 };
-/** Потолок Fable в неделе, когда ответ Claude его не назвал: «до 50 % недели» — правило Claude. */
-const CAP = 0.5;
-/** Окно отказа Claude → наше окно. Отказ по другому окну аккаунт не закрывает. */
-const REJECTED: Record<string, string> = { five_hour: FIVE, seven_day: WEEK, seven_day_overage_included: FABLE };
-export const windowOf = (rateLimitType: string): string | undefined => REJECTED[rateLimitType];
+export const FIVE = "five_hour", WEEK = "seven_day", FABLE = "seven_day_overage_included";
+/** Имя окна в заголовках Claude → имя окна. */
+const HEADER: Record<string, string> = { "5h": FIVE, "7d": WEEK, "7d_oi": FABLE };
+const UNIFIED = "anthropic-ratelimit-unified";
+/** Потолок Fable в неделе: окно Fable — половина недели (заголовок fallback-percentage Claude). */
+export const CAP = 0.5;
+/** Неделя ещё не начата: до её сброса — полные 168 часов. */
+const WEEK_HOURS = 168;
+const HOUR_MS = 3_600_000;
+const EPS = 1e-9;
 
-type Usage = {
-  rate_limits?: {
-    five_hour?: { utilization?: number | null; resets_at?: string | null } | null;
-    seven_day?: { utilization?: number | null; resets_at?: string | null } | null;
-    model_scoped?: Array<{ display_name?: string; utilization?: number | null; resets_at?: string | null }> | null;
-    weekly_scoped_shares?: Array<{ used_percent_of_weekly?: number | null; allowance_percent_of_weekly?: number | null }> | null;
-  } | null;
-};
-const secOf = (iso?: string | null) => (iso ? Math.floor(Date.parse(iso) / 1000) : 0);
+type Headers = Record<string, string | string[] | undefined>;
+const one = (h: Headers, name: string): string | undefined => { const v = h[name]; return Array.isArray(v) ? v[0] : v; };
 
-/** Окна из ответа Claude об аккаунте: пять часов, неделя с долей Fable и запасом для него, лимит Fable. Окно без числа не пишется. */
-export function read(u: unknown, at: number): Record<string, Window> {
-  const r = (u as Usage | undefined)?.rate_limits ?? {};
+/** Сессия с такой моделью тратит окно Fable. */
+export const isFable = (model?: string | null): boolean => /fable/i.test(model ?? "");
+
+/** Окна из заголовков ответа Claude: что названо числом. У ответа без заголовков лимитов (count_tokens) окон нет. */
+export function read(h: Headers, at: number): Record<string, Window> {
   const out: Record<string, Window> = {};
-  if (typeof r.five_hour?.utilization === "number") out[FIVE] = { utilization: r.five_hour.utilization / 100, resetsAt: secOf(r.five_hour.resets_at), at };
-  if (typeof r.seven_day?.utilization !== "number") return out;
-  const week = r.seven_day.utilization / 100, resetsAt = secOf(r.seven_day.resets_at);
-  const share = r.weekly_scoped_shares?.[0];
-  const cap = typeof share?.allowance_percent_of_weekly === "number" ? share.allowance_percent_of_weekly / 100 : CAP;
-  const spent = typeof share?.used_percent_of_weekly === "number" ? share.used_percent_of_weekly / 100 : 0;
-  const scoped = r.model_scoped?.find((m) => /fable/i.test(m.display_name ?? ""));
-  out[WEEK] = { utilization: week, resetsAt, at, fable: spent, hold: Math.max(0, Math.min(cap - spent, 1 - week)) };
-  out[FABLE] = { utilization: typeof scoped?.utilization === "number" ? scoped.utilization / 100 : cap > 0 ? Math.min(1, spent / cap) : 1, resetsAt: secOf(scoped?.resets_at) || resetsAt, at };
+  for (const [short, name] of Object.entries(HEADER)) {
+    const used = Number(one(h, `${UNIFIED}-${short}-utilization`));
+    if (!Number.isFinite(used)) continue;
+    out[name] = { used, resets: (Number(one(h, `${UNIFIED}-${short}-reset`)) || 0) * 1000, at };
+  }
   return out;
 }
+
+/** Отказ 429: какое окно Claude закрыл и до какого часа. Окно не названо — отказ не по окну (аккаунт полон или короткая пауза). */
+export function closed(h: Headers): { name: string; resets: number } | undefined {
+  const claim = one(h, `${UNIFIED}-representative-claim`);
+  const short = Object.keys(HEADER).find((k) => HEADER[k] === claim) ?? Object.keys(HEADER).find((k) => one(h, `${UNIFIED}-${k}-status`) === "rejected");
+  if (!short) return undefined;
+  return { name: HEADER[short]!, resets: (Number(one(h, `${UNIFIED}-${short}-reset`) ?? one(h, `${UNIFIED}-reset`)) || 0) * 1000 };
+}
+
+/** Заголовки отказа для журнала: лимиты и срок повтора. */
+export const refusalHeaders = (h: Headers): Record<string, string> =>
+  Object.fromEntries(Object.keys(h).filter((k) => k.startsWith("anthropic-ratelimit") || k === "retry-after").map((k) => [k, one(h, k) ?? ""]));
 
 /** Окно, чей сброс ещё не прошёл. */
 const live = (a: Account, name: string, now: number) => {
   const w = a.limits[name];
-  return w && (w.resetsAt === 0 || w.resetsAt > now) ? w : undefined;
+  return w && (w.resets === 0 || w.resets > now) ? w : undefined;
 };
-const used = (a: Account, name: string, now: number) => live(a, name, now)?.utilization ?? 0;
-/** Запас недели для Fable; неделя ещё не начата — вся его доля. */
-const hold = (a: Account, now: number) => { const w = live(a, WEEK, now); return w ? (w.hold ?? 0) : CAP; };
-const hot = (a: Account, name: string, now: number) => used(a, name, now) >= NEAR[name]!;
+const used = (a: Account, name: string, now: number) => live(a, name, now)?.used ?? 0;
 
-/** Аккаунт годен месту: вошёл, пять часов не у порога; Fable — пока не выбраны ни его лимит, ни неделя; остальным — пока есть неделя сверх запаса Fable. */
-export function fits(a: Account | undefined, lane: Lane, now: number): boolean {
-  if (a?.login !== "ok" || hot(a, FIVE, now)) return false;
-  return lane === "fable" ? !hot(a, FABLE, now) && !hot(a, WEEK, now) : used(a, WEEK, now) + hold(a, now) < NEAR[WEEK]!;
+/** Запас недели под Fable: что ему осталось в его окне, но не больше свободной недели. Без флага запаса нет. */
+export const hold = (a: Account, now: number): number => (a.keep ? Math.max(0, Math.min(CAP * (1 - used(a, FABLE, now)), 1 - used(a, WEEK, now))) : 0);
+
+/** Остаток аккаунта для сессии: доля недели, которую она может потратить. spare — другая модель берёт и запас Fable. */
+export function remainder(a: Account, fable: boolean, now: number, spare = false): number {
+  const week = 1 - used(a, WEEK, now);
+  if (fable) return Math.min(week, CAP * (1 - used(a, FABLE, now)));
+  return spare ? week : week - hold(a, now);
 }
 
-/** Когда аккаунт снова годен месту: самый поздний сброс окон, которые его держат; 0 — годен или сброс неизвестен. */
-export function usableAt(a: Account, lane: Lane, now: number): number {
-  if (fits(a, lane, now)) return 0;
-  const week = lane === "fable" ? hot(a, FABLE, now) || hot(a, WEEK, now) : used(a, WEEK, now) + hold(a, now) >= NEAR[WEEK]!;
-  return Math.max(hot(a, FIVE, now) ? (live(a, FIVE, now)?.resetsAt ?? 0) : 0, week ? (live(a, WEEK, now)?.resetsAt ?? 0) : 0);
+/** Годен: токен принят, окна не выбраны, остаток есть. Сессии Fable нужно открытое окно Fable; другой модели — неделя сверх запаса. */
+export function fits(a: Account | undefined, fable: boolean, now: number, spare = false): boolean {
+  if (!a?.ok || used(a, FIVE, now) >= 1 || used(a, WEEK, now) >= 1) return false;
+  return remainder(a, fable, now, spare) > EPS;
 }
 
-/** Час сброса недели; недели без расхода ещё нет — такой аккаунт идёт после начатых. */
-const resetOf = (a: Account, now: number) => live(a, WEEK, now)?.resetsAt || Infinity;
-
-export type Places = { fable?: string; other?: string; /** остальные модели идут из запаса Fable */ over: boolean };
-/** Расстановка мест очереди. Место стоит, пока его аккаунт годен (was); иначе берёт годный с ближним сбросом недели, при равных — по порядку.
- *  Остальные без своей половины берут запас Fable — там же, у ближнего сброса. bar — пара, которой Claude только что отказал. */
-export function place(order: string[], all: Record<string, Account>, was: Partial<Record<Lane, string | null>>, now: number, bar?: { lane: Lane; account: string }): Places {
-  const fit = (lane: Lane, as: Lane = lane) => (n: string) => !(bar && bar.lane === lane && bar.account === n) && fits(all[n], as, now);
-  const near = (ok: (n: string) => boolean) => order.filter(ok).reduce<string | undefined>((best, n) => (best === undefined || resetOf(all[n]!, now) < resetOf(all[best]!, now) ? n : best), undefined);
-  const keep = (lane: Lane, ok: (n: string) => boolean) => { const n = was[lane]; return n && order.includes(n) && ok(n) ? n : undefined; };
-  const fable = keep("fable", fit("fable")) ?? near(fit("fable"));
-  const own = keep("other", fit("other")) ?? near(fit("other"));
-  const other = own ?? near(fit("other", "fable"));
-  return { ...(fable ? { fable } : {}), ...(other ? { other } : {}), over: !own && !!other };
+/** Когда аккаунт снова годен: самый поздний сброс окон, которые его держат; 0 — годен, токен не принят или сброс неизвестен. */
+export function usableAt(a: Account, fable: boolean, now: number): number {
+  if (!a.ok || fits(a, fable, now, true)) return 0;
+  const at = (name: string) => live(a, name, now)?.resets ?? 0;
+  return Math.max(used(a, FIVE, now) >= 1 ? at(FIVE) : 0, used(a, WEEK, now) >= 1 ? at(WEEK) : 0, fable && used(a, FABLE, now) >= 1 ? at(FABLE) : 0);
 }
 
-/** Недели, чей сброс прошёл: по ним места выбирают заново. */
-export const expired = (a: Account | undefined, now: number) => !!a?.limits[WEEK] && a.limits[WEEK]!.resetsAt > 0 && a.limits[WEEK]!.resetsAt <= now;
-/** Ближайший будущий сброс окон аккаунта; 0 — нет. */
-export const nextReset = (a: Account, now: number) => Math.min(...[FIVE, WEEK].map((n) => a.limits[n]?.resetsAt ?? 0).filter((t) => t > now), Infinity);
+/** Часы до сброса недели; неделя не начата или машина ещё не видела ответа аккаунта — 168. */
+const hoursLeft = (a: Account, now: number): number => {
+  const w = live(a, WEEK, now);
+  return w && w.resets ? Math.max(1, (w.resets - now) / HOUR_MS) : WEEK_HOURS;
+};
 
-/** Лимиты спрашивали у Claude раньше, чем maxAge секунд назад, или не спрашивали. */
-export const stale = (a: Account, maxAge: number, now: number) => (a.asked ?? 0) < now - maxAge;
+/** Кандидат: остаток, часы до сброса, тёплые сессии аккаунта на машине и счёт. */
+export type Candidate = { account: string; rem: number; hours: number; warm: number; score: number };
+/** Решение: лучший аккаунт; spare — другая модель идёт из запаса Fable; wait — годных нет: когда ближайший станет годным, мс. */
+export type Choice = { account?: string; spare?: boolean; candidates: Candidate[]; wait?: number };
 
-/** Наружу: окно, чей сброс прошёл, — 0 %. */
-export const shown = (a: Account, now: number): Account => ({
-  ...a,
-  limits: Object.fromEntries(Object.entries(a.limits).map(([n, w]) => [n, w.resetsAt && w.resetsAt <= now ? { ...w, utilization: 0, ...(n === WEEK ? { fable: 0, hold: CAP } : {}) } : w])),
-});
+/** Выбор аккаунта новой или остывшей сессии. Годен → остаток → счёт = остаток ÷ часы до сброса ÷ (1 + тёплые сессии) → лучший; при равном счёте — у кого меньше тёплых.
+ *  Счёт — сколько недели в час надо тратить, чтобы она не сгорела; занятый аккаунт уступает свободному. Для другой модели второй круг берёт запас Fable. */
+export function choose(all: Record<string, Account>, fable: boolean, warm: Record<string, number>, now: number, skip: (name: string) => boolean = () => false): Choice {
+  const round = (spare: boolean): Candidate[] =>
+    Object.keys(all).sort().filter((n) => !skip(n) && fits(all[n], fable, now, spare)).map((n) => {
+      const rem = remainder(all[n]!, fable, now, spare), hours = hoursLeft(all[n]!, now), w = warm[n] ?? 0;
+      return { account: n, rem, hours, warm: w, score: rem / hours / (1 + w) };
+    });
+  let candidates = round(false);
+  const spare = !candidates.length && !fable && (candidates = round(true)).length > 0;
+  const best = candidates.reduce<Candidate | undefined>((b, c) => (!b || c.score > b.score + EPS || (Math.abs(c.score - b.score) <= EPS && c.warm < b.warm) ? c : b), undefined);
+  if (best) return { account: best.account, ...(spare ? { spare } : {}), candidates };
+  // час сброса — по всем аккаунтам: пропущенный в этом вызове откроется тем же сбросом
+  const times = Object.keys(all).map((n) => usableAt(all[n]!, fable, now)).filter((t) => t > now);
+  return { candidates, ...(times.length ? { wait: Math.min(...times) } : {}) };
+}
+
+/** Ближайший будущий сброс закрытого окна; Infinity — закрытых нет. */
+export const nextReset = (a: Account, now: number): number => Math.min(...Object.values(a.limits).filter((w) => w.used >= 1 && w.resets > now).map((w) => w.resets), Infinity);
+
+/** Окна наружу: живые; у недели — сколько из неё потратил Fable и сколько держится под него. */
+export function shown(a: Account, now: number): Array<{ name: string; used: number; resets?: number; at: number; fable?: number; hold?: number }> {
+  return Object.keys(a.limits).filter((n) => live(a, n, now)).map((n) => {
+    const w = a.limits[n]!;
+    return { name: n, used: w.used, ...(w.resets ? { resets: w.resets } : {}), at: w.at, ...(n === WEEK ? { fable: CAP * used(a, FABLE, now), hold: hold(a, now) } : {}) };
+  });
+}

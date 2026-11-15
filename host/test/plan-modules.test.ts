@@ -1,13 +1,12 @@
 // План тестов v2, модули машины: отказы словом и ожидаемые ветки, которых не держал ни один тест.
 // Источник свойств — устав («система ловит», graceful shutdown) и код (помечено «чьё: код»).
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { make as accounts } from "../src/modules/accounts/accounts.ts";
-import { folders } from "../src/modules/accounts/links.ts";
 import { make as chat } from "../src/modules/chat/chat.ts";
 import { make as incidents } from "../src/modules/incidents/incidents.ts";
 import { make as machine } from "../src/modules/machine/machine.ts";
@@ -16,7 +15,6 @@ import { make as profiles } from "../src/modules/profiles/profiles.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
 import { make as shell } from "../src/modules/shell/shell.ts";
 import { stand, tick, until, type Stand } from "../stand/index.ts";
-import { FakeQuery } from "../stand/sdk.ts";
 
 let st: Stand | undefined;
 afterEach(async () => {
@@ -27,18 +25,6 @@ afterEach(async () => {
 const CS = "site@laptop";
 const row = (cs: string) => st!.link.rows(cs).at(-1)!.row as any;
 const shellRoot = () => mkdtempSync(join(tmpdir(), "sb2-shell-"));
-
-/** Папка данных с вошедшими аккаунтами и очередями. */
-function homeWithAccounts(names: Record<string, "ok" | "none">, slots: Record<string, string[]>): string {
-  const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
-  mkdirSync(join(home, "store"), { recursive: true });
-  const book = { accounts: Object.fromEntries(Object.entries(names).map(([n, login]) => [n, { login, plan: "max", limits: {} }])), slots };
-  writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: book }));
-  const dirs = folders(home);
-  for (const n of Object.keys(names)) mkdirSync(dirs.accDir(n), { recursive: true });
-  for (const [slot, order] of Object.entries(slots)) for (const lane of ["fable", "other"] as const) symlinkSync(dirs.accDir(order[0]!), (mkdirSync(join(home, "slots"), { recursive: true }), dirs.laneDir(slot, lane)), process.platform === "win32" ? "junction" : "dir");
-  return home;
-}
 
 describe("план v2: машина", () => {
   it("machine.dirs: путь не от ~ и не полный — отказ bad_dir", async () => {
@@ -253,28 +239,7 @@ describe("план v2: обращения", () => {
   });
 });
 
-describe("план v2: очереди и правила", () => {
-  const A = "a@example.com", B = "b@example.com", C = "c@example.com";
-  const slots = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).slots.map(({ lanes, ...q }: any) => ({ ...q, ...lanes.fable })) as Array<{ name: string; account?: string }>;
-
-  // чьё: код
-  it("slot.set: в новом порядке нет того, кто стоит сейчас, — очередь идёт на первого вошедшего; строка сессии называет его; в журнале account_swap", async () => {
-    st = await stand({ home: homeWithAccounts({ [A]: "ok", [B]: "ok" }, { main: [A, B] }), modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => ({ keys: [] });
-    await st.open("site", { slot: "main" });
-    expect(row(CS).account).toBe(A);
-    expect(await st.request("slot.set", { to: "@laptop", slot: "main", order: [B] })).toMatchObject({ ok: true });
-    expect((await slots()).find((q) => q.name === "main")!.account).toBe(B);
-    await until(() => row(CS).account === B, 5000, "строка сессии на B");
-    expect(st.journal().some((l) => l.msg === "account_swap" && String(l.why).includes("новый порядок"))).toBe(true);
-  });
-
-  it("slot.set: в порядке нет вошедшего аккаунта — отказ no_reserve, очередь не заведена", async () => {
-    st = await stand({ home: homeWithAccounts({ [A]: "ok", [C]: "none" }, { main: [A] }), modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => ({ keys: [] });
-    expect(await st.request("slot.set", { to: "@laptop", slot: "docs", order: [C] })).toMatchObject({ ok: false, error: "no_reserve" });
-    expect((await slots()).map((q) => q.name)).toEqual(["main"]);
-  });
+describe("план v2: правила", () => {
 
   // устав: «прямой запрос к Worker'у не прошёл — отказ словом»
   it("rules.test без rules: правила флота не прочитаны — отказ rules_unavailable", async () => {
@@ -395,91 +360,14 @@ describe("план v2: сведение кусочков", () => {
   });
 });
 
-describe("план v2: вход Claude и ключи", () => {
-  const probes = () => st!.sdk.queries.filter((q) => q.calls.some((c) => c.name === "claudeAuthenticate"));
-  const proto = FakeQuery.prototype as any;
-  const saved = { auth: proto.claudeAuthenticate, back: proto.claudeOAuthCallback };
-  const withUrl = () => {
-    proto.claudeAuthenticate = async function (this: InstanceType<typeof FakeQuery>, ...args: unknown[]) {
-      this.calls.push({ name: "claudeAuthenticate", args });
-      return { manualUrl: `https://claude.ai/oauth/authorize?state=s${probes().length}` };
-    };
-  };
-  afterEach(() => {
-    proto.claudeAuthenticate = saved.auth;
-    proto.claudeOAuthCallback = saved.back;
-  });
-
-  // устав: вход по ссылке и коду с пульта; чьё: код — на машине один вход за раз
-  it("второй вход отменяет начатый: процесс первого закрыт, код идёт ко второму", async () => {
-    withUrl();
-    st = await stand({ modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => ({ keys: [] });
-    const first = (await st.request("account.login", { to: "@laptop" })).result as { url: string };
-    const second = (await st.request("account.login", { to: "@laptop" })).result as { url: string };
-    expect(second.url).not.toBe(first.url);
-    expect(probes()).toHaveLength(2);
-    expect(probes()[0]!.closed).toBe(true);
-    const dir = folders(st.home).newDir;
-    writeFileSync(join(dir, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "a@example.com" } }));
-    writeFileSync(join(dir, ".credentials.json"), "{}");
-    expect((await st.request("account.code", { to: "@laptop", login: "login", code: "код" })).ok).toBe(true);
-    expect(probes()[1]!.calls.some((c) => c.name === "claudeOAuthCallback")).toBe(true);
-    expect(probes()[0]!.calls.some((c) => c.name === "claudeOAuthCallback")).toBe(false);
-  });
-
-  it("Claude не дал ссылку — отказ login_failed с причиной; процесс пробы закрыт", async () => {
-    proto.claudeAuthenticate = async function (this: InstanceType<typeof FakeQuery>) {
-      this.calls.push({ name: "claudeAuthenticate", args: [] });
-      throw new Error("нет сети");
-    };
-    st = await stand({ modules: [accounts()] });
-    const r = await st.request("account.login", { to: "@laptop" });
-    expect(r).toMatchObject({ ok: false, error: "login_failed" });
-    expect(String((r as any).why)).toContain("нет сети");
-    expect(probes()[0]!.closed).toBe(true);
-  });
-
-  it("код без начатого входа — отказ not_started; аккаунтов и очередей не прибавилось", async () => {
-    st = await stand({ modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => ({ keys: [] });
-    expect(await st.request("account.code", { to: "@laptop", login: "login", code: "код#s" })).toMatchObject({ ok: false, error: "not_started" });
-    expect((await st.request("account.list", { to: "@laptop" })).result).toEqual({ accounts: [], slots: [] });
-  });
-
-  // чьё: код — секрет не попадает в ответ и журнал
-  it("Claude не принял код — отказ bad_code без самого кода в причине; вход закрыт: повторный код — not_started", async () => {
-    withUrl();
-    proto.claudeOAuthCallback = async (code: string) => {
-      throw new Error(`invalid_grant для кода ${code}`);
-    };
-    st = await stand({ modules: [accounts()] });
-    await st.request("account.login", { to: "@laptop" });
-    const r = await st.request("account.code", { to: "@laptop", login: "login", code: "тайный-код-123" });
-    expect(r).toMatchObject({ ok: false, error: "bad_code" });
-    expect(String((r as any).why)).not.toContain("тайный-код-123");
-    expect(JSON.stringify(st.journal())).not.toContain("тайный-код-123");
-    expect(await st.request("account.code", { to: "@laptop", login: "login", code: "тайный-код-123" })).toMatchObject({ ok: false, error: "not_started" });
-  });
-
-  // устав: прямой запрос к службе не прошёл — ожидаемая ветка; чьё: код
-  it("account.list: служба ключей не ответила — входы и очереди без ключей флота, не отказ", async () => {
-    st = await stand({ home: homeWithAccounts({ "a@example.com": "ok" }, { main: ["a@example.com"] }), modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => {
-      throw { word: "offline", message: "службы молчат" };
-    };
-    const r = await st.request("account.list", { to: "@laptop" });
-    expect(r.ok).toBe(true);
-    expect((r.result as any).accounts.map((a: any) => a.id)).toEqual(["a@example.com"]);
-    expect((r.result as any).slots).toMatchObject([{ name: "main", lanes: { fable: { account: "a@example.com" }, other: { account: "a@example.com" } } }]);
-  });
-
+describe("план v2: ключи провайдеров", () => {
   const keyStand = async (out: string, code = 0) => {
     st = await stand({ modules: [accounts(), proxy()] });
     st.services.handlers["keys.value"] = (f: any) => {
       if (f.name !== "team-key") throw { word: "not_found", message: "ключа нет" };
-      return { value: "sk-тайна", provider: "anthropic", base: "https://api.example.com" };
+      return { value: "sk-тайна", protocol: "anthropic", base: "https://api.example.com" };
     };
+    st.services.handlers["keys.models"] = () => ({ models: [{ id: "big-1" }] });
     st.sdk.cli = async (args, env, input) => {
       st!.sdk.cliCalls.push({ args, env, ...(input !== undefined ? { input } : {}) });
       return { code, out };
@@ -501,9 +389,9 @@ describe("план v2: вход Claude и ключи", () => {
     expect(await st!.request("key.check", { to: "@laptop", name: "team-key" })).toMatchObject({ ok: true, result: { ok: false, word: "401 invalid x-api-key" } });
   });
 
-  it("key.check: ключа с таким именем нет — отказ no_account, разовый claude не запускался", async () => {
+  it("key.check: ключа с таким именем нет — отказ no_key, разовый claude не запускался", async () => {
     await keyStand("{}");
-    expect(await st!.request("key.check", { to: "@laptop", name: "ghost" })).toMatchObject({ ok: false, error: "no_account" });
+    expect(await st!.request("key.check", { to: "@laptop", name: "ghost" })).toMatchObject({ ok: false, error: "no_key" });
     expect(st!.sdk.cliCalls.filter((c) => c.args.includes("-p"))).toHaveLength(0);
   });
 });
@@ -527,10 +415,11 @@ describe("план v2: прокси модели", () => {
   };
   const session = async (base: string, home?: string) => {
     st = await stand({ ...(home ? { home } : {}), modules: [accounts(), proxy()] });
-    st.services.handlers["keys.value"] = () => ({ value: "sk-real", provider: "anthropic", base });
+    st.services.handlers["keys.value"] = () => ({ value: "sk-real", protocol: "anthropic", base });
+    st.services.handlers["keys.models"] = () => ({ models: [{ id: "m" }] });
     st.services.handlers["prefs.get"] = () => ({ values: { "proxy.rules": [] } });
     // тот же home — сессия уже есть: новый Host поднял её сам
-    const s = st.kernel.sessions.get(CS) ?? (await st.open("site", { slot: "team-key" })).s;
+    const s = st.kernel.sessions.get(CS) ?? (await st.open("site", { key: "team-key", model: "m" })).s;
     await until(() => s.state === "idle", 5000, "site idle");
     const url = (st.sdk.last(CS)!.options as any).env.ANTHROPIC_BASE_URL as string;
     const call = () => fetch(`${url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-api-key": "fleet", "x-claude-code-session-id": s.rec.sessionId }, body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "привет" }] }) });
@@ -649,57 +538,4 @@ describe("план v2: точки сами", () => {
     expect((await saving).ok).toBe(true);
     expect(st.exits).toEqual([0]);
   });
-});
-
-describe("план v2: такт проверки входов", () => {
-  const A = "a@example.com", B = "b@example.com";
-  const accountsOf = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).accounts as Array<{ id: string; ok: boolean; why?: string }>;
-  const slotsOf = async () => ((await st!.request("account.list", { to: "@laptop" })).result as any).slots.map(({ lanes, ...q }: any) => ({ ...q, ...lanes.fable })) as Array<{ name: string; account?: string }>;
-  /** Ждать, пока вход аккаунта не станет таким. */
-  const login = async (id: string, ok: boolean, ms: number) => {
-    const end = Date.now() + ms;
-    while ((await accountsOf()).find((a) => a.id === id)?.ok !== ok) {
-      if (Date.now() > end) throw new Error(`вход ${id} не стал ${ok}`);
-      await new Promise((r) => setTimeout(r, 50));
-    }
-  };
-
-  // устав: «система ловит» — остановить, записать причину
-  it("вход пропал: аккаунт без входа, очередь идёт на следующего, в журнале login_lost", async () => {
-    const home = homeWithAccounts({ [A]: "ok", [B]: "ok" }, { main: [A, B] });
-    st = await stand({ home, modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => ({ keys: [] });
-    st.sdk.cli = async (args, env) => ({ code: args.includes("status") && String(env.CLAUDE_CONFIG_DIR ?? "").includes(folders(home).accDir(A)) ? 1 : 0, out: "{}" });
-    st.clock.advance(2 * 60_000);
-    await login(A, false, 8000);
-    expect((await slotsOf()).find((x) => x.name === "main")?.account).toBe(B);
-    expect(st.journal().some((l) => l.msg === "login_lost")).toBe(true);
-  }, 20_000);
-
-  // чьё: код — «чужая почта — „нет входа“ и подмена»
-  it("в папке входа чужой токен: аккаунт без входа, очередь идёт на следующего, в журнале login_foreign", async () => {
-    const home = homeWithAccounts({ [A]: "ok", [B]: "ok" }, { main: [A, B] });
-    st = await stand({ home, modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => ({ keys: [] });
-    st.sdk.cli = async () => ({ code: 0, out: "{}" });
-    st.clock.advance(2 * 60_000);
-    const who = folders(home).whoDir(1);
-    await until(() => existsSync(who), 5000, "проба владельца пошла");
-    writeFileSync(join(who, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "c@example.com" } }));
-    await login(A, false, 12_000);
-    expect((await slotsOf()).find((x) => x.name === "main")?.account).toBe(B);
-    expect(st.journal().some((l) => l.msg === "login_foreign")).toBe(true);
-  }, 30_000);
-
-  // чьё: код — «обрыв сети слот не меняет»
-  it("claude не ответил: вход остаётся годным, очередь не тронута, в журнале причина", async () => {
-    const home = homeWithAccounts({ [A]: "ok", [B]: "ok" }, { main: [A, B] });
-    st = await stand({ home, modules: [accounts()] });
-    st.services.handlers["keys.list"] = () => ({ keys: [] });
-    st.sdk.cli = async (args) => (args.includes("status") ? new Promise(() => {}) : { code: 0, out: "{}" });
-    st.clock.advance(2 * 60_000);
-    await until(() => st!.journal().some((l) => l.msg === "check"), 15_000, "причина в журнале");
-    expect((await accountsOf()).find((a) => a.id === A)?.ok).toBe(true);
-    expect((await slotsOf()).find((x) => x.name === "main")?.account).toBe(A);
-  }, 30_000);
 });
