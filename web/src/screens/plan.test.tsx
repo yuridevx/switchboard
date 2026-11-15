@@ -127,7 +127,9 @@ describe("новая сессия", () => {
     const spy = stub("profile.list", () => ({ pieces: real.filter((p) => p.id !== gone) }));
     page(<NewForm />, AT);
     await waitFor(() => expect(document.querySelector('[aria-label="Что ставят кусочки"]')?.textContent?.length ?? 0).toBeGreaterThan(0));
-    fireEvent.click(await screen.findByRole("button", { name: "Открыть сессию" }));
+    // модель новой сессии встаёт, когда ответил каталог: до этого открыть нельзя
+    await waitFor(() => expect((screen.getByRole("button", { name: "Открыть сессию" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Открыть сессию" }));
     await waitFor(() => expect(opened(spy)).toHaveLength(1));
     expect(opened(spy)[0].spec.pieces).toEqual(neighbour.filter((id) => id !== gone));
   });
