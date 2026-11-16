@@ -219,11 +219,24 @@ function sessionIdOf(req: Json): string | null {
   }
 }
 
+/** Строгую схему Meta принимает, только когда у каждого объекта в ней лишние поля закрыты и required называет каждое поле; иначе отклоняет запрос (400). */
+function strictFit(schema: unknown): boolean {
+  if (Array.isArray(schema)) return schema.every(strictFit);
+  if (!schema || typeof schema !== "object") return true;
+  const s = schema as Json;
+  if (s.properties && typeof s.properties === "object") {
+    const need = new Set<string>(Array.isArray(s.required) ? s.required : []);
+    if (s.additionalProperties !== false || !Object.keys(s.properties).every((k) => need.has(k))) return false;
+  }
+  return Object.values(s).every(strictFit);
+}
+
+/** Форма ответа: строгой называется только схема, которую строгий режим Meta примет; схема с необязательным полем идёт нестрогой. */
 function textFormat(req: Json): Json | null {
   const f = req.output_config?.format ?? req.output_format;
   if (!f || f.type !== "json_schema") return null;
   const schema = f.schema ?? f.json_schema?.schema ?? f.json_schema;
-  return { text: { format: { type: "json_schema", name: "output", schema, strict: schema?.additionalProperties === false } } };
+  return { text: { format: { type: "json_schema", name: "output", schema, strict: !!schema?.properties && strictFit(schema) } } };
 }
 
 function cacheKey(req: Json): string | null {

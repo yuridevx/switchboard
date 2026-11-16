@@ -32,8 +32,9 @@ function foldTurn(turn: Row[], tools: Record<string, Tool>, out: Item[]) {
   let final: Row | null = null;
   const lastReply = turn.findLastIndex((r) => r.k === "reply");
   turn.forEach((r, i) => {
-    if (r.k === "ban" || r.k === "sum" || r.k === "task" || (r.k === "sys" && r.tone === "wait")) return void shown.push(r);
-    if (r.k === "res" || r.k === "end") return void ends.push(r);
+    // беда сессии на виду и в фокусе
+    if (r.k === "ban" || r.k === "sum" || r.k === "task" || (r.k === "sys" && r.tone === "wait") || (r.k === "line" && r.log)) return void shown.push(r);
+    if (r.k === "res") return void ends.push(r);
     if (r.k !== "reply") return void hidden.push(r);
     let parts: Part[] = r.parts;
     const tail = parts.at(-1);
@@ -77,6 +78,7 @@ export function exportMd(cs: string, v: View): string {
       const text = r.parts.flatMap((p) => (p.k === "text" ? [p.text] : p.k === "tool" ? [`- \`${v.tools[p.id]?.name}\` ${JSON.stringify(v.tools[p.id]?.input ?? {})}`] : [])).join("\n\n");
       if (text) out.push(`## Claude\n\n${text}\n`);
     } else if (r.k === "res") out.push(`_${r.bits.join(" · ")}_\n`);
+    else if (r.k === "line" && r.log) out.push(`> ⚠ ${r.text}${r.dim ?? ""}\n`);
   }
   return out.join("\n");
 }

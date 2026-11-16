@@ -25,13 +25,6 @@ export const FALLBACK_WHY: Record<string, string> = {
   model_blocked: "{m} временно отключена",
 };
 
-export const RESULT_ERRORS: Record<string, string> = {
-  error_during_execution: "сбой при выполнении",
-  error_max_turns: "предел шагов",
-  error_max_budget_usd: "предел бюджета",
-  error_max_structured_output_retries: "предел повторов ответа",
-};
-
 /** Конец фоновой задачи: слово и тон строки. */
 export const TASK_END: Record<string, [string, "ok" | "bad" | "wait"]> = {
   completed: ["Задача завершена", "ok"],

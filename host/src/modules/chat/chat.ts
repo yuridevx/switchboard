@@ -28,15 +28,15 @@ const MODEL_COMMAND = /^\/model(?:\s+([\s\S]*))?$/;
 const MODELS_SHOWN = 12;
 
 type FileIn = { name: string; mime: string; base64: string };
-/** Итог хода для истории: файл разговора его не хранит. after — запись разговора, за которой он встаёт. */
+/** Событие ленты, которого нет в файле разговора: итог хода, след отката, беда сессии. after — запись разговора, за которой оно встаёт в истории. */
 type TurnEnd = { after: string; event: Record<string, unknown> };
-/** Раздел сессии: люди разговора, у кого непрочитанное, начало последнего ответа, итоги последних ходов.
+/** Раздел сессии: люди разговора, у кого непрочитанное, начало последнего ответа, события последних ходов для истории (ends).
  *  opens — номера принятых входящих, которые откроют задачу родителя, когда ход их возьмёт; open — задача родителя открыта: итог хода уходит ему;
  *  owed — итог хода, кончившегося, пока Host останавливался: его дошлёт следующий Host. */
 type Part = { people?: string[]; unread?: string[]; result?: string; title?: string; asker?: string; ends?: TurnEnd[]; opens?: string[]; open?: boolean; owed?: string };
 /** Виды входящего, взятие которых открывает задачу родителя: его задача, итог своей дочери, весть о своей работе. */
 const OPENS = new Set<Kind>(["task", "result", "news"]);
-/** Сколько итогов ходов хранит сессия. */
+/** Сколько событий для истории хранит сессия. */
 const ENDS_MAX = 200;
 /** Поля итога хода, которые идут в историю: время, шаги, цена, токены; текст ответа — уже в записи модели. */
 const END_FIELDS = ["type", "subtype", "uuid", "is_error", "duration_ms", "duration_api_ms", "num_turns", "total_cost_usd", "usage", "modelUsage", "session_id"];
@@ -447,6 +447,12 @@ export function make(): Module {
           const after = lastUuid.get(cs);
           if (!msg.uuid) msg = { ...msg, uuid: randomUUID() };
           if (after) merge(s, { ends: [...(part(s).ends ?? []), { after, event: Object.fromEntries(END_FIELDS.filter((f) => msg[f] !== undefined).map((f) => [f, msg[f]])) }].slice(-ENDS_MAX) });
+        }
+        // беда сессии — строка журнала машины: в файле разговора её нет, в истории она встаёт за последней записью разговора, как итог хода.
+        // Host только что поднялся и записей ещё не видел — за той же записью, что последнее сохранённое событие
+        if (msg?.type === "log") {
+          const ends = part(s).ends ?? [];
+          merge(s, { ends: [...ends, { after: lastUuid.get(cs) ?? ends.at(-1)?.after ?? "", event: msg }].slice(-ENDS_MAX) });
         }
         // сброс разговора: /clear говорит об этом сам, словами его называет Host; след отката встаёт в историю за последней оставшейся записью
         if (msg?.type === "conversation_reset") {

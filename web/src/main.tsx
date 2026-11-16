@@ -12,7 +12,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { createHashRouter, Navigate, RouterProvider } from "react-router";
-import { api, isMock } from "./api.ts";
+import { api, isMock, quietly } from "./api.ts";
 import { Boundary } from "./common.tsx";
 import { onOpenFromPush } from "./lib/push.ts";
 import { Work } from "./screens/Work.tsx";
@@ -69,7 +69,7 @@ const report = (msg: string, stack?: string) => {
   if (sent++ >= 5 || !api) return;
   // где это случилось: экран, приложение с экрана «Домой» или вкладка, браузер — без этого ошибку с телефона не разобрать
   const where = `${location.hash.split("?")[0] || "#/"} · ${window.matchMedia?.("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone ? "с экрана Домой" : "вкладка"} · ${navigator.userAgent.replace("Mozilla/5.0 ", "").slice(0, 110)}`;
-  api.call(obsReport, { part: "web", level: "error", msg: `${msg.slice(0, 380)} · ${where}`, ...(stack ? { stack: stack.slice(0, 4000) } : {}) }).catch(() => {});
+  quietly(obsReport, { part: "web", level: "error", msg: `${msg.slice(0, 380)} · ${where}`, ...(stack ? { stack: stack.slice(0, 4000) } : {}) });
 };
 // у ошибки без текста сообщение события — голое «Uncaught»: тогда берём имя и текст самой ошибки
 const errorText = (message: string, error?: { name?: string; message?: string }) => (error?.message ? `${error.name ?? "Error"}: ${error.message}` : message.replace(/^Uncaught\s*/, "") || "ошибка без текста");

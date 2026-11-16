@@ -1,4 +1,4 @@
-// Машина: папки для выбора, журнал машины (строки Host, Keeper и держателей) и сбои из сообщений SDK — строками журнала.
+// Машина: папки для выбора, журнал машины (строки Host, Keeper и держателей) и беды из сообщений SDK — строками журнала (таблица — troubles.ts).
 // Журнал машины уходит в историю флота (ClickHouse) пачками с места остановки: файл на машине — источник, вызовы модели отправку не ждут.
 import { existsSync, readdirSync } from "node:fs";
 import { open, readdir, readFile, stat } from "node:fs/promises";
@@ -9,39 +9,13 @@ import { limited } from "../../core/clock.ts";
 import type { Window } from "../../core/meter.ts";
 import type { Ctx, HostApi, Module } from "../../core/contract.ts";
 import { clientPath, tildePath } from "../../core/paths.ts";
+import { troubles } from "./troubles.ts";
 
 /** Ошибка ОС → слово договора; остальное — ошибка модуля. */
 const WORDS: Record<string, string> = { ENOENT: "not_found", ENOTDIR: "not_found", ENAMETOOLONG: "not_found", EACCES: "no_access", EPERM: "no_access" };
 const FILE = /^[a-z]+-(\d{4}-\d{2}-\d{2})\.jsonl$/;
-const first = (v: unknown) => String(v ?? "").split("\n")[0]!;
 
 type Msg = Record<string, any>;
-type Line = { level: "info" | "warn" | "error"; msg: string; why: string; [k: string]: unknown };
-
-/** Сообщение SDK → строки журнала: только сбои и то, что нужно для разбора. */
-function sdkLines(m: Msg): Line[] {
-  if (m.type === "system" && m.subtype === "api_retry") return [{ level: "warn", msg: "sdk.api_retry", why: `попытка ${m.attempt} из ${m.max_retries}: ${m.error_status ?? "нет ответа"}, пауза ${m.retry_delay_ms / 1000} с` }];
-  if (m.type === "system" && m.subtype === "status" && m.compact_result === "failed") return [{ level: "error", msg: "sdk.compact", why: `сжатие разговора не удалось: ${first(m.compact_error)}` }];
-  if (m.type === "system" && m.subtype === "permission_denied") return [{ level: "warn", msg: "sdk.permission_denied", word: "permission_denied", why: `${m.tool_name}: ${first(m.decision_reason ?? m.message)}` }];
-  // подтип ошибки — сбой и при is_error: false
-  if (m.type === "result" && !(m.subtype === "success" && !m.is_error)) return [{ level: "error", msg: "sdk.result", word: m.startup_failure_reason ?? (m.subtype === "success" ? "is_error" : m.subtype), why: `ход остановлен: ${first(m.errors?.[0] ?? m.result)}` }];
-  if (m.type === "rate_limit_event" && m.rate_limit_info?.status === "rejected") {
-    const i = m.rate_limit_info;
-    return [{ level: "error", msg: "sdk.rate_limit", word: "rate_limit", why: `лимит аккаунта ${i.rateLimitType ?? "—"}: отказ до ${i.resetsAt ? new Date(i.resetsAt * 1000).toISOString() : "—"}` }];
-  }
-  if (m.type === "auth_status" && m.error) return [{ level: "error", msg: "sdk.auth_status", why: `вход аккаунта не удался: ${first(m.error)}` }];
-  return [];
-}
-
-/** init процесса: версия, модель, папка, режим; серверы и плагины, которые не поднялись, — строкой error. */
-function initLines(m: Msg): Line[] {
-  const lines: Line[] = [{ level: "info", msg: "sdk.init", why: `claude ${m.claude_code_version} · ${m.model} · ${m.cwd} · ${m.permissionMode}` }];
-  const mcp = ((m.mcp_servers ?? []) as Msg[]).filter((x) => x.status === "failed").map((x) => x.name as string);
-  const plugins = (m.plugin_errors ?? []) as Msg[];
-  const why = [...(mcp.length ? [`серверы инструментов не поднялись: ${mcp.join(", ")}`] : []), ...(plugins.length ? [`плагины: ${plugins.map((p) => `${p.plugin}: ${p.type} — ${p.message}`).join(", ")}`] : [])];
-  if (why.length) lines.push({ level: "error", msg: "sdk.init", why: why.join("; ") });
-  return lines;
-}
 
 type JournalQuery = { part?: string; level?: "info" | "warn" | "error"; before?: number; limit?: number; of?: string; session?: string; since?: number; kind?: "stop" | "refuse" | "note" };
 const RANK = { info: 0, warn: 1, error: 2 };
@@ -216,12 +190,14 @@ export function make({ home = homedir(), metricsMs = METRICS_MS, shipMs = SHIP_M
       event(s, m: Msg) {
         const cs = s.callsign;
         if (m.type === "system" && m.subtype === "api_retry") host.meter.count("provider.retry");
-        let lines = sdkLines(m);
-        if (m.type === "system" && m.subtype === "init" && !inited.has(cs)) {
+        // init приходит на каждый ход: строки о процессе — один раз на процесс
+        const init = m.type === "system" && m.subtype === "init";
+        if (init && inited.has(cs)) return;
+        if (init) {
           inited.add(cs);
-          lines = initLines(m);
+          host.log.info("sdk.init", { callsign: cs, why: `claude ${m.claude_code_version} · ${m.model} · ${m.cwd} · ${m.permissionMode}` });
         }
-        for (const { level, msg, ...fields } of lines) host.log[level](msg, { callsign: cs, ...fields });
+        for (const { level, msg, ...fields } of troubles(m)) host.log[level](msg, { callsign: cs, ...fields });
       },
     },
   };

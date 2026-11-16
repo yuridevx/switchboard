@@ -140,7 +140,8 @@ export class FakeProc {
     else if (x.$ === "interrupt") {
       this.interrupts++;
       if (this.busy && !this.noInterrupt) {
-        this.send({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, total_cost_usd: 0, session_id: "s" });
+        // как настоящий SDK 0.3.321: итог прерванного хода называет прерывание сам
+        this.send({ type: "result", subtype: "error_during_execution", is_error: true, terminal_reason: "aborted_streaming", num_turns: 1, total_cost_usd: 0, session_id: "s" });
         this.send({ type: "system", subtype: "session_state_changed", state: "idle", session_id: "s" });
       }
     } else if (x.$ === "permission") {

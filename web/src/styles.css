@@ -53,6 +53,7 @@ body { overflow: hidden; }
 .scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .page { padding: 18px 22px 40px; max-width: 1180px; width: 100%; }
 .banner { background: var(--st-waiting-weak); padding: 6px 14px; font-size: 13px; border-bottom: 1px solid var(--line); }
+.banner.bad { background: var(--st-failed-weak); overflow-wrap: anywhere; }
 .hole { flex: 1; display: grid; place-items: center; color: var(--muted); padding: 24px; text-align: center; }
 
 /* строки списков */

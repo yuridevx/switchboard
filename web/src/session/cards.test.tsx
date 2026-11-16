@@ -20,7 +20,7 @@ afterEach(cleanup);
 const tool = (t: Partial<Tool>): Tool => ({ id: "t1", steps: [], ...t });
 const view = (tools: Tool[], tasks: Task[] = []): View => ({
   rows: [], tools: Object.fromEntries(tools.map((t) => [t.id, t])), tasks: Object.fromEntries(tasks.map((t) => [t.id, t])), hint: "", compacting: false, thinking: null, cost: 0,
-  interrupted: false, status: {}, stream: {}, replies: new Map(), sub: 0, n: 0,
+  open: false, status: {}, stream: {}, replies: new Map(), sub: 0, n: 0,
 });
 /** Лента из одного ответа с вызовами инструментов. */
 function feed(tools: Tool[], o: { tasks?: Task[]; waiting?: string } = {}) {

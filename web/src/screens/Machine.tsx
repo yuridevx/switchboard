@@ -13,7 +13,7 @@ import { ago, day, hhmm, nSessions } from "../lib/time.ts";
 import { byUrgency, machineOfCall, useFleet } from "../store/fleet.ts";
 import { Fire } from "./archive/Fire.tsx";
 import { fireCount, HOST_WORD } from "./fleet/Machines.tsx";
-import { journalWord } from "./Observe.tsx";
+import { journalWord } from "../lib/journal.ts";
 
 export function Machine() {
   const { name = "" } = useParams();

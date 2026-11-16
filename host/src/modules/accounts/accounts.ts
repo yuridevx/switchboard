@@ -8,7 +8,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { CLAUDE, catalogModel, docModel, findModels, incidentRaise, keysLimits, keysList, keysModels, keysValue, READ_MS, Refusal, within, type Account as AccountOut, type Model, type Offer } from "@sb/protocol";
+import { CLAUDE, catalogModel, docModel, findModels, incidentRaise, keysLimits, keysList, keysModels, keysValue, LIMIT_WORD, READ_MS, Refusal, within, type Account as AccountOut, type Model, type Offer } from "@sb/protocol";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
 import { choose, closed, FABLE, FIVE, fits, isFable, nextReset, read, refusalHeaders, shown, WEEK, type Account, type Candidate } from "./limits.ts";
 
@@ -25,7 +25,7 @@ type Seat = { account?: string; at?: number; cut?: boolean; wait?: number; key?:
 export type Route = { /** позывной сессии; у пробы аккаунта и проверки ключа сессии нет */ callsign: string; to: string; account?: string; token?: string; key?: string; name?: string; model?: string; env?: Record<string, string> };
 /** Что делать с ответом: отдать сессии; послать тот же вызов на следующий аккаунт; подождать и повторить на том же. */
 export type Verdict = { act: "pass" } | { act: "next" } | { act: "wait"; ms: number };
-export type Answered = { status: number; headers: Record<string, string | string[] | undefined>; path: string; ms: number; hops: number; waited: boolean; model?: string };
+export type Answered = { status: number; headers: Record<string, string | string[] | undefined>; path: string; ms: number; hops: number; waited: boolean; model?: string; /** что провайдер написал в отказе */ why?: string };
 export type AccountsApi = {
   /** Маршрут вызова сессии. skip — аккаунты, которые этот вызов уже пробовал. Маршрут в полёте, пока не назван done. */
   route(sessionId: string, skip?: string[]): Promise<Route>;
@@ -60,7 +60,6 @@ const PROBE_MS = READ_MS - 2_000;
 const PROBE = "проба";
 /** Вид обращения в «Инциденты»: токен аккаунта не принят. */
 const ACCOUNT_INCIDENT = "account";
-const WINDOW_WORD: Record<string, string> = { [WEEK]: "неделя", [FABLE]: "окно Fable", [FIVE]: "пять часов" };
 const KIND: Record<string, string> = { [WEEK]: "week", [FABLE]: "fable", [FIVE]: "five_hour" };
 
 const clock = (t: number) => new Date(t).toTimeString().slice(0, 5);
@@ -193,7 +192,8 @@ export function make(): Module {
   /** Строка решения о выборе: кандидаты со счётом — входы решения. */
   function routed(s: SessionApi, account: string | undefined, why: string, candidates: Candidate[]): void {
     const pct = (x: number) => Math.round(x * 1000) / 10;
-    host.log.info("route", {
+    // годного аккаунта нет — беда сессии: строка уровня warn уходит в её ленту, человек видит причину и час сброса сразу, а не после всех повторов claude
+    host.log[account ? "info" : "warn"]("route", {
       callsign: s.callsign, ...(account ? { account } : {}), model: s.spec.model, why,
       candidates: candidates.map((c) => ({ account: c.account, rem: pct(c.rem), hours: Math.round(c.hours * 10) / 10, warm: c.warm, score: pct(c.score) })),
     });
@@ -322,7 +322,9 @@ export function make(): Module {
 
     answer(route, r) {
       const req = r.headers["request-id"];
-      const line = { ...(route.callsign === PROBE ? { probe: true } : { callsign: route.callsign }), path: r.path, status: r.status, ms: r.ms, hops: r.hops, ...(r.model ? { model: r.model } : {}), ...(typeof req === "string" ? { req } : {}) };
+      // отказ несёт причину словами провайдера: строка о сессии уходит в её ленту — человек видит, что именно отклонено
+      const refused = r.status >= 400 ? { why: `вызов модели отклонён (${r.status})${r.why ? `: ${r.why}` : ""}` } : {};
+      const line = { ...(route.callsign === PROBE ? { probe: true } : { callsign: route.callsign }), path: r.path, status: r.status, ms: r.ms, hops: r.hops, ...(r.model ? { model: r.model } : {}), ...(typeof req === "string" ? { req } : {}), ...refused };
       const name = route.account;
       if (!name) {
         host.log[r.status < 400 ? "info" : "warn"]("call", { ...line, key: route.name });
@@ -357,7 +359,7 @@ export function make(): Module {
           mark(name, (a) => void (a.limits[window.name] = { used: 1, resets: window.resets, at: t }));
           seen.set(name, t);
           report(name, { [window.name]: { used: 1, resets: window.resets } }, t);
-          if (!still) host.log.warn("account.closed", { account: name, callsign: route.callsign, kind, why: `${name}: ${WINDOW_WORD[window.name]} выбрано${window.resets ? ` — закрыто до ${clock(window.resets)}` : ""}` });
+          if (!still) host.log.warn("account.closed", { account: name, callsign: route.callsign, kind, why: `${name}: ${LIMIT_WORD[window.name]} выбрано${window.resets ? ` — закрыто до ${clock(window.resets)}` : ""}` });
           plan();
         } else if (after > 0 && after <= THROTTLE_MAX_S && !r.waited) {
           kind = "throttle";
