@@ -8,6 +8,7 @@ import { iter2Handlers } from "./iter2.ts";
 import { iter4Handlers } from "./iter4.ts";
 import { screenHandlers } from "./screens.ts";
 import { done, type Ev, got, liveSteps, peer, reply, researchTurn, say, shortTurn, siteTurn, text, uid, use } from "./convo.ts";
+import { BLOBS, goneTurn, showTurn } from "./show.ts";
 
 const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
 /** Окно модели, пока каталог провайдера его не назвал. */
@@ -107,7 +108,7 @@ export function createMock(o: MockOptions = {}) {
   const talk = (c: string) => talks.get(c) ?? (talks.set(c, []), talks.get(c)!);
   talk("site@laptop").push(...siteTurn(T - 3 * HOUR, "Шапка ломается на телефоне: меню вылезает за край. Почини и приложи снимки."), say("Теперь то же для подвала: ссылки должны складываться в столбик.", T - 2 * MIN));
   talk("site-tests@laptop").push(...shortTurn(T - 40 * MIN, "Подними тестовый стенд из свежей сборки.", "Стенд поднят на сборке 412. Адрес — `https://stand.example.com`."), say("Выложи на него сайт.", T - 7 * MIN), reply([text("Перед выкладкой уточню ветку.")], T - 6 * MIN));
-  talk("docs@laptop").push(...shortTurn(T - 2 * HOUR, "Что у нас написано про откат сборки?", "В разделе «Выпуски» одна строка: откат делается той же командой с прежним номером. Примера нет."), ...siteTurn(T - 50 * MIN, "Допиши раздел про выкладку: шаги, откат, пример команды.").slice(0, 1),
+  talk("docs@laptop").push(...showTurn(T - 3 * HOUR, "docs@laptop", "Покажи, как страница получает файл с машины, и время ответа за сутки."), ...shortTurn(T - 2 * HOUR, "Что у нас написано про откат сборки?", "В разделе «Выпуски» одна строка: откат делается той же командой с прежним номером. Примера нет."), ...siteTurn(T - 50 * MIN, "Допиши раздел про выкладку: шаги, откат, пример команды.").slice(0, 1),
     reply([text("Дописал раздел «Выкладка»: три шага, откат и пример.\n\n```bash\nnpm run deploy -- prod 412   # выложить\nnpm run deploy -- prod 411   # откатить\n```\n\nПроверил ссылки в разделе — 14 из 14 открываются.")], T - 15 * MIN), done(T - 14 * MIN, 96_000, 0.31, 5, 36_000));
   talk("lead@laptop").push(...researchTurn(T - 30 * MIN, "Надо уйти со старого клиента оплаты. Разберись, где он используется, и предложи замену."), say("Делай обёртку. Поиск оставшихся вызовов отдай ведомому.", T - 4 * MIN), reply([text("Отдал поиск ведомому `wing@laptop`, сам пишу обёртку.")], T - 3 * MIN));
   // пара: ведущая дала ведомому задачу; до этого он сдал итог прошлого хода и спросил, какую ветку брать
@@ -143,7 +144,7 @@ export function createMock(o: MockOptions = {}) {
   talk("ingest@server").push(say("Разбери ночную выгрузку и скажи, сколько строк не прошло проверку.", T - 12 * MIN));
   // фоновая задача сессии: видна в доке над вводом, у неё есть вывод и «Стоп»
   talk("ingest@server").push({ type: "system", subtype: "task_started", uuid: uid("s"), task_id: "bg1", description: "npm run dev", task_type: "local_bash", is_backgrounded: true, timestamp: new Date(T - 9 * MIN).toISOString() } as Ev);
-  talk("nightcheck@server").push(...shortTurn(T - 7 * HOUR, "Проверь флот: все ли машины на последней сборке.", "Три машины из четырёх на сборке 412. `base2` — на 410 и без связи с 02:10."));
+  talk("nightcheck@server").push(...goneTurn(T - 7 * HOUR, "nightcheck@server", "Проверь флот: все ли машины на последней сборке.", "Три машины из четырёх на сборке 412. `base2` — на 410 и без связи с 02:10.\n\n"));
   talk("migrate@server").push(...shortTurn(T - 2 * DAY, "Перенеси журналы старше 30 дней в архив.", "Перенесено 1 284 файла, 3,1 ГБ. Сессию можно останавливать."));
   talk("landing@anya-pc").push(say("Собери первый экран по макету из design@anya-pc.", T - 20 * MIN));
   talk("design@anya-pc").push(...shortTurn(T - 90 * MIN, "Предложи палитру и сетку для сайта.", "Палитра из пяти цветов и сетка на 12 колонок — в `design/tokens.json`. Контраст текста 7,2 : 1."), ...shortTurn(T - 42 * MIN, "Сделай вариант темнее.", "Тёмный вариант готов: фон `#0F1413`, контраст 11,4 : 1. Оба варианта лежат рядом, выберите один."));
@@ -615,11 +616,12 @@ export function createMock(o: MockOptions = {}) {
       const { c, s } = sess(f);
       if (s.state === "stopped" || s.state === "failed") throw new Refusal("stopped", `${c}: сессия ${s.state} — запускает session.start`);
       const uuid = uid("m");
-      const pics = ((f.files ?? []) as Array<{ name: string; mime: string; base64: string }>).filter((x) => x.mime.startsWith("image/"));
-      const content = pics.length ? [{ type: "text", text: String(f.text) }, ...pics.map((p) => ({ type: "image", source: { type: "base64", media_type: p.mime, data: p.base64 } }))] : String(f.text);
+      // файлы человека Host кладёт в папку сессии; в событии ленты — имя, хэш и размер
+      const files = (f.files ?? []) as Array<{ name: string; hash: string; size: number }>;
+      const content = String(f.text);
       // от сессии — тегом с видом: отправитель — родитель адресата, значит задача; человек пишет без тега
       const sender = typeof f.from === "string" && kindOf(f.from) === "session" ? f.from : undefined;
-      const event = sender ? { ...peer(sender, String(f.text), now(), s.spec.parent === sender ? "task" : "message"), uuid } : ({ type: "user", uuid, from: MY_ADDR, timestamp: new Date(now()).toISOString(), message: { role: "user", content } } as Ev);
+      const event = sender ? { ...peer(sender, String(f.text), now(), s.spec.parent === sender ? "task" : "message"), uuid } : ({ type: "user", uuid, from: MY_ADDR, timestamp: new Date(now()).toISOString(), message: { role: "user", content }, ...(files.length ? { files } : {}) } as Ev);
       if (s.state === "busy" && f.priority !== "now") {
         (queue.get(c) ?? (queue.set(c, []), queue.get(c)!)).push({ uuid, text: String(f.text), from: MY_ADDR, at: now(), event });
         // сообщение в очереди видно зрителям сразу, а в разговор попадает, когда его возьмёт ход
@@ -650,6 +652,12 @@ export function createMock(o: MockOptions = {}) {
       const end = f.before ? Math.max(0, all.findIndex((e) => e.uuid === f.before)) : all.length;
       const start = Math.max(0, end - (f.limit ?? 50));
       return { events: all.slice(start, end), more: start > 0, seq: seqs.get(String(f.to)) ?? 0 };
+    },
+    "files.put": (f) => ({ upload: Object.fromEntries((f.files as Array<{ hash: string }>).filter((x) => !BLOBS.has(x.hash)).map((x) => [x.hash, `mock:${x.hash}`])) }),
+    "files.get": (f) => {
+      const blob = BLOBS.get(String(f.hash));
+      if (!blob) throw new Refusal("no_file", `содержимого ${String(f.hash).slice(0, 12)}… в хранилище нет`);
+      return { url: URL.createObjectURL(blob) };
     },
     "session.files": (f) => ({ files: ["src/components/Header.tsx", "src/components/Footer.tsx", "src/lib/http.ts", "src/routes.ts", "package.json", "README.md"].filter((p) => p.toLowerCase().includes(String(f.q).toLowerCase())) }),
     "session.watch": (f) => {
@@ -835,6 +843,8 @@ export function createMock(o: MockOptions = {}) {
 
   return {
     transport,
+    /** байты по ссылке загрузки: содержимое встаёт в хранилище мока */
+    put: (url: string, body: Blob) => void BLOBS.set(url.replace(/^mock:/, ""), body),
     /** рычаги для снимков и тестов */
     tick,
     stop: () => timer && clearInterval(timer),

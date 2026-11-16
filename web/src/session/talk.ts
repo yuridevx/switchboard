@@ -1,5 +1,6 @@
 // Разговор сессии на странице: история страницами, лента по подписке с номерами, свёртка в строки.
 // Своё сообщение видно сразу и ведёт свой статус: уходит, в очереди, принято, не ушло. Вопросы сбоку живут здесь же.
+import type { FileRef } from "../lib/files.ts";
 import { message, messageCancel, sessionCall, sessionHistory, sessionRead, sessionUnwatch, sessionWatch, type Frame, type Priority, type SdkEvent } from "@sb/protocol";
 import { notifications } from "@mantine/notifications";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,7 +45,7 @@ export function bindLocal(events: SdkEvent[], local: string, uuid: string, state
 
 const setState = (events: SdkEvent[], id: string, state: string, extra: object = {}): SdkEvent[] => events.map((e) => (e.uuid === id ? ({ ...e, _state: state, ...extra } as SdkEvent) : e));
 
-export type FileOut = { name: string; mime: string; base64: string };
+export type FileOut = FileRef;
 export type { Priority };
 /** Вопрос сбоку: ответ Claude мимо разговора. */
 export type Aside = { id: string; q: string; a?: string; state: "wait" | "done" | "bad" };
@@ -158,11 +159,7 @@ export function useTalk(callsign: string): Talk {
   const send = useCallback(async (text: string, files?: FileOut[], priority?: Priority) => {
     const id = `local-${++localSeq}`;
     sent.current.set(id, { text, files, priority });
-    const content = files?.some((f) => f.mime.startsWith("image/"))
-      ? [{ type: "text", text }, ...files.filter((f) => f.mime.startsWith("image/")).map((f) => ({ type: "image", source: { type: "base64", media_type: f.mime, data: f.base64 } }))]
-      : text;
-    const names = files?.filter((f) => !f.mime.startsWith("image/")).map((f) => f.name) ?? [];
-    setEvents((e) => [...e, { type: "user", uuid: id, message: { role: "user", content }, _local: true, _state: "sending", ...(names.length ? { _files: names } : {}) } as SdkEvent]);
+    setEvents((e) => [...e, { type: "user", uuid: id, message: { role: "user", content: text }, _local: true, _state: "sending", ...(files?.length ? { files } : {}) } as SdkEvent]);
     try {
       const r = await api.call(message, { to: callsign, text, ...(files?.length ? { files } : {}), ...(priority && priority !== "next" ? { priority } : {}) });
       sent.current.delete(id);

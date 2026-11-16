@@ -1,5 +1,6 @@
 // Запросы машине: аккаунты, профили, точки, скрипты, инциденты, сама машина, keeper.
 import { Callsign, Done, frame, KeeperAddr, MachineAddr, request, z } from "../define.ts";
+import { FileIn } from "./session.ts";
 
 const toMachine = z.object({ to: MachineAddr });
 
@@ -174,15 +175,13 @@ export const shellInfo = request("shell.info", {
 
 /* ===== Инциденты (host-incidents) ===== */
 
-/** Вложение обращения: тот же вид, что вложение сообщения. */
-export const IncidentFile = z.object({ name: z.string(), mime: z.string(), base64: z.string() });
 export const Incident = z.object({
   id: z.string(), kind: z.string(), key: z.string(), text: z.string(), at: z.number(),
   callsign: Callsign.optional(), state: z.enum(["pending", "taken", "done"]),
   /** обращение ждёт: почему не доставлено */
   why: z.string().optional(),
-  /** имена вложений */
-  files: z.array(z.string()).optional(),
+  /** вложения: имя, хэш, размер — содержимое в хранилище флота, как у файлов сообщения */
+  files: z.array(FileIn).optional(),
 });
 export type Incident = z.infer<typeof Incident>;
 export const incidentList = request("incident.list", {
@@ -192,7 +191,7 @@ export const incidentList = request("incident.list", {
 /** Обращение от службы компьютера: открывает сессию по виду обращения или пишет в уже открытую. */
 export const incidentRaise = request("incident.raise", {
   owner: "host-incidents", target: "machine",
-  input: z.object({ to: MachineAddr, kind: z.string(), key: z.string(), text: z.string(), files: z.array(IncidentFile).optional() }), output: z.object({ id: z.string(), callsign: Callsign.optional() }),
+  input: z.object({ to: MachineAddr, kind: z.string(), key: z.string(), text: z.string(), files: z.array(FileIn).optional() }), output: z.object({ id: z.string(), callsign: Callsign.optional() }),
 });
 /** Правило вида обращений — ключ incidents.kinds настроек флота: имя вида → где открыть сессию, с чем, что ей сказать и кого позвать. */
 export const IncidentKind = z.object({

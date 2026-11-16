@@ -103,7 +103,7 @@ export function Incidents() {
           <Table.Tbody>
             {list.map((x) => (
               <Table.Tr key={x.machine + x.id}>
-                <Table.Td>{x.text}{x.files?.length ? <Text size="xs" className="mono muted">{x.files.join(", ")}</Text> : null}</Table.Td>
+                <Table.Td>{x.text}{x.files?.length ? <Text size="xs" className="mono muted">{x.files.map((f) => f.name).join(", ")}</Text> : null}</Table.Td>
                 <Table.Td data-l="Вид и ключ" className="mono">{x.kind} · {x.key}</Table.Td>
                 <Table.Td data-l="Машина" className="mono">{x.machine}</Table.Td>
                 <Table.Td data-l="Состояние"><Badge color={x.state === "pending" ? "orange" : x.state === "taken" ? "blue" : "gray"}>{WORD[x.state]}</Badge></Table.Td>

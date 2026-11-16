@@ -76,12 +76,12 @@ describe("ввод: вложения и возврат текста", () => {
 });
 
 describe("лента: картинки, правка, документ, список дел", () => {
-  it("картинка ленты открывается в новой вкладке своим адресом страницы, а не адресом с данными", () => {
+  it("картинка ленты открывается целиком листом страницы, новой вкладки нет", () => {
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     page(<Pics pics={["data:image/png;base64,iVBORw0KGgo="]} />);
-    fireEvent.click(screen.getByRole("button", { name: "Открыть картинку в новой вкладке" }));
-    expect(open).toHaveBeenCalledTimes(1);
-    expect(String(open.mock.calls[0]![0])).toMatch(/^blob:/);
+    fireEvent.click(screen.getByRole("button", { name: "Открыть картинку целиком" }));
+    expect(open).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-step="file"] img.filepic')).toBeTruthy();
   });
   it("правка: общий кусок свёрнут строкой с числом; нажатие раскрывает правку целиком", () => {
     const before = Array.from({ length: 12 }, (_, i) => `строка ${i}`).join("\n");

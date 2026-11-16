@@ -13,7 +13,6 @@ afterEach(async () => {
 
 const CS = "site@laptop";
 const PULT = "pult~yuri@example.com", PHONE = "phone~yuri@example.com", ANYA = "pult~anya@example.com";
-const row = (cs: string) => st!.link.rows(cs).at(-1)!.row as any;
 
 describe("находки: разговор", () => {
   // договор: «отменить своё сообщение»
@@ -26,16 +25,6 @@ describe("находки: разговор", () => {
     expect(await st.request("message.cancel", { to: CS, uuid }, ANYA)).toMatchObject({ ok: false, error: "not_owner" });
     expect(st.sdk.last(CS)!.calls.some((c) => c.name === "cancelAsyncMessage")).toBe(false);
     expect((await st.request("message.cancel", { to: CS, uuid }, PHONE)).result).toEqual({ cancelled: true });
-  });
-
-  // отказ говорит «во ввод ничего не ушло» — и строка сессии не меняется
-  it("негодное вложение: отказ bad_attachment до первой записи — человек не записан в участники", async () => {
-    st = await stand({ modules: [chat()] });
-    const { proc } = await st.open("site");
-    const before = JSON.stringify(row(CS).people ?? []);
-    expect(await st.request("message", { to: CS, text: "вот", files: [{ name: "a.zip", mime: "application/zip", base64: "AA==" }] }, ANYA)).toMatchObject({ ok: false, error: "bad_attachment" });
-    expect(JSON.stringify(row(CS).people ?? [])).toBe(before);
-    expect(proc.inputs).toHaveLength(0);
   });
 
   // слово пользователя 2 нояб.: «у всех операций должен быть лимит»

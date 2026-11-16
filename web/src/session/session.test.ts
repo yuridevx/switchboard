@@ -11,7 +11,7 @@ import { actionAnswer, answeredAll, formAnswer, formFields, formReady, questionA
 import { commandPicks, modelAsk, sideQuestion } from "./Composer.tsx";
 import { mergeLater } from "./doc.ts";
 import { arrange, offersOf, offerWord } from "./ModelPicker.tsx";
-import { looksHtml, textOf } from "./html.tsx";
+import { showKind, textOf } from "./html.tsx";
 import { bindLocal, draft, mergeEvents, missed } from "./talk.ts";
 
 const T = 1_800_000_000_000;
@@ -58,7 +58,7 @@ describe("лента: свои сообщения и отправители", ()
       { type: "user", uuid: "2", message: { role: "user", content: [{ type: "text", text: "Смотри" }, { type: "document", title: "отчёт.pdf", source: { type: "base64", media_type: "application/pdf", data: "AAAA" } }, { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } }] } },
     ]);
     expect(v.rows[0]).toMatchObject({ k: "in", via: "service", from: ".incidents", text: "Диск /var занят на 91%" });
-    expect(v.rows[1]).toMatchObject({ k: "me", text: "Смотри", files: ["отчёт.pdf"], pics: ["data:image/png;base64,iVBOR"] });
+    expect(v.rows[1]).toMatchObject({ k: "me", text: "Смотри", files: [{ name: "отчёт.pdf" }], pics: ["data:image/png;base64,iVBOR"] });
   });
   it("своё сообщение получает номер сессии; запись ленты с этим номером не даёт повтора", () => {
     const mine = { type: "user", uuid: "local-1", message: { role: "user", content: "И подвал" }, _local: true, _state: "sending" };
@@ -100,9 +100,9 @@ describe("инструменты и фокус", () => {
     expect(md).toContain("## Claude");
   });
   it("HTML узнаётся по языку блока и по началу документа; текст кода достаётся из дерева подсветки", () => {
-    expect(looksHtml("html", "<p>x</p>")).toBe(true);
-    expect(looksHtml("", "<!doctype html><html></html>")).toBe(true);
-    expect(looksHtml("ts", "<html>")).toBe(false);
+    expect(showKind("html", "<p>x</p>")).toBe("html");
+    expect(showKind("", "<!doctype html><html></html>")).toBe("html");
+    expect(showKind("ts", "<html>")).toBeNull();
     expect(textOf(["a", 1, null, ["b"]])).toBe("a1b");
   });
 });

@@ -2,7 +2,7 @@
 // Живой ответ идёт с кареткой, размышление сворачивается, своё сообщение показывает свой статус.
 import { CopyButton, Text } from "@mantine/core";
 import {
-  IconAlertTriangle, IconAnchor, IconArchive, IconBell, IconBolt, IconBook, IconBrain, IconCalendarClock, IconCheck, IconChecklist, IconCircleCheck, IconClipboardList, IconFile, IconFilePencil, IconFilePlus, IconFileText, IconFolderSearch,
+  IconAlertTriangle, IconAnchor, IconArchive, IconBell, IconBolt, IconBook, IconBrain, IconCalendarClock, IconCheck, IconChecklist, IconCircleCheck, IconClipboardList,  IconFilePencil, IconFilePlus, IconFileText, IconFolderSearch,
   IconGitBranch, IconInfoCircle, IconMessageQuestion, IconMessages, IconNotebook, IconPlayerStop, IconRadar, IconRefresh, IconRobot, IconRotate, IconSearch, IconShieldOff, IconSparkles, IconTerminal2, IconTool, IconWorld, IconX,
 } from "@tabler/icons-react";
 import { createContext, lazy, memo, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
@@ -12,7 +12,9 @@ import { agentSteps, deniedWhy, editStat, isAgent, isDenied, isShell, startedInB
 import { duration, kilo, nActions, plural } from "../lib/time.ts";
 import { MODES } from "../common.tsx";
 import { diffLines, editsOf } from "./diff.ts";
-import { HtmlFrame, openPicture, previewKind, SvgView } from "./html.tsx";
+import { SEND_TOOL, SITE_TOOL } from "@sb/protocol";
+import { Attachment, Sent, Sheet, Site } from "./files.tsx";
+import { extOf, HtmlFrame, showKind, SvgView } from "./html.tsx";
 import "./session.css";
 
 const Markdown = lazy(() => import("./Markdown.tsx"));
@@ -56,8 +58,17 @@ const Icon = ({ name, size = 15 }: { name?: string; size?: number }) => {
   return <I size={size} stroke={1.7} style={{ flex: "none" }} data-icon={name && ICONS[name] ? name : "tool"} />;
 };
 
-/** Картинки сообщения: по нажатию — целиком в новой вкладке. */
-export const Pics = ({ pics }: { pics: string[] }) => <>{pics.map((p, i) => <button key={i} type="button" className="picbtn" aria-label="Открыть картинку в новой вкладке" onClick={() => openPicture(p)}><img className="pic" src={p} alt="" /></button>)}</>;
+/** Картинки сообщения: по нажатию — целиком, тем же листом, что и файл сессии. */
+function Pic({ src }: { src: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="picbtn" aria-label="Открыть картинку целиком" onClick={() => setOpen(true)}><img className="pic" src={src} alt="" /></button>
+      <Sheet title="Картинка" opened={open} onClose={() => setOpen(false)}><img className="filepic" src={src} alt="" /></Sheet>
+    </>
+  );
+}
+export const Pics = ({ pics }: { pics: string[] }) => <>{pics.map((p, i) => <Pic key={i} src={p} />)}</>;
 
 const mark = (k: string) => (k === "old" ? "− " : k === "new" ? "+ " : "  ");
 
@@ -112,13 +123,15 @@ function ToolBody({ tool, view }: { tool: Tool; view: View }) {
     const edits = editsOf(input);
     const text = edits.length === 1 ? edits[0]!.after : "";
     const path = String(input.file_path ?? "");
-    const page = tool.name === "Write" ? previewKind(/\.html?$/i.test(path) ? "html" : /\.svg$/i.test(path) ? "svg" : "", text) : null;
+    // записанный файл показывается тем же правилом, что отправленный: страница — в песочнице, SVG — картинкой
+    const kind = tool.name === "Write" ? showKind(extOf(path), text) : null;
+    const page = kind === "html" || kind === "image" ? kind : null;
     body = (
       <>
         {input.replace_all ? <Hint text="все вхождения" /> : null}
         {input.cell_id ? <Hint text={`ячейка ${input.cell_id}`} /> : null}
         {page && <button type="button" className="linkbtn" aria-pressed={html} onClick={() => setHtml((v) => !v)}>{html ? "Код" : "Просмотр"}</button>}
-        {html && page === "svg" ? <SvgView code={text} title={path} /> : html ? <HtmlFrame html={text} title={path} />
+        {html && page === "image" ? <SvgView code={text} title={path} /> : html ? <HtmlFrame html={text} title={path} />
           : edits.map((e, i) => (e.before != null ? <Diff key={i} before={e.before} after={e.after} /> : <pre key={i} className="diff-new">{e.after}</pre>))}
         <ErrorText tool={tool} />
       </>
@@ -255,7 +268,11 @@ function Reply({ parts, view }: { parts: Part[]; view: View }) {
   };
   for (const p of parts) {
     if (p.k === "tool") {
-      stack.push(p.id);
+      // отправленный файл — содержимое для человека: стоит в ленте сам, а не строкой в стопке вызовов
+      const name = view.tools[p.id]?.name;
+      if (name === SEND_TOOL) (flush(), out.push(<Sent key={"f" + out.length} call={view.tools[p.id]!} md={(t) => <Md text={t} />} />));
+      else if (name === SITE_TOOL) (flush(), out.push(<Site key={"f" + out.length} call={view.tools[p.id]!} />));
+      else stack.push(p.id);
       continue;
     }
     flush();
@@ -286,7 +303,7 @@ function Mine({ r }: { r: Extract<Row, { k: "me" }> }) {
       {other && <div className="me-from mono">{other.replace(/^.*~/, "")}</div>}
       <Long text={r.text} />
       <Pics pics={r.pics} />
-      {r.files?.map((f) => <div key={f} className="me-file"><IconFile size={13} /> {f}</div>)}
+      {r.files?.map((f, i) => <Attachment key={i} file={f} md={(t) => <Md text={t} />} />)}
       {(!state || state === "sent") && r.uuid && env.rewind && env.canAct && <div className="me-note"><button type="button" className="linkbtn" onClick={() => env.rewind!(r.uuid!)}>Откатить сюда</button></div>}
       {state && ME_NOTE[state] && (
         <div className="me-note">
@@ -356,6 +373,7 @@ function PeerCard({ r, view }: { r: Extract<Row, { k: "in" }>; view: View }) {
       </div>
       <div className={long && !whole ? "peer-clamp" : undefined}>{r.kind === "question" ? <div className="pcard-plain">{r.text}</div> : <Md text={r.text} />}</div>
       {long && <button type="button" className="linkbtn" aria-expanded={whole} onClick={() => setWhole((w) => !w)}>{whole ? "свернуть" : "показать всё"}</button>}
+      {r.files?.map((f, i) => <Attachment key={i} file={f} md={(t) => <Md text={t} />} />)}
       {answered && <div className="pcard-answer"><IconCheck size={13} /><span>отвечено: {String(answered.input?.answer ?? "")}</span></div>}
     </div>
   );

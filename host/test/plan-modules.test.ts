@@ -214,19 +214,19 @@ describe("план v2: обращения", () => {
   });
 
   // чьё: код — «отказ доставки остаётся в записи: обращение ждёт следующего прохода»
-  it("сессия вида не открылась — отказ open_failed; обращение записано и ждёт с той же причиной; у доставленного причины нет, вложения — именами", async () => {
+  it("сессия вида не открылась — отказ open_failed; обращение записано и ждёт с той же причиной; у доставленного причины нет", async () => {
     const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
     const work = join(home, "work");
     mkdirSync(work, { recursive: true });
     st = await stand({ home, modules: [chat(), incidents()], config: { "host-incidents": { port: 0, kinds: { disk: { cwd: work }, lost: { cwd: join(home, "нет-такой") } } } } });
-    const good = await st.request("incident.raise", { to: "@laptop", kind: "disk", key: "c:", text: "место", files: [{ name: "df.txt", mime: "text/plain", base64: Buffer.from("x").toString("base64") }] }, "@laptop");
+    const good = await st.request("incident.raise", { to: "@laptop", kind: "disk", key: "c:", text: "место" }, "@laptop");
     expect(good).toMatchObject({ ok: true, result: { callsign: "disk-1@laptop" } });
     const bad = await st.request("incident.raise", { to: "@laptop", kind: "lost", key: "", text: "беда" }, "@laptop");
     expect(bad).toMatchObject({ ok: false, error: "open_failed" });
     const list = (await st.request("incident.list", { to: "@laptop" })).result as { incidents: Array<Record<string, unknown>> };
     expect(list.incidents.map((a) => a.kind)).toEqual(["lost", "disk"]);
     expect(list.incidents[0]).toMatchObject({ state: "pending", why: (bad as any).why });
-    expect(list.incidents[1]).toMatchObject({ callsign: "disk-1@laptop", files: ["df.txt"] });
+    expect(list.incidents[1]).toMatchObject({ callsign: "disk-1@laptop" });
     expect(list.incidents[1]!.why).toBeUndefined();
   });
 

@@ -1,14 +1,14 @@
 // Worker служб v2: без состояния. Вход /call, сервер MCP и вход OAuth для внешних клиентов, проход сокетов в платформу,
-// вебхук Telegram флота (/telegram/<флот>), файлы страницы; потребитель очереди аналитики.
+// вебхук Telegram флота (/telegram/<флот>), сайты сессий (/s/<номер>/), файлы страницы; потребитель очереди аналитики.
 import type { Deps, Env, Module, PointNote } from "./env.ts";
 import { callHttp, handlersOf } from "./entrance.ts";
-import { analytics, consume, archive, builds, github, keys, ledger, mcp, obs, prefs, reach, telegram } from "./modules/index.ts";
+import { analytics, consume, archive, builds, files, github, keys, ledger, mcp, obs, prefs, reach, site, telegram } from "./modules/index.ts";
 import { oauth } from "./oauth.ts";
 
 export { Records } from "./records.ts";
 
 /** Модули служб: у каждого имени запроса один хозяин — двое не соберутся. */
-export const MODULES: Module[] = [builds, ledger, archive, reach, prefs, keys, github, analytics, obs];
+export const MODULES: Module[] = [builds, ledger, archive, files, reach, prefs, keys, github, analytics, obs];
 const handlers = handlersOf(MODULES);
 
 const CALL_PREFLIGHT = { "access-control-allow-origin": "*", "access-control-allow-methods": "POST", "access-control-allow-headers": "authorization, content-type, x-sb-as", "access-control-max-age": "86400" };
@@ -29,6 +29,7 @@ export async function serve(req: Request, env: Env, exec: ExecutionContext, deps
   const entry = oauth(req, env, deps);
   if (entry) return entry;
   if (pathname.startsWith("/telegram/")) return telegram(req, env, exec, deps);
+  if (pathname.startsWith("/s/")) return site(req, env);
   if (pathname === "/manifest.webmanifest" && env.ASSETS) {
     // Манифест приложения; с приглашением — адрес запуска несёт его, чтобы приложение с экрана «Домой» вошло само
     const invite = new URL(req.url).searchParams.get("invite");

@@ -62,7 +62,7 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
   const devicesOf = (person: string) => passes.filter((p) => p.person === person).map((p) => ({ kid: p.kid, addr: p.addr, wait: p.wait, online: !!p.online, at: p.at, ...(p.seen ? { seen: p.seen } : {}) }));
   for (const k of keys) k.sessions = Object.values(sessions).filter((s) => (k.protocol === CLAUDE ? s.account === k.name : s.spec.key === k.name)).length;
   for (const a of archive) Object.assign(a, { live: !!sessions[a.callsign] && sessions[a.callsign].state !== "stopped", owner: machines[a.machine]?.owner ?? ME });
-  incidents.server.push({ id: "i4", kind: "backup", key: "nightly", text: "Ночная копия не снята: том /backup не подключён", at: T - 70 * MIN, state: "pending", why: "вида backup нет в правилах: сессию открыть некому", files: ["backup.log"] });
+  incidents.server.push({ id: "i4", kind: "backup", key: "nightly", text: "Ночная копия не снята: том /backup не подключён", at: T - 70 * MIN, state: "pending", why: "вида backup нет в правилах: сессию открыть некому", files: [{ name: "backup.log", hash: "c".repeat(64), size: 18_204 }] });
   const repos: Record<string, RepoClone[]> = {
     laptop: [
       { repo: "example/sb-base", state: "ok", dir: "~/.switchboard2/home/host/data/profiles/example--sb-base", at: T - 40_000 },

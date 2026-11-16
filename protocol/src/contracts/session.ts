@@ -174,14 +174,17 @@ export const sessionCall = request("session.call", {
 
 /* ===== Разговор ===== */
 
-export const FileIn = z.object({ name: z.string(), mime: z.string(), base64: z.string() });
+/** Файл в разговоре: имя, хэш содержимого (SHA-256) и размер. Содержимое лежит в хранилище флота по хэшу (служба files); в сообщениях, ленте и журнале его нет. */
+export const Hash = z.string().regex(/^[0-9a-f]{64}$/);
+export const FileIn = z.object({ name: z.string(), hash: Hash, size: z.number() });
+export type FileIn = z.infer<typeof FileIn>;
 /** Срочность сообщения занятой сессии: now — прервать ход и взять сейчас; next — после нынешнего шага (по умолчанию). Набор объявлен один раз — здесь. */
 export const Priority = z.enum(["now", "next"]);
 export type Priority = z.infer<typeof Priority>;
 
 export const message = request("message", {
   owner: "host-chat", target: "session",
-  tool: "Написать сессии флота. Бери, чтобы дать задачу дочери, ответить соседу, сообщить новость. Человеку — reach_send. to — позывной вида site@laptop; text — сообщение; priority: next (по умолчанию) — после нынешнего шага адресата, now — прервать его ход; files — вложения. Текст «/model слова» меняет модель адресата: слова — часть имени модели, семейство или провайдер. Ответ: uuid и queued — адресат занят, сообщение ждёт; model — «/model» поставило эту модель. Отказы: stopped — сессия остановлена: session_start; many_models — под слова подошло несколько моделей, в отказе список.", example: {"to":"coder@server","text":"Собери срез 2 и пришли номер коммита"},
+  tool: "Написать сессии флота. Бери, чтобы дать задачу дочери, ответить соседу, сообщить новость. Человеку — reach_send. to — позывной вида site@laptop; text — сообщение; priority: next (по умолчанию) — после нынешнего шага адресата, now — прервать его ход; files — файлы из хранилища флота, каждый {name, hash, size}, как в ответе file_send: встанут в uploads/ папки адресата. Текст «/model слова» меняет модель адресата: слова — часть имени модели, семейство или провайдер. Ответ: uuid и queued — адресат занят, сообщение ждёт; model — «/model» поставило эту модель. Отказы: stopped — сессия остановлена: session_start; many_models — под слова подошло несколько моделей, в отказе список.", example: {"to":"coder@server","text":"Собери срез 2 и пришли номер коммита"},
   input: z.object({ to: Callsign, text: z.string(), files: z.array(FileIn).optional(), priority: Priority.optional() }),
   /** queued — сессия занята, сообщение ждёт в очереди; uuid — его номер: по нему приходит статус в ленте и отмена */
   /** model — «/model слова» поставило сессии эту модель: в разговор команда не ушла */
@@ -217,7 +220,8 @@ export type QueuedMessage = z.infer<typeof QueuedMessage>;
 export const MessageStatus = z.object({ type: z.literal("message.status"), uuid: z.string(), status: z.enum(["queued", "taken", "cancelled"]) });
 
 /** Событие ленты: сообщение SDK как есть. Сверх него Host кладёт в ленту и историю:
- *  сообщение человека, сессии или службы сразу, как оно принято (type user, uuid — номер сообщения, from — отправитель; у входящего от флота — peer: Peer);
+ *  сообщение человека, сессии или службы сразу, как оно принято (type user, uuid — номер сообщения, from — отправитель; у входящего от флота — peer: Peer;
+ *  files — файлы сообщения: имя, хэш, размер — в тексте события строки уведомления о них уже нет);
  *  итог хода (type result: duration_ms, num_turns, total_cost_usd, usage) — в истории он стоит за последней записью своего хода;
  *  статус своего сообщения (MessageStatus). */
 export const SdkEvent = z.object({ type: z.string(), uuid: z.string().optional() }).loose();
@@ -234,6 +238,26 @@ export const sessionFiles = request("session.files", {
   owner: "host-chat", target: "session",
   input: z.object({ to: Callsign, q: z.string() }),
   output: z.object({ files: z.array(z.string()) }),
+});
+
+/** Отправить человеку файл из папки сессии: Host считает хэш, кладёт содержимое в хранилище флота (если его там ещё нет) и отвечает именем, хэшем и размером.
+ *  В разговоре остаются вызов и ответ; содержимое в контекст сессии не попадает. Только в своей ленте: to — свой позывной, иначе not_self. Файла нет — no_file. */
+export const fileSend = request("file.send", {
+  owner: "host-files", target: "session",
+  tool: "Отправить человеку файл: он встанет в ленте твоей сессии, человек увидит его (картинка, SVG, страница HTML одним файлом, схема .mmd, Markdown, текст) и сможет скачать — любой файл. Бери вместо того, чтобы переписывать содержимое в ответ или читать картинку ради показа: в твой контекст попадает только путь. to — свой позывной, path — путь от папки сессии, от домашней папки или полный, title — подпись.",
+  example: { to: "site@laptop", path: "out/latency.svg", title: "Время ответа за сутки" },
+  input: z.object({ to: Callsign, path: z.string().min(1), title: z.string().optional() }),
+  output: FileIn,
+});
+/** Поднять папку статики сайтом: Host кладёт в хранилище файлы, которых там ещё нет, и записывает список «путь → хэш». Адрес у папки сессии постоянный:
+ *  повторный вызов обновляет сайт на том же адресе. Отдаёт сайт Worker из хранилища, машина на пути показа не стоит. Нет index.html — no_index; to — не свой позывной — not_self. */
+export const sitePublish = request("site.publish", {
+  owner: "host-files", target: "session",
+  tool: "Поднять папку со статикой сайтом: страницы, стили, скрипты, картинки. В ответе — адрес; человек увидит сайт в ленте и откроет в новой вкладке. Повторный вызов с той же папкой обновляет сайт на том же адресе, грузятся только изменённые файлы. В папке должен быть index.html; файлы и папки с точки и node_modules в сайт не идут. Сайт открывается в песочнице браузера: localStorage и cookies ему недоступны. to — свой позывной, dir — папка, title — подпись.",
+  example: { to: "site@laptop", dir: "out/site", title: "Отчёт за сутки" },
+  input: z.object({ to: Callsign, dir: z.string().min(1), title: z.string().optional() }),
+  /** files и size — весь сайт; сколько файлов пришлось загрузить, говорит строка журнала машины */
+  output: z.object({ url: z.string(), files: z.number(), size: z.number() }),
 });
 
 /** Смотреть ленту. after — номер последнего события, которое у зрителя есть: в ответе events — пропущенное с этого номера;

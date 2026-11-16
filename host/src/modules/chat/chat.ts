@@ -3,9 +3,10 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { opendir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { findModels, kindOf, notice, personOf, reachSend, Refusal, sessionUpdate, toolLine, type Frame, type Kind, type Peer, type Priority, type SessionState } from "@sb/protocol";
+import { findModels, kindOf, notice, personOf, reachSend, Refusal, sessionUpdate, toolLine, type FileIn, type Frame, type Kind, type Peer, type Priority, type SessionState } from "@sb/protocol";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
 import type { AccountsApi } from "../accounts/contract.ts";
+import { split, type FilesApi } from "../files/contract.ts";
 import { questions } from "./ask.ts";
 
 /** Окно пачки ленты. */
@@ -20,14 +21,11 @@ const RECENT_MAX = 2000;
 /** Строка «чем занят ход» меняется не чаще: шаги идут десятками в минуту, картина флота — не лента. */
 export const DOING_GAP_MS = 3000;
 const DOING_MAX = 120;
-/** Типы файлов, которые модель видит картинкой. */
-const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 /** «/model слова» сообщением: команда правит документ сессии и в разговор не уходит. */
 const MODEL_COMMAND = /^\/model(?:\s+([\s\S]*))?$/;
 /** Сколько подходящих моделей называет отказ. */
 const MODELS_SHOWN = 12;
 
-type FileIn = { name: string; mime: string; base64: string };
 /** Итог хода для истории: файл разговора его не хранит. after — запись разговора, за которой он встаёт. */
 type TurnEnd = { after: string; event: Record<string, unknown> };
 /** Раздел сессии: люди разговора, у кого непрочитанное, начало последнего ответа, итоги последних ходов.
@@ -76,28 +74,20 @@ export function peopleOnly<T extends { type?: string; peer?: { from: string }; m
   });
 }
 
-/** Запись разговора с тегом несёт разобранное — отправителя, вид и текст: страница тег не разбирает. Вложения стоят блоками после текста. */
-function withPeer<T extends { message?: { content?: unknown } }>(m: T): T {
+/** Запись разговора глазами ленты и истории — разобранное: у входящего от флота — отправитель, вид и текст тега; файлы сообщения — полем files,
+ *  строки уведомления о них в тексте уже нет. Страница не разбирает ни тег, ни строку. */
+function seen<T extends { message?: { content?: unknown } }>(m: T): T {
   const c = m.message?.content;
   const text = typeof c === "string" ? c : Array.isArray(c) && (c[0] as Block | undefined)?.type === "text" ? ((c[0] as Block).text ?? "") : "";
   const tag = ENVELOPE.exec(text);
-  if (!tag) return m;
+  if (!tag) {
+    const cut = typeof c === "string" ? split(c) : null;
+    return cut ? { ...m, message: { ...m.message, content: cut.text }, files: cut.files } : m;
+  }
   const attrs = Object.fromEntries([...tag[1]!.matchAll(/([a-z]+)="([^"]*)"/g)].map((a) => [a[1]!, unesc(a[2]!)]));
   if (!attrs.from || !attrs.kind) return m;
-  return { ...m, peer: { ...attrs, text: tag[2]! } };
-}
-
-function block({ name, mime, base64 }: FileIn) {
-  if (IMAGE_TYPES.has(mime)) return { type: "image", source: { type: "base64", media_type: mime, data: base64 } };
-  if (mime === "application/pdf") return { type: "document", source: { type: "base64", media_type: mime, data: base64 } };
-  if (mime.startsWith("text/")) return { type: "document", source: { type: "text", media_type: "text/plain", data: Buffer.from(base64, "base64").toString("utf8") }, title: name };
-  throw new Refusal("bad_attachment", `${name}: ${mime} — блока для типа нет; во ввод ничего не ушло`);
-}
-
-/** Текст и вложения → содержимое сообщения user. */
-export function content(text: string, files: FileIn[] = []): unknown {
-  if (!files.length) return text;
-  return [...(text ? [{ type: "text", text }] : []), ...files.map(block)];
+  const cut = split(tag[2]!);
+  return { ...m, peer: { ...attrs, text: cut?.text ?? tag[2]! }, ...(cut ? { files: cut.files } : {}) };
 }
 
 /** Файлы папки, путь содержит q: в git — без скрытого .gitignore, иначе обход; предел — FILES_MAX, FILES_MS и остановка Host. */
@@ -140,21 +130,29 @@ export function make(): Module {
   const part = (s: SessionApi): Part => s.store<Part>().get() ?? {};
   const merge = (s: SessionApi, p: Part) => s.store<Part>().update((cur) => ({ ...cur, ...p }));
   /** Входящее от флота — во ввод сессии тегом своего вида. Задача родителя, итог своей дочери и весть о своей работе запоминаются: ход, который их возьмёт, откроет задачу родителя. */
-  function accept(s: SessionApi, from: string, kind: Kind, text: string, o: { priority?: Priority; files?: FileIn[]; ask?: string } = {}): { queued: boolean; uuid: string } {
+  function accept(s: SessionApi, from: string, kind: Kind, text: string, o: { priority?: Priority; ask?: string } = {}): { queued: boolean; uuid: string } {
     const to = s.callsign;
     if (down(s)) throw new Refusal("stopped", `${to}: сессия ${s.state} — запускает session.start`);
     const uuid = randomUUID();
-    const body = content(envelope(from, kind, text, o.ask ? { ask: o.ask } : {}), o.files);
+    const body = envelope(from, kind, text, o.ask ? { ask: o.ask } : {});
     if (kind === "task") merge(s, { asker: from });
     if (s.spec.parent && OPENS.has(kind)) merge(s, { opens: [...(part(s).opens ?? []), uuid] });
     return deliver(s, from, text, body, uuid, o.priority ?? "next");
   }
 
-  /** Сообщение — во ввод процесса и в ленту сразу: процесс свой ввод зрителям не повторяет; номер тот же, что будет у записи разговора. */
-  function deliver(s: SessionApi, from: string, text: string, body: unknown, uuid: string, priority: Priority): { queued: boolean; uuid: string } {
+  /** Файлы сообщения — в папку сессии: это дело модуля файлов; ответ — текст сообщения со строкой уведомления о них. */
+  function placed(s: SessionApi, text: string, files: FileIn[], ctx: Ctx): Promise<string> {
+    const api = host.module<FilesApi>("host-files");
+    if (!api) throw new Refusal("no_files", "модуля файлов нет в этом Host");
+    return api.attach(s, text, files, ctx.signal);
+  }
+
+  /** Сообщение — во ввод процесса и в ленту сразу: процесс свой ввод зрителям не повторяет; номер тот же, что будет у записи разговора.
+   *  text — слова отправителя, body — то, что уходит процессу: с тегом входящего и строкой уведомления о файлах. */
+  function deliver(s: SessionApi, from: string, text: string, body: string, uuid: string, priority: Priority): { queued: boolean; uuid: string } {
     const to = s.callsign;
     s.input(body, { priority, uuid });
-    push(to, withPeer({ type: "user", uuid, from, at: Date.now(), message: { role: "user", content: body } }));
+    push(to, seen({ type: "user", uuid, from, at: Date.now(), message: { role: "user", content: body } }));
     lastUuid.set(to, uuid);
     // сессия занята — сообщение ждёт в очереди: его видно зрителям и его можно отменить
     const waits = s.state !== "idle";
@@ -338,17 +336,19 @@ export function make(): Module {
       return { ask: ask.first(s.callsign), unread, ...(result ? { result } : {}), ...(title ? { title } : {}), ...(now ? { doing: now } : {}), ...(compacting.has(s.callsign) ? { compacting: true } : {}) };
     },
     requests: {
-      message({ to, text, files: attached, priority = "next" }: { to: string; text: string; files?: FileIn[]; priority?: Priority }, ctx: Ctx) {
+      async message({ to, text, files: attached, priority = "next" }: { to: string; text: string; files?: FileIn[]; priority?: Priority }, ctx: Ctx) {
         const command = MODEL_COMMAND.exec(text.trim());
         if (command) return setModel(to, (command[1] ?? "").trim(), ctx);
         const s = session(to);
         const from = ctx.from;
-        // от сессии или службы — тегом: вид ставит эта машина — отправитель родитель сессии, значит задача; у инструмента поля вида нет
-        if (!isHuman(from)) return accept(s, from, s.spec.parent === from ? "task" : "message", text, { priority, files: attached });
         if (down(s)) throw new Refusal("stopped", `${to}: сессия ${s.state} — запускает session.start`);
+        // файлы сообщения встают в папку сессии до первой записи: хранилище не ответило — сообщение не принято, строка сессии не меняется.
+        // Сессии они приходят строкой уведомления в тексте: путь, размер, хэш — читать ли файл, решает она
+        const body = attached?.length ? await placed(s, text, attached, ctx) : text;
+        // от сессии или службы — тегом: вид ставит эта машина — отправитель родитель сессии, значит задача; у инструмента поля вида нет
+        if (!isHuman(from)) return accept(s, from, s.spec.parent === from ? "task" : "message", body, { priority });
         const person = personOf(from)!;
-        // человек пишет без тега; негодное вложение — отказ до первой записи: строка сессии не меняется
-        const body = content(text, attached);
+        // человек пишет без тега
         const { people = [], unread = [] } = part(s);
         merge(s, { people: [...new Set([...people, person])], unread: unread.filter((p) => p !== person), asker: from });
         const r = deliver(s, from, text, body, randomUUID(), priority);
@@ -378,7 +378,7 @@ export function make(): Module {
 
       async "session.history"({ to, before, limit = 50, people }: { to: string; before?: string; limit?: number; people?: boolean }) {
         const s = session(to);
-        const said = ((await s.sdk("getSessionMessages", { includeSystemMessages: true })) as Array<{ uuid?: string; type?: string; message?: { content?: unknown } }>).map(withPeer);
+        const said = ((await s.sdk("getSessionMessages", { includeSystemMessages: true })) as Array<{ uuid?: string; type?: string; message?: { content?: unknown } }>).map(seen);
         // итоги ходов встают за записью, после которой ход кончился: в файле разговора их нет
         const ends = part(s).ends ?? [];
         const whole = ends.length ? [...ends.filter((e) => e.after === "").map((e) => e.event as (typeof said)[number]), ...said.flatMap((m) => [m, ...ends.filter((e) => e.after === m.uuid).map((e) => e.event as typeof m)])] : said;

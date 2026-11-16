@@ -1,5 +1,8 @@
 // Ввод в сессию: многострочный, вложения (кнопкой, из буфера, перетаскиванием), «/» команды, «@» файлы, «/btw» — вопрос сбоку, «/model» — выбор модели.
 // Черновик живёт на каждую сессию. Пока идёт ход, кнопок отправки две: «следующим» (после нынешнего шага) и «сейчас» (прервёт ход); «Прервать» — здесь же.
+import { notifications } from "@mantine/notifications";
+import { upload } from "../lib/files.ts";
+import { sayError } from "../api.ts";
 import { sessionCall, sessionFiles, type SessionRow } from "@sb/protocol";
 import { ActionIcon, FileButton, Group, Paper, Textarea, Tooltip } from "@mantine/core";
 import { IconArrowUp, IconBolt, IconPaperclip, IconPlayerStop, IconX } from "@tabler/icons-react";
@@ -13,13 +16,6 @@ export type ComposerHandle = { setText(text: string): void; /** вернуть �
 
 /** Команды самой страницы рядом с командами Claude. */
 const OWN: Pick[] = [{ label: "/btw", about: "спросить сбоку, мимо разговора", insert: "/btw " }, { label: "/model", about: "выбрать модель: слова поиска", insert: "/model " }];
-
-async function toBase64(f: File): Promise<string> {
-  const buf = new Uint8Array(await f.arrayBuffer());
-  let s = "";
-  for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-  return btoa(s);
-}
 
 /** Команды «/» из списка SDK: имя со слешем, подсказка аргументов, отбор по началу. Список SDK — массив; у старых версий — в поле commands. */
 export function commandPicks(list: unknown, typed: string): Pick[] {
@@ -96,7 +92,14 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
     setText("");
     if (q) return talk.aside(q);
     if (model !== null) return onModel?.(model);
-    const attached: FileOut[] = await Promise.all(files.map(async (f) => ({ name: f.name, mime: f.type || "application/octet-stream", base64: await toBase64(f) })));
+    let attached: FileOut[];
+    try {
+      attached = await Promise.all(files.map(upload));
+    } catch (e) {
+      // файл не загрузился: сообщение не уходит, текст и файлы остаются в поле
+      setText(body);
+      return void notifications.show({ color: "red", message: `Файл не загружен: ${sayError(e)}` });
+    }
     setFiles([]);
     void talk.send(body, attached.length ? attached : undefined, turn ? priority : undefined);
   };

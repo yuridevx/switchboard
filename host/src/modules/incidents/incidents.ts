@@ -1,19 +1,19 @@
 // Инциденты: обращение службы компьютера → запись на диске машины → ввод сессии своего вида и ключа; взято, когда ход его принял.
 // Виды обращений — настройка флота (ключ incidents.kinds) и host.json машины: где открыть сессию, с чем, что ей сказать и кого позвать.
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { basename, join } from "node:path";
-import { kindOf as addrKind, MAX_FRAME, prefsGet, reachSend, READ_MS, Refusal, within, type Incident, type IncidentKind, type Spec } from "@sb/protocol";
+import { kindOf as addrKind, MAX_FRAME, prefsGet, reachSend, READ_MS, Refusal, within, type FileIn, type Incident, type IncidentKind, type Spec } from "@sb/protocol";
 import type { HostApi, Module, SessionApi } from "../../core/contract.ts";
-import { content, envelope } from "../chat/contract.ts";
+import { envelope } from "../chat/contract.ts";
+import type { FilesApi } from "../files/contract.ts";
 
 type Config = { port?: number; kinds?: Record<string, IncidentKind> };
 type Mark = { kind: string; key: string };
-type FileIn = { name: string; mime: string; base64: string };
-/** Обращение на диске. sent — ушло во ввод сессии callsign и ждёт её хода; mimes — типы вложений по именам. */
-type Appeal = Incident & { sent?: boolean; mimes?: Record<string, string> };
+/** Файл от службы компьютера: она отдаёт его машине на месте, содержимым. Машина сразу кладёт его в хранилище флота — в обращении остаются имя, хэш и размер. */
+type LocalFile = { name: string; base64: string };
+/** Обращение на диске. sent — ушло во ввод сессии callsign и ждёт её хода. */
+type Appeal = Incident & { sent?: boolean };
 
 const KEEP = 200;
 /** Ключ настроек флота с видами обращений. */
@@ -34,7 +34,7 @@ async function body(req: IncomingMessage): Promise<string> {
   return Buffer.concat(parts).toString("utf8");
 }
 
-const isFile = (f: unknown): f is FileIn => !!f && typeof f === "object" && typeof (f as FileIn).name === "string" && typeof (f as FileIn).mime === "string" && typeof (f as FileIn).base64 === "string";
+const isFile = (f: unknown): f is LocalFile => !!f && typeof f === "object" && typeof (f as LocalFile).name === "string" && typeof (f as LocalFile).base64 === "string";
 
 export function make(): Module {
   let host: HostApi;
@@ -56,7 +56,12 @@ export function make(): Module {
   /** Вид и ключ сессии, которая открывается прямо сейчас: добавка к промпту нужна уже первому процессу. */
   const opening = new Map<string, Mark>();
   const markOf = (s: SessionApi) => s.store<Mark>().get() ?? opening.get(s.callsign);
-  const filesDir = (id: string) => join(host.dataDir, "incidents", id);
+  /** Файлы — дело модуля файлов: хранилище и папка сессии. */
+  function filesApi(): FilesApi {
+    const api = host.module<FilesApi>("host-files");
+    if (!api) throw new Refusal("no_files", "модуля файлов нет в этом Host");
+    return api;
+  }
 
   /** Виды, что действуют на этой машине. */
   function kinds(): Record<string, IncidentKind> {
@@ -79,9 +84,6 @@ export function make(): Module {
     const m = markOf(s);
     return m && s.state !== "stopped" && m.kind === a.kind && m.key === a.key;
   });
-
-  /** Вложения обращения с диска. */
-  const filesOf = (a: Appeal): FileIn[] => (a.files ?? []).map((name) => ({ name, mime: a.mimes?.[name] ?? "application/octet-stream", base64: readFileSync(join(filesDir(a.id), name)).toString("base64") }));
 
   async function deliver(id: string): Promise<void> {
     const a = appeals().find((x) => x.id === id);
@@ -106,9 +108,11 @@ export function make(): Module {
       }
       host.log.info("incident_open", { callsign: s.callsign, why: `инцидент ${a.kind} · ${a.key} — новая сессия` });
     }
+    // вложения встают в папку сессии тем же шагом, что файлы сообщения: сессии — строка уведомления о них
+    const text = a.files?.length ? await filesApi().attach(s, a.text, a.files, host.signal) : a.text;
     // адрес — до ввода: сессия есть, даже если её процесс ещё поднимается
     change(id, (x) => ({ ...x, callsign: s!.callsign, why: undefined, sent: true }));
-    s.input(content(envelope(`@${host.machine}`, "incident", a.text, { incident: a.kind, key: a.key }), filesOf(a)), { priority: "next", uuid: id });
+    s.input(envelope(`@${host.machine}`, "incident", text, { incident: a.kind, key: a.key }), { priority: "next", uuid: id });
   }
 
   /** Обращение — в очередь своего вида и ключа. Отказ доставки остаётся в записи: обращение ждёт следующего прохода. */
@@ -131,27 +135,14 @@ export function make(): Module {
     }
   }
 
-  function raise(kind: string, key: string, text: string, files: FileIn[] = []): Appeal {
+  /** Новое обращение. files — вложения, что уже в хранилище флота; local — файлы службы компьютера содержимым: машина сразу кладёт их в хранилище,
+   *  своей папки вложений у обращений нет. Хранилище не ответило — обращение не принято, отказ словом. */
+  async function raise(kind: string, key: string, text: string, files: FileIn[] = [], local: LocalFile[] = []): Promise<Appeal> {
     if (!Object.hasOwn(kinds(), kind)) throw new Refusal("unknown_kind", `вид ${kind} не настроен на машине ${host.machine}`);
-    const id = randomUUID();
-    const names: string[] = [];
-    const mimes: Record<string, string> = {};
-    if (files.length) {
-      mkdirSync(filesDir(id), { recursive: true });
-      for (const f of files) {
-        const name = basename(f.name) || "file";
-        writeFileSync(join(filesDir(id), name), Buffer.from(f.base64, "base64"));
-        names.push(name);
-        mimes[name] = f.mime;
-      }
-    }
-    const a: Appeal = { id, kind, key, text, at: Date.now(), state: "pending", ...(names.length ? { files: names, mimes } : {}) };
-    disk().update((all = []) => {
-      const next = [...all, a];
-      // вытесненные записи уносят свои вложения
-      for (const old of next.slice(0, Math.max(0, next.length - KEEP))) if (old.files?.length) rmSync(filesDir(old.id), { recursive: true, force: true });
-      return next.slice(-KEEP);
-    });
+    files = [...files];
+    for (const f of local) files.push(await filesApi().put(f.name, Buffer.from(f.base64, "base64"), host.signal));
+    const a: Appeal = { id: randomUUID(), kind, key, text, at: Date.now(), state: "pending", ...(files.length ? { files } : {}) };
+    disk().update((all = []) => [...all, a].slice(-KEEP));
     notify(a);
     return a;
   }
@@ -171,8 +162,8 @@ export function make(): Module {
       const kind = x?.kind ?? x?.type;
       const files = x?.files ?? x?.attachments ?? [];
       if (typeof kind !== "string" || !kind || typeof x.text !== "string" || (x.key !== undefined && typeof x.key !== "string") || !Array.isArray(files) || !files.every(isFile))
-        throw new Refusal("bad_frame", "нужны kind и text — строки; key — строка; files — список { name, mime, base64 }");
-      const a = raise(kind, (x.key as string | undefined) ?? "", x.text, files);
+        throw new Refusal("bad_frame", "нужны kind и text — строки; key — строка; files — список { name, base64 }");
+      const a = await raise(kind, (x.key as string | undefined) ?? "", x.text, [], files);
       answer(202, { id: a.id });
       void queue(a);
     } catch (e) {
@@ -241,10 +232,10 @@ export function make(): Module {
       },
     },
     requests: {
-      // причина недоставки — у ждущего обращения; вложения — именами
-      "incident.list": () => ({ incidents: appeals().map(({ sent: _sent, mimes: _mimes, why, ...a }) => ({ ...a, ...(why && a.state === "pending" ? { why } : {}) })).reverse(), ...(port !== undefined ? { port } : {}) }),
+      // причина недоставки — у ждущего обращения
+      "incident.list": () => ({ incidents: appeals().map(({ sent: _sent, why, ...a }) => ({ ...a, ...(why && a.state === "pending" ? { why } : {}) })).reverse(), ...(port !== undefined ? { port } : {}) }),
       async "incident.raise"({ kind, key, text, files }: { kind: string; key: string; text: string; files?: FileIn[] }) {
-        const a = raise(kind, key, text, files);
+        const a = await raise(kind, key, text, files);
         await queue(a);
         const now = appeals().find((x) => x.id === a.id);
         if (now?.why) throw new Refusal("open_failed", now.why);

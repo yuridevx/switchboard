@@ -269,3 +269,27 @@ a.pcard-from:hover, a.pcard-from:focus-visible { color: var(--mantine-color-text
 @media (hover: none) { .mp-pin { opacity: 1; } }
 .mp-none { padding: 10px 8px; font-size: 13px; color: var(--muted); }
 .mp-rule { height: 1px; background: var(--line); margin: 6px 8px 2px; }
+
+/* файлы в ленте: отправленный файл, сайт, загруженное человеком; лист «целиком» */
+.fileshow { position: relative; }
+.fileshow .codebar { justify-content: flex-start; gap: 8px; padding: 6px 10px; font-size: 12.5px; min-height: 34px; }
+.fileshow.seen .codebar { padding-right: 34px; }
+.fileshow .codebar .mono { margin-right: 0; min-width: 0; }
+.filetitle { font-weight: 600; white-space: nowrap; }
+.filesize { white-space: nowrap; font-size: 12px; color: var(--muted); }
+.filemax { position: absolute; top: 5px; right: 6px; }
+.fileshow .pic { margin: 0 auto; border-radius: 0; }
+.fileshow .md, .fileshow .filetext { margin: 0; padding: 6px 10px 10px; }
+.fileshow .svgview { margin: 0 10px 10px; }
+.filetext { margin: 0; font-size: 12.5px; max-height: 420px; overflow: auto; background: none; }
+.fileframe.full .htmlframe { height: calc(100dvh - 130px); border-radius: 8px; }
+.filepic { display: block; max-width: 100%; margin-inline: auto; border-radius: 6px; }
+.filewait { height: 120px; }
+.filefail { padding: 6px 10px 10px; font-size: 13px; color: var(--st-failed); }
+.me-pic { position: relative; max-width: 220px; margin-top: 6px; }
+.me-pic .pic { max-height: 160px; border-radius: 6px; margin: 0; }
+.me-pic .filewait { height: 60px; }
+.me-file .trunc { min-width: 0; }
+.steppage .svgview, .steppage .filetext { max-height: none; margin-inline: auto; }
+/* кнопка-картинка на всю колонку: у SVG нет своей ширины */
+.picbtn.fill { width: 100%; box-sizing: border-box; }

@@ -24,6 +24,13 @@ export const mirror = (k: string | null) => Promise.all([kvSet("key", k), kvSet(
 export let mock: Mock | null = null;
 export let api: Api;
 
+/** Байты в хранилище по ссылке загрузки. */
+export async function putBytes(url: string, body: Blob): Promise<void> {
+  if (mock) return mock.put(url, body);
+  const res = await fetch(url, { method: "PUT", body });
+  if (!res.ok) throw new Error(`хранилище ответило ${res.status}`);
+}
+
 export function connect(): void {
   if (isMock) {
     mock = createMock({ live: q.get("still") === null });
