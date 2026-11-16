@@ -1,13 +1,16 @@
 // Markdown ответа модели: отдельный кусок сборки, грузится при первом тексте.
 // Таблицы и сноски; сырой HTML — через очистку; блок кода — с копированием; HTML — с просмотром в песочнице, SVG — картинкой; ссылки открываются в новой вкладке.
 import { CopyButton } from "@mantine/core";
-import { isValidElement, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
-import { fenceHtml, HtmlFrame, previewKind, SvgView, textOf } from "./html.tsx";
+import { isValidElement, lazy, Suspense, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
+import { Sheet } from "./files.tsx";
+import { fenceHtml, HtmlFrame, showKind, SvgView, textOf } from "./html.tsx";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+
+const Mermaid = lazy(() => import("./Mermaid.tsx"));
 
 const SCHEMA = {
   ...defaultSchema,
@@ -37,16 +40,22 @@ function toFootnote(e: MouseEvent<HTMLAnchorElement>, id: string) {
 }
 
 function Code({ lang, code, children }: { lang: string; code: string; children: ReactNode }) {
-  const kind = previewKind(lang, code);
-  const [view, setView] = useState(false);
+  // показ блока — тем же правилом, что показ файла: язык блока вместо расширения
+  const kind = showKind(lang, code);
+  const scheme = kind === "mermaid";
+  const shown = kind === "image" || kind === "html" || scheme;
+  // схема показывается сразу: её пишут, чтобы на неё смотреть
+  const [view, setView] = useState(scheme);
+  const [whole, setWhole] = useState(false);
   return (
     <div className="codeblock">
       <div className="codebar">
         <span className="muted mono">{lang}</span>
-        {kind && <button type="button" className="linkbtn" aria-pressed={view} onClick={() => setView((v) => !v)}>{view ? "Код" : "Просмотр"}</button>}
+        {shown && <button type="button" className="linkbtn" aria-pressed={view} onClick={() => setView((v) => !v)}>{view ? "Код" : scheme ? "Схема" : "Просмотр"}</button>}
         <CopyButton value={code}>{({ copied, copy }) => <button type="button" className="linkbtn" onClick={copy}>{copied ? "Скопировано" : "Копировать"}</button>}</CopyButton>
       </div>
-      {view && kind === "svg" ? <SvgView code={code} /> : view ? <HtmlFrame html={code} /> : <pre>{children}</pre>}
+      <Sheet opened={whole} onClose={() => setWhole(false)} title="Схема"><Suspense><Mermaid code={code} /></Suspense></Sheet>
+      {view && scheme ? <Suspense><Mermaid code={code} onClick={() => setWhole(true)} /></Suspense> : view && kind === "image" ? <SvgView code={code} /> : view && kind === "html" ? <HtmlFrame html={code} /> : <pre>{children}</pre>}
     </div>
   );
 }

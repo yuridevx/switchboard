@@ -2,7 +2,7 @@
 // в записях на машину. Поиск опрашивает только машины, до которых человек достаёт.
 import { type ArchPoint, type ArchSession, canReach, errFields, machineOf, type ModelCall, type Prices, Refusal, type SdkEvent, personOf } from "@sb/protocol";
 import type { Ctx, Env, Module } from "../../env.ts";
-import { link, readBlocks } from "../../r2.ts";
+import { link, readBlocks, uploadLinks } from "../../r2.ts";
 import { type Op, records } from "../../records.ts";
 import { fleetPref } from "../prefs/contract.ts";
 
@@ -29,7 +29,6 @@ const db = (env: Env, fleet: string, machine: string) => records(env, fleet, NAM
 
 const HASH = /^[0-9a-f]{64}$/;
 const TEXT_MAX = 20_000;
-const HEADS_AT_ONCE = 50;
 /** Столько ключей R2 удаляется одним вызовом. */
 const DELETE_AT_ONCE = 500;
 
@@ -120,17 +119,6 @@ async function drop(env: Env, fleet: string, machine: string, sid: string, names
   const keys = [...orphans].map((h) => blockKey(fleet, machine, h));
   for (let i = 0; i < keys.length; i += DELETE_AT_ONCE) await env.FILES.delete(keys.slice(i, i + DELETE_AT_ONCE));
   return keys.length;
-}
-
-/** Каких блоков ещё нет в хранилище. */
-async function missing(env: Env, fleet: string, machine: string, hashes: string[]): Promise<string[]> {
-  const out: string[] = [];
-  for (let i = 0; i < hashes.length; i += HEADS_AT_ONCE) {
-    const part = hashes.slice(i, i + HEADS_AT_ONCE);
-    const heads = await Promise.all(part.map((h) => env.FILES.head(blockKey(fleet, machine, h))));
-    part.forEach((h, n) => heads[n] || out.push(h));
-  }
-  return out;
 }
 
 /** Машины, по которым идёт запрос: названная (если до неё достаёт) или все свои. */
@@ -298,11 +286,10 @@ export const archive: Module = {
       const hashes = [...new Set(i.files.flatMap((f) => f.blocks))];
       const bad = hashes.find((h) => !HASH.test(h));
       if (bad) throw new Refusal("bad_input", `блок ${bad} — не хэш SHA-256`);
-      const need = await missing(ctx.env, ctx.fleet, machine, hashes);
-      if (need.length) {
-        if (i.commit) throw new Refusal("blocks_missing", `не загружено блоков: ${need.length}`);
-        const upload: Record<string, string> = {};
-        for (const h of need) upload[h] = await link(ctx.env, "PUT", blockKey(ctx.fleet, machine, h));
+      const upload = await uploadLinks(ctx.env, hashes, (h) => blockKey(ctx.fleet, machine, h));
+      const need = Object.keys(upload).length;
+      if (need) {
+        if (i.commit) throw new Refusal("blocks_missing", `не загружено блоков: ${need}`);
         return { upload, done: false };
       }
       const now = Date.now();

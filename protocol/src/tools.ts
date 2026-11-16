@@ -12,7 +12,13 @@ const STOP_TASK: ToolKind = { word: "Остановка задачи", icon: "sq
 const OUTPUT_OF: ToolKind = { word: "Вывод задачи", icon: "terminal", keys: ["task_id", "bash_id"] };
 const WORKTREE: ToolKind = { word: "Ворктри", icon: "git-branch", keys: ["name", "action"] };
 
+/** Инструменты файлов сервера fleet: отправить файл человеку и поднять сайт. Лента рисует их не строкой инструмента, а самим файлом и сайтом. */
+export const SEND_TOOL = "mcp__fleet__file_send";
+export const SITE_TOOL = "mcp__fleet__site_publish";
+
 export const TOOL_KINDS: Record<string, ToolKind> = {
+  [SEND_TOOL]: { word: "Отправка файла", icon: "file-text", keys: ["title", "path"] },
+  [SITE_TOOL]: { word: "Сайт", icon: "globe", keys: ["title", "dir"] },
   Bash: { word: "Команда", icon: "terminal", keys: ["command"], body: "command" },
   PowerShell: { word: "PowerShell", icon: "terminal", keys: ["command"], body: "command" },
   Edit: { word: "Правка", icon: "file-pen", keys: ["file_path"], body: "diff", open: true },

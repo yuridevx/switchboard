@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Флот за неделю</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --text: #1d2330;
+    --muted: #6b7280;
+    --grid: #e5e7eb;
+    --bar: #16a34a;
+    --bar-hover: #f59e0b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1116;
+      --card: #181b23;
+      --text: #e6e8ee;
+      --muted: #8b93a7;
+      --grid: #2a2f3b;
+      --bar: #22c55e;
+      --bar-hover: #fbbf24;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 20px;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 26px; font-weight: 600; margin: 0 0 20px; }
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .tile {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid var(--grid);
+  }
+  .tile .value { font-size: 32px; font-weight: 700; }
+  .tile .label { font-size: 14px; color: var(--muted); margin-top: 4px; }
+  .chart {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid var(--grid);
+  }
+  .chart h2 { font-size: 16px; font-weight: 600; margin: 4px 8px 8px; }
+  svg { width: 100%; height: auto; display: block; }
+  .bar { fill: var(--bar); transition: fill 0.15s; }
+  .bar:hover { fill: var(--bar-hover); }
+  .grid { stroke: var(--grid); stroke-width: 1; }
+  .tick, .axis-label { fill: var(--muted); font-size: 11px; }
+  .axis-title { fill: var(--muted); font-size: 12px; }
+  .axis { stroke: var(--muted); stroke-width: 1; }
+  @media (max-width: 600px) {
+    .tiles { grid-template-columns: 1fr; }
+  }
+</style>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>Флот за неделю</h1>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="value">14</div>
+      <div class="label">сессий</div>
+    </div>
+    <div class="tile">
+      <div class="value">212</div>
+      <div class="label">ходов</div>
+    </div>
+    <div class="tile">
+      <div class="value">8,4 млн</div>
+      <div class="label">токенов</div>
+    </div>
+  </div>
+
+  <div class="chart">
+    <h2>Ходы по часам суток</h2>
+    <svg viewBox="0 0 720 340" role="img" aria-label="Столбчатая диаграмма ходов по часам суток">
+      <!-- горизонтальная сетка и подписи оси Y (значения 0..25) -->
+      <line class="grid" x1="50" y1="270" x2="702" y2="270"/>
+      <line class="grid" x1="50" y1="220" x2="702" y2="220"/>
+      <line class="grid" x1="50" y1="170" x2="702" y2="170"/>
+      <line class="grid" x1="50" y1="120" x2="702" y2="120"/>
+      <line class="grid" x1="50" y1="70" x2="702" y2="70"/>
+      <line class="grid" x1="50" y1="20" x2="702" y2="20"/>
+      <text class="tick" x="42" y="274" text-anchor="end">0</text>
+      <text class="tick" x="42" y="224" text-anchor="end">5</text>
+      <text class="tick" x="42" y="174" text-anchor="end">10</text>
+      <text class="tick" x="42" y="124" text-anchor="end">15</text>
+      <text class="tick" x="42" y="74" text-anchor="end">20</text>
+      <text class="tick" x="42" y="24" text-anchor="end">25</text>
+
+      <!-- оси -->
+      <line class="axis" x1="50" y1="20" x2="50" y2="270"/>
+      <line class="axis" x1="50" y1="270" x2="702" y2="270"/>
+
+      <!-- столбцы: 24 часа, высота = значение * 10 px -->
+      <rect class="bar" x="54"  y="250" width="19" height="20"><title>00:00 — 2 хода</title></rect>
+      <rect class="bar" x="81"  y="260" width="19" height="10"><title>01:00 — 1 ход</title></rect>
+      <rect class="bar" x="108" y="270" width="19" height="0"><title>02:00 — 0 ходов</title></rect>
+      <rect class="bar" x="135" y="260" width="19" height="10"><title>03:00 — 1 ход</title></rect>
+      <rect class="bar" x="162" y="250" width="19" height="20"><title>04:00 — 2 хода</title></rect>
+      <rect class="bar" x="189" y="240" width="19" height="30"><title>05:00 — 3 хода</title></rect>
+      <rect class="bar" x="216" y="210" width="19" height="60"><title>06:00 — 6 ходов</title></rect>
+      <rect class="bar" x="243" y="160" width="19" height="110"><title>07:00 — 11 ходов</title></rect>
+      <rect class="bar" x="270" y="110" width="19" height="160"><title>08:00 — 16 ходов</title></rect>
+      <rect class="bar" x="297" y="60"  width="19" height="210"><title>09:00 — 21 ход</title></rect>
+      <rect class="bar" x="324" y="80"  width="19" height="190"><title>10:00 — 19 ходов</title></rect>
+      <rect class="bar" x="351" y="100" width="19" height="170"><title>11:00 — 17 ходов</title></rect>
+      <rect class="bar" x="378" y="150" width="19" height="120"><title>12:00 — 12 ходов</title></rect>
+      <rect class="bar" x="405" y="170" width="19" height="100"><title>13:00 — 10 ходов</title></rect>
+      <rect class="bar" x="432" y="130" width="19" height="140"><title>14:00 — 14 ходов</title></rect>
+      <rect class="bar" x="459" y="90"  width="19" height="180"><title>15:00 — 18 ходов</title></rect>
+      <rect class="bar" x="486" y="110" width="19" height="160"><title>16:00 — 16 ходов</title></rect>
+      <rect class="bar" x="513" y="140" width="19" height="130"><title>17:00 — 13 ходов</title></rect>
+      <rect class="bar" x="540" y="180" width="19" height="90"><title>18:00 — 9 ходов</title></rect>
+      <rect class="bar" x="567" y="200" width="19" height="70"><title>19:00 — 7 ходов</title></rect>
+      <rect class="bar" x="594" y="210" width="19" height="60"><title>20:00 — 6 ходов</title></rect>
+      <rect class="bar" x="621" y="230" width="19" height="40"><title>21:00 — 4 хода</title></rect>
+      <rect class="bar" x="648" y="240" width="19" height="30"><title>22:00 — 3 хода</title></rect>
+      <rect class="bar" x="675" y="260" width="19" height="10"><title>23:00 — 1 ход</title></rect>
+
+      <!-- подписи оси X: часы -->
+      <g class="axis-label" text-anchor="middle">
+        <text x="63.5" y="288">00</text><text x="90.5" y="288">01</text><text x="117.5" y="288">02</text><text x="144.5" y="288">03</text>
+        <text x="171.5" y="288">04</text><text x="198.5" y="288">05</text><text x="225.5" y="288">06</text><text x="252.5" y="288">07</text>
+        <text x="279.5" y="288">08</text><text x="306.5" y="288">09</text><text x="333.5" y="288">10</text><text x="360.5" y="288">11</text>
+        <text x="387.5" y="288">12</text><text x="414.5" y="288">13</text><text x="441.5" y="288">14</text><text x="468.5" y="288">15</text>
+        <text x="495.5" y="288">16</text><text x="522.5" y="288">17</text><text x="549.5" y="288">18</text><text x="576.5" y="288">19</text>
+        <text x="603.5" y="288">20</text><text x="630.5" y="288">21</text><text x="657.5" y="288">22</text><text x="684.5" y="288">23</text>
+      </g>
+
+      <!-- подписи осей -->
+      <text class="axis-title" x="376" y="318" text-anchor="middle">Час суток</text>
+      <text class="axis-title" x="14" y="145" text-anchor="middle" transform="rotate(-90 14 145)">Ходы</text>
+    </svg>
+  </div>
+</div>
+<script src="site.js"></script>
+</body>
+</html>

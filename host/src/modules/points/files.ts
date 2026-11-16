@@ -1,21 +1,10 @@
 // Файлы точки: блоки по ссылкам хранилища и запись на диск. Общие для подъёма сессии на машине и выгрузки сессии архива на компьютер без Host.
-import { createHash } from "node:crypto";
+// Сам обмен с хранилищем — у модуля файлов: шаг «ссылка → содержимое → сверка хэша» один.
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { CALL_MS, Refusal } from "@sb/protocol";
-
-export const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
-
-/** Запрос к хранилищу по ссылке: блока нет — слово missing; сеть или другой отказ — store_failed. */
-export async function storeFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(CALL_MS) }).catch((e) => {
-    throw new Refusal("store_failed", `хранилище: ${e}`);
-  });
-  if (res.status === 404) throw new Refusal("missing", "блока точки нет в хранилище");
-  if (!res.ok) throw new Refusal("store_failed", `хранилище ответило ${res.status}`);
-  return res;
-}
+import { Refusal } from "@sb/protocol";
+import { sha256, storeGet } from "../files/contract.ts";
 
 export type PointFileLinks = { path: string; blocks: Array<{ hash: string; url: string }> };
 
@@ -28,7 +17,7 @@ export async function download(files: PointFileLinks[]): Promise<Map<string, Buf
       // блок лежит в хранилище сжатым; имя — хэш несжатого содержимого
       let buf: Buffer;
       try {
-        buf = gunzipSync(Buffer.from(await (await storeFetch(b.url)).arrayBuffer()));
+        buf = gunzipSync(await storeGet(b.url));
       } catch (e) {
         if (e instanceof Refusal) throw e;
         throw new Refusal("bad_point", `${f.path}: блок ${b.hash.slice(0, 12)} не распаковался`);

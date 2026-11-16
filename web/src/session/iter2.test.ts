@@ -10,7 +10,7 @@ import { askOutcome, seenWord } from "../chat/answers.ts";
 import { returned } from "./Composer.tsx";
 import { pairOf } from "./Conversation.tsx";
 import { diffLines } from "./diff.ts";
-import { looksSvg, previewKind, svgUrl } from "./html.tsx";
+import { showKind, svgUrl } from "./html.tsx";
 import { pairRows } from "./Inspector.tsx";
 
 const ME = "~yuri@example.com";
@@ -99,12 +99,12 @@ describe("лента", () => {
     expect(diffLines("a\nx\nb", "a\ny\nb").map((l) => l.k)).toEqual(["same", "old", "new", "same"]);
   });
   it("SVG узнаётся по языку блока и по содержимому; показывается картинкой из данных", () => {
-    expect(looksSvg("svg", "что угодно")).toBe(true);
-    expect(looksSvg("xml", '<?xml version="1.0"?>\n<svg viewBox="0 0 1 1"></svg>')).toBe(true);
-    expect(looksSvg("", "<div>не svg</div>")).toBe(false);
-    expect(previewKind("", "<!doctype html><html></html>")).toBe("html");
-    expect(previewKind("", "<svg></svg>")).toBe("svg");
-    expect(previewKind("ts", "const a = 1")).toBeNull();
+    expect(showKind("svg", "что угодно")).toBe("image");
+    expect(showKind("xml", '<?xml version="1.0"?>\n<svg viewBox="0 0 1 1"></svg>')).toBe("image");
+    expect(showKind("", "<div>не svg</div>")).toBeNull();
+    expect(showKind("", "<!doctype html><html></html>")).toBe("html");
+    expect(showKind("", "<svg></svg>")).toBe("image");
+    expect(showKind("ts", "const a = 1")).toBeNull();
     expect(svgUrl("<svg/>")).toBe("data:image/svg+xml;charset=utf-8,%3Csvg%2F%3E");
   });
   it("итог вопроса — строкой ленты: кто ответил и чем; ход снял вопрос — «вопрос снят»; ответ из уведомления помечен", () => {

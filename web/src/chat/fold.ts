@@ -7,8 +7,8 @@ import { API_ERRORS, FALLBACK_WHY, modelName, REFUSAL_AREAS, TASK_END } from "./
 export type Msg = Record<string, any>;
 export type Part = { k: "text"; text: string; live?: boolean } | { k: "think"; text: string; live?: boolean } | { k: "tool"; id: string };
 export type Row =
-  | { k: "me"; key: string; uuid?: string; text: string; pics: string[]; /** имена приложенных документов */ files?: string[]; /** кто написал: устройство человека; своё — без подписи */ from?: string; state?: MeState; /** почему сообщение не ушло */ why?: string }
-  | { k: "in"; key: string; uuid?: string; via: "session" | "owner" | "service"; from: string; /** вид входящего от флота: его называет машина */ kind?: Kind; /** номер вопроса или вид и ключ обращения */ ref?: string; tag?: string; text: string; at: string }
+  | { k: "me"; key: string; uuid?: string; text: string; pics: string[]; /** файлы, загруженные с сообщением: имя, хэш и размер; у документа прежнего вида — только имя */ files?: Array<{ name: string; hash?: string; size?: number }>; /** кто написал: устройство человека; своё — без подписи */ from?: string; state?: MeState; /** почему сообщение не ушло */ why?: string }
+  | { k: "in"; key: string; uuid?: string; via: "session" | "owner" | "service"; from: string; /** вид входящего от флота: его называет машина */ kind?: Kind; /** номер вопроса или вид и ключ обращения */ ref?: string; tag?: string; text: string; at: string; /** файлы входящего: имя, хэш, размер */ files?: Array<{ name: string; hash?: string; size?: number }> }
   | { k: "reply"; key: string; parts: Part[] }
   | { k: "cmd"; key: string; name: string; args: string; out?: string }
   | { k: "sys"; key: string; icon: string; text: string; tone?: "wait" | "swap"; retry?: boolean; boundary?: boolean }
@@ -163,7 +163,7 @@ function summary(v: View, text: string) {
 /** Входящее от флота: отправителя, вид и текст машина отдаёт готовыми полями — тег страница не разбирает. */
 function incoming(v: View, m: Msg, p: Peer) {
   const ref = p.ask ?? (p.incident ? [p.incident, p.key].filter(Boolean).join(" · ") : undefined);
-  push(v, { k: "in", uuid: m.uuid, via: /^[.@]/.test(p.from) ? "service" : "session", from: p.from, kind: p.kind, ...(ref ? { ref } : {}), text: p.text, at: timeOf(m) });
+  push(v, { k: "in", uuid: m.uuid, via: /^[.@]/.test(p.from) ? "service" : "session", from: p.from, kind: p.kind, ...(ref ? { ref } : {}), text: p.text, at: timeOf(m), ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}) });
 }
 
 /** Конец задачи: один раз на задачу, откуда бы ни пришёл. */
@@ -238,7 +238,7 @@ function text(v: View, m: Msg, body: string, pics: string[]) {
   if (state !== "queued" && state !== "cancelled") closeTurn(v);
   const content = m.message?.content;
   const docs = Array.isArray(content) ? (content as Msg[]).filter((b) => b.type === "document").map((b) => String(b.title ?? "документ")) : [];
-  const files = [...docs, ...((m._files as string[] | undefined) ?? [])];
+  const files = [...docs.map((name) => ({ name })), ...((m.files as Array<{ name: string; hash?: string; size?: number }> | undefined) ?? [])];
   push(v, { k: "me", uuid: m.uuid, text: body, pics, ...(files.length ? { files } : {}), ...(typeof m.from === "string" ? { from: m.from } : {}), ...(state ? { state } : {}), ...(state === "lost" && typeof m._why === "string" ? { why: m._why } : {}) });
 }
 
@@ -248,7 +248,7 @@ function user(v: View, m: Msg) {
   for (const b of blocks) if (b.type === "tool_result") toolOf(v, b.tool_use_id).result = { ...resultParts(b.content), error: !!b.is_error };
   const body = blocks.filter((b) => b.type === "text").map((b) => String(b.text)).join("\n");
   const pics = picsOf(blocks);
-  const attached = blocks.some((b) => b.type === "document") || !!(m._files as unknown[] | undefined)?.length;
+  const attached = blocks.some((b) => b.type === "document") || !!(m.files as unknown[] | undefined)?.length;
   if (m.parent_tool_use_id || (!body.trim() && !pics.length && !attached)) return;
   v.hint = "";
   if (m.isCompactSummary) return summary(v, body);

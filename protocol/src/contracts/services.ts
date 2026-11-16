@@ -1,6 +1,6 @@
 // Службы: выпуски, журнал флота, архив сессий, связь с людьми, настройки, ключи флота, GitHub, аналитика, наблюдение.
 import { Callsign, Done, Empty, Name, Person, request, z } from "../define.ts";
-import { SdkEvent, Spec } from "./session.ts";
+import { Hash, SdkEvent, Spec } from "./session.ts";
 import { HostMetrics, Limit } from "./machine.ts";
 
 /* ===== Выпуски (builds) ===== */
@@ -354,4 +354,25 @@ export const obsSeries = request("obs.series", {
 export const obsReport = request("obs.report", {
   owner: "obs", target: "service",
   input: z.object({ part: z.string(), level: z.enum(["warn", "error"]), msg: z.string(), stack: z.string().optional(), data: z.unknown().optional() }), output: Done,
+});
+
+/* ===== Файлы (files) ===== */
+
+/** Загрузить содержимое по хэшу: в ответе — подписанные ссылки на загрузку для тех хэшей, которых в хранилище ещё нет. Байты идут по ссылке, мимо Worker'а. */
+export const filesPut = request("files.put", {
+  owner: "files", target: "service",
+  input: z.object({ files: z.array(z.object({ hash: Hash, size: z.number() })) }),
+  output: z.object({ upload: z.record(z.string(), z.string()) }),
+});
+/** Подписанная ссылка на содержимое по хэшу, на час. name — имя для скачивания: с ним ссылка отдаёт файл вложением. Содержимого нет — no_file. */
+export const filesGet = request("files.get", {
+  owner: "files", target: "service",
+  input: z.object({ hash: Hash, name: z.string().optional() }),
+  output: z.object({ url: z.string() }),
+});
+/** Записать список файлов сайта: путь → хэш. site — номер сайта: его выводит Host из своего секрета, позывного сессии и папки. Отдаёт сайт этот же Worker по адресу /s/<номер>/, без пропуска. */
+export const filesSite = request("files.site", {
+  owner: "files", target: "service", machineOnly: true,
+  input: z.object({ site: z.string().regex(/^[0-9a-f]{32}$/), files: z.array(z.object({ path: z.string(), hash: Hash, size: z.number() })) }),
+  output: z.object({ url: z.string() }),
 });

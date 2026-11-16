@@ -23,18 +23,6 @@ describe("chat", () => {
     expect(proc.inputs[1]!.message.content).toBe('<fleet from="docs@server" kind="message">\nя закончила\n</fleet>');
   });
 
-  it("вложение-картинка идёт блоком; тип без блока — отказ bad_attachment, во ввод ничего не ушло", async () => {
-    st = await stand({ modules: [chat()] });
-    const { proc } = await st.open("site");
-    await st.request("message", { to: "site@laptop", text: "смотри", files: [{ name: "a.png", mime: "image/png", base64: "AAAA" }] });
-    await until(() => proc.inputs.length === 1, 5000, "ввод");
-    expect(proc.inputs[0]!.message.content).toEqual([{ type: "text", text: "смотри" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } }]);
-    const bad = await st.request("message", { to: "site@laptop", text: "x", files: [{ name: "a.zip", mime: "application/zip", base64: "AAAA" }] });
-    expect(bad).toMatchObject({ ok: false, error: "bad_attachment" });
-    await tick(10);
-    expect(proc.inputs).toHaveLength(1);
-  });
-
   it("ход на 1 000 событий даёт ровно 2 изменения строки", async () => {
     st = await stand({ modules: [chat()] });
     await st.open("site");

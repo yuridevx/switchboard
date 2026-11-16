@@ -4,10 +4,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "no
 import { homedir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
+import { sha256, storePut } from "../files/contract.ts";
 import { machineOf, pointsGet, pointsPut, pointsSave, Refusal, sessionName, sessionRemove, sessionStart, type Spec } from "@sb/protocol";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
 import { clientPath, claudeDir, tildePath } from "../../core/paths.ts";
-import { download, sha256, storeFetch, writeFiles } from "./files.ts";
+import { download, writeFiles } from "./files.ts";
 import { bring, BUNDLE, folderOf, snapshot, type Summary } from "./git.ts";
 
 const BLOCK = 1 << 20;
@@ -140,7 +141,7 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
     };
     const first = await host.call(pointsPut, frame);
     if (!first.done) {
-      for (const [hash, url] of Object.entries(first.upload)) await storeFetch(url, { method: "PUT", body: new Uint8Array(gzipSync(blocks.get(hash)!)) });
+      for (const [hash, url] of Object.entries(first.upload)) await storePut(url, gzipSync(blocks.get(hash)!));
       const second = await host.call(pointsPut, { ...frame, commit: true });
       if (!second.done) throw new Refusal("store_failed", `${s.callsign}: архив не записал точку — не хватает блоков: ${Object.keys(second.upload).length}`);
     }

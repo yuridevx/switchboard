@@ -363,7 +363,7 @@ describe("shell", () => {
 });
 
 describe("incidents", () => {
-  it("виды — из настроек флота: добавка к промпту и кого позвать; порт 0 — настоящий порт; вложения идут во ввод; причина недоставки — в списке; вид — в строке сессии", async () => {
+  it("виды — из настроек флота: добавка к промпту и кого позвать; порт 0 — настоящий порт; причина недоставки — в списке; вид — в строке сессии", async () => {
     const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
     const work = join(home, "work");
     mkdirSync(work, { recursive: true });
@@ -373,13 +373,11 @@ describe("incidents", () => {
     const port = ((await st.request("incident.list", { to: "@laptop" })).result as any).port as number;
     await tick(20);
     const post = (x: object) => fetch(`http://127.0.0.1:${port}/incident`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(x) });
-    const res = await post({ type: "disk", key: "c:", text: "место кончается", files: [{ name: "df.txt", mime: "text/plain", base64: Buffer.from("/ 99%").toString("base64") }] });
+    const res = await post({ type: "disk", key: "c:", text: "место кончается" });
     expect(res.status).toBe(202);
     const proc = await until(() => st!.proc("disk-1@laptop"), 5000, "процесс инцидента");
     await until(() => proc.inputs.length === 1, 5000, "обращение во вводе");
-    const content = proc.inputs[0]!.message.content as any[];
-    expect(content[0]).toMatchObject({ type: "text", text: expect.stringContaining('<fleet from="@laptop" kind="incident" incident="disk" key="c:">') });
-    expect(content[1]).toMatchObject({ type: "document", title: "df.txt", source: { data: "/ 99%" } });
+    expect(proc.inputs[0]!.message.content).toBe('<fleet from="@laptop" kind="incident" incident="disk" key="c:">\nместо кончается\n</fleet>');
     expect((st.sdk.last("disk-1@laptop")!.options as any).systemPrompt.append).toContain("Сначала df -h.");
     expect(st.services.of("reach.send")).toContainEqual(expect.objectContaining({ to: "~yuri@example.com", kind: "incident", title: expect.stringContaining("инцидент disk") }));
     expect(st.link.rows("disk-1@laptop").at(-1)!.row).toMatchObject({ incident: { kind: "disk", key: "c:" } });
@@ -388,7 +386,7 @@ describe("incidents", () => {
     expect(await st.request("incident.raise", { to: "@laptop", kind: "lost", key: "", text: "x" }, "@laptop")).toMatchObject({ ok: false, error: "open_failed" });
     const list = ((await st.request("incident.list", { to: "@laptop" })).result as any).incidents as any[];
     expect(list.find((a) => a.kind === "lost")).toMatchObject({ state: "pending", why: expect.stringContaining("bad_dir") });
-    expect(list.find((a) => a.kind === "disk")).toMatchObject({ files: ["df.txt"], callsign: "disk-1@laptop" });
+    expect(list.find((a) => a.kind === "disk")).toMatchObject({ callsign: "disk-1@laptop" });
     expect(list.find((a) => a.kind === "disk").why).toBeUndefined();
   });
 

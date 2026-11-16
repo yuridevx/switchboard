@@ -32,8 +32,24 @@ export function fenceHtml(text: string): string {
   return "```html\n" + t + "\n```";
 }
 
-export const looksHtml = (lang: string, code: string) => lang === "html" || (!lang && /^\s*<(!doctype html|html[\s>])/i.test(code));
-export const looksSvg = (lang: string, code: string) => lang === "svg" || ((!lang || lang === "xml") && /^\s*(<\?xml[^>]*>\s*)?<svg[\s>]/i.test(code));
+/** Типы картинок по расширению: с ними браузер показывает содержимое из хранилища. */
+export const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", avif: "image/avif", svg: "image/svg+xml" };
+const TEXT = new Set(["txt", "log", "json", "csv", "yaml", "yml", "xml", "toml", "ini", "diff", "patch"]);
+const htmlText = (code: string) => /^\s*<(!doctype html|html[\s>])/i.test(code);
+const svgText = (code: string) => /^\s*(<\?xml[^>]*>\s*)?<svg[\s>]/i.test(code);
+
+export const extOf = (name: string) => /\.([a-z0-9]+)$/i.exec(name)?.[1] ?? "";
+export type ShowKind = "image" | "html" | "mermaid" | "markdown" | "text";
+/** Вид показа — одно правило на всё, что показывает лента: файл, отправленный сессией, файл человека, файл, записанный инструментом, и блок кода в ответе.
+ *  ext — расширение имени файла или язык блока кода; code — текст: по нему узнаётся блок без языка. null — показа нет: файл только скачивается, блок остаётся кодом. */
+export function showKind(ext: string, code = ""): ShowKind | null {
+  const e = ext.toLowerCase();
+  if (IMAGE_TYPES[e] || ((!e || e === "xml") && svgText(code))) return "image";
+  if (e === "html" || e === "htm" || (!e && htmlText(code))) return "html";
+  if (e === "mmd" || e === "mermaid") return "mermaid";
+  if (e === "md" || e === "markdown") return "markdown";
+  return TEXT.has(e) ? "text" : null;
+}
 
 /** SVG — картинкой из данных: как картинка он не исполняет скриптов и не ходит в сеть. */
 export const svgUrl = (code: string) => "data:image/svg+xml;charset=utf-8," + encodeURIComponent(code);
@@ -41,17 +57,3 @@ export function SvgView({ code, title = "Просмотр SVG" }: { code: string
   return <img className="svgview" src={svgUrl(code)} alt={title} />;
 }
 
-/** Просмотр кода, который можно показать: HTML — в песочнице, SVG — картинкой; иначе null. */
-export const previewKind = (lang: string, code: string): "html" | "svg" | null => (looksSvg(lang, code) ? "svg" : looksHtml(lang, code) ? "html" : null);
-
-/** Картинку из ленты — в новой вкладке: вкладка не открывает адрес с данными, поэтому данные переводятся в свой адрес страницы. */
-export function openPicture(src: string): void {
-  if (!src.startsWith("data:")) return void window.open(src, "_blank", "noopener");
-  const [head, body = ""] = src.split(",", 2) as [string, string?];
-  const mime = /^data:([^;,]+)/.exec(head)?.[1] ?? "image/png";
-  const bytes = head.includes(";base64") ? Uint8Array.from(atob(body), (c) => c.charCodeAt(0)) : new TextEncoder().encode(decodeURIComponent(body));
-  const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
-  window.open(url, "_blank", "noopener");
-  // адрес живёт, пока вкладка его читает
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
