@@ -3,7 +3,6 @@
 // Проверяет: причина словами провайдера стоит в журнале машины, в ленте сессии (история отдаёт её на месте) и на выложенной странице — до и после перезагрузки.
 // SB2_GOAL_KEY и SB2_GOAL_MODEL (ключ и модель Meta) — ещё и проверка цели: «/goal» на Meta проходит, отказов провайдера и сбоя хука нет.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fleetEnv } from "../dev.mjs";
 import { chromium, fleetCall, root } from "./harness.mjs";
@@ -13,7 +12,8 @@ const out = outArg ?? path.join(root, "dist", "live");
 fs.mkdirSync(out, { recursive: true });
 const { call, must } = fleetCall(fleet, device);
 const tag = Date.now().toString(36).slice(-4);
-const cwd = machine === "wsl" ? `/tmp/sb2-errors-${tag}` : `C:/Users/${os.userInfo().username}/AppData/Local/Temp/sb2-errors-${tag}`;
+// папка пробных сессий — от домашней папки машины: годится любой ОС и чужой машине; SB2_CWD — своя
+const cwd = process.env.SB2_CWD ?? "~/sb2-live-errors";
 const REFUSED = "вызов модели отклонён (4";
 
 let bad = 0, total = 0;
@@ -81,10 +81,13 @@ await step("журнал машины: строка вызова с отказо
   return `строк вызова с отказом ${lines.length}, с причиной ${withWhy.length}`;
 });
 
-await step("ход остановлен — строкой error в ленте; итог хода своей строки беды не несёт", async () => {
-  const stopped = logsOf(cs).filter((e) => e.level === "error" && e.msg === "sdk.result");
-  if (stopped.length !== 1) throw new Error(`строк «ход остановлен» ${stopped.length}: ${JSON.stringify(logsOf(cs).map((e) => e.msg))}`);
-  return String(stopped[0].why).slice(0, 140);
+// у одних провайдеров отказ обрывает ход, у других claude повторяет вызов без негодного файла и ход кончается ответом: строк «ход остановлен» — ровно по числу оборванных ходов
+await step("ход остановлен — строкой error в ленте, по одной на оборванный ход", async () => {
+  const h = history(cs);
+  const ended = h.filter((e) => e.type === "result" && e.is_error).length;
+  const stopped = h.filter((e) => e.type === "log" && e.level === "error" && e.msg === "sdk.result");
+  if (stopped.length !== ended) throw new Error(`оборванных ходов ${ended}, строк «ход остановлен» ${stopped.length}: ${JSON.stringify(logsOf(cs).map((e) => e.msg))}`);
+  return ended ? String(stopped[0].why).slice(0, 140) : "ход не оборвался: claude повторил вызов без файла и ответил";
 });
 
 await step("история отдаёт строку на месте: за сообщением человека, перед итогом хода", async () => {
