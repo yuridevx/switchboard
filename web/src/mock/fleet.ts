@@ -87,6 +87,10 @@ export function createMock(o: MockOptions = {}) {
   // «активно всё»: идёт ход с тремя субагентами и фоновой командой, и тут же ждёт разрешения
   add(row("audit@server", "waiting", "infra", { title: "Проверка прав доступа по службам", doing: "Ждёт трёх субагентов", last: T - 1 * MIN, context: 0.71, pieces: ["base", "ops"],
     ask: ask({ kind: "permission", title: "Команда", text: "grep -rn \"role\" /etc/services.d", tool: "Bash", input: { command: "grep -rn \"role\" /etc/services.d", description: "Роли в настройках служб" }, rule: "Bash(grep -rn *)", blocked: "/etc/services.d", notes: "Папка вне проекта", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 1) }));
+  // беды сессии — строками журнала Host в ленте: провайдер отклонил проверку цели, сервер инструментов не поднялся, квота кончилась
+  const cipher = row("cipher@server", "idle", "infra", { title: "Сверка отчёта с базой", last: T - 2 * MIN, model: "muse-spark-1.3", result: "Сверил: 260 адресов, расхождение одно — поправил." });
+  cipher.spec.key = "meta-down";
+  add(cipher);
   add(row("hotfix@laptop", "failed", "site", { title: "Срочная правка формы входа", error: "процесс claude дважды вышел до готовности: код 1, «Invalid API key»", last: T - 50 * MIN, account: "work@example.com" }));
   add(row("deploy@server", "waiting", "infra", { title: "Пересборка и выкладка статики", mode: "ask", last: T - 3 * MIN, pieces: ["base", "ops"],
     ask: ask({ kind: "permission", title: "Команда", text: "rm -rf dist && npm run build", tool: "Bash", input: { command: "rm -rf dist && npm run build", description: "Чистая пересборка" }, rule: "Bash(rm -rf dist *)", blocked: "~/projects/site/dist", notes: "Команда удаляет папку вне списка разрешённых правил проекта", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 3) }));
@@ -136,6 +140,19 @@ export function createMock(o: MockOptions = {}) {
     { type: "system", subtype: "task_progress", uuid: uid("s"), task_id: "t-ag2", last_tool_name: "Glob", usage: { tool_uses: 7 } } as Ev,
     { type: "system", subtype: "task_progress", uuid: uid("s"), task_id: "t-ag3", summary: "сводит роли службы оплаты", usage: { tool_uses: 3 } } as Ev,
     { type: "system", subtype: "task_started", uuid: uid("s"), task_id: "bg-audit", description: "tail -f /var/log/auth.log", task_type: "local_bash", is_backgrounded: true, timestamp: new Date(T - 7 * MIN).toISOString() } as Ev,
+  );
+  talk("cipher@server").push(
+    { type: "log", uuid: uid("l"), level: "error", msg: "sdk.init", why: "серверы инструментов не поднялись: ida", at: T - 14 * MIN } as Ev,
+    say("Сверь отчёт с базой и поправь расхождения. Работай, пока не останется остатков.", T - 13 * MIN),
+    reply([text("Сверил: 260 адресов, расхождение одно — поправил.")], T - 9 * MIN),
+    { type: "log", uuid: uid("l"), level: "warn", msg: "call", why: "вызов модели отклонён (400): Meta rejected the request: 'required' is required to be supplied and to be an array including every key in properties. Missing 'impossible'.", at: T - 9 * MIN } as Ev,
+    { type: "log", uuid: uid("l"), level: "warn", msg: "call", why: "вызов модели отклонён (400): Meta rejected the request: 'required' is required to be supplied and to be an array including every key in properties. Missing 'impossible'.", at: T - 9 * MIN } as Ev,
+    { type: "log", uuid: uid("l"), level: "warn", msg: "sdk.notification", why: "Stop hook error occurred · ctrl+o to see", at: T - 9 * MIN } as Ev,
+    done(T - 9 * MIN, 240_000, 0.56, 16, 96_000),
+    say("Запиши второй файл со всем, что знаешь.", T - 3 * MIN),
+    { type: "log", uuid: uid("l"), level: "warn", msg: "call", why: "вызов модели отклонён (429): Subscription quota exhausted. Your usage window resets at 12:52.", at: T - 3 * MIN } as Ev,
+    { type: "log", uuid: uid("l"), level: "error", msg: "sdk.result", why: "ход остановлен: API Error: Request rejected (429) · Subscription quota exhausted. Your usage window resets at 12:52.", at: T - 3 * MIN } as Ev,
+    { type: "result", subtype: "success", is_error: true, uuid: uid(), timestamp: new Date(T - 3 * MIN).toISOString(), duration_ms: 626, num_turns: 1 } as Ev,
   );
   talk("hotfix@laptop").push(say("Форма входа падает при пустом пароле. Почини срочно.", T - 55 * MIN));
   talk("deploy@server").push(...shortTurn(T - 25 * MIN, "Какая сборка статики сейчас на сервере?", "На сервере сборка от вчера, 18:40, коммит `a41f9c2`."), say("Пересобери с нуля и выложи.", T - 4 * MIN), reply([text("Начну с чистой пересборки.")], T - 3 * MIN));
@@ -260,6 +277,8 @@ export function createMock(o: MockOptions = {}) {
     claudeKey("yuri@example.com", 40), claudeKey("work@example.com", 12), claudeKey("team@example.com", 351), claudeKey("ops@example.com", 90), claudeKey("night@example.com", 3), claudeKey("anya@example.com", 200),
     { name: "orca", protocol: "anthropic", base: "https://api.orca.example", at: T - 6 * DAY, tail: "…9f3c" },
     { name: "meta-muse", protocol: "meta", at: T - 2 * DAY, tail: "…a07d" },
+    // провайдер, чей каталог моделей не отвечает: чтение без своего блока на экране — строкой в полосе наверху
+    { name: "meta-down", protocol: "meta", at: T - DAY, tail: "…0b1e" },
   ];
   /** История флота (ClickHouse): что система сделала с аккаунтами сама. */
   const moves: LogRow[] = ([

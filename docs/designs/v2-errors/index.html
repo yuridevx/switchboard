@@ -1,0 +1,391 @@
+<title>Ошибки на виду</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* раскладка: сверху карта — откуда берётся ошибка и каким одним путём она доходит до человека; ниже по одной теме на блок: случай, строка беды, беды Claude, запросы страницы, эталоны, гейт, порядок */
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
+  --accent: #1f7a63; --accent-soft: #dcefe8; --warn: #a8620a; --warn-soft: #fbecd2; --bad: #b3362b; --bad-soft: #f7e1de; --code: #f0eee7; --chg: #fff3b0;
+  --display: "Space Grotesk", "Segoe UI", sans-serif; --text: Inter, "Segoe UI", system-ui, sans-serif; --mono: "JetBrains Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warn: #f0b05c; --warn-soft: #40301a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4318; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warn: #f0b05c; --warn-soft: #40301a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4318; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 400 15px/1.5 var(--text); padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 34px; }
+h1 { font: 600 30px/1.15 var(--display); margin: 0; text-wrap: balance; }
+.lead { color: var(--muted); max-width: 62ch; margin: 6px 0 0; }
+h2 { font: 600 19px/1.25 var(--display); margin: 0 0 12px; text-wrap: balance; }
+section.read > h2::after { content: " ✓ прочитал"; font: 500 12px var(--text); color: var(--accent); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.scroll { overflow-x: auto; }
+svg { display: block; width: 100%; height: auto; font-family: var(--text); }
+.map svg { min-width: 760px; }
+.n rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.n.hub rect { fill: var(--accent-soft); stroke: var(--accent); }
+.n.man rect { fill: var(--soft); }
+.n text { fill: var(--fg); font-size: 15px; font-weight: 600; }
+.n text.sub { fill: var(--muted); font-size: 12px; font-weight: 400; }
+.a path { stroke: var(--muted); stroke-width: 2; fill: none; }
+.a text { fill: var(--muted); font-size: 12px; }
+.a .head { fill: var(--muted); stroke: none; }
+.zone { fill: none; stroke: var(--line); stroke-dasharray: 5 5; }
+.zone-t { fill: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+[data-x] { cursor: pointer; }
+[data-x]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.n[data-x]:hover rect, .n.on rect { stroke: var(--accent); stroke-width: 2.5; }
+.a[data-x]:hover path, .a.on path { stroke: var(--accent); stroke-width: 3; }
+.a[data-x]:hover .head, .a.on .head { fill: var(--accent); }
+.a[data-x]:hover text, .a.on text { fill: var(--accent); }
+.dim .n:not(.hot), .dim .a:not(.hot) { opacity: .35; }
+.why { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; min-height: 64px; }
+.why b { font: 600 15px var(--display); }
+.why p { margin: 0; max-width: 70ch; }
+.why .hint { color: var(--muted); }
+pre { margin: 0; background: var(--code); border-radius: 8px; padding: 10px 12px; font: 400 12.5px/1.5 var(--mono); overflow-x: auto; white-space: pre; }
+.steps { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.step { flex: 1 1 150px; min-width: 0; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; text-align: left; font: inherit; color: inherit; display: grid; gap: 4px; align-content: start; }
+.step:hover, .step.on { border-color: var(--accent); }
+.step .who { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.step .what { font-weight: 600; overflow-wrap: anywhere; }
+.step.bad { background: var(--bad-soft); border-color: var(--bad); }
+.step.good { background: var(--accent-soft); border-color: var(--accent); }
+.arrow { align-self: center; color: var(--muted); font-size: 18px; flex: none; }
+.nums { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.num { flex: 1 1 180px; min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.num b { font: 600 24px var(--display); font-variant-numeric: tabular-nums; display: block; }
+.num span { color: var(--muted); font-size: 13px; }
+.shots { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; align-items: start; }
+.shots img { border: 1px solid var(--line); border-radius: 8px; display: block; width: 100%; }
+@media (max-width: 640px) { .shots { grid-template-columns: 1fr; } .shots picture:last-child img { max-width: 300px; } }
+.levels { display: flex; flex-wrap: wrap; gap: 10px; }
+.level { flex: 1 1 220px; min-width: 0; border-radius: 10px; padding: 12px; border: 1.5px solid var(--line); background: var(--card); text-align: left; font: inherit; color: inherit; display: grid; gap: 6px; }
+.level:hover, .level.on { border-color: var(--accent); }
+.level .tag { font: 500 13px var(--mono); }
+.level.warn .tag { color: var(--warn); } .level.err .tag { color: var(--bad); } .level.info .tag { color: var(--muted); }
+.dest { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill { border-radius: 999px; padding: 2px 10px; font-size: 12.5px; background: var(--soft); color: var(--fg); }
+.pill.off { color: var(--muted); text-decoration: line-through; background: none; border: 1px dashed var(--line); }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }
+.pair > div { min-width: 0; display: grid; gap: 6px; align-content: start; }
+.cap { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.row-demo { display: flex; gap: 8px; align-items: center; font-size: 13.5px; color: var(--warn); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { border-radius: 8px; padding: 6px 10px; font: 500 13px var(--text); border: 1.5px solid transparent; background: var(--soft); color: var(--fg); }
+.chip.err { background: var(--bad-soft); color: var(--bad); } .chip.warn { background: var(--warn-soft); color: var(--warn); } .chip.info { color: var(--muted); border: 1.5px dashed var(--line); background: none; }
+.chip:hover, .chip.on { border-color: var(--accent); border-style: solid; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; margin-bottom: 10px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.et { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 10px; }
+.e { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.e .io { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; }
+.e .io > div { background: var(--soft); border-radius: 8px; padding: 8px; overflow-wrap: anywhere; min-width: 0; }
+.e .io > div.out { background: var(--accent-soft); }
+.e .src { color: var(--muted); font-size: 12px; }
+.e b { font: 600 14px var(--display); }
+.gate { white-space: pre-wrap; font: 400 13px/1.6 var(--mono); overflow-wrap: anywhere; }
+.order { display: grid; gap: 8px; counter-reset: s; }
+.o { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 12px 46px; position: relative; display: grid; gap: 4px; counter-increment: s; }
+.o::before { content: counter(s); position: absolute; left: 12px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 600 13px var(--display); display: grid; place-items: center; }
+.o b { font: 600 15px var(--display); }
+.o .done { font: 400 12.5px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.chg { background: var(--chg); }
+svg path.chg { fill: var(--chg); stroke: none; }
+.keep { margin-top: 12px; padding: 10px; border-radius: 10px; display: grid; gap: 8px; }
+button { cursor: pointer; }
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Ошибки на виду</h1>
+  <p class="lead">Что бы ни сломалось рядом с сессией, человек видит это в её ленте вместе с причиной. Нажмите на любой узел или стрелку.</p>
+</header>
+
+<section id="b-map" data-block>
+  <h2>Один путь ошибки к человеку</h2>
+  <div class="card map" data-explain="map">
+    <div class="scroll">
+    <svg viewBox="0 0 1000 440" role="img" aria-label="Карта: три источника ошибок сходятся в журнале машины, из журнала строки идут в ленту сессии и в историю флота; у отказа запроса страницы один показ — блок на месте, полоса или тост">
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0 0L10 5L0 10z" fill="context-stroke"/></marker></defs>
+      <rect class="zone" x="8" y="8" width="984" height="286" rx="12"/><text class="zone-t" x="22" y="28">машина сессии</text>
+      <rect class="zone" x="8" y="312" width="984" height="120" rx="12"/><text class="zone-t" x="22" y="332">страница</text>
+
+      <g class="n" data-x="claude" data-path="sdk" tabindex="0"><rect x="24" y="44" width="216" height="58" rx="9"/><text x="40" y="69">Claude в сессии</text><text class="sub" x="40" y="89">говорит о сбое сообщением</text></g>
+      <g class="n" data-x="proxy" data-path="prov" tabindex="0"><rect x="24" y="130" width="216" height="58" rx="9"/><text x="40" y="155">Вызов модели</text><text class="sub" x="40" y="175">провайдер отказал</text></g>
+      <g class="n" data-x="core" data-path="core" tabindex="0"><rect x="24" y="216" width="216" height="58" rx="9"/><text x="40" y="241">Машина: ядро и модули</text><text class="sub" x="40" y="261">поймали сбой</text></g>
+
+      <g class="n hub" data-x="journal" data-path="sdk prov core feed fleet" tabindex="0"><rect x="392" y="96" width="216" height="126" rx="9"/><text x="408" y="124">Журнал машины</text><text class="sub" x="408" y="146">одна форма строки:</text><text class="sub" x="408" y="166">уровень · о какой сессии</text><text class="sub" x="408" y="186">что случилось · причина</text></g>
+
+      <g class="n man" data-x="feed" data-path="feed" tabindex="0"><rect x="760" y="60" width="216" height="80" rx="9"/><text x="776" y="85">Лента сессии</text><text class="sub" x="776" y="105">видит человек</text><path class="chg" data-chg="feed-keeps" d="M770 112h196v20h-196z"/><text class="sub" x="776" y="126">помнит строку на её месте</text></g>
+      <g class="n" data-x="fleet" data-path="fleet" tabindex="0"><rect x="760" y="200" width="216" height="58" rx="9"/><text x="776" y="225">История флота</text><text class="sub" x="776" y="245">читают агенты</text></g>
+
+      <g class="a" data-x="a-sdk" data-path="sdk" tabindex="0"><path d="M240 73 C320 73 320 130 390 130" marker-end="url(#ah)"/><text x="262" y="60">одна таблица бед</text></g>
+      <g class="a" data-x="a-prov" data-path="prov" tabindex="0"><path d="M240 159 L390 159" marker-end="url(#ah)"/><text x="262" y="151">отказ с текстом</text></g>
+      <g class="a" data-x="a-core" data-path="core" tabindex="0"><path d="M240 245 C320 245 320 190 390 190" marker-end="url(#ah)"/><text x="262" y="270">сбой с причиной</text></g>
+      <g class="a" data-x="a-feed" data-path="feed" tabindex="0"><path d="M608 138 C690 138 690 89 758 89" marker-end="url(#ah)"/><text x="618" y="96">warn и error</text></g>
+      <g class="a" data-x="a-fleet" data-path="fleet" tabindex="0"><path d="M608 180 C690 180 690 229 758 229" marker-end="url(#ah)"/><text x="622" y="240">все строки</text></g>
+
+      <g class="n" data-x="req" data-path="read act" tabindex="0"><rect x="24" y="344" width="216" height="58" rx="9"/><text x="40" y="369">Запрос страницы</text><text class="sub" x="40" y="389">флот отказал</text></g>
+      <g class="n man" data-x="bar" data-path="read" tabindex="0"><rect x="392" y="344" width="216" height="58" rx="9"/><text x="408" y="369">Полоса наверху</text><path class="chg" data-chg="bar-own" d="M402 375h196v20h-196z"/><text class="sub" x="408" y="389">чтение без своего блока</text></g>
+      <g class="n man" data-x="toast" data-path="act" tabindex="0"><rect x="760" y="344" width="216" height="58" rx="9"/><text x="776" y="369">Красный тост</text><text class="sub" x="776" y="389">действие не вышло</text></g>
+      <g class="a" data-x="a-read" data-path="read" tabindex="0"><path d="M240 373 L390 373" marker-end="url(#ah)"/><text x="278" y="365">чтение</text></g>
+      <g class="a" data-x="a-act" data-path="act" tabindex="0"><path d="M240 392 C300 424 700 424 758 392" marker-end="url(#ah)"/><text x="470" y="428">действие</text></g>
+    </svg>
+    </div>
+    <div class="why" aria-live="polite"><p class="hint">Нажмите на узел или стрелку.</p></div>
+  </div>
+</section>
+
+<section id="b-case" data-block>
+  <h2>Случай: проверка цели падала 7 раз из 7</h2>
+  <div data-explain="case">
+    <div class="steps">
+      <button type="button" class="step" data-x="c-goal"><span class="who">человек</span><span class="what">цель: «работай, пока не будет остатков»</span></button><span class="arrow" aria-hidden="true">→</span>
+      <button type="button" class="step" data-x="c-end"><span class="who">Claude</span><span class="what">ход кончился — проверяет цель</span></button><span class="arrow" aria-hidden="true">→</span>
+      <button type="button" class="step bad" data-x="c-400"><span class="who">провайдер</span><span class="what">400: в схеме ответа нет обязательного поля</span></button><span class="arrow" aria-hidden="true">→</span>
+      <button type="button" class="step" data-x="c-line"><span class="who">журнал машины</span><span class="what">строка с текстом провайдера</span></button><span class="arrow" aria-hidden="true">→</span>
+      <button type="button" class="step good" data-x="c-feed"><span class="who">лента</span><span class="what">причина строкой, сразу под ответом</span></button>
+    </div>
+    <div class="why" aria-live="polite"><p class="hint">Нажмите на шаг.</p></div>
+  </div>
+  <div class="nums">
+    <div class="num"><b>7 из 7</b><span>проверок цели упали за 23 минуты</span></div>
+    <div class="num"><b>0 → 7</b><span>причин в ленте сессии</span></div>
+    <div class="num"><b>0 из 32 → все</b><span>отказов провайдера с причиной в журнале машины за день</span></div>
+    <div class="num"><b>47 в день</b><span>строк о сессиях на машине с 15 сессиями: лента не зашумится</span></div>
+  </div>
+  <div class="shots">
+    <picture><source media="(prefers-color-scheme: dark)" srcset="shots/feed-1280-dark.png"><img src="shots/feed-1280-light.png" alt="Прототип на настоящей странице: в ленте сессии строки беды с причинами — сервер инструментов не поднялся, провайдер отклонил вызов, квота кончилась; наверху полоса об отказе чтения"></picture>
+    <picture><source media="(prefers-color-scheme: dark)" srcset="shots/feed-390-dark.png"><img src="shots/feed-390-light.png" alt="Тот же экран на телефоне"></picture>
+  </div>
+</section>
+
+<section id="b-line" data-block>
+  <h2>Уровень строки решает, видит ли её человек</h2>
+  <div data-explain="level">
+    <div class="levels">
+      <button type="button" class="level info" data-x="l-info"><span class="tag">info</span><span class="dest"><span class="pill">журнал</span><span class="pill off">лента</span></span></button>
+      <button type="button" class="level warn" data-x="l-warn"><span class="tag">warn · о сессии</span><span class="dest"><span class="pill">журнал</span><span class="pill">лента: жёлтая строка</span></span></button>
+      <button type="button" class="level err" data-x="l-err"><span class="tag">error · о сессии</span><span class="dest"><span class="pill">журнал</span><span class="pill">лента: красная строка</span></span></button>
+    </div>
+    <div class="why" aria-live="polite"><p class="hint">Нажмите на уровень.</p></div>
+  </div>
+  <div class="pair">
+    <div><span class="cap">строка журнала</span><pre>{ "level": "warn", "msg": "call",
+  "callsign": "cipher@server", "status": 400,
+  "why": "вызов модели отклонён (400): Meta rejected
+          the request: 'required' is required …
+          Missing 'impossible'." }</pre></div>
+    <div><span class="cap">то же в ленте</span><div class="row-demo"><span aria-hidden="true">⚠</span><span>вызов модели отклонён (400): Meta rejected the request: 'required' is required … Missing 'impossible'. ×2</span></div>
+    <span class="cap">событие ленты</span><pre>{ "type": "log", "level": "warn",
+  "msg": "call", "why": "вызов модели …", "at": 1794829735354 }</pre></div>
+  </div>
+  <div class="keep chg" data-chg="keep" data-explain="keep">
+    <span class="cap">после перезагрузки — тот же порядок</span>
+    <div class="steps">
+      <button type="button" class="step" data-x="h-rec"><span class="who">запись разговора</span><span class="what">«Сверил: 260 адресов…»</span></button><span class="arrow" aria-hidden="true">→</span>
+      <button type="button" class="step" data-x="h-line"><span class="who">событие ленты</span><span class="what">⚠ вызов модели отклонён ×2</span></button><span class="arrow" aria-hidden="true">→</span>
+      <button type="button" class="step" data-x="h-end"><span class="who">итог хода</span><span class="what">ход закончен · 4 мин</span></button>
+    </div>
+    <div class="why" aria-live="polite"><p class="hint">Нажмите на шаг.</p></div>
+  </div>
+</section>
+
+<section id="b-table" data-block>
+  <h2>Беды Claude: одна таблица на машине</h2>
+  <div class="card" data-explain="kind">
+    <div class="legend"><span><i style="background:var(--bad)"></i>error — красная строка</span><span><i style="background:var(--warn)"></i>warn — жёлтая строка</span><span><i style="border:1.5px dashed var(--muted)"></i>info — только журнал</span></div>
+    <div class="chips">
+      <button type="button" class="chip err" data-x="k-result">ход остановлен</button>
+      <button type="button" class="chip err" data-x="k-compact">сжатие не удалось</button>
+      <button type="button" class="chip err" data-x="k-limit">лимит аккаунта</button>
+      <button type="button" class="chip err" data-x="k-auth">вход аккаунта</button>
+      <button type="button" class="chip err" data-x="k-mcp">сервер инструментов не поднялся</button>
+      <button type="button" class="chip err" data-x="k-plugins">плагин не загрузился</button>
+      <button type="button" class="chip err" data-x="k-install">плагин не установился</button>
+      <button type="button" class="chip err" data-x="k-lost">записи разговора потеряны</button>
+      <button type="button" class="chip warn" data-x="k-denied">отклонено правилами</button>
+      <button type="button" class="chip warn" data-x="k-hook">хук не сработал</button>
+      <button type="button" class="chip warn" data-x="k-files">файлы не сохранились</button>
+      <button type="button" class="chip warn" data-x="k-mirror">копия разговора: ошибка</button>
+      <button type="button" class="chip warn" data-x="k-notice">важное уведомление Claude</button>
+      <button type="button" class="chip warn" data-x="k-warning">предупреждение Claude</button>
+      <button type="button" class="chip info" data-x="k-retry">повтор запроса</button>
+      <button type="button" class="chip info" data-x="k-stop">ход прерван человеком</button>
+    </div>
+    <div class="why" aria-live="polite"><p class="hint">Нажмите на вид беды.</p></div>
+  </div>
+</section>
+
+<section id="b-req" data-block>
+  <h2><span class="chg" data-chg="req-title">У отказа запроса один показ</span></h2>
+  <div data-explain="req">
+    <div class="steps">
+      <button type="button" class="step chg" data-chg="r-own" data-x="r-own"><span class="who">чтение, у экрана свой блок</span><span class="what">блок с причиной и «Повторить»</span></button>
+      <button type="button" class="step chg" data-chg="r-read" data-x="r-read"><span class="who">чтение без блока</span><span class="what">строка в полосе, пока экран его читает</span></button>
+      <button type="button" class="step" data-x="r-act"><span class="who">действие</span><span class="what">красный тост на 7 секунд</span></button>
+      <button type="button" class="step chg" data-chg="r-here" data-x="r-here"><span class="who">отказ показан на месте</span><span class="what">«не ушло» у сообщения, строка в форме</span></button>
+      <button type="button" class="step" data-x="r-off"><span class="who">связи нет</span><span class="what">говорит полоса связи, одна на всё</span></button>
+      <button type="button" class="step" data-x="r-quiet"><span class="who">молчат</span><span class="what">2 запроса, названы списком</span></button>
+    </div>
+    <div class="why" aria-live="polite"><p class="hint">Нажмите на ветку.</p></div>
+  </div>
+  <div class="nums">
+    <div class="num"><b>32 → 0</b><span>чтений, чей отказ никто не показывал</span></div>
+    <div class="num"><b>18 → 2</b><span>мест, где страница молча глотала отказ</span></div>
+    <div class="num chg" data-chg="req-one"><b>1</b><span>показ у каждого отказа: блок на месте, полоса или тост</span></div>
+    <div class="num chg" data-chg="req-cache"><b>0</b><span>своих списков у полосы: она смотрит в кэш чтений страницы</span></div>
+  </div>
+</section>
+
+<section id="b-etalons" data-block>
+  <h2>Эталоны</h2>
+  <div class="et">
+    <div class="e"><b>Отказ провайдера несёт его текст</b><div class="io"><div>провайдер: 400 и текст ошибки</div><span aria-hidden="true">→</span><div class="out">строка журнала warn с этим текстом и сессией</div></div><span class="src">чьё: факт — случай 16 нояб., 14 отказов без причины</span></div>
+    <div class="e"><b>Строка о сессии — в её ленту</b><div class="io"><div>warn о живой сессии; рядом info</div><span aria-hidden="true">→</span><div class="out">у зрителя 1 событие; от info — 0</div></div><span class="src">чьё: слово пользователя — показ вместо скрытия</span></div>
+    <div class="e"><b>После перезагрузки строка на месте</b><div class="io"><div>разговор открыт заново</div><span aria-hidden="true">→</span><div class="out"><span class="chg" data-chg="e-reload">строка стоит за той же записью разговора, что и при показе; та же строка из ленты и из истории — одна</span></div></div><span class="src">чьё: слово пользователя — показ вместо скрытия</span></div>
+    <div class="e"><b>Каждое сообщение Claude названо</b><div class="io"><div>все виды сообщений закреплённой версии</div><span aria-hidden="true">→</span><div class="out">неназванных 0: беда с уровнем или «не беда»</div></div><span class="src">чьё: факт — опыт: сбой хука приходит уведомлением без причины</span></div>
+    <div class="e"><b>Прерванный ход — не беда</b><div class="io"><div>человек прервал ход</div><span aria-hidden="true">→</span><div class="out">строк беды в ленте 0</div></div><span class="src">чьё: код — так страница делает сейчас</span></div>
+    <div class="e"><b>Лента рисует любую строку</b><div class="io"><div>событие с незнакомым именем; два одинаковых подряд<span class="chg" data-chg="e-repeat">, между ними «повтор запроса»</span></div><span aria-hidden="true">→</span><div class="out">строка с причиной; одна строка «×2»</div></div><span class="src">чьё: слово пользователя — показ вместо скрытия</span></div>
+    <div class="e chg" data-chg="e-one"><b>Беду рисует один</b><div class="io"><div>сообщения Claude, которые таблица машины называет бедой, — странице как есть</div><span aria-hidden="true">→</span><div class="out">строк от страницы 0: беду пишет только строка журнала</div></div><span class="src">чьё: слово пользователя — одно правило считается в одном месте</span></div>
+    <div class="e"><b>Отказ чтения — в полосе</b><div class="io"><div>чтение отказало, потом прошло<span class="chg" data-chg="e-bar-in">; экран с отказавшим чтением закрыт; отказало чтение со своим блоком «Повторить»</span></div><span aria-hidden="true">→</span><div class="out">строка появилась и ушла<span class="chg" data-chg="e-bar-out">; строка ушла; в полосе 0 строк, причина в блоке</span></div></div><span class="src">чьё: слово пользователя — показ вместо скрытия</span></div>
+    <div class="e"><b>Отказ действия — тостом</b><div class="io"><div>действие отказало</div><span aria-hidden="true">→</span><div class="out">1 красный тост: запрос, адресат, причина</div></div><span class="src">чьё: код — так действия показываются сейчас</span></div>
+  </div>
+</section>
+
+<section id="b-gate" data-block>
+  <h2>Гейт</h2>
+  <div class="card gate"><span class="chg" data-chg="g-head">Гейт (38 строк реестров, с соседями; «до» — система сейчас и дизайн до слепого прохода): дубликаты ответственности 2 → 0 · состояния 1 → 0 · логики 3 → 0 · смысла 0 → 0 · других 2 → 0 · лишние коммуникации 1 → 0 · циклы 0 → 0</span>
+  логика: «какое сообщение Claude — беда и какими словами» считали машина (8 видов) и страница (12 видов) → одна таблица на машине (16 видов)<span class="chg" data-chg="g-one">; страница из сообщения Claude рисует только ход работы — эталон «беду рисует один»</span>
+  <span class="chg" data-chg="g-rule">логика: «какая строка журнала идёт в ленту» → одно правило в ядре машины; историю лента берёт из своих событий, второго отбора по журналу нет</span>
+  <span class="chg" data-chg="g-word">логика: «строка журнала словами» → одна функция страницы для ленты, вкладки «Журнал» и экранов машины</span>
+  <span class="chg" data-chg="g-read">ответственность: «показать отказ чтения» → блок на месте, где он есть, иначе полоса; один отказ вдвоём не показывают</span>
+  <span class="chg" data-chg="g-act">ответственность: «показать отказ действия» → общий вход действий (тост) или место на экране — по одному</span>
+  <span class="chg" data-chg="g-cache">состояние: «какие чтения не проходят» → кэш чтений страницы; своего списка у полосы нет</span>
+  другие: у оборванного хода было две формы в ленте (своя строка страницы и строка журнала) → одна
+  <span class="chg" data-chg="g-place">другие: «место в истории у события, которого нет в файле разговора» → один механизм: лента хранит его за записью разговора, как итог хода; слияния с журналом по времени нет</span>
+  <span class="chg" data-chg="g-path">коммуникации: строка приходила в ленту дважды — событием и запросом к журналу при открытии разговора → один путь, событием</span>
+  <span class="chg" data-chg="g-loop">циклы: журнал → ядро → модули → журнал не замыкается: строка о сбое самого показа в ленту не идёт</span>
+Числа: модули 0 новых · события ленты +1 («строка журнала») · запросы +0 · поля договора +0 · <span class="chg" data-chg="g-nums">зависимости между модулями +0 · хранилища и списки состояния +0 · </span>секреты +0 · настройки +0 · ветки страницы для бед Claude 12 → 1 · формы строки ленты −1 · беды Claude в журнале 8 → 16, человеку 12 → 14 · отказы провайдера с причиной 0 из 32 → все · чтения без показа отказа 32 → 0 · молчаливые отказы на странице 18 → 2 · ожидаемые ветки сбоев +0 · эталоны <span class="chg" data-chg="g-et">+9</span>
+Работа: большая — меняет договор ленты (событие «строка журнала») и границу «кто называет беду»: страница → машина
+Сделано:
+  1. Юнификация · беды сессии · одна форма для всех: строка журнала; новая беда видна без правки страницы · выигрыш: ветки страницы 12 → 1
+  2. Дубликат логики · слова о бедах Claude · одна таблица на машине · выигрыш: 2 места → 1, виды 8 и 12 → 16
+  3. Явное · отказ провайдера · причина в строке · выигрыш: 0 из 32 → все
+  <span class="chg" data-chg="g-d4">4. Юнификация · история ленты · событие «строка журнала» лента хранит на его месте тем же списком, что итог хода · выигрыш: пути строки в ленту 2 → 1, правила отбора 2 → 1, зависимость разговора от журнала 1 → 0; место строки не зависит от времени записи разговора, которого Claude не обещает</span>
+  <span class="chg" data-chg="g-d5">5. Один владелец · отказ запроса · чтение показывает блок на месте или полоса, действие — тост; полоса смотрит в кэш чтений · выигрыш: 32 немых чтения → 0, двойных показов 0, новых списков состояния 0, строка не висит после ухода с экрана</span>
+<span class="chg" data-chg="g-fork">Развилки пользователю: 1. Строку беды для истории ленты хранит лента или каждый раз читает из журнала? · рекомендую: хранит — живое и после перезагрузки совпадают, пути и зависимости +0 · иначе: читает журнал — копии текста строки нет, но нужны номер у строки, второе правило отбора и время записи разговора · не скажете иначе — хранит лента</span>
+Не трогал как редакторское: слова самих строк журнала; текст уведомлений Claude идёт как есть</div>
+</section>
+
+<section id="b-order" data-block>
+  <h2>Порядок реализации</h2>
+  <div class="order">
+    <div class="o"><b>Причина у отказа провайдера</b><span class="done">Готово: npm test — эталон «отказ провайдера несёт его текст»; на тестовом флоте строк вызова с отказом и причиной 0 → 1 из 1</span></div>
+    <div class="o"><b>Одна таблица бед Claude на машине: 16 видов, у каждого уровень</b><span class="done">Готово: npm test — эталоны «каждое сообщение названо» (неназванных 0) и «прерванный ход — не беда» (строк 0)</span></div>
+    <div class="o"><b>Строка журнала о сессии — событием в ленту; <span class="chg" data-chg="o-keep">лента хранит событие за записью разговора, как итог хода</span></b><span class="done">Готово: npm test — эталоны «строка — в ленту» (1 событие, от info 0) и «после перезагрузки на месте» (строк в истории 0 → 1)</span></div>
+    <div class="o"><b>Страница: одна ветка для строки журнала, свои 12 веток бед убраны; журнал сессии в боковой панели показывает причину</b><span class="done">Готово: npm test в web<span class="chg" data-chg="o-one"> — эталон «беду рисует один» (строк от страницы 0)</span>; node docs/designs/v2-errors/shots.mjs — строк беды 5 на 1280 и 390 в двух темах, ошибок страницы 0</span></div>
+    <div class="o"><b>Страница: <span class="chg" data-chg="o-req">отказ чтения — блок на месте или полоса по кэшу чтений, отказ действия — тост общего входа действий</span>; молчаливые обработчики убраны</b><span class="done">Готово: npm test в web — эталоны полосы и тоста; пустых обработчиков отказа у запросов 18 → 2</span></div>
+    <div class="o"><b>Причина случая: проверка цели на Meta проходит — схема ответа строгая, только когда все поля обязательны</b><span class="done">Готово: npm test — перевод схемы с необязательным полем; живая проверка: ошибок хука 7 из 7 → 0 из 1</span></div>
+    <div class="o"><b>Живая проверка на тестовом флоте: сессия на Haiku, провайдер отклоняет проверку цели</b><span class="done">Готово: node tools/fleet/live-errors.mjs — причин в ленте 1 из 1; после перезагрузки страницы 1 из 1</span></div>
+  </div>
+</section>
+</div>
+
+<script>
+// пояснения: клик по узлу, стрелке, шагу или плашке — короткий текст, у события и строки — пример JSON; ховер подсвечивает путь
+(() => {
+  const X = {
+    claude: ["Claude в сессии", "О своих сбоях Claude говорит сообщениями: ход оборвался, сжатие не вышло, хук не сработал. Часть из них без причины: при сбое проверки цели приходит только «Stop hook error occurred»."],
+    proxy: ["Вызов модели", "Каждый вызов модели идёт через машину. Она видит ответ провайдера целиком — и статус, и текст ошибки. Это единственное место, где известна причина отказа."],
+    core: ["Машина: ядро и модули", "Всё, что машина ловит сама: процесс Claude вышел, модуль упал, аккаунт выбыл, сообщение родителю не дошло."],
+    journal: ["Журнал машины", "Единственное место, куда пишут все три источника. Строка называет сессию и причину словами. Новая беда — это одна новая строка журнала, страницу трогать не нужно.", '{ "level": "error", "msg": "sdk.result", "callsign": "cipher@server",\n  "why": "ход остановлен: API Error: Request rejected (429) · Subscription quota exhausted." }'],
+    feed: ["Лента сессии", "Строка встаёт в ленту там, где случилась, жёлтая или красная. Она остаётся после перезагрузки страницы: лента запоминает строку за записью разговора, после которой та пришла, — так же, как итог хода."],
+    fleet: ["История флота", "Журнал уходит в общую историю, как и раньше. Агент, который чинит, читает те же строки с теми же причинами, что и человек."],
+    "a-sdk": ["Одна таблица бед", "Какое сообщение Claude считать бедой и какими словами назвать, решает одна таблица на машине. Страница этого больше не решает: она рисует готовую строку."],
+    "a-prov": ["Отказ с текстом", "Провайдер ответил отказом — в строку журнала идёт его текст, а не только статус.", '{ "level": "warn", "msg": "call", "status": 400, "callsign": "cipher@server",\n  "why": "вызов модели отклонён (400): Meta rejected the request: … Missing \'impossible\'." }'],
+    "a-core": ["Сбой с причиной", "Пойманный сбой пишется строкой с сессией и причиной. Сбой при самом показе строки в ленту не идёт: круга нет."],
+    "a-feed": ["Строки warn и error о сессии", "Строка этих уровней, названная сессией, сразу уходит её зрителям событием ленты — по тому же каналу, что и сообщения Claude.", '{ "type": "log", "level": "warn", "msg": "call",\n  "why": "вызов модели отклонён (400): …", "at": 1794829735354 }'],
+    "a-fleet": ["Все строки", "В историю флота уходят строки всех уровней. Этот путь уже работает и не меняется."],
+    req: ["Запрос страницы", "Любой запрос страницы к флоту: прочитать список, отправить сообщение, сохранить настройку. Отказ приходит словом и причиной."],
+    bar: ["Полоса наверху", "Строка «Не загрузилось: что — почему» держится, пока экран читает эти данные и чтение не прошло. Своего списка у полосы нет: она показывает то, что уже лежит в кэше чтений страницы. У чтения со своим блоком «Повторить» причину пишет блок, полоса её не повторяет."],
+    toast: ["Красный тост", "Действие человека не вышло: тост называет запрос, адресата и причину."],
+    "a-read": ["Чтение", "Все чтения страницы идут через один общий вход с кэшем. Экрану без своего блока ничего делать не нужно: отказ покажет полоса."],
+    "a-act": ["Действие", "Действия идут через один общий вход: он и показывает тост, как сейчас. Вызов мимо него обязан показать отказ на своём месте."],
+    "c-goal": ["Цель", "Человек ставит сессии цель. Claude проверяет её в конце каждого хода отдельным вызовом модели и не останавливается, пока цель не выполнена."],
+    "c-end": ["Проверка цели", "Вызов требует ответ строгой формы. Сессия шла на провайдере Meta: запрос к нему переводит машина."],
+    "c-400": ["Отказ провайдера", "Перевод пометил форму ответа строгой, а одно поле в ней необязательное. Meta отклонила запрос. Claude сообщил только «Stop hook error occurred», цель молча перестала держать сессию.", "Meta rejected the request: 'required' is required to be supplied and to be an array\nincluding every key in properties. Missing 'impossible'."],
+    "c-line": ["Строка журнала", "Машина записывает отказ вместе с текстом провайдера и именем сессии."],
+    "c-feed": ["Лента", "Под ответом — жёлтая строка с причиной и следом строка Claude о сбое хука. Человеку не нужно идти в журнал."],
+    "l-info": ["info", "Ход событий без беды. В ленту не идёт. Сюда же: повтор запроса и ход, прерванный человеком."],
+    "l-warn": ["warn о сессии", "Что-то не вышло, сессия работает дальше: вызов отклонён, хук не сработал, файл не сохранился."],
+    "l-err": ["error о сессии", "Сессия или ход остановились: ход оборван, квота кончилась, сервер инструментов не поднялся."],
+    "k-result": ["Ход остановлен", "ход остановлен: API Error: Request rejected (429) · Subscription quota exhausted."],
+    "k-compact": ["Сжатие не удалось", "сжатие разговора не удалось: и причина словами Claude."],
+    "k-limit": ["Лимит аккаунта", "лимит аккаунта (неделя): отказ до 12:52."],
+    "k-auth": ["Вход аккаунта", "вход аккаунта не удался: и причина."],
+    "k-mcp": ["Сервер инструментов не поднялся", "серверы инструментов не поднялись: ida. Сейчас это видно только в журнале."],
+    "k-plugins": ["Плагин не загрузился", "плагины: имя, вид ошибки и её текст. Сейчас это видно только в журнале."],
+    "k-install": ["Плагин не установился", "плагин не установился: имя и причина."],
+    "k-lost": ["Записи разговора потеряны", "диск полон: часть разговора не записана. Сейчас это не видно нигде."],
+    "k-denied": ["Отклонено правилами", "отклонено правилами: инструмент и причина."],
+    "k-hook": ["Хук не сработал", "хук не сработал: имя, код выхода и его вывод."],
+    "k-files": ["Файлы не сохранились", "не сохранились: имя файла и ошибка."],
+    "k-mirror": ["Копия разговора: ошибка", "ошибка записи копии разговора: и причина."],
+    "k-notice": ["Важное уведомление Claude", "Текст Claude как есть: «Stop hook error occurred». Причину рядом даёт строка отказа провайдера."],
+    "k-warning": ["Предупреждение Claude", "Текст Claude как есть, уровня «предупреждение»."],
+    "k-retry": ["Повтор запроса", "Claude сам повторяет вызов. В ленте остаётся строка хода «повтор запроса · 2 из 10»; причину даёт строка отказа провайдера."],
+    "k-stop": ["Ход прерван человеком", "Человек сам остановил ход: в ленте «прервано», строки беды нет."],
+    "r-own": ["Чтение, у экрана свой блок", "Экран сам рисует причину и кнопку «Повторить» там, где должны быть данные. Так уже сделано в 28 местах, и это остаётся. Полоса такое чтение не показывает: причина на экране одна."],
+    "r-read": ["Чтение без блока", "Список моделей, имена, настройки. Пример: «Не загрузилось: keys.models — каталог моделей Meta не ответил: 502». Строка уходит, когда чтение прошло или экран закрыт. Полоса берёт это из кэша чтений страницы, своего списка у неё нет."],
+    "r-act": ["Действие", "Отправить, сохранить, остановить. Тост: «Не получилось: session.stop · site@laptop — причина»."],
+    "r-here": ["Отказ показан на месте", "Сообщение с пометкой «не ушло» и причиной, красная строка в форме. Такой вызов тост не даёт: причина уже стоит там, где человек её ищет."],
+    "h-rec": ["Запись разговора", "Ответы и сообщения хранит сам Claude в файле разговора. Лента берёт их оттуда."],
+    "h-line": ["Событие ленты", "Строки беды в файле разговора нет. Лента запоминает её за записью, после которой она пришла, — тем же списком, что итог хода. Откроете разговор заново — строка на том же месте. Очистили разговор или откатили его — строка уходит вместе с записью."],
+    "h-end": ["Итог хода", "Время, шаги и цена хода. Их тоже нет в файле разговора: лента уже хранит их за последней записью хода."],
+    "r-off": ["Связи нет", "Когда связи с флотом нет, отказывают все запросы разом. Об этом говорит одна полоса связи, а не каждый запрос."],
+    "r-quiet": ["Молчат", "Отчёт о самой ошибке страницы и отписка от ленты при уходе с экрана. Список один, в одном месте."],
+  };
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  for (const box of document.querySelectorAll("[data-explain]")) {
+    const out = box.querySelector(".why");
+    const items = [...box.querySelectorAll("[data-x]")];
+    const show = (el) => {
+      const [title, text, json] = X[el.dataset.x] ?? [el.dataset.x, ""];
+      for (const i of items) i.classList.toggle("on", i === el);
+      out.innerHTML = `<b>${esc(title)}</b><p>${esc(text)}</p>${json ? `<pre>${esc(json)}</pre>` : ""}`;
+    };
+    const svg = box.querySelector("svg");
+    for (const el of items) {
+      el.addEventListener("click", () => show(el));
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); show(el); } });
+      if (!svg) continue;
+      const paths = (el.dataset.path ?? "").split(" ");
+      el.addEventListener("mouseenter", () => { svg.classList.add("dim"); for (const i of items) i.classList.toggle("hot", (i.dataset.path ?? "").split(" ").some((p) => paths.includes(p))); });
+      el.addEventListener("mouseleave", () => { svg.classList.remove("dim"); for (const i of items) i.classList.remove("hot"); });
+    }
+  }
+  window.__explained = X;
+})();
+</script>
+<script>
+// метки «прочитал»: клавиша A (латинская или русская) над блоком
+(() => {
+  const KEY = "v2-errors.read";
+  let read = [];
+  try { read = JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch {}
+  let over = null;
+  const draw = () => { for (const s of document.querySelectorAll("[data-block]")) s.classList.toggle("read", read.includes(s.id)); };
+  for (const s of document.querySelectorAll("[data-block]")) s.addEventListener("mouseenter", () => (over = s));
+  document.addEventListener("keydown", (e) => {
+    if (!(e.code === "KeyA" || e.key === "a" || e.key === "A" || e.key === "ф" || e.key === "Ф") || e.ctrlKey || e.metaKey || e.altKey || !over) return;
+    read = read.includes(over.id) ? read.filter((x) => x !== over.id) : [...read, over.id];
+    try { localStorage.setItem(KEY, JSON.stringify(read)); } catch {}
+    draw();
+  });
+  draw();
+})();
+</script>

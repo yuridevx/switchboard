@@ -17,7 +17,7 @@ import { archiveSummary, branches } from "./Archive.tsx";
 import { fireCount, installCommand } from "./fleet/Machines.tsx";
 import { firstPick, itemMatches, memoryMeasure, mergeTask } from "./fleet/Profiles.tsx";
 import { bulkPlan, Releases } from "./fleet/Releases.tsx";
-import { journalWord } from "./Observe.tsx";
+import { journalWord } from "../lib/journal.ts";
 import { inviteFor } from "./settings/People.tsx";
 import { callRef, lineDiff } from "./settings/Proxy.tsx";
 

@@ -4,9 +4,9 @@ import { Button, Group, Stack, Text } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { Component, type ReactNode, useMemo } from "react";
+import { Component, type ReactNode, useLayoutEffect, useMemo } from "react";
 import { create } from "zustand";
-import { api, sayError } from "./api.ts";
+import { act, api, quietly, sayError } from "./api.ts";
 import { ago } from "./lib/time.ts";
 import { openStep } from "./shell/Page.tsx";
 import { machineOfCall, useFleet } from "./store/fleet.ts";
@@ -106,12 +106,20 @@ export function useMyPrefs() {
   const q = useCall(prefsGet, { scope: "me" });
   const save = async (name: string, value: unknown) => {
     qc.setQueryData(["prefs.get", { scope: "me" }], (old: any) => ({ values: { ...(old?.values ?? {}), [name]: value } }));
-    await api.call(prefsSet, { scope: "me", name, value }).catch(() => {});
+    await act(prefsSet, { scope: "me", name, value });
   };
   return { values: (q.data?.values ?? {}) as Record<string, unknown>, save };
 }
 
+/** Отказы, чья причина уже стоит на экране блоком: полоса отказов чтения наверху их не повторяет. */
+export const useInPlace = create<{ errors: unknown[] }>(() => ({ errors: [] }));
+
 export function Failed({ error, retry }: { error: unknown; retry?: () => void }) {
+  // причина показана здесь — у отказа один показ
+  useLayoutEffect(() => {
+    useInPlace.setState((s) => ({ errors: [...s.errors, error] }));
+    return () => useInPlace.setState((s) => ({ errors: s.errors.filter((_, i) => i !== s.errors.indexOf(error)) }));
+  }, [error]);
   return (
     <div className="hole">
       <Stack align="center" gap="xs">
@@ -129,7 +137,7 @@ export class Boundary extends Component<{ name: string; children: ReactNode }, {
     return { error };
   }
   componentDidCatch(error: Error) {
-    api.call(obsReport, { part: "web", level: "error", msg: `${this.props.name}: ${error.message}`, stack: error.stack }).catch(() => {});
+    quietly(obsReport, { part: "web", level: "error", msg: `${this.props.name}: ${error.message}`, stack: error.stack });
   }
   render() {
     if (!this.state.error) return this.props.children;
