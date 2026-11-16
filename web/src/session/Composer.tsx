@@ -79,8 +79,10 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
   // «/» в начале — команды сессии; «@слово» в конце — файлы её папки
   useEffect(() => {
     if (slash) setPicks(commandPicks(commands.data, slash[1]));
-    else if (file && !dead) setPicks((found.data?.files ?? []).slice(0, 8).map((p) => ({ label: p, insert: text.slice(0, text.length - file[1]!.length) + p + " " })));
-    else setPicks([]);
+    else if (file && !dead) {
+      // пока список для новых букв не пришёл, стоит прежний: подсказки не мигают при наборе
+      if (found.data) setPicks(found.data.files.slice(0, 8).map((p) => ({ label: p, insert: text.slice(0, text.length - file[1]!.length) + p + " " })));
+    } else setPicks([]);
     setAt(0);
   }, [text, s.callsign, commands.data, found.data]); // eslint-disable-line react-hooks/exhaustive-deps
 

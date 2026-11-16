@@ -192,7 +192,8 @@ export function make(): Module {
   /** Строка решения о выборе: кандидаты со счётом — входы решения. */
   function routed(s: SessionApi, account: string | undefined, why: string, candidates: Candidate[]): void {
     const pct = (x: number) => Math.round(x * 1000) / 10;
-    host.log.info("route", {
+    // годного аккаунта нет — беда сессии: строка уровня warn уходит в её ленту, человек видит причину и час сброса сразу, а не после всех повторов claude
+    host.log[account ? "info" : "warn"]("route", {
       callsign: s.callsign, ...(account ? { account } : {}), model: s.spec.model, why,
       candidates: candidates.map((c) => ({ account: c.account, rem: pct(c.rem), hours: Math.round(c.hours * 10) / 10, warm: c.warm, score: pct(c.score) })),
     });
