@@ -127,6 +127,7 @@ type fleet struct {
 	replies chan map[string]any
 	// как отвечает
 	closeWith  string // закрыть новое соединение этим словом
+	mute       bool   // молчать: не отвечать "pong" — соединение есть, но сеть его не подтверждает
 	planRefuse string
 	redeem     func(f map[string]any) map[string]any
 }
@@ -209,6 +210,16 @@ func (f *fleet) socket(w http.ResponseWriter, r *http.Request) {
 		_, b, err := c.Read(context.Background())
 		if err != nil {
 			return
+		}
+		if string(b) == "ping" {
+			// как автоответ relay: "ping" → "pong"
+			f.mu.Lock()
+			mute := f.mute
+			f.mu.Unlock()
+			if !mute {
+				c.Write(context.Background(), websocket.MessageText, []byte("pong"))
+			}
+			continue
 		}
 		var m map[string]any
 		if json.Unmarshal(b, &m) == nil && m["type"] == "reply" {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { socketLink } from "./client.ts";
+import { PING_MS, socketLink } from "./client.ts";
 import { accountList, CLAUDE, contract, createApi, fail, findModels, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, fleetList, Kind, notice, sessionOpen, Spec, TOOL_METHODS, TOOL_TEXT_MAX, toolText, z, type Transport } from "./index.ts";
 
 describe("protocol", () => {
@@ -104,6 +104,40 @@ describe("инструменты: одна таблица для страниц�
     const call = contract.request("session.call")!;
     expect(call.input.safeParse({ to: "a@b", method: "rewindFiles" }).success).toBe(false);
     for (const method of TOOL_METHODS) expect(call.input.safeParse({ to: "a@b", method }).success).toBe(true);
+  });
+  // слово пользователя 16 нояб.: ping раз в 10 с у всех компонентов — молчаливый обрыв (сеть не подтверждает, закрытия нет) виден за 20 с
+  it("молчаливый обрыв: ping каждые 10 с, pong держит соединение; без единого сообщения до следующего ping — «нет связи» и новое соединение", () => {
+    vi.useFakeTimers();
+    try {
+      const made: Array<{ on: Record<string, (e: any) => void>; sent: string[]; closedWith?: unknown[] }> = [];
+      class WS { on: Record<string, (e: any) => void> = {}; sent: string[] = []; closedWith?: unknown[]; readyState = 1; constructor() { made.push(this); } send(t: string) { this.sent.push(t); } close(...a: unknown[]) { this.closedWith = a; } addEventListener(t: string, fn: (e: any) => void) { this.on[t] = fn; } }
+      const states: string[] = [], pauses: number[] = [];
+      const link = socketLink({ url: "ws://x", hello: { type: "hello" }, onFrame: () => {}, onState: (st) => states.push(st), onPause: (ms) => pauses.push(ms), WebSocket: WS as never });
+      made[0]!.on.open!({});
+      vi.advanceTimersByTime(PING_MS);
+      expect(made[0]!.sent.at(-1)).toBe("ping");
+      made[0]!.on.message!({ data: "pong" });
+      vi.advanceTimersByTime(PING_MS);
+      expect(made[0]!.sent.filter((t) => t === "ping").length).toBe(2);
+      expect(states).toEqual(["connecting", "open"]);
+      // входящий кадр живость не доказывает: в настоящем обрыве кадры relay доходят, а наши пакеты до него — нет
+      made[0]!.on.message!({ data: JSON.stringify({ type: "roster.delta" }) });
+      vi.advanceTimersByTime(PING_MS);
+      expect(states).toEqual(["connecting", "open", "closed"]);
+      expect(made[0]!.closedWith).toEqual([4000, "ping"]);
+      // запоздалое закрытие мёртвого сокета второго «нет связи» не даёт
+      made[0]!.on.close!({});
+      expect(states.filter((s) => s === "closed").length).toBe(1);
+      vi.advanceTimersByTime(pauses[0]! + 1);
+      expect(made.length).toBe(2);
+      made[1]!.on.open!({});
+      expect(states.at(-1)).toBe("open");
+      link.close();
+      vi.advanceTimersByTime(PING_MS * 3);
+      expect(made[1]!.sent.includes("ping")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
   // устав: закрытый список ожидаемых веток — «соединение оборвалось → клиенты переподключаются»
   it("соединение оборвалось: «нет связи», после паузы — новое соединение и hello тем же пропуском; слово revoked переподключение останавливает", () => {

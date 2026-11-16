@@ -47,7 +47,11 @@ export function createApi(transport: Transport): Api {
 
 export type SocketLike = { send(data: string): void; close(code?: number, reason?: string): void; addEventListener(type: string, fn: (e: any) => void): void; readyState: number };
 
-/** Соединение с переподключением: пауза растёт и разбросана, чтобы после обновления платформы все не пришли разом. */
+/** Ping соединения: текст "ping", relay отвечает "pong" автоответом; pong не пришёл до следующего ping — соединение мёртвое. */
+export const PING_MS = 10_000;
+
+/** Соединение с переподключением: пауза растёт и разбросана, чтобы после обновления платформы все не пришли разом.
+ *  Молчаливый обрыв (сеть перестала подтверждать, закрытия нет) ловит ping: за PING_MS без pong — закрыть и подключиться снова. */
 export function socketLink(o: {
   url: string;
   hello: Frame;
@@ -62,7 +66,20 @@ export function socketLink(o: {
   const WS = o.WebSocket ?? ((globalThis as any).WebSocket as new (url: string) => SocketLike);
   const stopOn = o.stopOn ?? ["bad_key", "revoked", "forbidden", "proto", "replaced"];
   let ws: SocketLike | null = null, closed = false, tries = 0, timer: ReturnType<typeof setTimeout> | null = null;
+  let ping: ReturnType<typeof setInterval> | null = null, heard = true;
   const queue: string[] = [];
+  const stopPing = () => {
+    if (ping) clearInterval(ping);
+    ping = null;
+  };
+  // обрыв: соединение отпущено, «нет связи», новое — после паузы
+  const lost = () => {
+    stopPing();
+    o.onState?.("closed");
+    const pause = Math.min(30_000, 500 * 2 ** tries++) * (0.5 + Math.random());
+    o.onPause?.(pause);
+    timer = setTimeout(() => connect(), pause);
+  };
   // quiet — переподключение по слову access: флот сам закрыл соединение, чтобы отдать новую картину; обрывом это не считается
   const connect = (quiet = false) => {
     if (closed) return;
@@ -72,15 +89,27 @@ export function socketLink(o: {
       tries = 0;
       s.send(JSON.stringify(o.hello));
       for (const q of queue.splice(0)) s.send(q);
+      heard = true;
+      stopPing();
+      ping = setInterval(() => {
+        if (heard) return void ((heard = false), s.send("ping"));
+        // за PING_MS не пришёл pong: до relay наши пакеты не доходят — закрытия от сети не будет
+        ws = null;
+        s.close(4000, "ping");
+        lost();
+      }, PING_MS);
       o.onState?.("open");
     });
     s.addEventListener("message", (e: { data: unknown }) => {
+      // живость — только pong: входящие кадры доходят и тогда, когда наши пакеты до relay уже не доходят
+      if (e.data === "pong") return void (heard = true);
       const f = typeof e.data === "string" ? parseFrame(e.data) : null;
       if (f) o.onFrame(f);
     });
     s.addEventListener("close", (e: { reason?: string }) => {
       if (ws !== s) return;
       ws = null;
+      stopPing();
       if (closed) return;
       if (e.reason && stopOn.includes(e.reason)) {
         closed = true;
@@ -88,10 +117,7 @@ export function socketLink(o: {
         return;
       }
       if (e.reason === "access") return connect(true);
-      o.onState?.("closed");
-      const pause = Math.min(30_000, 500 * 2 ** tries++) * (0.5 + Math.random());
-      o.onPause?.(pause);
-      timer = setTimeout(() => connect(), pause);
+      lost();
     });
     s.addEventListener("error", () => {});
   };
@@ -105,6 +131,7 @@ export function socketLink(o: {
     close() {
       closed = true;
       if (timer) clearTimeout(timer);
+      stopPing();
       ws?.close(1000, "bye");
     },
   };

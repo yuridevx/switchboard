@@ -1,7 +1,7 @@
 package main
 
 // Связь Keeper с флотом — один адрес. Соединение: wss <адрес>/m/<флот>/<машина>, первым — hello { proto, key, role: "keeper" }; ping —
-// средствами WebSocket, нет ответа к следующему — соединение мёртвое; обрыв — новое подключение с паузой от первой вдвое до предела,
+// текстом "ping" раз в 10 с, relay отвечает "pong"; pong не пришёл до следующего ping — соединение мёртвое; обрыв — новое подключение с паузой от первой вдвое до предела,
 // после живого соединения — снова с первой. Кадры: plan.changed — «спроси план»; keeper.state — ответ состоянием. Запросы: POST <адрес>/call
 // с пропуском машины — builds.plan при каждом подключении и по plan.changed, ledger.add — записи журнала флота.
 // Пропуск не принят (bad_key, revoked, forbidden, proto) — связь останавливается: Keeper исполняет сохранённый план и не стучится.
@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -107,8 +108,10 @@ func (k *Keeper) session(url string) (alive bool, why string) {
 		case <-rctx.Done():
 		}
 	}()
+	// ping — текстом "ping", relay отвечает "pong" автоответом (так же у Host и страницы); pong не пришёл до следующего — соединение мёртвое
 	dead := make(chan struct{})
-	ponged := make(chan struct{}, 1)
+	var heard atomic.Bool
+	heard.Store(true)
 	go func() {
 		t := time.NewTicker(k.o.Ping)
 		defer t.Stop()
@@ -118,30 +121,21 @@ func (k *Keeper) session(url string) (alive bool, why string) {
 				return
 			case <-t.C:
 			}
-			pctx, pcancel := context.WithTimeout(ctx, k.o.Ping)
-			err := c.Ping(pctx)
-			pcancel()
-			if err != nil {
-				if ctx.Err() == nil {
-					close(dead)
-					c.CloseNow()
-				}
+			if !heard.Swap(false) {
+				close(dead)
+				c.CloseNow()
 				return
 			}
-			select {
-			case ponged <- struct{}{}:
-			default:
-			}
+			send(ctx, c, []byte("ping"))
 		}
 	}()
 	for {
 		_, b, err := c.Read(rctx)
+		// живость — только pong: входящие кадры доходят и тогда, когда наши пакеты до relay уже не доходят
+		if err == nil && string(b) == "pong" {
+			heard.Store(true)
+		}
 		if err != nil {
-			select {
-			case <-ponged:
-				alive = true
-			default:
-			}
 			select {
 			case <-dead:
 				return alive, fmt.Sprintf("нет ответа на ping за %v — соединение мёртвое", k.o.Ping)
@@ -157,7 +151,9 @@ func (k *Keeper) session(url string) (alive bool, why string) {
 			return alive, err.Error()
 		}
 		alive = true
-		k.frame(ctx, c, b)
+		if string(b) != "pong" {
+			k.frame(ctx, c, b)
+		}
 	}
 }
 
