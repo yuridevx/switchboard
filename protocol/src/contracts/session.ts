@@ -223,9 +223,15 @@ export const MessageStatus = z.object({ type: z.literal("message.status"), uuid:
  *  сообщение человека, сессии или службы сразу, как оно принято (type user, uuid — номер сообщения, from — отправитель; у входящего от флота — peer: Peer;
  *  files — файлы сообщения: имя, хэш, размер — в тексте события строки уведомления о них уже нет);
  *  итог хода (type result: duration_ms, num_turns, total_cost_usd, usage) — в истории он стоит за последней записью своего хода;
- *  статус своего сообщения (MessageStatus). */
+ *  статус своего сообщения (MessageStatus);
+ *  беду сессии (LogEvent) — в истории она стоит за записью разговора, после которой пришла. */
 export const SdkEvent = z.object({ type: z.string(), uuid: z.string().optional() }).loose();
 export type SdkEvent = z.infer<typeof SdkEvent>;
+
+/** Беда сессии — событие ленты `log`: строка журнала машины о сессии уровня warn или error, кто бы её ни написал — ядро, модуль или таблица бед Claude.
+ *  msg — имя строки журнала, why — причина словами машины: страница рисует её как есть и своих слов о бедах не держит. */
+export const LogEvent = z.object({ type: z.literal("log"), uuid: z.string(), level: z.enum(["warn", "error"]), msg: z.string(), why: z.string().optional(), at: z.number() });
+export type LogEvent = z.infer<typeof LogEvent>;
 
 export const sessionHistory = request("session.history", {
   owner: "host-chat", target: "session",

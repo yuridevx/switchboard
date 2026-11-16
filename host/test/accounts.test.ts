@@ -46,7 +46,7 @@ const record = (p: Preset): Account => ({
 const book = (all: Record<string, Preset>) => Object.fromEntries(Object.entries(all).map(([n, p]) => [n, record(p)]));
 
 type Hit = { account: string; model: string; headers: IncomingHttpHeaders };
-type Reply = { status?: number; headers?: Record<string, string> };
+type Reply = { status?: number; headers?: Record<string, string>; /** тело ответа: у отказа — что написал провайдер */ body?: unknown };
 const sec = (ms: number) => String(Math.floor(ms / 1000));
 const U = "anthropic-ratelimit-unified";
 /** Заголовки лимитов обычного ответа Claude. */
@@ -71,7 +71,7 @@ async function claudeApi(answer: (hit: Hit, n: number) => Reply): Promise<{ url:
       const hit = { account: String(req.headers.authorization ?? "").replace("Bearer tok-", ""), model: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}").model as string, headers: req.headers };
       hits.push(hit);
       const a = answer(hit, hits.length);
-      res.writeHead(a.status ?? 200, { "content-type": "application/json", "request-id": `req_${hits.length}`, ...a.headers }).end(JSON.stringify({ type: a.status && a.status >= 400 ? "error" : "message" }));
+      res.writeHead(a.status ?? 200, { "content-type": "application/json", "request-id": `req_${hits.length}`, ...a.headers }).end(JSON.stringify(a.body ?? { type: a.status && a.status >= 400 ? "error" : "message" }));
     });
   });
   servers.push(s);
@@ -393,6 +393,17 @@ describe("провайдеры и модели", () => {
     expect(api.hits.map((h) => [h.headers["x-api-key"], h.model])).toEqual([["sk-orca", "qwen-3.5-coder"], ["sk-orca", "qwen-3.5-coder"]]);
     expect(row().account).toBeUndefined();
     expect(journal("call")).toMatchObject([{ key: "orca", status: 200 }, { key: "orca", status: 200 }]);
+  });
+
+  // чьё: факт — случай 16 нояб.: 14 отказов провайдера в журнале машины без причины, человек видел только «Stop hook error»
+  it("отказ провайдера несёт его текст: в строке вызова — статус и слова провайдера о сессии, сессия получает то же тело", async () => {
+    const said = "Meta rejected the request: 'required' is required to be supplied and to be an array including every key in properties. Missing 'impossible'.";
+    await fleet({ [A]: {} }, () => ({ status: 400, body: { type: "error", error: { type: "invalid_request_error", message: said } } }));
+    const { s } = await st!.open("site", { key: "orca", model: "qwen-3.5-coder" });
+    const r = await call(s.rec.sessionId, "qwen-3.5-coder");
+    expect(r.status).toBe(400);
+    expect(((await r.json()) as any).error.message).toBe(said);
+    expect(journal("call")).toMatchObject([{ callsign: CS, key: "orca", status: 400, level: "warn", why: `вызов модели отклонён (400): ${said}` }]);
   });
 
   // чьё: слово пользователя 15 нояб. — «не могу выбрать нужную»; значения «по умолчанию» нет

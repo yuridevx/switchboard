@@ -307,7 +307,7 @@ function Mine({ r }: { r: Extract<Row, { k: "me" }> }) {
       {(!state || state === "sent") && r.uuid && env.rewind && env.canAct && <div className="me-note"><button type="button" className="linkbtn" onClick={() => env.rewind!(r.uuid!)}>Откатить сюда</button></div>}
       {state && ME_NOTE[state] && (
         <div className="me-note">
-          {ME_NOTE[state]}
+          {ME_NOTE[state]}{state === "lost" && r.why ? `: ${r.why}` : ""}
           {state === "queued" && r.uuid && env.cancel && <button type="button" className="linkbtn" onClick={() => env.cancel!(r.uuid!)}>Отменить</button>}
           {state === "lost" && r.uuid && env.resend && <button type="button" className="linkbtn" onClick={() => env.resend!(r.uuid!)}>Отправить ещё раз</button>}
           {state === "lost" && r.uuid && env.drop && <button type="button" className="linkbtn" onClick={() => env.drop!(r.uuid!)}>Убрать</button>}
@@ -429,8 +429,6 @@ const RowView = memo(function RowView({ r, view }: { r: Item; view: View }) {
       );
     case "res":
       return <div className="turn-end">{r.bits.join(" · ")}</div>;
-    case "end":
-      return <div className="ban bad" role="alert"><Text fw={600} size="sm" className="ban-title"><Icon name="x" size={14} /> {r.text}</Text>{r.why && <Text size="sm">{r.why}</Text>}</div>;
     case "sum":
       return <Summary stats={r.stats} text={r.text} />;
   }

@@ -139,6 +139,8 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
     // каталог служба не хранит: спрашивает провайдера на каждый запрос
     "keys.models": (f) => {
       if (f.name === CLAUDE && !keys.some((k) => k.protocol === CLAUDE)) throw new Refusal("no_account", "аккаунтов Claude у флота нет");
+      // каталог Meta не отвечает: отказ чтения без своего блока на экране виден строкой в полосе наверху
+      if (f.name === "meta-down") throw new Refusal("provider_error", "каталог моделей Meta не ответил: 502");
       return c.need(catalogs[f.name], `ключа ${f.name} нет`);
     },
     "keys.set": (f) => {

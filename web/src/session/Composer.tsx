@@ -7,7 +7,7 @@ import { sessionCall, sessionFiles, type SessionRow } from "@sb/protocol";
 import { ActionIcon, FileButton, Group, Paper, Textarea, Tooltip } from "@mantine/core";
 import { IconArrowUp, IconBolt, IconPaperclip, IconPlayerStop, IconX } from "@tabler/icons-react";
 import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { act, api } from "../api.ts";
+import { act } from "../api.ts";
 import { useCall } from "../common.tsx";
 import { draft, type FileOut, type Priority, type Talk } from "./talk.ts";
 
@@ -64,6 +64,9 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
   const dead = s.state === "stopped" || s.state === "failed" || s.state === "stopping";
   const slash = /^\/(\S*)$/.exec(text);
   const commands = useCall(sessionCall, slash && !dead ? { to: s.callsign, method: "commands" } : null);
+  /** «@слово» в конце — файлы папки сессии; чтение идёт общим входом с кэшем: отказ виден в полосе наверху */
+  const file = slash ? null : /(?:^|\s)@(\S*)$/.exec(text);
+  const found = useCall(sessionFiles, file && !dead ? { to: s.callsign, q: file[1]! } : null);
   const setText = (t: string) => (setTextRaw(t), draft.set(s.callsign, t));
 
   useImperativeHandle(handle, () => ({
@@ -75,14 +78,11 @@ export const Composer = forwardRef<ComposerHandle, { s: SessionRow; talk: Talk; 
 
   // «/» в начале — команды сессии; «@слово» в конце — файлы её папки
   useEffect(() => {
-    let alive = true;
-    const file = /(?:^|\s)@(\S*)$/.exec(text);
     if (slash) setPicks(commandPicks(commands.data, slash[1]));
-    else if (file && !dead) api.call(sessionFiles, { to: s.callsign, q: file[1] }).then((r) => alive && setPicks(r.files.slice(0, 8).map((p) => ({ label: p, insert: text.slice(0, text.length - file[1].length) + p + " " }))), () => {});
+    else if (file && !dead) setPicks((found.data?.files ?? []).slice(0, 8).map((p) => ({ label: p, insert: text.slice(0, text.length - file[1]!.length) + p + " " })));
     else setPicks([]);
     setAt(0);
-    return () => void (alive = false);
-  }, [text, s.callsign, commands.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [text, s.callsign, commands.data, found.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = async (priority: Priority = "next") => {
     const body = text.trim();

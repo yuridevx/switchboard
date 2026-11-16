@@ -4,7 +4,7 @@ import type { FileRef } from "../lib/files.ts";
 import { message, messageCancel, sessionCall, sessionHistory, sessionRead, sessionUnwatch, sessionWatch, type Frame, type Priority, type SdkEvent } from "@sb/protocol";
 import { notifications } from "@mantine/notifications";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, sayError } from "../api.ts";
+import { act, api, quietly, sayError } from "../api.ts";
 import { fold, type Msg, type View } from "../chat/fold.ts";
 import { machineOfCall, useFleet } from "../store/fleet.ts";
 
@@ -103,12 +103,12 @@ export function useTalk(callsign: string): Talk {
       );
     /** дочитать пропущенное: что помнит Host — событиями, иначе разговор перечитывается */
     const catchUp = (after: number) =>
-      api.call(sessionWatch, { to: callsign, after }).then((r) => {
-        if (!alive) return;
+      act(sessionWatch, { to: callsign, after }).then((r) => {
+        if (!r || !alive) return;
         seq.current = r.seq;
         if (r.gap) void history();
         else if (r.events?.length) setEvents((e) => mergeEvents(e, r.events!));
-      }, () => {});
+      });
     const onFrame = (f: Frame) => {
       if (!alive || f.type !== "session.events" || f.callsign !== callsign) return;
       const list = f.events as SdkEvent[];
@@ -117,14 +117,14 @@ export function useTalk(callsign: string): Talk {
       if (seq.current !== null) seq.current = Math.max(seq.current, at);
       setEvents((e) => mergeEvents(e, list));
     };
-    const watch = () => api.call(sessionWatch, { to: callsign }).then((r) => {
-      if (!alive) return;
+    const watch = () => act(sessionWatch, { to: callsign }).then((r) => {
+      if (!r || !alive) return;
       seq.current = r.seq;
       // что уже ждёт в очереди сессии — видно сразу
       // работы, которые идут сейчас: в файле разговора их нет — их отдаёт Host со своим временем начала
       if (r.running?.length) setEvents((e) => mergeEvents(e, r.running!));
       if (r.queued?.length) setEvents((e) => mergeEvents(e, r.queued!.flatMap((q) => [{ type: "user", uuid: q.uuid, from: q.from, message: { role: "user", content: q.text } }, { type: "message.status", uuid: q.uuid, status: "queued" }] as SdkEvent[])));
-    }, () => {});
+    });
     let opened = false;
     const link = api.transport.open("watch", {
       machine: machineOfCall(callsign),
@@ -143,17 +143,18 @@ export function useTalk(callsign: string): Talk {
     return () => {
       alive = false;
       link.close();
-      api.call(sessionUnwatch, { to: callsign }).catch(() => {});
+      quietly(sessionUnwatch, { to: callsign });
     };
   }, [callsign, online, epoch]);
 
   const loadMore = useCallback(() => {
     if (!first.current) return;
-    api.call(sessionHistory, { to: callsign, before: first.current, limit: HISTORY }).then((r) => {
+    void act(sessionHistory, { to: callsign, before: first.current, limit: HISTORY }).then((r) => {
+      if (!r) return;
       first.current = r.events[0]?.uuid ?? first.current;
       setMore(r.more);
       setEvents((e) => mergeEvents(r.events, e));
-    }, () => {});
+    });
   }, [callsign]);
 
   const send = useCallback(async (text: string, files?: FileOut[], priority?: Priority) => {
@@ -221,7 +222,7 @@ export function useTalk(callsign: string): Talk {
 export function useMarkRead(callsign: string) {
   const unread = useFleet((f) => !!f.you && !!f.sessions[callsign]?.unread?.includes(f.you.person));
   useEffect(() => {
-    if (unread) api.call(sessionRead, { to: callsign }).catch(() => {});
+    if (unread) void act(sessionRead, { to: callsign });
   }, [callsign, unread]);
 }
 

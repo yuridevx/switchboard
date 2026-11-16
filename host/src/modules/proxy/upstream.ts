@@ -37,8 +37,32 @@ export function send(url: string, o: { method: string; headers: Record<string, s
   });
 }
 
-export async function textOf(r: Upstream): Promise<string> {
+/** Тело ответа целиком, как пришло. */
+export async function bytesOf(r: Upstream): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const c of r.body) chunks.push(c as Buffer);
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks);
+}
+
+export const textOf = async (r: Upstream): Promise<string> => (await bytesOf(r)).toString("utf8");
+
+/** Сколько знаков отказа провайдера идёт в строку журнала. */
+const REFUSAL_MAX = 600;
+
+/** Что провайдер написал в отказе: текст из тела JSON (error.message, error, message, detail), иначе начало тела. Тело — как пришло, со сжатием провайдера. */
+export function refusalText(headers: IncomingMessage["headers"], body: Buffer): string | undefined {
+  const enc = String(headers["content-encoding"] ?? "").toLowerCase();
+  let text: string;
+  try {
+    text = (enc === "br" ? zlib.brotliDecompressSync(body) : enc === "gzip" ? zlib.gunzipSync(body) : enc === "deflate" ? zlib.inflateSync(body) : body).toString("utf8");
+  } catch {
+    return undefined;
+  }
+  try {
+    const j = JSON.parse(text) as { error?: string | { message?: string }; message?: string; detail?: string };
+    text = (typeof j.error === "string" ? j.error : j.error?.message) ?? j.message ?? j.detail ?? text;
+  } catch {
+    // тело не JSON — как есть
+  }
+  return String(text).replace(/\s+/g, " ").trim().slice(0, REFUSAL_MAX) || undefined;
 }

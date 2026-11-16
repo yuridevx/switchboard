@@ -4,6 +4,7 @@ import { notifications } from "@mantine/notifications";
 import { kvSet } from "./lib/kv.ts";
 import { sayWord } from "./lib/words.ts";
 import { createMock, type Mock } from "./mock/fleet.ts";
+import { useFleet } from "./store/fleet.ts";
 
 const q = new URLSearchParams(location.search);
 // Адрес флота: ?fleet=<адрес>; сборка для выкладки (VITE_FLEET=origin) берёт адрес самой страницы; ?mock — мок на любой сборке.
@@ -69,14 +70,24 @@ export async function acceptInvite(invite: string): Promise<void> {
 export { sayWord };
 export const sayError = (e: unknown): string => (e instanceof CallError ? `${sayWord(e.word)}${e.why ? `: ${e.why}` : ""}` : e instanceof Error ? e.message : String(e));
 
-/** Действие человека: запрос, отказ — тостом с причиной. */
+/** Действие — запрос вне кэша чтений: отказ — красным тостом с запросом, адресатом и причиной; ответа тогда нет.
+ *  Связи нет — об этом говорит полоса связи, одна на всё, а не каждый запрос. */
 export async function act<D extends RequestDef<any, any>>(def: D, input: InputOf<D>, done?: string): Promise<OutputOf<D> | undefined> {
   try {
     const r = await api.call(def, input);
     if (done) notifications.show({ message: done, color: "teal" });
     return r;
   } catch (e) {
-    notifications.show({ title: "Не получилось", message: sayError(e), color: "red", autoClose: 7000 });
+    const to = (input as { to?: unknown } | null)?.to;
+    const offline = e instanceof CallError && e.word === "offline" && useFleet.getState().link !== "open";
+    if (!offline) notifications.show({ title: `Не получилось: ${def.name}${typeof to === "string" ? ` · ${to}` : ""}`, message: sayError(e), color: "red", autoClose: 7000 });
     return undefined;
   }
+}
+
+/** Запросы, чей отказ человеку не нужен: отчёт о самой ошибке страницы и отписка от ленты при уходе с экрана. Список один. */
+const QUIET = new Set(["obs.report", "session.unwatch"]);
+export function quietly<D extends RequestDef<any, any>>(def: D, input: InputOf<D>): void {
+  if (!QUIET.has(def.name)) throw new Error(`${def.name}: молчать об отказе этого запроса нельзя — act или чтение с кэшем`);
+  api.call(def, input).catch(() => {});
 }

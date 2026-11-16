@@ -37,7 +37,8 @@ async function modelList(): Promise<string[]> {
   fireEvent.click(await screen.findByRole("button", { name: /^Модель/ }));
   // каталоги провайдеров приходят по одному: список читается, когда пришли все
   const keys = (await apiModule.api.call(keysList, {})).keys.filter((k) => k.protocol !== CLAUDE).map((k) => k.name);
-  const all = (await Promise.all([CLAUDE, ...keys].map((name) => apiModule.api.call(keysModels, { name })))).reduce((n, r) => n + r.models.length, 0);
+  // каталог провайдера, который не ответил, моделей в список не даёт: остальные в списке остаются
+  const all = (await Promise.all([CLAUDE, ...keys].map((name) => apiModule.api.call(keysModels, { name }).then((r) => r.models.length, () => 0)))).reduce((n, r) => n + r, 0);
   await waitFor(() => expect(offers().length).toBe(all));
   return offers();
 }

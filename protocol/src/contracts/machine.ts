@@ -10,6 +10,8 @@ const toMachine = z.object({ to: MachineAddr });
  *  Имена: seven_day — неделя, seven_day_overage_included — окно Fable, five_hour — пять часов.
  *  У недели: fable — сколько из неё потратил Fable; hold — сколько свободной недели держится для Fable (у аккаунта с флагом keep). */
 export const Limit = z.object({ name: z.string(), used: z.number(), resets: z.number().optional(), at: z.number().optional(), fable: z.number().optional(), hold: z.number().optional() });
+/** Имя окна лимита словами — для строк журнала машины. */
+export const LIMIT_WORD: Record<string, string> = { seven_day: "неделя", seven_day_overage_included: "окно Fable", five_hour: "пять часов" };
 /** Аккаунт Claude глазами машины: имя — его почта, она же имя ключа флота с протоколом claude. Числа — только из ответов Claude этой машине. */
 export const Account = z.object({
   name: z.string(),

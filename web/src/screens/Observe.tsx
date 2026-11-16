@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { act, api, sayError, sayWord } from "../api.ts";
+import { journalWord } from "../lib/journal.ts";
 import { Failed, partWord, useCall, useMachineName, useWide } from "../common.tsx";
 import { hostLine, HostSeries, SERIES_PERIODS } from "../lib/metrics.tsx";
 import { ago, byDay, day, duration, hhmm } from "../lib/time.ts";
@@ -158,16 +159,6 @@ function Ledger() {
 
 type JLine = OutputOf<typeof machineJournal>["lines"][number];
 
-/** Строка журнала машины словами: у запроса — имя, от кого, время и исход; у остального — событие, сессия и причина. */
-export function journalWord(l: { msg: string; [field: string]: unknown }): string {
-  const s = (k: string) => (typeof l[k] === "string" || typeof l[k] === "number" ? String(l[k]) : "");
-  if (l.msg === "request" && s("type")) {
-    const out = l.ok === false ? ` · отказ ${sayWord(s("word"))}${s("why") ? `: ${s("why")}` : ""}` : "";
-    return `запрос ${s("type")}${s("from") ? ` от ${s("from")}` : ""}${s("ms") ? ` · ${s("ms")} мс` : ""}${out}`;
-  }
-  const bits = [s("callsign"), s("type") && l.msg !== "request" ? s("type") : "", s("build") ? `сборка ${s("build")}` : "", s("word"), s("why")].filter(Boolean);
-  return bits.length ? `${l.msg} · ${bits.join(" · ")}` : l.msg;
-}
 const KINDS = [{ value: "stop", label: "остановки и сбои" }, { value: "refuse", label: "отказы запросам" }, { value: "note", label: "остальное" }];
 
 function MachineLog() {
@@ -197,7 +188,7 @@ function MachineLog() {
       setMore(r.more);
     } catch (e) {
       setMore(false);
-      void sayError(e);
+      notifications.show({ title: `Не получилось: machine.journal · @${machine}`, message: sayError(e), color: "red", autoClose: 7000 });
     }
   };
   return (

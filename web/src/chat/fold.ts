@@ -2,22 +2,21 @@
 import type { Kind, Peer } from "@sb/protocol";
 import { duration, hhmm, kilo, limitName, plural } from "../lib/time.ts";
 import { askedOf, askOutcome } from "./answers.ts";
-import { API_ERRORS, FALLBACK_WHY, modelName, REFUSAL_AREAS, RESULT_ERRORS, TASK_END } from "./words.ts";
+import { API_ERRORS, FALLBACK_WHY, modelName, REFUSAL_AREAS, TASK_END } from "./words.ts";
 
 export type Msg = Record<string, any>;
 export type Part = { k: "text"; text: string; live?: boolean } | { k: "think"; text: string; live?: boolean } | { k: "tool"; id: string };
 export type Row =
-  | { k: "me"; key: string; uuid?: string; text: string; pics: string[]; /** файлы, загруженные с сообщением: имя, хэш и размер; у документа прежнего вида — только имя */ files?: Array<{ name: string; hash?: string; size?: number }>; /** кто написал: устройство человека; своё — без подписи */ from?: string; state?: MeState }
+  | { k: "me"; key: string; uuid?: string; text: string; pics: string[]; /** файлы, загруженные с сообщением: имя, хэш и размер; у документа прежнего вида — только имя */ files?: Array<{ name: string; hash?: string; size?: number }>; /** кто написал: устройство человека; своё — без подписи */ from?: string; state?: MeState; /** почему сообщение не ушло */ why?: string }
   | { k: "in"; key: string; uuid?: string; via: "session" | "owner" | "service"; from: string; /** вид входящего от флота: его называет машина */ kind?: Kind; /** номер вопроса или вид и ключ обращения */ ref?: string; tag?: string; text: string; at: string; /** файлы входящего: имя, хэш, размер */ files?: Array<{ name: string; hash?: string; size?: number }> }
   | { k: "reply"; key: string; parts: Part[] }
   | { k: "cmd"; key: string; name: string; args: string; out?: string }
   | { k: "sys"; key: string; icon: string; text: string; tone?: "wait" | "swap"; retry?: boolean; boundary?: boolean }
-  | { k: "line"; key: string; icon?: string; text: string; dim?: string; tone?: string; local?: boolean }
+  | { k: "line"; key: string; icon?: string; text: string; dim?: string; tone?: string; local?: boolean; /** беда сессии — строка журнала машины; n — сколько раз подряд */ log?: boolean; n?: number }
   | { k: "task"; key: string; id: string }
   | { k: "asked"; key: string; kind: string; title?: string; qs: Array<{ question: string; options: string[]; chosen: string[] }>; who: string; at: string }
   | { k: "ban"; key: string; tone: "bad" | "wait"; icon?: string; title: string; body?: string; edit?: string; refusal?: boolean }
   | { k: "res"; key: string; bits: string[]; /** строка поставлена страницей: итога хода в записи не было */ synthetic?: boolean }
-  | { k: "end"; key: string; text: string; why?: string }
   | { k: "sum"; key: string; stats: string; text: string };
 /** Своё сообщение: sending — уходит; queued — ждёт в очереди сессии; sent — принято; taken — ход его взял; cancelled — снято с очереди; lost — не ушло. */
 export type MeState = "sending" | "queued" | "sent" | "taken" | "cancelled" | "lost";
@@ -42,8 +41,8 @@ export type View = {
   model?: string;
   /** накопленная стоимость процесса: строка хода — разница */
   cost: number;
-  /** ход прервал человек: его строка ошибки не показывается */
-  interrupted: boolean;
+  /** ход открыт: был ответ, а итога, нового ввода или прерывания после него ещё нет */
+  open: boolean;
   /** статусы сообщений по номеру: что сказал Host */
   status: Record<string, MeState>;
   /** идущие сообщения: родитель (пусто — лента) → id */
@@ -83,6 +82,7 @@ function replyOf(v: View, list: Row[], id: string) {
     r = { k: "reply", key: id, parts: [] };
     list.push(r);
     v.replies.set(id, r);
+    if (list === v.rows) v.open = true;
   }
   return r;
 }
@@ -197,20 +197,17 @@ function command(v: View, text: string, found: RegExpExecArray) {
   push(v, { k: "cmd", name, args: ARGS.exec(text)?.[1]?.trim() ?? "", ...(out !== undefined ? { out } : {}) });
 }
 
-/** Новый ввод после ответа без строки итога — прошлый ход кончился: история разговора итогов хода не хранит. */
+/** Новый ввод после ответа без итога — прошлый ход кончился: история разговора итогов хода не хранит. */
 function closeTurn(v: View) {
-  for (let i = v.rows.length - 1; i >= 0; i--) {
-    const r = v.rows[i]!;
-    if (r.k === "res" || r.k === "end" || r.k === "me" || r.k === "in" || (r.k === "sys" && r.tone === "wait" && r.icon === "square")) return;
-    if (r.k === "reply") return push(v, { k: "res", bits: ["ход закончен"], synthetic: true });
-  }
+  if (v.open) push(v, { k: "res", bits: ["ход закончен"], synthetic: true });
+  v.open = false;
 }
 
 function text(v: View, m: Msg, body: string, pics: string[]) {
   if (m.isSynthetic || m.isMeta || SERVICE.test(body) || STDERR.test(body)) return;
   if (INTERRUPT.test(body)) {
     const at = timeOf(m) || (typeof m.at === "number" ? hhmm(m.at) : "");
-    v.interrupted = true;
+    v.open = false;
     return push(v, { k: "sys", tone: "wait", icon: "square", text: at ? `прервано · ${at}` : "прервано" });
   }
   const name = COMMAND.exec(body);
@@ -242,7 +239,7 @@ function text(v: View, m: Msg, body: string, pics: string[]) {
   const content = m.message?.content;
   const docs = Array.isArray(content) ? (content as Msg[]).filter((b) => b.type === "document").map((b) => String(b.title ?? "документ")) : [];
   const files = [...docs.map((name) => ({ name })), ...((m.files as Array<{ name: string; hash?: string; size?: number }> | undefined) ?? [])];
-  push(v, { k: "me", uuid: m.uuid, text: body, pics, ...(files.length ? { files } : {}), ...(typeof m.from === "string" ? { from: m.from } : {}), ...(state ? { state } : {}) });
+  push(v, { k: "me", uuid: m.uuid, text: body, pics, ...(files.length ? { files } : {}), ...(typeof m.from === "string" ? { from: m.from } : {}), ...(state ? { state } : {}), ...(state === "lost" && typeof m._why === "string" ? { why: m._why } : {}) });
 }
 
 function user(v: View, m: Msg) {
@@ -270,16 +267,12 @@ function result(v: View, m: Msg) {
   v.thinking = null;
   // ход кончился — свои сообщения из очереди ушли в сессию (про чужие и про отменённые скажет статус Host)
   for (const r of v.rows) if (r.k === "me" && r.state === "queued" && (!r.uuid || !v.status[r.uuid])) r.state = "sent";
-  const was = v.interrupted;
-  v.interrupted = false;
+  v.open = false;
   const total = typeof m.total_cost_usd === "number" ? (m.total_cost_usd as number) : null;
   const cost = total === null ? null : total >= v.cost ? total - v.cost : total;
   if (total !== null) v.cost = total;
-  if (m.is_error) {
-    if (was) return;
-    const why = m.result || (m.errors as string[] | undefined)?.join("; ");
-    return push(v, { k: "end", text: `ход оборвался: ${RESULT_ERRORS[m.subtype] ?? m.subtype ?? "ошибка"}`, ...(why ? { why } : {}) });
-  }
+  // чем кончился ход с ошибкой, говорит строка журнала машины (событие log): своих слов о бедах у страницы нет
+  if (m.is_error) return;
   const usage = m.usage ?? {};
   const inContext = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
   const steps = m.num_turns ? `${m.num_turns} ${plural(m.num_turns, "шаг", "шага", "шагов")}` : "";
@@ -287,12 +280,13 @@ function result(v: View, m: Msg) {
   push(v, { k: "res", bits: bits.filter(Boolean) });
 }
 
+/** Лимит на подходе — ход работы; об исчерпанном лимите говорит строка журнала машины. */
 function rateLimit(v: View, m: Msg) {
   const info = m.rate_limit_info ?? {};
-  if (info.status !== "allowed_warning" && info.status !== "rejected") return;
+  if (info.status !== "allowed_warning") return;
   const name = limitName(info.rateLimitType);
   const body = name ? `${name}${info.resetsAt ? `, сброс в ${hhmm(info.resetsAt * 1000)}` : ""}` : "";
-  ban(v, "wait", info.status === "rejected" ? "Лимит подписки исчерпан" : "Лимит подписки скоро кончится", body, "gauge");
+  ban(v, "wait", "Лимит подписки скоро кончится", body, "gauge");
 }
 
 function compactStats(m: Msg) {
@@ -324,7 +318,8 @@ function taskStarted(v: View, m: Msg) {
   else push(v, { k: "task", id });
 }
 
-/** Шаг системной записи: таблица по subtype, незнакомая не рисуется. */
+/** Шаг системной записи: таблица по subtype, незнакомая не рисуется. Здесь только разговор и ход работы:
+ *  беду сессии (сбой хука, отказ правил, несохранённый файл, важное уведомление) называет машина — она приходит событием log. */
 const SYSTEM: Record<string, (v: View, m: Msg) => void> = {
   init(v, m) {
     const strip = (x: unknown) => String(x).replace(/\[.*$/, "");
@@ -339,7 +334,6 @@ const SYSTEM: Record<string, (v: View, m: Msg) => void> = {
   },
   status(v, m) {
     v.compacting = m.status === "compacting";
-    if (m.compact_result === "failed") bad(v, `Сжать контекст не вышло${m.compact_error ? `: ${m.compact_error}` : ""}`);
   },
   compact_boundary(v, m) {
     v.compacting = false;
@@ -359,43 +353,25 @@ const SYSTEM: Record<string, (v: View, m: Msg) => void> = {
     const why = (FALLBACK_WHY[m.trigger] ?? "{m} не ответила").replace("{m}", modelName(m.original_model));
     ban(v, "wait", `${why} — этот ход отвечает ${modelName(m.fallback_model)}`, undefined, "shuffle");
   },
-  hook_response(v, m) {
-    if (m.outcome ? m.outcome === "success" : !m.exit_code) return;
-    const why = String(m.stderr || m.output || "").slice(0, 300);
-    push(v, { k: "line", tone: "wait", icon: "anchor", text: `Хук ${m.hook_name} не сработал${m.exit_code != null ? ` (код ${m.exit_code})` : ""}`, ...(why ? { dim: `: ${why}` } : {}) });
-  },
   memory_recall(v, m) {
     const names = ((m.memories ?? []) as Msg[]).map((x) => String(x.path).split(/[\\/]/).pop());
     if (names.length) line(v, `Из памяти: ${names.join(", ")}`, "book-open");
   },
   informational(v, m) {
-    if (m.level === "warning") ban(v, "wait", String(m.content));
-    else line(v, String(m.content), "info");
+    if (m.level !== "warning") line(v, String(m.content), "info");
   },
   notification(v, m) {
-    if (m.priority === "high" || m.priority === "immediate") ban(v, "wait", String(m.text));
-    else line(v, String(m.text), "info");
-  },
-  permission_denied(v, m) {
-    line(v, `Отклонено правилами: ${m.tool_name}${m.message ? ` — ${m.message}` : ""}`, "ban");
+    if (m.priority !== "high" && m.priority !== "immediate") line(v, String(m.text), "info");
   },
   files_persisted(v, m) {
     const saved = ((m.files ?? []) as Msg[]).map((f) => f.filename).join(", ");
-    const failed = ((m.failed ?? []) as Msg[]).map((f) => `${f.filename}: ${f.error}`).join(", ");
-    const said = [saved && `Файлы сохранены: ${saved}`, failed && `Не сохранились: ${failed}`].filter(Boolean).join(" · ");
-    if (said) line(v, said, "file-up", failed ? "bad" : undefined);
+    if (saved) line(v, `Файлы сохранены: ${saved}`, "file-up");
   },
   local_command_output(v, m) {
     const said = String(m.content ?? "").trim();
     const last = v.rows.at(-1);
     if (last?.k === "cmd" && last.out === undefined) last.out = said;
     else push(v, { k: "line", icon: "zap", text: said, local: true });
-  },
-  mirror_error(v, m) {
-    if (m.error) bad(v, String(m.error));
-  },
-  plugin_install(v, m) {
-    if (m.status === "failed") bad(v, `Плагин не установился${m.name ? ` (${m.name})` : ""}${m.error ? `: ${m.error}` : ""}`);
   },
   task_started: taskStarted,
   task_progress(v, m) {
@@ -435,7 +411,6 @@ const STEP: Record<string, (v: View, m: Msg) => void> = {
   stream_event: stream,
   rate_limit_event: rateLimit,
   system: (v, m) => SYSTEM[m.subtype]?.(v, m),
-  auth_status: (v, m) => void (m.error && bad(v, String(m.error))),
   tool_progress: (v, m) => void (v.tools[m.tool_use_id] && (v.tools[m.tool_use_id].secs = m.elapsed_time_seconds)),
   tool_use_summary(v, m) {
     for (const id of (m.preceding_tool_use_ids ?? []) as string[]) toolOf(v, id).note = m.summary;
@@ -451,7 +426,11 @@ const STEP: Record<string, (v: View, m: Msg) => void> = {
     if (at < 0) return;
     (v.rows[at] as Extract<Row, { k: "me" }>).state = state;
     const before = v.rows[at - 1];
-    if (state === "queued" && before?.k === "res" && before.synthetic) v.rows.splice(at - 1, 1);
+    // сообщение ждёт в очереди — ход, который страница сочла законченным, ещё идёт
+    if (state === "queued" && before?.k === "res" && before.synthetic) {
+      v.rows.splice(at - 1, 1);
+      v.open = true;
+    }
   },
   /** Свои строки страницы: сообщение сессии владельцу и смена аккаунта. */
   // итог вопроса: кто ответил и чем; ход снял вопрос — «вопрос снят»
@@ -463,10 +442,19 @@ const STEP: Record<string, (v: View, m: Msg) => void> = {
   },
   owner: (v, m) => push(v, { k: "in", via: "owner", from: m.from, ...(m.tag ? { tag: m.tag } : {}), text: m.text, at: timeOf(m) }),
   account: (v, m) => push(v, { k: "sys", tone: "swap", icon: "arrow-left-right", text: `аккаунт: ${m.from} → ${m.to}` }),
+  /** Беда сессии — строка журнала машины о ней (warn или error): причина словами машины; без причины — имя строки журнала.
+   *  Та же строка подряд — одна, со счётом; строка хода «повтор запроса» между ними счёта не рвёт. */
+  log(v, m) {
+    const text = typeof m.why === "string" && m.why ? m.why : String(m.msg);
+    const tone = m.level === "error" ? "bad" : "wait";
+    const last = v.rows.findLast((r) => !(r.k === "sys" && r.retry));
+    if (last?.k === "line" && last.log && last.text === text && last.tone === tone) return void (last.dim = ` ×${(last.n = (last.n ?? 1) + 1)}`);
+    push(v, { k: "line", tone, icon: "triangle-alert", text, log: true });
+  },
 };
 
 export function fold(msgs: readonly Msg[]): View {
-  const v: View = { rows: [], tools: {}, tasks: {}, hint: "", compacting: false, thinking: null, cost: 0, interrupted: false, status: {}, stream: {}, replies: new Map(), sub: 0, n: 0 };
+  const v: View = { rows: [], tools: {}, tasks: {}, hint: "", compacting: false, thinking: null, cost: 0, open: false, status: {}, stream: {}, replies: new Map(), sub: 0, n: 0 };
   const seen = new Set<string>(msgs.flatMap((m) => (m.subtype === "model_refusal_fallback" ? (m.retracted_message_uuids ?? []) : [])));
   for (const m of msgs) {
     // статус сообщения несёт номер самого сообщения: повтором записи он не считается

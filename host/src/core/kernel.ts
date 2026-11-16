@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   CALL_MS, contract, createApi, errFields, fail, httpTransport, isReply, machineOf, newId, ok, PROTO, Refusal, socketLink, stopwatch,
-  type Api, type Frame, type Link, type LinkState, type Logger, type Reply, type RequestDef, type Spec, type Transport,
+  type Api, type Frame, type Link, type LinkState, type LogEvent, type Logger, type LogLine, type Reply, type RequestDef, type Spec, type Transport,
 } from "@sb/protocol";
 import { realClock, within, type Clock } from "./clock.ts";
 import type { Ctx, DecideOpts, HostApi, Module, OpenOpts, PermissionResult, QueryPart, SessionApi } from "./contract.ts";
@@ -102,6 +102,8 @@ export class Kernel {
   private api: Api;
   /** имена сессий, которые открываются прямо сейчас */
   private opening = new Set<string>();
+  /** строка журнала прямо сейчас уходит в ленту сессии */
+  private showing = false;
 
   constructor(o: KernelOptions) {
     this.o = o;
@@ -111,13 +113,29 @@ export class Kernel {
     this.version = o.sdkVersion;
     this.holders = new Holders(o.holders);
     this.disk = new Disk(join(o.home, "store"));
-    this.log = o.log ?? hostLogger(o.journal ?? join(o.home, "journal"), o.machine, o.fleet, () => this.clock.now());
+    this.log = o.log ?? hostLogger(o.journal ?? join(o.home, "journal"), o.machine, o.fleet, () => this.clock.now(), (l) => this.show(l));
     this.mods = [coreModule(this), ...o.modules];
     this.api = createApi(o.transport ?? httpTransport({ base: o.base, key: o.key }));
   }
 
   save(): void {
     this.disk.saveRecords([...this.sessions.values()].map((s) => s.rec));
+  }
+
+  /** Беда сессии — на виду: строка журнала уровня warn или error, названная сессией этой машины, уходит событием `log` в её ленту —
+   *  той же дорогой, что события процесса. Правило одно и здесь: кто бы ни написал строку, человек видит её там же, где разговор.
+   *  Строка, рождённая самим показом (сбой модуля на этом событии), в ленту не идёт: круга нет. */
+  private show(l: LogLine): void {
+    if (l.level === "info" || this.showing || typeof l.callsign !== "string") return;
+    const s = this.sessions.get(l.callsign);
+    if (!s) return;
+    const event: LogEvent = { type: "log", uuid: randomUUID(), level: l.level, msg: l.msg, ...(typeof l.why === "string" && l.why ? { why: l.why } : {}), at: l.t };
+    this.showing = true;
+    try {
+      s.tell(event);
+    } finally {
+      this.showing = false;
+    }
   }
 
   // ───────────────────────── реестр и вызов модулей ─────────────────────────

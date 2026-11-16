@@ -9,6 +9,7 @@ import { act, api, sayError } from "../api.ts";
 import { CONTEXT_PARTS, STATUS_LABELS } from "../chat/words.ts";
 import type { View } from "../chat/fold.ts";
 import { AfterTurn, Failed, Lamp, personWord, STATE_WORD, useCall, useLabels } from "../common.tsx";
+import { journalWord } from "../lib/journal.ts";
 import { Sortable } from "../lib/Sortable.tsx";
 import { ago, bytesWord, count, day, hhmm, kilo, nPoints, nTurns } from "../lib/time.ts";
 import { DeleteTyped } from "../lib/DeleteTyped.tsx";
@@ -185,7 +186,7 @@ export function stopBackup(s: SessionRow, done: () => unknown) {
       <DeleteTyped name={name} body="Точки этой сессии в архиве будут удалены сразу, без отмены. Поднять её на другой машине станет не из чего."
         onDelete={async () => {
           if (!(await patchDoc(s, { backup: false }))) return;
-          const mine = (await api.call(pointsList, { machine: machineOfCall(s.callsign) }).catch(() => null))?.sessions.find((a) => a.callsign === s.callsign);
+          const mine = (await act(pointsList, { machine: machineOfCall(s.callsign) }))?.sessions.find((a) => a.callsign === s.callsign);
           if (mine) await act(pointsDelete, { sid: mine.sid }, "Точки удалены из архива");
           close();
           await done();
@@ -263,7 +264,7 @@ function JournalLines({ s, level, kind }: { s: SessionRow; level: string; kind: 
     <>
       {error ? <Failed error={error} retry={() => load()} /> : !loading && !lines.length ? <Text size="sm" className="muted">Строк об этой сессии нет</Text> : null}
       {lines.map((l, i) => (
-        <Text key={i} size="xs" className="mono" c={l.level === "error" ? "red" : l.level === "warn" ? "orange" : undefined} style={{ overflowWrap: "anywhere" }}>{hhmm(l.t)} {l.part} · {l.msg}</Text>
+        <Text key={i} size="xs" className="mono" c={l.level === "error" ? "red" : l.level === "warn" ? "orange" : undefined} style={{ overflowWrap: "anywhere" }}>{hhmm(l.t)} {l.part} · {journalWord({ ...l, callsign: undefined })}</Text>
       ))}
       {more && <Button size="xs" variant="subtle" w="fit-content" onClick={() => load(lines.at(-1)?.t)}>Раньше</Button>}
     </>

@@ -93,14 +93,15 @@ export function countTokens(res: ServerResponse, anth: Json): void {
   sendJson(res, 200, { input_tokens: estimateTokens(body) });
 }
 
-/** Вызов модели Meta. gap — что перевод не знает: строкой в журнал Host. */
-export async function messages(res: ServerResponse, anth: Json, creds: Creds, signal: AbortSignal, gap: (why: string) => void): Promise<void> {
+/** Вызов модели Meta. gap — что перевод не знает: строкой в журнал Host. Ответ — текст отказа, если вызов кончился отказом. */
+export async function messages(res: ServerResponse, anth: Json, creds: Creds, signal: AbortSignal, gap: (why: string) => void): Promise<string | undefined> {
+  /** Отказ — claude конвертом Anthropic; его текст — вызывающему, в строку журнала. */
+  const refuse = (e: ReturnType<typeof anthropicError>, headers?: Record<string, string>): string => (sendJson(res, e.status, e.body, headers), e.body.error.message);
   let meta;
   try {
     meta = toMetaRequest(anth);
   } catch (err) {
-    const e = anthropicError(400, "invalid_request_error", `could not translate request: ${(err as Error).message}`);
-    return sendJson(res, e.status, e.body);
+    return refuse(anthropicError(400, "invalid_request_error", `could not translate request: ${(err as Error).message}`));
   }
   const { body, ctx } = meta;
   if (ctx.droppedTools.length) gap(`инструменты без пары у Meta: ${ctx.droppedTools.join(", ")}`);
@@ -130,10 +131,7 @@ export async function messages(res: ServerResponse, anth: Json, creds: Creds, si
       } catch (err) {
         if (res.destroyed) return;
         const why = `cannot reach Meta: ${(err as Error).message}`;
-        if (!started) {
-          const e = anthropicError(502, "api_error", why);
-          return sendJson(res, e.status, e.body);
-        }
+        if (!started) return refuse(anthropicError(502, "api_error", why));
         tr.error = { message: why };
         break;
       }
@@ -142,7 +140,7 @@ export async function messages(res: ServerResponse, anth: Json, creds: Creds, si
         const e = mapUpstreamError(up.status, text, roundBody);
         if (!started) {
           const retry = up.headers["retry-after"];
-          return sendJson(res, e.status, e.body, { ...(typeof retry === "string" ? { "retry-after": retry } : {}), ...quotaHeaders(up.status, text) });
+          return refuse(e, { ...(typeof retry === "string" ? { "retry-after": retry } : {}), ...quotaHeaders(up.status, text) });
         }
         tr.error = { message: e.body.error.message };
         break;
@@ -190,9 +188,9 @@ export async function messages(res: ServerResponse, anth: Json, creds: Creds, si
     const type = /rate|quota|limit/i.test(tr.error.message ?? "") ? "rate_limit_error" : "api_error";
     if (streaming) {
       res.write(`event: error\ndata: ${JSON.stringify({ type: "error", error: { type, message: tr.error.message } })}\n\n`);
-      return void res.end();
-    }
-    return sendJson(res, 500, { type: "error", error: { type, message: tr.error.message } });
+      res.end();
+    } else sendJson(res, 500, { type: "error", error: { type, message: tr.error.message } });
+    return tr.error.message;
   }
   for (const a of tr.finish()) emit(a);
   if (streaming) return void res.end();
