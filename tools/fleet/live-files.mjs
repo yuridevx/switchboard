@@ -166,18 +166,21 @@ try {
   await step("сессия отправляет файл инструментом: в хранилище он целиком, в её разговоре содержимого нет", async () => {
     await turn(`Выполни одну команду: node -e "const c=require('crypto'),f=require('fs');f.mkdirSync('out',{recursive:true});f.writeFileSync('out/data.txt',c.randomBytes(150000).toString('hex'))". Файл не читай. Потом отправь мне out/data.txt инструментом file_send с подписью «Данные» и ответь одним словом: отправлено.`);
     const events = history();
-    sent = answerOf(events, "file_send", (i) => i.path === "out/data.txt");
+    // путь сессия называет и от своей папки, и полным; вызов, потерянный на обрыве связи машины, она повторяет — считаем вызовы
+    const mine = (i) => String(i.path).replaceAll("\\", "/").endsWith("out/data.txt");
+    const calls = blocksOf(events).filter((b) => b.type === "tool_use" && String(b.name).endsWith("file_send") && mine(b.input ?? {})).length;
+    sent = answerOf(events, "file_send", mine);
     if (sent.name !== "data.txt" || sent.size !== 300_000 || Object.keys(sent).sort().join() !== "hash,name,size") throw new Error(`ответ инструмента не тот: ${JSON.stringify(sent)}`);
     const body = Buffer.from(await (await fetch(linkOf(sent.hash))).arrayBuffer());
     if (body.length !== 300_000 || crypto.createHash("sha256").update(body).digest("hex") !== sent.hash) throw new Error("содержимое в хранилище не сходится с хэшем");
     // содержимого в разговоре нет: кусок из середины файла не встречается ни в одной записи
     const piece = body.subarray(150_000, 150_064).toString();
     if (JSON.stringify(events).includes(piece)) throw new Error("содержимое файла попало в разговор");
-    const card = page.locator('.fileshow[data-file="out/data.txt"]').last();
+    const card = page.locator('.fileshow[data-file$="data.txt"]').last();
     await card.waitFor({ timeout: 30_000 });
     await card.locator("pre.filetext").waitFor({ timeout: 30_000 });
     const size = rowOf()?.cache?.size;
-    return `файл 300 000 знаков (~75 000 токенов), в контексте сессии ${size ?? "?"} токенов, содержимого в разговоре 0`;
+    return `файл 300 000 знаков (~75 000 токенов), в контексте сессии ${size ?? "?"} токенов, содержимого в разговоре 0; вызовов file_send: ${calls}`;
   });
 
   await step("сессия поднимает сайт из 3 файлов: открывается по адресу, стили и скрипт по относительным путям, пропуск страницы ему не виден", async () => {
