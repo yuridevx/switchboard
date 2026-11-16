@@ -1,7 +1,7 @@
 package main
 
 // Связь Keeper с флотом — один адрес. Соединение: wss <адрес>/m/<флот>/<машина>, первым — hello { proto, key, role: "keeper" }; ping —
-// текстом "ping" раз в 10 с, relay отвечает "pong"; ничего не пришло до следующего ping — соединение мёртвое; обрыв — новое подключение с паузой от первой вдвое до предела,
+// текстом "ping" раз в 10 с, relay отвечает "pong"; pong не пришёл до следующего ping — соединение мёртвое; обрыв — новое подключение с паузой от первой вдвое до предела,
 // после живого соединения — снова с первой. Кадры: plan.changed — «спроси план»; keeper.state — ответ состоянием. Запросы: POST <адрес>/call
 // с пропуском машины — builds.plan при каждом подключении и по plan.changed, ledger.add — записи журнала флота.
 // Пропуск не принят (bad_key, revoked, forbidden, proto) — связь останавливается: Keeper исполняет сохранённый план и не стучится.
@@ -108,7 +108,7 @@ func (k *Keeper) session(url string) (alive bool, why string) {
 		case <-rctx.Done():
 		}
 	}()
-	// ping — текстом "ping", relay отвечает "pong" автоответом (так же у Host и страницы); ничего не пришло до следующего — соединение мёртвое
+	// ping — текстом "ping", relay отвечает "pong" автоответом (так же у Host и страницы); pong не пришёл до следующего — соединение мёртвое
 	dead := make(chan struct{})
 	var heard atomic.Bool
 	heard.Store(true)
@@ -131,7 +131,8 @@ func (k *Keeper) session(url string) (alive bool, why string) {
 	}()
 	for {
 		_, b, err := c.Read(rctx)
-		if err == nil {
+		// живость — только pong: входящие кадры доходят и тогда, когда наши пакеты до relay уже не доходят
+		if err == nil && string(b) == "pong" {
 			heard.Store(true)
 		}
 		if err != nil {

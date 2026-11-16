@@ -47,11 +47,11 @@ export function createApi(transport: Transport): Api {
 
 export type SocketLike = { send(data: string): void; close(code?: number, reason?: string): void; addEventListener(type: string, fn: (e: any) => void): void; readyState: number };
 
-/** Ping соединения: текст "ping", relay отвечает "pong" автоответом; ничего не пришло до следующего ping — соединение мёртвое. */
+/** Ping соединения: текст "ping", relay отвечает "pong" автоответом; pong не пришёл до следующего ping — соединение мёртвое. */
 export const PING_MS = 10_000;
 
 /** Соединение с переподключением: пауза растёт и разбросана, чтобы после обновления платформы все не пришли разом.
- *  Молчаливый обрыв (сеть перестала подтверждать, закрытия нет) ловит ping: за PING_MS без единого сообщения — закрыть и подключиться снова. */
+ *  Молчаливый обрыв (сеть перестала подтверждать, закрытия нет) ловит ping: за PING_MS без pong — закрыть и подключиться снова. */
 export function socketLink(o: {
   url: string;
   hello: Frame;
@@ -93,7 +93,7 @@ export function socketLink(o: {
       stopPing();
       ping = setInterval(() => {
         if (heard) return void ((heard = false), s.send("ping"));
-        // за PING_MS не пришло ничего, даже pong: соединение мёртвое — закрытия от сети не будет
+        // за PING_MS не пришёл pong: до relay наши пакеты не доходят — закрытия от сети не будет
         ws = null;
         s.close(4000, "ping");
         lost();
@@ -101,7 +101,8 @@ export function socketLink(o: {
       o.onState?.("open");
     });
     s.addEventListener("message", (e: { data: unknown }) => {
-      heard = true;
+      // живость — только pong: входящие кадры доходят и тогда, когда наши пакеты до relay уже не доходят
+      if (e.data === "pong") return void (heard = true);
       const f = typeof e.data === "string" ? parseFrame(e.data) : null;
       if (f) o.onFrame(f);
     });

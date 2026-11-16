@@ -120,6 +120,8 @@ describe("инструменты: одна таблица для страниц�
       vi.advanceTimersByTime(PING_MS);
       expect(made[0]!.sent.filter((t) => t === "ping").length).toBe(2);
       expect(states).toEqual(["connecting", "open"]);
+      // входящий кадр живость не доказывает: в настоящем обрыве кадры relay доходят, а наши пакеты до него — нет
+      made[0]!.on.message!({ data: JSON.stringify({ type: "roster.delta" }) });
       vi.advanceTimersByTime(PING_MS);
       expect(states).toEqual(["connecting", "open", "closed"]);
       expect(made[0]!.closedWith).toEqual([4000, "ping"]);

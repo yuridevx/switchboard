@@ -361,8 +361,8 @@ func TestReconnectAsksPlanAgain(t *testing.T) {
 	}
 }
 
-// Молчаливый обрыв (слово пользователя 16 нояб.: ping 10 с у всех компонентов): pong держит соединение; флот замолчал — до второго
-// ping соединение признано мёртвым, Keeper подключается снова.
+// Молчаливый обрыв (слово пользователя 16 нояб.: ping 10 с у всех компонентов): pong держит соединение; флот перестал отвечать pong,
+// хотя кадры шлёт, — до второго ping соединение признано мёртвым, Keeper подключается снова.
 func TestSilentLinkReconnects(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
@@ -374,7 +374,8 @@ func TestSilentLinkReconnects(t *testing.T) {
 	}
 	s.f.locked(func() { s.f.mute = true })
 	t0 := time.Now()
-	waitFor(t, "новое подключение после молчания", func() bool { return s.f.hellosN() == 2 })
+	// флот молчит на ping, но шлёт кадры: живость доказывает только pong
+	waitFor(t, "новое подключение после молчания", func() bool { s.f.push(map[string]any{"type": "noop"}); return s.f.hellosN() == 2 })
 	if d := time.Since(t0); d > 2*fast.ping+time.Second {
 		t.Fatalf("молчание замечено за %v, предел — два ping", d)
 	}
