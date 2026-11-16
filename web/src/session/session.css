@@ -277,7 +277,7 @@ a.pcard-from:hover, a.pcard-from:focus-visible { color: var(--mantine-color-text
 .fileshow .codebar .mono { margin-right: 0; min-width: 0; }
 .filetitle { font-weight: 600; white-space: nowrap; }
 .filesize { white-space: nowrap; font-size: 12px; color: var(--muted); }
-.filemax { position: absolute; top: 5px; right: 6px; }
+.fileshow .filemax { position: absolute; top: 5px; right: 6px; }
 .fileshow .pic { margin: 0 auto; border-radius: 0; }
 .fileshow .md, .fileshow .filetext { margin: 0; padding: 6px 10px 10px; }
 .fileshow .svgview { margin: 0 10px 10px; }
