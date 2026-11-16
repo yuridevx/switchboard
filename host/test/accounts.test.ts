@@ -371,6 +371,10 @@ describe("отказы Claude", () => {
     expect(refused.status).toBe(429);
     expect(await refused.text()).toContain("no_account");
     expect(row().wait).toBe(T0 + 2 * HOUR);
+    // чьё: слово пользователя 16 нояб. — «показ ошибок вместо скрытия»: строка решения без аккаунта — уровня warn, о сессии и с причиной: она уходит в её ленту
+    expect(journal("route").at(-1)).toMatchObject({ callsign: CS, level: "warn" });
+    expect(journal("route").at(-1).why).toMatch(/^годных аккаунтов Claude нет: ближайший сброс в \d\d:\d\d$/);
+    expect(journal("route").filter((l) => l.account).every((l) => l.level === "info")).toBe(true);
     st!.clock.advance(HOUR);
     await tick();
     expect(proc.inputs.some((i) => i.message.content === "Продолжай")).toBe(false);
