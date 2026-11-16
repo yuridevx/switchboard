@@ -50,11 +50,13 @@ async function step(label, fn) {
   }
   console.log(steps.at(-1));
 }
+/** Причина, по которой ждать дальше незачем. */
+class Stop extends Error {}
 async function until(what, fn, ms = 180_000) {
   const end = Date.now() + ms;
   for (;;) {
     let v;
-    try { v = await fn(); } catch { v = undefined; }
+    try { v = await fn(); } catch (e) { if (e instanceof Stop) throw e; v = undefined; }
     if (v) return v;
     if (Date.now() > end) throw new Error(`не дождался: ${what}`);
     await sleep(2000);
@@ -65,7 +67,12 @@ const me = must("whoami", {});
 const invite = must("invite", { addr: name + me.person });
 const callsign = must("session.open", { to: "@" + machine, spec: { name, cwd, key: SEAT, model: MODEL }, mkdir: true }).callsign;
 const rowOf = () => must("fleet.list", { machine, full: true }).sessions.find((s) => s.callsign === callsign);
-const idle = () => until(`${callsign} свободна`, () => rowOf()?.state === "idle", 400_000);
+/** Конец хода. Сессия ждёт аккаунт или упала — ждать нечего: отказ сразу, с причиной из её строки. */
+const idle = () => until(`${callsign} свободна`, () => {
+  const r = rowOf();
+  if (r?.wait || r?.state === "failed") throw new Stop(r.wait ? `у сессии нет годного аккаунта до ${new Date(r.wait).toISOString()}` : `сессия упала: ${r.error ?? ""}`);
+  return r?.state === "idle";
+}, 400_000);
 /** Сообщение сессии и конец её хода. */
 async function turn(text) {
   must("message", { to: callsign, text });
@@ -92,15 +99,25 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 const box = () => page.getByLabel("Сообщение сессии");
-/** Файл — в поле ввода страницы, сообщение — Enter; ждём, пока машина примет сообщение: в истории оно с файлом по имени. */
+/** Файл — в поле ввода страницы, сообщение — Enter; ждём, пока машина примет сообщение: в истории оно с файлом по имени.
+ *  Сообщение «не ушло» (файл не уложился в предел запроса) — человек жмёт «Отправить ещё раз»: машина докачивает с места обрыва. sends — сколько раз отправляли. */
 async function uploadFromPage(file, text, ms = 600_000) {
   await page.locator('input[type="file"]').first().setInputFiles(file);
   await page.getByRole("button", { name: `Убрать ${path.basename(file)}` }).waitFor({ timeout: 30_000 });
   await box().fill(text);
   const t0 = Date.now();
   await box().press("Enter");
-  const said = await until(`сообщение с ${path.basename(file)} принято машиной`, () => history().findLast((e) => e.type === "user" && e.files?.some((f) => f.name === path.basename(file))), ms);
-  return { file: said.files.find((f) => f.name === path.basename(file)), text: said.message?.content, ms: Date.now() - t0 };
+  let sends = 1;
+  const again = page.getByRole("button", { name: "Отправить ещё раз" });
+  const said = await until(`сообщение с ${path.basename(file)} принято машиной`, async () => {
+    const got = history().findLast((e) => e.type === "user" && e.files?.some((f) => f.name === path.basename(file)));
+    if (!got && (await again.count())) {
+      sends++;
+      await again.first().click();
+    }
+    return got;
+  }, ms);
+  return { file: said.files.find((f) => f.name === path.basename(file)), text: said.message?.content, ms: Date.now() - t0, sends };
 }
 /** «Скачать» в карточке или строке файла: содержимое на диск, его хэш. */
 async function downloadFromPage(scope, fileName) {
@@ -156,7 +173,7 @@ try {
     // содержимого в разговоре нет: кусок из середины файла не встречается ни в одной записи
     const piece = body.subarray(150_000, 150_064).toString();
     if (JSON.stringify(events).includes(piece)) throw new Error("содержимое файла попало в разговор");
-    const card = page.locator('.fileshow[data-file="out/data.txt"]');
+    const card = page.locator('.fileshow[data-file="out/data.txt"]').last();
     await card.waitFor({ timeout: 30_000 });
     await card.locator("pre.filetext").waitFor({ timeout: 30_000 });
     const size = rowOf()?.cache?.size;
@@ -213,7 +230,7 @@ try {
     // сколько заняла сама машина — в её журнале: приём файла в папку и отправка обратно
     const lines = must("machine.journal", { to: "@" + machine, session: callsign, limit: 200 }).lines.filter((l) => l.hash === hash);
     const ms = (msg) => lines.find((l) => l.msg === msg)?.ms;
-    return `туда ${(up.ms / 1000).toFixed(1)} с (из них машина ${((ms("file_upload") ?? 0) / 1000).toFixed(1)} с), обратно: машина ${((ms("file_send") ?? 0) / 1000).toFixed(1)} с, скачивание ${((Date.now() - t0) / 1000).toFixed(1)} с`;
+    return `туда ${(up.ms / 1000).toFixed(1)} с за ${up.sends} отправк. (из них машина ${((ms("file_upload") ?? 0) / 1000).toFixed(1)} с), обратно: машина ${((ms("file_send") ?? 0) / 1000).toFixed(1)} с, скачивание ${((Date.now() - t0) / 1000).toFixed(1)} с`;
   });
 
   await step("журнал машины: строка на каждую загрузку, отправку и сайт — с хэшем, без содержимого", async () => {

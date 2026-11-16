@@ -27,10 +27,10 @@ const row = (cs: string) => st!.link.rows(cs).at(-1)!.row as any;
 const journal = (msg: string) => st!.journal().filter((l) => l.msg === msg) as any[];
 const feed = () => st!.link.of("session.events").flatMap((f) => f.events as any[]);
 
-/** Хранилище флота: содержимое по хэшу. hang — имена хэшей, на которых сервер молчит; down — отвечает 500. */
+/** Хранилище флота: содержимое по хэшу, чтение с места (Range). hang — хэши, на которых сервер молчит; half — отдаёт половину и замолкает; down — отвечает 500. */
 async function storage(s: Stand) {
   const blobs = new Map<string, Buffer>();
-  const store = { blobs, puts: [] as string[], gets: [] as string[], hang: new Set<string>(), down: false, url: "" };
+  const store = { blobs, puts: [] as string[], gets: [] as string[], ranges: [] as string[], hang: new Set<string>(), half: new Set<string>(), down: false, url: "" };
   const srv = createServer((req, res) => {
     const hash = req.url!.split("/").pop()!;
     const parts: Buffer[] = [];
@@ -45,7 +45,14 @@ async function storage(s: Stand) {
       }
       store.gets.push(hash);
       const body = blobs.get(hash);
-      res.writeHead(body ? 200 : 404).end(body);
+      if (!body) return void res.writeHead(404).end();
+      const from = Number(/^bytes=(\d+)-$/.exec(req.headers.range ?? "")?.[1] ?? 0);
+      if (req.headers.range) store.ranges.push(req.headers.range);
+      if (from >= body.length && req.headers.range) return void res.writeHead(416).end();
+      res.writeHead(req.headers.range ? 206 : 200);
+      // половина содержимого ушла — и хранилище замолчало: соединение остаётся открытым
+      if (store.half.has(hash)) return void res.write(body.subarray(from, from + Math.ceil((body.length - from) / 2)));
+      res.end(body.subarray(from));
     });
   });
   servers.push(srv);
@@ -306,6 +313,24 @@ describe("файлы: обращение службы компьютера, ис
     store.hang.clear();
     expect((await st.request("site.publish", { to: CS, dir: "out/site" }, CS)).ok).toBe(true);
     expect(store.puts).toEqual([sha("<h1>Отчёт</h1>"), sha("h1 { color: teal }")]);
+    // файл человека не уложился в предел: принятая половина остаётся черновиком, повтор сообщения докачивает остальное с места обрыва
+    const { proc } = await st.open("docs");
+    const body = "первая половина файла|вторая половина файла";
+    const f = uploaded(store, "big.txt", body);
+    store.half.add(f.hash);
+    const cut = await st.request("message", { to: "docs@laptop", text: "вот", files: [f] }, PULT);
+    expect(cut).toMatchObject({ ok: false, error: "timeout", why: expect.stringContaining("повторите сообщение") });
+    const part = join(st.dir, "uploads", `.${f.hash}.part`);
+    const got = readFileSync(part).length;
+    expect(got).toBeGreaterThan(0);
+    expect(got).toBeLessThan(Buffer.byteLength(body));
+    expect(existsSync(join(st.dir, "uploads", "big.txt"))).toBe(false);
+    expect(proc.inputs).toHaveLength(0);
+    store.half.clear();
+    expect((await st.request("message", { to: "docs@laptop", text: "вот", files: [f] }, PULT)).ok).toBe(true);
+    expect(store.ranges).toEqual([`bytes=${got}-`]);
+    expect(readFileSync(join(st.dir, "uploads", "big.txt"), "utf8")).toBe(body);
+    expect(existsSync(part)).toBe(false);
     // машина останавливается посреди загрузки: загрузка оборвана, отказ словом
     write(st.dir, "big.bin", "большой файл");
     store.hang.add(sha("большой файл"));

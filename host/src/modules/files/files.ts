@@ -2,12 +2,12 @@
 // Содержимое лежит в хранилище флота под своим хэшем; в разговоре, ленте и журнале — имя, хэш и размер. Свой шаг один: посчитать хэш →
 // спросить у службы, чего в хранилище нет → загрузить недостающее по ссылке; в обратную сторону — скачать по ссылке и сверить хэш.
 import { createHmac } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { CALL_MS, filesGet, filesPut, filesSite, Refusal, type FileIn } from "@sb/protocol";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
-import { sha256, storeGet, storePut } from "./store.ts";
+import { fileHash, sha256, storeInto, storePut } from "./store.ts";
 
 /** Папка внутри папки сессии, куда встают файлы сообщений: файлы проекта не затираются. */
 const UPLOADS = "uploads";
@@ -70,7 +70,7 @@ export function make(o: { limitMs?: number } = {}): Module {
     for (let n = 1; ; n++) {
       const file = join(dir, n === 1 ? name : `${stem}-${n}${ext}`);
       if (!existsSync(file)) return { file, have: false };
-      if (statSync(file).isFile() && statSync(file).size === f.size && sha256(readFileSync(file)) === f.hash) return { file, have: true };
+      if (statSync(file).isFile() && statSync(file).size === f.size && fileHash(file) === f.hash) return { file, have: true };
     }
   }
 
@@ -82,12 +82,19 @@ export function make(o: { limitMs?: number } = {}): Module {
       const t0 = host.clock.now();
       const { file, have } = slot(dir, f);
       if (!have) {
+        // содержимое идёт в черновик по хэшу и встаёт под своим именем только целым и сверенным. Не уложилось в предел запроса —
+        // принятое остаётся: повтор сообщения докачивает остальное, большой файл на медленной сети приходит за несколько запросов
+        const part = join(dir, `.${f.hash}.part`);
         const { url } = await host.call(filesGet, { hash: f.hash });
-        const body = await storeGet(url, within);
-        if (sha256(body) !== f.hash) throw new Refusal("bad_file", `${f.name}: из хранилища пришло не то содержимое — в папку сессии не записано`);
-        mkdirSync(dir, { recursive: true });
-        writeFileSync(`${file}.tmp`, body);
-        renameSync(`${file}.tmp`, file);
+        await storeInto(url, part, within).catch((e: unknown) => {
+          if (!(e instanceof Refusal) || !existsSync(part)) throw e;
+          throw new Refusal(e.word, `${f.name}: принято ${statSync(part).size} из ${f.size} байт — повторите сообщение, файл докачается (${e.why})`);
+        });
+        if (fileHash(part) !== f.hash) {
+          rmSync(part);
+          throw new Refusal("bad_file", `${f.name}: из хранилища пришло не то содержимое — в папку сессии не записано`);
+        }
+        renameSync(part, file);
       }
       const path = relative(s.info.cwd, file).split(sep).join("/");
       host.log.info("file_upload", { callsign: s.callsign, name: path, hash: f.hash, size: f.size, ms: host.clock.now() - t0, ...(have ? { why: "то же содержимое уже в папке" } : {}) });
