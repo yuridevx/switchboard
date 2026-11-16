@@ -361,6 +361,25 @@ func TestReconnectAsksPlanAgain(t *testing.T) {
 	}
 }
 
+// Молчаливый обрыв (слово пользователя 16 нояб.: ping 10 с у всех компонентов): pong держит соединение; флот замолчал — до второго
+// ping соединение признано мёртвым, Keeper подключается снова.
+func TestSilentLinkReconnects(t *testing.T) {
+	s := newStand(t)
+	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
+	k := s.start()
+	waitFor(t, "Host сборки 1 работает", running(k, 1))
+	time.Sleep(2500 * time.Millisecond) // три ping при fast.ping = 1 с
+	if n := s.f.hellosN(); n != 1 {
+		t.Fatalf("соединение с ответами на ping переподключалось: подключений %d", n)
+	}
+	s.f.locked(func() { s.f.mute = true })
+	t0 := time.Now()
+	waitFor(t, "новое подключение после молчания", func() bool { return s.f.hellosN() == 2 })
+	if d := time.Since(t0); d > 2*fast.ping+time.Second {
+		t.Fatalf("молчание замечено за %v, предел — два ping", d)
+	}
+}
+
 // Архив не тот, что в плане: сборка не ставится, работающий Host работает дальше с причиной.
 func TestBadArchiveKeepsRunningHost(t *testing.T) {
 	s := newStand(t)

@@ -30,7 +30,7 @@ func (o *Options) defaults() {
 	for _, d := range []struct {
 		v   *time.Duration
 		def time.Duration
-	}{{&o.Stop, time.Minute}, {&o.PlanWait, 30 * time.Second}, {&o.Ping, 30 * time.Second},
+	}{{&o.Stop, time.Minute}, {&o.PlanWait, 30 * time.Second}, {&o.Ping, 10 * time.Second},
 		{&o.PauseFirst, time.Second}, {&o.PauseMax, time.Minute}, {&o.Download, 10 * time.Minute}, {&o.HolderWait, 30 * time.Second}} {
 		if *d.v == 0 {
 			*d.v = d.def
