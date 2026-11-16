@@ -23,7 +23,8 @@ const base = fleetEnv.SB2_BASE;
 
 const tag = Date.now().toString(36).slice(-5);
 const name = "files" + tag;
-const cwd = machine === "wsl" ? `/tmp/sb2-files-${tag}` : `C:/Users/${os.userInfo().username}/AppData/Local/Temp/sb2-files-${tag}`;
+// папка сессии — от домашней: путь годится и Windows, и Linux, какой бы ни была машина
+const cwd = `~/sb2-live-files-${tag}`;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sb2-live-files-"));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sha = (file) => new Promise((done, fail) => {

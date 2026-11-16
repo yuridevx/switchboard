@@ -14,8 +14,10 @@ type SiteList = { fleet: string; files: Record<string, { hash: string; size: num
 
 const SITE = /^\/s\/([0-9a-f]{32})(\/.*)?$/;
 /** Сайт идёт в песочнице браузера: у него свой пустой источник — пропуск пульта, cookies и localStorage страницы флота ему не видны.
- *  Файлы сайта для него «чужой источник», поэтому отдаются с разрешением читать их отовсюду. */
-const SITE_HEADERS = { "content-security-policy": "sandbox allow-scripts allow-forms allow-popups", "access-control-allow-origin": "*", "x-content-type-options": "nosniff", "cache-control": "no-cache" };
+ *  Файлы сайта для него «чужой источник», поэтому отдаются с разрешением читать их отовсюду.
+ *  no-transform: файл уходит байт в байт — его отпечаток (etag) есть хэш содержимого. Без этого Cloudflare на своём домене вставляет
+ *  в страницы сайта скрипт аналитики (живая проверка прода 17 нояб.: 525 байт вместо 158, в песочнице скрипт сыплет ошибками). */
+const SITE_HEADERS = { "content-security-policy": "sandbox allow-scripts allow-forms allow-popups", "access-control-allow-origin": "*", "x-content-type-options": "nosniff", "cache-control": "no-cache, no-transform" };
 const TYPES: Record<string, string> = {
   html: "text/html; charset=utf-8", htm: "text/html; charset=utf-8", css: "text/css; charset=utf-8", js: "text/javascript; charset=utf-8", mjs: "text/javascript; charset=utf-8",
   json: "application/json", map: "application/json", txt: "text/plain; charset=utf-8", md: "text/markdown; charset=utf-8", csv: "text/csv; charset=utf-8", xml: "application/xml",
