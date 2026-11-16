@@ -64,6 +64,8 @@ describe("файлы", () => {
     for (const r of [index, css, js, bare, same]) {
       expect(r.headers.get("content-security-policy")).toBe(SANDBOX);
       expect(r.headers.get("access-control-allow-origin")).toBe("*");
+      // содержимое сайта по пути не меняет никто: отпечаток файла — его хэш
+      expect(r.headers.get("cache-control")).toBe("no-cache, no-transform");
     }
     // повторная запись заменяет список: путь, которого в нём больше нет, не отдаётся
     await s.ask("files.site", { site: SITE, files: files.slice(0, 2) }, "klaptop");
