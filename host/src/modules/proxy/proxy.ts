@@ -1,7 +1,8 @@
 // Прокси модели на 127.0.0.1: через него идёт каждый запрос claude к модели. Сессия — по x-claude-code-session-id; куда идти и чьим секретом —
 // маршрут модуля аккаунтов на каждом вызове. Прокси только везёт вызов: ставит токен аккаунта или ключ провайдера и по слову соседа отдаёт ответ,
 // шлёт тот же вызов на следующий аккаунт или ждёт короткую паузу. Правила флота — из ключа proxy.rules настроек флота.
-// Тела ответа не читает и переписку не пишет: её пишет сам claude в файл сессии. Недоступный прокси и оборванный поток claude повторяет сам.
+// Тела ответа не читает и переписку не пишет: её пишет сам claude в файл сессии; у отказа провайдера читает причину — она идёт в строку журнала вызова.
+// Недоступный прокси и оборванный поток claude повторяет сам.
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
@@ -14,7 +15,7 @@ import type { AccountsApi, Answered, Route } from "../accounts/contract.ts";
 import { compile, editRequest, type Rule, type Scope } from "./rules.ts";
 import { countTokens, messages, sendJson, anthropicError } from "./muse/handle.ts";
 import { museVersion } from "./muse/headers.ts";
-import { send } from "./upstream.ts";
+import { bytesOf, refusalText, send } from "./upstream.ts";
 
 type Json = Record<string, any>;
 const refuse = (word: string, why?: string) => new Refusal(word, why);
@@ -130,10 +131,11 @@ export function make(): Module {
     return checks.get(sid) ?? accounts().route(sid, tried);
   }
 
-  /** Ответ провайдера — claude как есть: статус, заголовки, байты. */
-  async function pass(up: Awaited<ReturnType<typeof send>>, res: ServerResponse): Promise<void> {
+  /** Ответ провайдера — claude как есть: статус, заголовки, байты. read — тело отказа, уже прочитанное ради причины. */
+  async function pass(up: Awaited<ReturnType<typeof send>>, res: ServerResponse, read: Buffer | null): Promise<void> {
     const headers = Object.fromEntries(Object.entries(up.headers).filter(([k]) => !HOP.has(k)));
     res.writeHead(up.status, headers as Record<string, string | string[]>);
+    if (read) return void res.end(read);
     await new Promise<void>((done) => {
       up.body.on("error", () => res.destroy());
       res.on("close", done);
@@ -200,14 +202,14 @@ export function make(): Module {
         const foreign = !!route.key && !!route.model && !!anth && anth.model !== route.model;
         if (foreign) anth!.model = route.model;
         const sent = anth && (edited || foreign) ? Buffer.from(JSON.stringify(anth)) : body;
-        const seen = (status: number, headers: Answered["headers"], ms: number) => acc?.answer(route!, { status, headers, path, ms, hops: tried.length, waited, ...(model ? { model } : {}) }) ?? ({ act: "pass" } as const);
+        const seen = (status: number, headers: Answered["headers"], ms: number, why?: string) => acc?.answer(route!, { status, headers, path, ms, hops: tried.length, waited, ...(model ? { model } : {}), ...(why ? { why } : {}) }) ?? ({ act: "pass" } as const);
         const t0 = Date.now();
         if (isMeta(route.to)) {
           if (!anth) return say(404, "not_found_error", "not_supported", `${req.method} ${path}: у Meta только /v1/messages`);
           if (path.startsWith("/v1/messages/count_tokens")) return countTokens(res, anth);
           const creds = { key: route.key ?? "", base: route.to.replace(/\/+$/, ""), version: await muse() };
-          await messages(res, anth, creds, ac.signal, (why) => host.log.info("gap", { why: `${sid}: ${why}` }));
-          seen(res.statusCode, {}, Date.now() - t0);
+          const refused = await messages(res, anth, creds, ac.signal, (why) => host.log.info("gap", { why: `${sid}: ${why}` }));
+          seen(res.statusCode, {}, Date.now() - t0, refused);
           return;
         }
         const up = await send(`${route.to.replace(/\/+$/, "")}${path}`, { method: req.method ?? "GET", headers: headersOf(req, route), body: sent.length ? sent : undefined, signal: ac.signal });
@@ -215,10 +217,10 @@ export function make(): Module {
         const ms = Date.now() - t0;
         host.meter.time("provider", ms);
         if (up.status >= 500 || up.status === 429) host.meter.count("provider.failed");
-        const verdict = seen(up.status, up.headers, ms);
-        if (verdict.act === "pass") return await pass(up, res);
-        // отказ сессии не достаётся: его тело не нужно
-        up.body.resume();
+        // отказ — короткое тело с причиной: читается целиком, причина встаёт в строку журнала вызова; claude получает те же байты
+        const refused = up.status >= 400 ? await bytesOf(up) : null;
+        const verdict = seen(up.status, up.headers, ms, refused ? refusalText(up.headers, refused) : undefined);
+        if (verdict.act === "pass") return await pass(up, res, refused);
         if (verdict.act === "wait") {
           // короткая пауза Claude: тот же вызов на том же аккаунте
           waited = true;
