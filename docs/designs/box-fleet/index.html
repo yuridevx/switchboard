@@ -1,0 +1,389 @@
+<title>Флот в коробке</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* раскладка: сверху числа опыта и карта коробки; ниже по одной теме на блок: сценарий хода, путь изменения, охват, находки, эталоны, гейт, порядок */
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
+  --accent: #1f7a63; --accent-soft: #dcefe8; --warn: #a8620a; --warn-soft: #fbecd2; --bad: #b3362b; --bad-soft: #f7e1de; --code: #f0eee7; --chg: #fff3b0;
+  --display: "Space Grotesk", "Segoe UI", sans-serif; --text: Inter, "Segoe UI", system-ui, sans-serif; --mono: "JetBrains Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warn: #f0b05c; --warn-soft: #40301a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4318; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warn: #f0b05c; --warn-soft: #40301a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4318; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 400 15px/1.5 var(--text); padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 34px; }
+h1 { font: 600 30px/1.15 var(--display); margin: 0; text-wrap: balance; }
+.lead { color: var(--muted); max-width: 62ch; margin: 6px 0 0; }
+h2 { font: 600 19px/1.25 var(--display); margin: 0 0 12px; text-wrap: balance; }
+section.read > h2::after { content: " ✓ прочитал"; font: 500 12px var(--text); color: var(--accent); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.scroll { overflow-x: auto; }
+svg { display: block; width: 100%; height: auto; font-family: var(--text); }
+.map svg { min-width: 780px; }
+.n rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.n.ci rect { fill: var(--accent-soft); stroke: var(--accent); }
+.n.man rect { fill: var(--warn-soft); stroke: var(--warn); }
+.n text { fill: var(--fg); font-size: 15px; font-weight: 600; }
+.n text.sub { fill: var(--muted); font-size: 12px; font-weight: 400; }
+.a path { stroke: var(--muted); stroke-width: 2; fill: none; }
+.a.back path { stroke-dasharray: 5 4; }
+.a text { fill: var(--muted); font-size: 12px; }
+.a .head { fill: var(--muted); stroke: none; }
+.zone { fill: none; stroke: var(--line); stroke-dasharray: 5 5; }
+.zone-t { fill: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+[data-x] { cursor: pointer; }
+[data-x]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.n[data-x]:hover rect, .n.on rect { stroke: var(--accent); stroke-width: 2.5; }
+.a[data-x]:hover path, .a.on path { stroke: var(--accent); stroke-width: 3; }
+.a[data-x]:hover .head, .a.on .head { fill: var(--accent); }
+.a[data-x]:hover text, .a.on text { fill: var(--accent); }
+.dim .n:not(.hot), .dim .a:not(.hot) { opacity: .35; }
+.why { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; min-height: 64px; }
+.why b { font: 600 15px var(--display); }
+.why p { margin: 0; max-width: 70ch; }
+pre { margin: 0; background: var(--code); border-radius: 8px; padding: 10px 12px; font: 400 12.5px/1.5 var(--mono); overflow-x: auto; white-space: pre; }
+.nums { display: flex; flex-wrap: wrap; gap: 10px; }
+.num { flex: 1 1 180px; min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.num b { font: 600 24px var(--display); font-variant-numeric: tabular-nums; display: block; }
+.num span { color: var(--muted); font-size: 13px; }
+.bars { display: grid; gap: 6px; margin-top: 12px; font-size: 13px; }
+.bar { display: grid; grid-template-columns: 170px minmax(0, 1fr) 96px; gap: 10px; align-items: center; }
+.bar i { display: block; height: 14px; border-radius: 4px; background: var(--warn); min-width: 2px; }
+.bar.keep i { background: var(--muted); }
+.bar .v { font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
+@media (max-width: 560px) { .bar { grid-template-columns: 110px minmax(0, 1fr) 80px; } }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.stops { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.stop { background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.stop.ci { border-color: var(--accent); }
+.stop .who { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.stop b { font: 600 16px var(--display); display: block; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border-radius: 8px; padding: 5px 9px; font: 500 13px var(--text); border: 1.5px solid transparent; background: var(--soft); color: var(--fg); text-align: left; }
+.chip:hover, .chip.on { border-color: var(--accent); }
+.chip.off { color: var(--muted); text-decoration: line-through; background: none; border: 1.5px dashed var(--line); }
+.chip.off:hover, .chip.off.on { border-style: solid; border-color: var(--accent); }
+.steps { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.step { flex: 1 1 200px; min-width: 0; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; text-align: left; font: inherit; color: inherit; display: grid; gap: 4px; align-content: start; }
+.step:hover, .step.on { border-color: var(--accent); }
+.step .who { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.step .what { font-weight: 600; overflow-wrap: anywhere; }
+.arrow { align-self: center; color: var(--muted); font-size: 18px; flex: none; }
+.cap { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.gone { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.gone > div { min-width: 0; }
+.et { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 10px; }
+.e { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.e .io { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; }
+.e .io > div { background: var(--soft); border-radius: 8px; padding: 8px; overflow-wrap: anywhere; min-width: 0; }
+.e .io > div.out { background: var(--accent-soft); }
+.e .src { color: var(--muted); font-size: 12px; }
+.e b { font: 600 14px var(--display); }
+.gate { white-space: pre-wrap; font: 400 13px/1.6 var(--mono); overflow-wrap: anywhere; }
+.order { display: grid; gap: 8px; counter-reset: s; }
+.o { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 12px 46px; position: relative; display: grid; gap: 4px; counter-increment: s; min-width: 0; }
+.o::before { content: counter(s); position: absolute; left: 12px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 600 13px var(--display); display: grid; place-items: center; }
+.o b { font: 600 15px var(--display); }
+.o .done { color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.n.ref text { font-family: var(--mono); font-size: 14px; }
+.stem { stroke: var(--muted); stroke-width: 2; fill: none; }
+.dot { fill: var(--card); stroke: var(--muted); stroke-width: 2; }
+.gitline { stroke: var(--line); stroke-width: 3; fill: none; }
+.chg { background: var(--chg); border-radius: 3px; }
+svg .chg { fill: var(--warn); }
+button { cursor: pointer; }
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Флот в коробке</h1>
+  <p class="lead">Живые проверки больше не ждут чужих машин, ключей и аккаунтов. Одна команда поднимает весь Switchboard на одном компьютере, и тот же список проверок идёт на нём до слияния.</p>
+</header>
+
+<section id="b-nums" data-block>
+  <h2>Числа опыта</h2>
+  <div class="nums">
+    <div class="num"><b>7 с</b><span>коробка поднимается на раннере GitHub</span></div>
+    <div class="num"><b>104 из 104</b><span>шага живого списка идут в коробке, 16 проверок</span></div>
+    <div class="num"><b>1,8 мин</b><span>весь список в коробке на раннере</span></div>
+    <div class="num"><b>6 из 6</b><span>прогонов подряд зелёные на компьютере, занятом на 99 %</span></div>
+    <div class="num"><b>0</b><span>секретов, ключей и машин флота нужно проверке</span></div>
+  </div>
+</section>
+
+<section id="b-map" data-block>
+  <h2>Что поднимает одна команда</h2>
+  <div class="card map" data-explain>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 380" role="img" aria-label="На одном компьютере стоят страница в браузере, платформа и службы, две машины с Host и процессами claude и поддельная модель. Снаружи остаются Cloudflare, машины флота, аккаунты Claude, ключи провайдеров, история флота и хранилище файлов.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0 0 L10 5 L0 10 z" fill="context-stroke" stroke="none"/></marker>
+      </defs>
+      <rect class="zone" x="14" y="14" width="700" height="352" rx="10"/><text class="zone-t" x="28" y="34">один компьютер: раннер CI или свой</text>
+      <rect class="zone" x="740" y="14" width="246" height="352" rx="10"/><text class="zone-t" x="754" y="34">больше не нужно</text>
+
+      <g class="n" data-x="check" data-path="p m" tabindex="0"><rect x="30" y="60" width="150" height="54" rx="10"/><text x="105" y="84" text-anchor="middle">Живая проверка</text><text class="sub" x="105" y="102" text-anchor="middle">та же, что на флоте</text></g>
+      <g class="n" data-x="page" data-path="p" tabindex="0"><rect x="30" y="180" width="150" height="54" rx="10"/><text x="105" y="204" text-anchor="middle">Страница</text><text class="sub" x="105" y="222" text-anchor="middle">настоящий Chrome</text></g>
+      <g class="n ci" data-x="workers" data-path="p m" tabindex="0"><rect x="250" y="120" width="170" height="62" rx="10"/><text x="335" y="147" text-anchor="middle">Платформа и службы</text><text class="sub" x="335" y="166" text-anchor="middle">настоящий код, локально</text></g>
+      <g class="n ci" data-x="host" data-path="m" tabindex="0"><rect x="250" y="250" width="170" height="62" rx="10"/><text x="335" y="277" text-anchor="middle">Машины m1 и m2</text><text class="sub" x="335" y="296" text-anchor="middle">настоящий Host</text></g>
+      <g class="n ci" data-x="claude" data-path="m" tabindex="0"><rect x="490" y="250" width="200" height="62" rx="10"/><text x="590" y="277" text-anchor="middle">Процессы claude</text><text class="sub" x="590" y="296" text-anchor="middle">настоящий Claude Code</text></g>
+      <g class="n man" data-x="model" data-path="m" tabindex="0"><rect x="490" y="120" width="200" height="62" rx="10"/><text x="590" y="147" text-anchor="middle">Поддельная модель</text><text class="sub" x="590" y="166" text-anchor="middle">единственная подделка</text></g>
+
+      <g class="a" data-x="a-call" data-path="m" tabindex="0"><path d="M180 87 L290 87 L290 118" marker-end="url(#ah)"/><text x="232" y="79" text-anchor="middle">запросы</text></g>
+      <g class="a" data-x="a-chrome" data-path="p" tabindex="0"><path d="M105 114 L105 178" marker-end="url(#ah)"/><text x="113" y="150">ведёт</text></g>
+      <g class="a" data-x="a-page" data-path="p" tabindex="0"><path d="M180 207 L215 207 L215 160 L248 160" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-host" data-path="m" tabindex="0"><path d="M335 182 L335 248" marker-end="url(#ah)" marker-start="url(#ah)"/><text x="343" y="220">сокет</text></g>
+      <g class="a" data-x="a-claude" data-path="m" tabindex="0"><path d="M420 281 L488 281" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-model" data-path="m" tabindex="0"><path d="M590 250 L590 184" marker-end="url(#ah)"/><text x="598" y="222">вызов модели</text></g>
+
+      <g class="n" data-x="x-cf" tabindex="0"><rect x="760" y="52" width="206" height="38" rx="10"/><text class="sub" x="863" y="76" text-anchor="middle" style="text-decoration:line-through">Cloudflare</text></g>
+      <g class="n" data-x="x-machines" tabindex="0"><rect x="760" y="100" width="206" height="38" rx="10"/><text class="sub" x="863" y="124" text-anchor="middle" style="text-decoration:line-through">машины тестового флота</text></g>
+      <g class="n" data-x="x-accounts" tabindex="0"><rect x="760" y="148" width="206" height="38" rx="10"/><text class="sub" x="863" y="172" text-anchor="middle" style="text-decoration:line-through">аккаунты Claude</text></g>
+      <g class="n" data-x="x-keys" tabindex="0"><rect x="760" y="196" width="206" height="38" rx="10"/><text class="sub" x="863" y="220" text-anchor="middle" style="text-decoration:line-through">ключи провайдеров</text></g>
+      <g class="n" data-x="x-secrets" tabindex="0"><rect x="760" y="244" width="206" height="38" rx="10"/><text class="sub" x="863" y="268" text-anchor="middle" style="text-decoration:line-through">секреты CI</text></g>
+      <g class="n" data-x="x-net" tabindex="0"><rect x="760" y="292" width="206" height="38" rx="10"/><text class="sub" x="863" y="316" text-anchor="middle" style="text-decoration:line-through">сеть до машин</text></g>
+    </svg>
+    </div>
+    <div class="why" aria-live="polite"><b>Настоящее всё, кроме модели.</b><p>Нажмите на любой узел или стрелку.</p></div>
+  </div>
+</section>
+
+<section id="b-turn" data-block>
+  <h2>Сценарий хода: одна форма просьбы</h2>
+  <div class="card" data-explain>
+    <div class="steps">
+      <button class="step" data-x="t-check"><span class="who">проверка пишет</span><span class="what">шаги: инструмент, ответ</span></button>
+      <span class="arrow">→</span>
+      <button class="step" data-x="t-text"><span class="who">сессия получает</span><span class="what">пронумерованную просьбу</span></button>
+      <span class="arrow">→</span>
+      <button class="step" data-x="t-real"><span class="who">настоящая модель</span><span class="what">читает и делает по шагам</span></button>
+      <span class="arrow">=</span>
+      <button class="step" data-x="t-fake"><span class="who">поддельная модель</span><span class="what">разбирает и делает по шагам</span></button>
+    </div>
+    <div class="why" aria-live="polite"><b>Поддельной модели не нужно понимать.</b><p>Просьба сама называет инструмент и поля. Нажмите на шаг — покажу пример.</p></div>
+  </div>
+</section>
+
+<section id="b-path" data-block>
+  <h2>Путь изменения</h2>
+  <div class="card map" data-explain>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 250" role="img" aria-label="До слияния изменение проверяют части и коробка. После слияния оно выкладывается на тестовый флот и получает метку. Живой список на настоящем флоте идёт после метки и её не держит. По слову человека тот же коммит идёт на прод.">
+      <rect class="zone" x="14" y="14" width="372" height="222" rx="10"/><text class="zone-t" x="28" y="34">до слияния · без окружения</text>
+      <rect class="zone" x="400" y="14" width="586" height="222" rx="10"/><text class="zone-t" x="414" y="34">после слияния</text>
+
+      <g class="n ci" data-x="p-parts" data-path="a" tabindex="0"><rect x="30" y="56" width="160" height="54" rx="10"/><text x="110" y="80" text-anchor="middle">Части</text><text class="sub" x="110" y="98" text-anchor="middle">типы и тесты</text></g>
+      <g class="n ci" data-x="p-box" data-path="a" tabindex="0"><rect x="30" y="150" width="160" height="62" rx="10"/><text x="110" y="177" text-anchor="middle">Коробка</text><text class="sub" x="110" y="196" text-anchor="middle">живой список</text></g>
+      <g class="n ci" data-x="p-gate" data-path="a" tabindex="0"><rect x="244" y="100" width="126" height="54" rx="10"/><text x="307" y="124" text-anchor="middle">«проверка»</text><text class="sub" x="307" y="142" text-anchor="middle">пускает в main</text></g>
+      <g class="n ci" data-x="p-deploy" data-path="a b" tabindex="0"><rect x="424" y="100" width="150" height="54" rx="10"/><text x="499" y="124" text-anchor="middle">Выкладка</text><text class="sub" x="499" y="142" text-anchor="middle">тестовый флот</text></g>
+      <g class="n ref" data-x="p-mark" data-path="a b" tabindex="0"><rect x="622" y="104" width="128" height="46" rx="23"/><text x="686" y="132" text-anchor="middle">fleet/test</text></g>
+      <g class="n" data-x="p-env" data-path="b" tabindex="0"><rect x="602" y="176" width="168" height="48" rx="10"/><text x="686" y="196" text-anchor="middle">Окружение</text><text class="sub" x="686" y="213" text-anchor="middle">список на флоте</text></g>
+      <g class="n man" data-x="p-word" data-path="c" tabindex="0"><rect x="806" y="44" width="92" height="32" rx="16"/><text x="852" y="65" text-anchor="middle">в прод</text></g>
+      <g class="n ci" data-x="p-prod" data-path="c" tabindex="0"><rect x="806" y="100" width="164" height="54" rx="10"/><text x="888" y="124" text-anchor="middle">Прод</text><text class="sub" x="888" y="142" text-anchor="middle">тот же коммит</text></g>
+
+      <g class="a" data-x="pa-1" data-path="a" tabindex="0"><path d="M190 83 L217 83 L217 118 L242 118" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="pa-2" data-path="a" tabindex="0"><path d="M190 181 L217 181 L217 138 L242 138" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="pa-3" data-path="a" tabindex="0"><path d="M370 127 L422 127" marker-end="url(#ah)"/><text x="396" y="117" text-anchor="middle">main</text></g>
+      <g class="a" data-x="pa-4" data-path="a b" tabindex="0"><path d="M574 127 L620 127" marker-end="url(#ah)"/></g>
+      <g class="a back" data-x="pa-5" data-path="b" tabindex="0"><path d="M686 150 L686 174" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="pa-6" data-path="c" tabindex="0"><path d="M750 127 L804 127" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="pa-7" data-path="c" tabindex="0"><path d="M852 76 L852 98" marker-end="url(#ah)"/></g>
+    </svg>
+    </div>
+    <div class="why" aria-live="polite"><b>Выпуск держит только то, что зависит от кода.</b><p>Нажмите на любой узел или стрелку.</p></div>
+  </div>
+</section>
+
+<section id="b-cover" data-block>
+  <h2>Что идёт в коробке, а что — только на настоящем флоте</h2>
+  <div class="gone" data-explain>
+    <div>
+      <p class="cap">в коробке · держит слияние</p>
+      <div class="chips">
+        <button class="chip" data-x="c-req">запросы и серверные функции</button>
+        <button class="chip" data-x="c-page">страница, разделы, флоу</button>
+        <button class="chip" data-x="c-talk">разговор: очередь, молния, вопрос</button>
+        <button class="chip" data-x="c-rewind">откат и очистка</button>
+        <button class="chip" data-x="c-pair">пара и задачи между сессиями</button>
+        <button class="chip" data-x="c-switch">смена модели на лету</button>
+        <button class="chip" data-x="c-two">две машины</button>
+        <button class="chip" data-x="c-ask">разрешения и режимы</button>
+      </div>
+    </div>
+    <div>
+      <p class="cap">только на флоте · находка, не замок</p>
+      <div class="chips">
+        <button class="chip off" data-x="e-claude">аккаунты Claude</button>
+        <button class="chip off" data-x="e-r2">файлы и архив</button>
+        <button class="chip off" data-x="e-ch">история флота</button>
+        <button class="chip off" data-x="e-push">уведомления браузера</button>
+        <button class="chip off" data-x="e-git">кусочки с GitHub</button>
+        <button class="chip off" data-x="e-keeper">подмена Host службой машины</button>
+        <button class="chip off" data-x="e-mind">шаги на понимание</button>
+      </div>
+    </div>
+    <div class="why" aria-live="polite" style="grid-column:1/-1"><b>Одна и та же проверка, два места.</b><p>Шаг называет, чего ему нужно от флота. Нет этого у флота — шаг не идёт. Нажмите на плашку.</p></div>
+  </div>
+</section>
+
+<section id="b-found" data-block>
+  <h2>Что коробка нашла за первый день</h2>
+  <div class="et" data-explain>
+    <button class="e step" data-x="f-history"><span class="who">Host · исправлено</span><b>Пустая история у сессии, начатой задачей</b></button>
+    <button class="e step" data-x="f-gap"><span class="who">страница · исправлено</span><b>Событие между чтением и подпиской терялось</b></button>
+    <button class="e step" data-x="f-tag"><span class="who">проверки · исправлено</span><b>Одинаковое имя сессии у частей одной проверки</b></button>
+    <button class="e step" data-x="f-drop"><span class="who">проверки · исправлено</span><b>Один шаг рвал соединения соседних проверок</b></button>
+    <button class="e step" data-x="f-forms"><span class="who">проверки · исправлено</span><b>Нажатие доставалось не той кнопке</b></button>
+    <div class="why" aria-live="polite" style="grid-column:1/-1"><b>Быстрая модель обнажает гонки.</b><p>Ход в коробке занимает 50 мс вместо трёх секунд. Нажмите на находку.</p></div>
+  </div>
+</section>
+
+<section id="b-etalons" data-block>
+  <h2>Эталоны</h2>
+  <div class="et">
+    <div class="e"><b>Сценарий туда и обратно</b><div class="io"><div>шаги: Bash с командой, ответ «готово»</div><span>→</span><div class="out">текст просьбы разбирается в те же шаги</div></div><span class="src">чьё: слово пользователя — тесты без окружения</span></div>
+    <div class="e"><b>Сценарий внутри сценария</b><div class="io"><div>шаг: дать задачу другой сессии, в задаче свой сценарий</div><span>→</span><div class="out">родитель исполняет свой, дочь — вложенный</div></div><span class="src">чьё: факт — живой шаг «родитель даёт задачу дочери»</span></div>
+    <div class="e"><b>Разговор без сведений</b><div class="io"><div>SDK не дал сведений о сессии, записи в файле есть</div><span>→</span><div class="out">история читается, старт продолжает разговор</div></div><span class="src">чьё: факт — опыт в коробке 18 нояб.</span></div>
+    <div class="e"><b>Коробка зелёная без сети флота</b><div class="io"><div>раннер без секретов</div><span>→</span><div class="out">104 шага из 104</div></div><span class="src">чьё: слово пользователя</span></div>
+  </div>
+</section>
+
+<section id="b-gate" data-block>
+  <h2>Гейт</h2>
+  <div class="card"><div class="gate">Работа: маленькая — договоры частей те же; меняется, что держит слияние и метку теста
+Гейт: дубликаты логики 3 → 0 · состояния 0 → 0 · смысла 1 → 0 · других 1 → 0 · лишние коммуникации 0 → 0 · циклы 0 → 0
+  папка настроек считалась в 17 файлах → 1 хозяин
+  «есть ли у разговора записи» решалось в 2 местах → 1 хозяин
+  метка проверки бралась из часов в 14 файлах → 1 хозяин
+  просьба к модели: около 20 форм словами → 1 форма (сценарий хода)
+  сборка страницы для выкладки и для коробки → 1 хозяин
+Числа: инструменты +3 (коробка, поддельная модель, сценарий хода) · секреты проверки 0 · эталоны Host 271 → 272
+  работы обязательной проверки 9 → 10 · живых шагов, которые держат слияние, 0 → 104
+Развилки (решены рекомендованным вариантом):
+  1. Метку fleet/test двигает прошедшая выкладка, а не живой список теста. Это меняет принятое в «Быстром пути».
+     Сделано по слову «отвязать релиз от окружения». Иначе: вернуть шаг списка перед меткой — одна строка в deploy.yml.
+Не трогал как редакторское: имена проверок в списке
+Вердикт: делай</div></div>
+</section>
+
+<section id="b-order" data-block>
+  <h2>Порядок реализации</h2>
+  <div class="order">
+    <div class="o"><b>Коробка</b><span class="done">Готово: <code>node tools/box/box.mjs node tools/fleet/smoke.ts box cli</code> — 8 из 8 без настроек флота. Сделано.</span></div>
+    <div class="o"><b>Поддельная модель и сценарий хода</b><span class="done">Готово: «разговор на странице» в коробке — 17 из 17 (было 11). Сделано.</span></div>
+    <div class="o"><b>Проверки называют, чего им нужно от флота</b><span class="done">Готово: весь список в коробке — 104 из 104 (первый прогон 80 из 125), 6 прогонов подряд. Сделано.</span></div>
+    <div class="o"><b>Находки коробки</b><span class="done">Готово: тесты Host 271 → 272; шаг «очистка» в списке 2 сбоя из 4 → 0 из 11. Сделано.</span></div>
+    <div class="o"><b>Коробка держит слияние</b><span class="done">Готово: работа «коробка» в обязательной «проверке», на раннере GitHub работа идёт 2 мин 20 с.</span></div>
+    <div class="o"><b>Метка теста после выкладки</b><span class="done">Готово: после слияния <code>git ls-remote origin 'refs/heads/fleet/*'</code> показывает fleet/test на коммите main.</span></div>
+    <div class="o"><b>Сценарии на настоящей модели</b><span class="done">Готово: шаг «окружение» на тестовом флоте — переведённые проверки зелёные на Claude Haiku.</span></div>
+  </div>
+</section>
+</div>
+
+<script>
+// пояснения: клик по узлу, стрелке, шагу или плашке — короткий текст, у команды и ответа — пример; ховер подсвечивает путь
+(() => {
+  const X = {
+    check: ["Живая проверка", "Сценарий, который ведёт себя как человек и как сосед по флоту: открывает страницу, шлёт запросы, читает ответы. Тот же файл идёт и на настоящий флот — ему дают другой адрес.", "node tools/box/box.mjs node tools/fleet/live.mjs box cli m1 m2"],
+    page: ["Страница", "Собранная страница пульта в настоящем Chrome. Её отдают те же службы, что и на флоте."],
+    workers: ["Платформа и службы", "Код двух серверных частей без правок. На флоте он работает в Cloudflare, здесь — в той же среде исполнения на своём компьютере, со своей базой и своими портами. Поднимаются за 2 секунды."],
+    host: ["Машины m1 и m2", "Два настоящих Host — программы, которые на каждой машине флота держат сессии. Двух хватает проверкам, где сессии разных машин работают вместе."],
+    claude: ["Процессы claude", "Настоящий Claude Code из того же пакета, что на флоте: его инструменты, разрешения, сжатие, откат файлов. Проверяется стык с ним, а не подделка стыка."],
+    model: ["Поддельная модель", "Маленький сервер, который говорит на языке Claude. Флоту он записан обычным ключом провайдера. Он не думает: исполняет шаги, названные в просьбе.", "POST /v1/messages\n← вызов инструмента Bash {\"command\":\"echo 22\"}\nPOST /v1/messages (с итогом инструмента)\n← текст «число: 22»"],
+    "a-call": ["Запросы", "Проверка зовёт флот так же, как на настоящем: адресом и пропуском устройства. Коробка кладёт их в свою папку настроек."],
+    "a-chrome": ["Ведёт браузер", "Проверка открывает страницу, нажимает мышью и пальцем, читает ленту."],
+    "a-page": ["Страница — службам", "Те же запросы и сокеты, что на флоте."],
+    "a-host": ["Сокет машины", "Host сам подключается к платформе пропуском машины, как на флоте."],
+    "a-claude": ["Host — claude", "Host запускает процессы сессий через держателя — ту же программу, что на машинах флота."],
+    "a-model": ["Вызов модели", "Вызовы claude идут через Host к провайдеру. В коробке провайдер — поддельная модель; ход занимает 50 мс вместо трёх секунд."],
+    "x-cf": ["Cloudflare", "Серверные части работают локально: ни учётной записи, ни выкладки."],
+    "x-machines": ["Машины тестового флота", "18 нояб. обе тестовые машины были заняты на 99 % посторонними процессами, и живой список краснел в случайных местах. Коробке они не нужны."],
+    "x-accounts": ["Аккаунты Claude", "Сессии коробки не ходят в Claude: ни токенов, ни недельных лимитов."],
+    "x-keys": ["Ключи провайдеров", "17 нояб. дневной предел трат одного ключа держал выпуск до полуночи. В коробке ключ свой, без денег."],
+    "x-secrets": ["Секреты CI", "Работе «коробка» не передаётся ни один секрет репозитория."],
+    "x-net": ["Сеть до машин", "Все части говорят по 127.0.0.1."],
+    "t-check": ["Проверка пишет шаги", "Вместо просьбы словами — шаги: какой инструмент вызвать с какими полями и что ответить.", "turn(\n  tool(\"Bash\", { command: \"echo 22\" }),\n  say(\"число: {итог 1}\")\n)"],
+    "t-text": ["Сессия получает просьбу", "Шаги превращаются в обычный текст сообщения. У формы один хозяин: он её и пишет, и разбирает.", "Выполни шаги по порядку. Кроме них ничего не делай и не пиши.\nВ тексте ответа вместо {итог N} поставь то, что вернул инструмент на шаге N.\n1. Вызови инструмент Bash с полями: {\"command\":\"echo 22\"}\n2. Ответь текстом: число: {итог 1}"],
+    "t-real": ["Настоящая модель", "Читает просьбу как человек и делает по шагам. Точные поля убирают вольности: раньше модель брала адрес из примера и проверка краснела."],
+    "t-fake": ["Поддельная модель", "Находит в разговоре последний сценарий, считает уже сделанные шаги и делает следующий. Сценария нет — отвечает «ок»."],
+    "p-parts": ["Части", "Типы и тесты каждой части на своих подделках — как раньше, девять работ разом, около полутора минут."],
+    "p-box": ["Коробка", "Новая работа: поднимает флот на раннере и гонит на нём живой список. Идёт рядом с частями, 2 мин 20 с."],
+    "p-gate": ["«проверка»", "Одна обязательная проверка ветки main. Зелёная, когда зелёные все части и коробка. Красный запрос на слияние в main не попадает."],
+    "p-deploy": ["Выкладка", "После слияния изменившиеся части идут на тестовый флот. Выкладка сама сверяет, что машины взяли сборку и сессии на месте."],
+    "p-mark": ["fleet/test", "Ветка-метка «выложено на тест». Двигается сразу после выкладки: код уже проверен до слияния."],
+    "p-env": ["Окружение", "Весь живой список на настоящем тестовом флоте: с настоящей моделью, аккаунтами, хранилищем. Идёт после метки. Красный он — находка об окружении или о стыке с ним, а не замок на выпуске."],
+    "p-word": ["«в прод»", "Слово человека. Без него на прод ничего не идёт."],
+    "p-prod": ["Прод", "Идёт ровно коммит метки fleet/test. После выкладки — короткая проверка самого прода, она двигает fleet/prod."],
+    "pa-1": ["Части — в проверку", "Все работы идут разом."],
+    "pa-2": ["Коробка — в проверку", "Живой список стал условием слияния, а не событием после него."],
+    "pa-3": ["Слияние", "Зелёный запрос сливается сам."],
+    "pa-4": ["Метка", "Выкладка прошла — метка сдвинута."],
+    "pa-5": ["После метки", "Список на флоте идёт следом и метку не держит."],
+    "pa-6": ["В прод", "На прод уходит то, что стоит на тесте."],
+    "pa-7": ["Слово", "Запуск вручную."],
+    "c-req": ["Запросы и серверные функции", "Каждый вид запроса, сервер инструментов для моделей, картина флота. 14 шагов."],
+    "c-page": ["Страница, разделы, флоу", "Вход по приглашению, все разделы без полос отказа, шаги страницами на ширине 1440 и 390. 38 шагов."],
+    "c-talk": ["Разговор", "Очередь сообщений, срочное сообщение прерывает ход, вопрос карточкой, фоновые команды, кольцо контекста и сжатие. 17 шагов."],
+    "c-rewind": ["Откат и очистка", "Откат разговора вместе с файлами, два отката подряд, остановка и старт. 10 шагов."],
+    "c-pair": ["Пара и задачи между сессиями", "Сессия даёт задачу другой инструментом флота, получает итог, сжимает и очищает ведомого. 12 шагов."],
+    "c-switch": ["Смена модели на лету", "Сессия меняет модель между ходами и посреди хода и помнит прошлый ход. 3 шага."],
+    "c-two": ["Две машины", "Команды на обеих машинах коробки."],
+    "c-ask": ["Разрешения и режимы", "Сессия ждёт разрешения человека, ответ продолжает ход."],
+    "e-claude": ["Аккаунты Claude", "Выбор аккаунта, лимиты недели, негодный токен. Нужен настоящий Claude. Следующая работа — научить поддельную модель отвечать заголовками лимитов: тогда и переход по лимиту проверится без аккаунтов."],
+    "e-r2": ["Файлы и архив", "Файлы идут в хранилище по подписанным ссылкам мимо наших серверов. Локального двойника у таких ссылок нет."],
+    "e-ch": ["История флота", "Журнал и аналитика лежат в ClickHouse."],
+    "e-push": ["Уведомления браузера", "Их доставляет служба уведомлений производителя браузера."],
+    "e-git": ["Кусочки с GitHub", "Машины берут репозиторий кусочков с GitHub."],
+    "e-keeper": ["Подмена Host", "Нужны служба машины и каталог сборок с хранилищем."],
+    "e-mind": ["Шаги на понимание", "Два шага спрашивают то, что модель должна понять сама: свой позывной после сжатия. Поддельная модель не понимает."],
+    "f-history": ["Пустая история", "Сессия, чьё первое сообщение — задача от другой сессии, отдавала пустую историю и после остановки могла начать разговор заново. Claude Code не даёт «сведений» разговору без заголовка, а Host по ним решал, есть ли разговор. На флоте это прятал заголовок, который модель успевала придумать. Теперь решают сами записи. Тест Host добавлен."],
+    "f-gap": ["Потерянное событие", "Страница читала разговор и подписывалась на ленту двумя независимыми запросами. Что случилось между ними — терялось до перезагрузки. Номер события в ответе истории уже был; страница теперь по нему дочитывает."],
+    "f-tag": ["Одинаковое имя", "Проверки брали метку из часов. Три части одной проверки стартуют в одну миллисекунду и получали одно имя сессии — одна падала. Метка стала случайной."],
+    "f-drop": ["Разорванные соединения", "Шаг «галочка проекта» меняет состав проекта, а платформа при этом переподключает все страницы человека. Соседние проверки теряли события. Шаг идёт теперь один, до остальных."],
+    "f-forms": ["Не та кнопка", "У значка под полем и у кнопки подтверждения одно имя; на форме аккаунта проверка искала кнопку другой формы; первый шаг жал, пока страница ещё принимала приглашение. Эти три шага краснели и на настоящем флоте."],
+  };
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  for (const box of document.querySelectorAll("[data-explain]")) {
+    const out = box.querySelector(".why");
+    const items = [...box.querySelectorAll("[data-x]")];
+    const show = (el) => {
+      const [title, text, json] = X[el.dataset.x] ?? [el.dataset.x, ""];
+      for (const i of items) i.classList.toggle("on", i === el);
+      out.innerHTML = `<b>${esc(title)}</b><p>${esc(text)}</p>${json ? `<pre>${esc(json)}</pre>` : ""}`;
+    };
+    const svg = box.querySelector("svg");
+    for (const el of items) {
+      el.addEventListener("click", () => show(el));
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); show(el); } });
+      if (!svg) continue;
+      const paths = (el.dataset.path ?? "").split(" ");
+      el.addEventListener("mouseenter", () => { svg.classList.add("dim"); for (const i of items) i.classList.toggle("hot", (i.dataset.path ?? "").split(" ").some((p) => paths.includes(p))); });
+      el.addEventListener("mouseleave", () => { svg.classList.remove("dim"); for (const i of items) i.classList.remove("hot"); });
+    }
+  }
+  window.__explained = X;
+})();
+</script>
+<script>
+// метки «прочитал»: клавиша A (латинская или русская) над блоком
+(() => {
+  const KEY = "box-fleet.read";
+  let read = [];
+  try { read = JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch {}
+  let over = null;
+  const draw = () => { for (const s of document.querySelectorAll("[data-block]")) s.classList.toggle("read", read.includes(s.id)); };
+  for (const s of document.querySelectorAll("[data-block]")) s.addEventListener("mouseenter", () => (over = s));
+  document.addEventListener("keydown", (e) => {
+    if (!(e.code === "KeyA" || e.key === "a" || e.key === "A" || e.key === "ф" || e.key === "Ф") || e.ctrlKey || e.metaKey || e.altKey || !over) return;
+    read = read.includes(over.id) ? read.filter((x) => x !== over.id) : [...read, over.id];
+    try { localStorage.setItem(KEY, JSON.stringify(read)); } catch {}
+    draw();
+  });
+  draw();
+})();
+</script>

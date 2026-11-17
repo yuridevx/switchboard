@@ -33,6 +33,8 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
   page.on("pageerror", (e) => errors.push(`${w}: ${e.message}`));
   await page.goto(`${env.SB2_BASE}/#invite=${encodeURIComponent(invite.invite)}`);
   await page.waitForSelector(w > 860 ? "nav.rail a" : "nav.tabbar a", { timeout: 20_000 });
+  // приглашение принято — адрес от него очищен: переход, начатый раньше, страница перебила бы своим
+  await page.waitForFunction(() => !location.hash.includes("invite="), null, { timeout: 20_000 });
   const step = async (label, fn) => {
     total++;
     try {
