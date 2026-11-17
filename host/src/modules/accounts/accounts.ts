@@ -258,7 +258,10 @@ export function make(): Module {
     if (!model) throw new Refusal("model_required", `у ${s.callsign} не названа модель — session.update { key, model }`);
     const known = seatOf(s).get()?.pair;
     if (known && known.key === key && known.model === model) return known;
-    const pair = await learn(key, model);
+    // пара только что сверена с каталогом при открытии: второй раз каталог не читается
+    const id = `${key}/${model}`;
+    const pair = fresh.get(id) ?? (await learn(key, model));
+    fresh.delete(id);
     seatOf(s).update((x) => ({ ...x, pair }));
     return pair;
   }

@@ -95,6 +95,8 @@ describe("смена на лету", () => {
     const api = await fleet();
     const { s, q } = await st!.open("site", { key: "claude", model: FABLE });
     expect([(q.options as any).model, (q.options as any).env.CLAUDE_CODE_OAUTH_TOKEN]).toEqual([`${FABLE}[1m]`, "fleet"]);
+    // открытие читает каталог один раз: проверка документа и запись о паре — из одного ответа
+    expect(st!.services.of("keys.models")).toHaveLength(1);
     const queries = st!.sdk.queries.length;
     expect(await update({ key: "oai", model: "grok-4.5" })).toMatchObject({ ok: true, result: { now: ["model", "key"], later: [] } });
     expect(s.rec.spec).toMatchObject({ key: "oai", model: "grok-4.5" });
