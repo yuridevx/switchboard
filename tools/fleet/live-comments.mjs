@@ -28,6 +28,10 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 await page.goto(`${env.SB2_BASE}/#invite=${encodeURIComponent(invite.invite)}`);
 await page.waitForSelector("nav a", { timeout: 20_000 });
+// экран с постоянным адресом: «Работа» сама переходит к свежей сессии, а рядом идут другие проверки и открывают свои
+await page.goto(`${env.SB2_BASE}/#/settings`);
+await page.waitForSelector("nav a", { timeout: 20_000 });
+await page.waitForTimeout(1500);
 await page.keyboard.press("Control+KeyC");
 await page.waitForSelector("body.pc-on", { timeout: 5000 });
 const link = page.locator("nav a").first();
