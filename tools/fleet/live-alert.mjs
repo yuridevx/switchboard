@@ -8,7 +8,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dev, fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall } from "./harness.mjs";
+import { chromium, fleetCall, newTag } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const [fleet = "test", device = "cli", mode = "window"] = process.argv.slice(2);
@@ -20,7 +20,7 @@ const { call } = fleetCall(fleet, device);
 const steps = [];
 const say = (ok, label, note = "") => steps.push(`${ok ? "✓" : "✗"} ${label}${note ? ` · ${note}` : ""}`);
 const me = call("whoami", {}).result;
-const tag = Date.now().toString(36).slice(-5);
+const tag = newTag();
 const invite = call("invite", { addr: "alert" + tag + me.person }).result;
 
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sb2-alert-"));

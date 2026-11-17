@@ -1,44 +1,62 @@
-// Поддельная модель: сервер с API сообщений Anthropic. Отвечает не «умом», а по просьбе: просьба сама называет, что сделать.
-//   «Ответь одним словом: X»                         → текст X
-//   «Выполни инструментом T … команду: C»            → вызов инструмента T {command: C}
-//   «… и после неё ответь одним словом: W»           → после итога инструмента — текст W
-// Состояния нет: план хода строится из последней просьбы человека, шаг — число итогов инструментов после неё.
+// Поддельная модель коробки: сервер с API сообщений Anthropic. Не понимает просьб — исполняет сценарий хода (tools/fleet/turn.mjs):
+// на каждый запрос — один шаг сценария: вызов инструмента с названными полями или ответ текстом. Сценария нет — отвечает «ок».
+// Состояния нет: сценарий — в последнем сообщении человека с ним, сделанные шаги — ответы модели после него в том же разговоре.
 import http from "node:http";
+import { parse } from "../fleet/turn.mjs";
 
+/** Каталог ключа коробки: две модели с окном — проверкам смены модели и кольца контекста. */
 export const MODELS = [{ id: "box-1", display_name: "Box 1", max_input_tokens: 200_000 }, { id: "box-2", display_name: "Box 2", max_input_tokens: 200_000 }];
+const SEARCH = "ToolSearch";
 
-/** Текст блока или сообщения. */
-const textOf = (c) => (typeof c === "string" ? c : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text).join("\n") : "");
-const isResult = (m) => m.role === "user" && Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result");
-
-/** План хода по просьбе: шаги — вызовы инструментов, потом слово. */
-export function plan(ask) {
-  const steps = [];
-  const tool = /Выполни инструментом (\w+)[^:]*команду: (.+?)(?: — и после неё|$)/s.exec(ask);
-  if (tool) steps.push({ tool: tool[1], input: { command: tool[2].trim() } });
-  const word = /[Оо]тветь одним словом: (\S+?)[.!]?\s*$/.exec(ask);
-  return { steps, word: word ? word[1] : "ок" };
+const blocks = (m) => (Array.isArray(m.content) ? m.content : [{ type: "text", text: String(m.content ?? "") }]);
+const textOf = (m) => blocks(m).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+const uses = (m) => (m.role === "assistant" ? blocks(m).filter((b) => b.type === "tool_use") : []);
+/** Текст итога инструмента по номеру его вызова. */
+function resultOf(msgs, id) {
+  for (const m of msgs) for (const b of m.role === "user" ? blocks(m) : []) {
+    if (b.type === "tool_result" && b.tool_use_id === id) return (typeof b.content === "string" ? b.content : (b.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n")).trim();
+  }
+  return "";
 }
 
-/** Что отвечает модель на запрос: блоки ответа и причина остановки. */
+/** Ответ модели на запрос: блоки и причина остановки. */
 export function answer(body) {
   const msgs = body.messages ?? [];
-  let last = msgs.length - 1;
-  while (last >= 0 && (msgs[last].role !== "user" || isResult(msgs[last]) || !textOf(msgs[last].content).trim())) last--;
-  const ask = last >= 0 ? textOf(msgs[last].content) : "";
-  const done = msgs.slice(last + 1).filter(isResult).length;
-  const p = plan(ask);
-  const step = p.steps[done];
-  if (step && (body.tools ?? []).some((t) => t.name === step.tool)) return { content: [{ type: "tool_use", id: `toolu_box_${Date.now().toString(36)}${done}`, name: step.tool, input: step.input }], stop: "tool_use" };
-  return { content: [{ type: "text", text: p.word }], stop: "end_turn" };
+  let at = msgs.length - 1;
+  while (at >= 0 && !(msgs[at].role === "user" && parse(textOf(msgs[at])))) at--;
+  const text = (t) => ({ content: [{ type: "text", text: t }], stop: "end_turn" });
+  if (at < 0) return text("ок");
+  const steps = parse(textOf(msgs[at]));
+  const before = msgs.slice(0, at), after = msgs.slice(at + 1);
+  // сделанный шаг — ответ модели после сценария; подгрузка описания инструмента шагом не считается
+  const made = after.filter((m) => m.role === "assistant" && !uses(m).some((u) => u.name === SEARCH));
+  const step = steps[made.length];
+  if (!step) return text("ок");
+  const call = (name, input) => ({ content: [{ type: "tool_use", id: `toolu_box_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, input }], stop: "tool_use" });
+  if ("tool" in step) {
+    const names = (body.tools ?? []).map((t) => t.name);
+    // запрос без инструментов — побочный вопрос claude (заголовок, подсказка): сценарий не для него
+    if (!names.length) return text("ок");
+    const searched = after.some((m) => uses(m).some((u) => u.name === SEARCH && String(u.input?.query).includes(step.tool)));
+    if (!names.includes(step.tool) && names.includes(SEARCH) && !searched) return call(SEARCH, { query: `select:${step.tool}`, max_results: 1 });
+    return call(step.tool, step.fields);
+  }
+  const toolUses = made.flatMap(uses);
+  const said = step.say
+    .replace(/\{итог (\d+)\}/g, (_, n) => { const k = steps.slice(0, Number(n)).filter((s) => "tool" in s).length - 1; return toolUses[k] ? resultOf(after, toolUses[k].id) : ""; })
+    .replace(/\{прошлый итог\}/g, () => { const last = before.flatMap(uses).at(-1); return (last && resultOf(before, last.id)) || "нет"; })
+    .replace(/\{вызовов (\w+)\}/g, (_, t) => String(before.flatMap(uses).filter((u) => u.name === t || u.name.endsWith("__" + t)).length));
+  return text(said);
 }
 
-const usage = { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
 function reply(res, body) {
   const a = answer(body);
+  // расход — по размеру запроса: кольцу контекста страницы нужен процент окна
+  const usage = { input_tokens: Math.ceil(JSON.stringify(body.messages ?? []).length / 4), output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
   const message = { id: "msg_box_" + Date.now().toString(36), type: "message", role: "assistant", model: body.model, content: a.content, stop_reason: a.stop, stop_sequence: null, usage };
-  if (!body.stream) return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(message));
-  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+  const head = { "request-id": "req_box_" + Date.now().toString(36) };
+  if (!body.stream) return void res.writeHead(200, { ...head, "content-type": "application/json" }).end(JSON.stringify(message));
+  res.writeHead(200, { ...head, "content-type": "text/event-stream", "cache-control": "no-cache" });
   const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
   ev("message_start", { message: { ...message, content: [], stop_reason: null } });
   a.content.forEach((b, index) => {
@@ -51,22 +69,23 @@ function reply(res, body) {
     }
     ev("content_block_stop", { index });
   });
-  ev("message_delta", { delta: { stop_reason: a.stop, stop_sequence: null }, usage: { output_tokens: 5 } });
+  ev("message_delta", { delta: { stop_reason: a.stop, stop_sequence: null }, usage: { output_tokens: usage.output_tokens } });
   ev("message_stop", {});
   res.end();
 }
 
-/** Сервер модели: адрес — http://127.0.0.1:<порт>. log — строка на запрос. */
+/** Сервер модели на http://127.0.0.1:<порт>. log — строка на запрос: что спросили и что ответила. */
 export function serve(port, log = () => {}) {
   const server = http.createServer((req, res) => {
     let raw = "";
     req.on("data", (d) => (raw += d));
     req.on("end", () => {
-      const url = new URL(req.url, "http://x");
+      const url = new URL(req.url, "http://box");
       if (req.method === "GET" && url.pathname === "/v1/models") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: MODELS }));
       if (req.method === "POST" && url.pathname === "/v1/messages") {
         const body = JSON.parse(raw);
-        log(`${body.model} · сообщений ${body.messages?.length} · инструментов ${body.tools?.length ?? 0} · ${textOf(body.messages?.at(-1)?.content).slice(0, 80).replace(/\s+/g, " ")}`);
+        const a = answer(body).content[0];
+        log(`${body.model} · сообщений ${body.messages?.length} · инструментов ${body.tools?.length ?? 0} → ${a.type === "text" ? a.text.slice(0, 60) : `${a.name} ${JSON.stringify(a.input).slice(0, 80)}`}`);
         return reply(res, body);
       }
       log(`нет такого: ${req.method} ${url.pathname}`);

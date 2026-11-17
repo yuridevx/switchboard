@@ -1,6 +1,8 @@
-# Выкладка на флот и живая проверка. Сессии с компьютера не выкладывают: на флот идёт только отсюда, по одной выкладке на флот.
-# Тестовый флот — каждое слияние в main: на тесте всегда main. Зелёная живая проверка двигает ветку-метку fleet/test.
-# Прод — только ручным запуском по слову человека: идёт ровно коммит fleet/test; зелёная проверка двигает fleet/prod.
+# Выкладка на флот. Сессии с компьютера не выкладывают: на флот идёт только отсюда, по одной выкладке на флот.
+# Код проверен до слияния — частями и живым списком на флоте в коробке (ci.yml): выкладка от окружения теста не зависит.
+# Тестовый флот — каждое слияние в main: на тесте всегда main. Прошедшая выкладка двигает ветку-метку fleet/test;
+#   после неё идёт живой список на самом тестовом флоте — с настоящей моделью, аккаунтами и хранилищем. Красный он — находка, метку не держит.
+# Прод — только ручным запуском по слову человека: идёт ровно коммит fleet/test; зелёная проверка прода двигает fleet/prod.
 #   gh workflow run deploy.yml -f fleet=prod
 # Что где стоит, видно в git: git log origin/fleet/prod..origin/fleet/test — уйдёт в прод; origin/fleet/test..origin/main — ещё проверяется.
 # Путь у обоих флотов один — одна работа; отличаются только настройки флота и коммит.
@@ -33,7 +35,7 @@ jobs:
       FLEET: ${{ inputs.fleet || 'test' }}
       SB2_ENV: ${{ inputs.fleet == 'prod' && 'prod' || '' }}
     steps:
-      # на прод идёт ровно то, что прошло живую проверку на тесте
+      # на прод идёт ровно то, что выложено на тест
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.fleet == 'prod' && 'fleet/test' || github.sha }}
@@ -59,12 +61,21 @@ jobs:
         run: node tools/deploy/settings.mjs $FLEET ci
       - name: выкладка изменившегося
         run: node tools/deploy/fleet.mjs $FLEET ci
-      - name: живая проверка
+      - name: проверка прода
+        if: inputs.fleet == 'prod'
         env:
-          SB2_KEY: ${{ inputs.fleet == 'prod' && vars.SB2_PROD_KEY || vars.SB2_KEY }}
-          SB2_MODEL: ${{ inputs.fleet == 'prod' && vars.SB2_PROD_MODEL || vars.SB2_MODEL }}
-          SB2_SWITCH: ${{ vars.SB2_SWITCH }}
-          MACHINES: ${{ inputs.fleet == 'prod' && vars.SB2_PROD_MACHINES || vars.SB2_MACHINES }}
+          SB2_KEY: ${{ vars.SB2_PROD_KEY }}
+          SB2_MODEL: ${{ vars.SB2_PROD_MODEL }}
+          MACHINES: ${{ vars.SB2_PROD_MACHINES }}
         run: node tools/fleet/live.mjs $FLEET ci $MACHINES
       - name: метка fleet/${{ inputs.fleet || 'test' }}
         run: git push origin HEAD:refs/heads/fleet/$FLEET
+      # после метки: красный список теста — находка об окружении или о стыке с ним, выкладку и метку он не держит
+      - name: окружение — живой список на тестовом флоте
+        if: inputs.fleet != 'prod'
+        env:
+          SB2_KEY: ${{ vars.SB2_KEY }}
+          SB2_MODEL: ${{ vars.SB2_MODEL }}
+          SB2_SWITCH: ${{ vars.SB2_SWITCH }}
+          MACHINES: ${{ vars.SB2_MACHINES }}
+        run: node tools/fleet/live.mjs $FLEET ci $MACHINES

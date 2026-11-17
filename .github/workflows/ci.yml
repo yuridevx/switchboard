@@ -1,4 +1,5 @@
-# Проверка на каждый push в PR и в main: весь список tools/test/run.mjs, каждая часть — своей работой, все разом.
+# Проверка на каждый push в PR и в main: весь список tools/test/run.mjs, каждая часть — своей работой, и живой список на флоте в коробке; все разом.
+# Окружения проверке не нужно: ни флота, ни машин, ни ключей, ни аккаунтов — всё поднимается на раннере.
 # На Linux идут все части; на Windows — те, чей код зависит от системы: Host и служба машины.
 # Сессии у себя список не гоняют: main принимает только PR с зелёной работой «проверка».
 name: ci
@@ -46,11 +47,11 @@ jobs:
         if: matrix.part != 'keeper' && runner.os == 'Windows'
       - run: node tools/test/run.mjs ${{ matrix.part }}
 
-  # флот в коробке: весь Switchboard на раннере — Worker'ы, две машины с Host и claude, поддельная модель; на нём идёт живой список
+  # флот в коробке: весь Switchboard на раннере — платформа и службы, страница, две машины с Host и claude, поддельная модель; на нём идёт живой список
   box:
     name: коробка
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -71,12 +72,12 @@ jobs:
         if: steps.deps.outputs.cache-hit != 'true'
       - run: node tools/box/box.mjs node tools/fleet/live.mjs box cli m1 m2
 
-  # одна обязательная проверка ветки main: зелёная, когда зелёные все части
+  # одна обязательная проверка ветки main: зелёная, когда зелёные все части и коробка
   check:
     name: проверка
-    needs: part
+    needs: [part, box]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - run: test "${{ needs.part.result }}" = "success"
+      - run: test "${{ needs.part.result }}" = "success" -a "${{ needs.box.result }}" = "success"

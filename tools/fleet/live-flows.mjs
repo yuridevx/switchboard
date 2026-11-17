@@ -6,7 +6,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dev, fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall } from "./harness.mjs";
+import { chromium, fleetCall, lacks, newTag } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const [fleet = "test", device = "cli", outArg] = process.argv.slice(2);
@@ -18,13 +18,17 @@ const { call } = fleetCall(fleet, device);
 const me = call("whoami", {}).result;
 const session = call("fleet.list", {}).result.sessions[0]?.callsign;
 
+// части проверки: people — галочка проекта: смена состава проекта рвёт соединения всех страниц человека, поэтому идёт одна; rest — остальное
+const PART = process.env.SB2_PART ?? "";
+const skip = async () => {};
+
 const browser = await chromium.launch({ channel: "chrome" });
 let bad = 0, total = 0;
 // окно — видимое; скрытый список выпадающего поля окном не считается
 const overlays = '[role="dialog"]:visible, .mantine-Modal-root:visible, .mantine-Drawer-root:visible, .mantine-Popover-dropdown:not(.mantine-Select-dropdown):visible';
 const errors = [];
 for (const [w, h] of [[1440, 900], [390, 844]]) {
-  const invite = call("invite", { addr: "flow" + w + Date.now().toString(36).slice(-4) + me.person }).result;
+  const invite = call("invite", { addr: "flow" + w + newTag() + me.person }).result;
   const page = await browser.newPage({ viewport: { width: w, height: h } });
   page.on("pageerror", (e) => errors.push(`${w}: ${e.message}`));
   await page.goto(`${env.SB2_BASE}/#invite=${encodeURIComponent(invite.invite)}`);
@@ -44,29 +48,31 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
       console.log(`✗ ${w} · ${label} · ${String(e.message).split("\n")[0]}${why ? " · " + why.slice(0, 500) : ""}`);
     }
   };
+  const stepRest = !PART || PART === "rest" ? step : skip;
+  const stepPeople = !PART || PART === "people" ? step : skip;
   const shot = (name) => page.screenshot({ path: path.join(out, `${w}-${name}.png`) });
   const at = (re) => page.waitForFunction((s) => new RegExp(s).test(location.hash), re.source, { timeout: 8000 });
   const title = (name) => page.getByRole("heading", { name }).first().waitFor({ timeout: 8000 });
   const open = async (hash) => { await page.goto(`${env.SB2_BASE}/#${hash}`); await page.waitForTimeout(600); };
 
-  await step("новая сессия — страница", async () => {
+  await stepRest("новая сессия — страница", async () => {
     await page.getByRole("button", { name: "Новая сессия" }).first().click();
     await at(/^#\/new/); await title("Новая сессия"); await shot("new");
     await page.goBack(); await page.waitForFunction(() => !location.hash.startsWith("#/new"));
   });
-  await step("найти — страница", async () => {
+  await stepRest("найти — страница", async () => {
     await open("/find"); await title("Найти");
     await page.getByRole("textbox", { name: "Найти" }).fill("машин");
     await page.getByRole("option").first().waitFor(); await shot("find");
   });
-  await step("добавить машину — шаг и назад", async () => {
+  await stepRest("добавить машину — шаг и назад", async () => {
     await open("/fleet/machines");
     await page.getByRole("button", { name: /Добавить машину/ }).click();
     await at(/do=add/); await title("Добавить машину"); await shot("add-machine");
     await page.goBack();
     await page.waitForFunction(() => !/do=/.test(location.hash) && !document.querySelector("[data-step]"));
   });
-  await step("аккаунты и провайдеры — формы на месте: токен аккаунта и ключ провайдера; очередей нет", async () => {
+  await stepRest("аккаунты и провайдеры — формы на месте: токен аккаунта и ключ провайдера; очередей нет", async () => {
     await open("/fleet/accounts");
     await page.locator("[data-card=claude]").waitFor({ timeout: 15_000 });
     // форма — страница шага со своим адресом: на экран с кнопками возвращает «Назад» браузера
@@ -80,7 +86,7 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
     if (await page.getByRole("button", { name: "+ очередь" }).count()) throw new Error("на экране осталась кнопка очереди");
     if (!page.url().endsWith("#/fleet/accounts")) throw new Error("адрес экрана: " + page.url());
   });
-  await step("пригласить устройство — форма, затем ссылка", async () => {
+  await stepRest("пригласить устройство — форма, затем ссылка", async () => {
     await open("/settings/passes");
     await page.getByRole("button", { name: "Выдать приглашение" }).waitFor();
     await page.getByRole("textbox", { name: "Имя устройства" }).fill("flowtest" + w);
@@ -90,7 +96,7 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
     await page.waitForFunction(() => !document.querySelector("[data-step]"));
   });
   if (session) {
-    await step("удалить сессию — страница подтверждения, отмена", async () => {
+    await stepRest("удалить сессию — страница подтверждения, отмена", async () => {
       await open("/work/" + session);
       await page.locator(".composer-opts").getByRole("button", { name: "Ещё" }).first().click();
       await page.getByRole("menuitem", { name: "Убрать сессию" }).click();
@@ -98,7 +104,7 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
       await page.getByRole("button", { name: "Отмена" }).click();
       await page.waitForFunction(() => !/do=/.test(location.hash) && !document.querySelector("[data-step]"));
     });
-    if (w < 861) await step("сведения о сессии — страница", async () => {
+    if (w < 861) await stepRest("сведения о сессии — страница", async () => {
       await open("/work/" + session);
       await page.getByRole("button", { name: "Инспектор" }).click();
       await at(/do=info/); await shot("info");
@@ -106,20 +112,23 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
       await page.waitForFunction(() => !document.querySelector("[data-step]"));
     });
   }
-  if (w < 861) await step("ещё — страница", async () => {
+  if (w < 861) await stepRest("ещё — страница", async () => {
     await open("/inbox");
     await page.locator("nav.tabbar").getByText("Ещё").click();
     await at(/^#\/more/); await title("Ещё"); await shot("more");
   });
-  await step("новая сессия — один уровень, кусочки показывают свои поля", async () => {
+  await stepRest("новая сессия — один уровень, кусочки показывают свои поля", async () => {
     await open("/new");
     if (await page.getByRole("button", { name: /Скрыть настройки|Модель, аккаунт/ }).count()) throw new Error("настройки спрятаны");
     await page.getByLabel("Размышлять перед ответом").waitFor();
-    await page.getByText("reviewer", { exact: true }).click();
-    await page.locator('[aria-label="Что ставят кусочки"]').getByText("claude-opus-5-5").waitFor({ timeout: 8000 });
+    // кусочки машины берут из репозитория на GitHub
+    if (!lacks("github")) {
+      await page.getByText("reviewer", { exact: true }).click();
+      await page.locator('[aria-label="Что ставят кусочки"]').getByText("claude-opus-5-5").waitFor({ timeout: 8000 });
+    }
     await shot("new-flat");
   });
-  await step("галочка проекта в «Людях» — без полосы «нет связи»", async () => {
+  await stepPeople("галочка проекта в «Людях» — без полосы «нет связи»", async () => {
     await open("/settings/people");
     const box = page.getByRole("checkbox").first();
     await box.waitFor();
@@ -130,25 +139,25 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
     clearInterval(watch);
     if (bars) throw new Error("полоса «нет связи» показалась");
   });
-  await step("ClickHouse — состояние в «Наблюдении»", async () => {
+  if (!lacks("clickhouse")) await stepRest("ClickHouse — состояние в «Наблюдении»", async () => {
     await open("/observe/analytics");
     await page.getByText(/^отвечает · /).waitFor({ timeout: 10_000 });
     await page.getByText("точек архива ждут долива").waitFor(); await shot("clickhouse");
   });
-  if (session) await step("чипы документа — под полем ввода", async () => {
+  if (session) await stepRest("чипы документа — под полем ввода", async () => {
     await open("/work/" + session);
     await page.locator(".composer-opts").getByRole("button", { name: "Режим" }).waitFor({ timeout: 8000 });
     if (await page.locator(".conv-head").getByRole("button", { name: "Модель" }).count()) throw new Error("чипы остались в шапке");
     await shot("chips");
   });
-  if (w > 860) await step("вид списка — окошко, список меняется сразу", async () => {
+  if (w > 860) await stepRest("вид списка — окошко, список меняется сразу", async () => {
     await open("/work");
     await page.getByRole("button", { name: "Вид списка" }).click();
     await page.getByLabel("Время").waitFor();
     if (/do=look/.test(page.url())) throw new Error("вид списка открылся страницей");
     await shot("look"); await page.getByRole("button", { name: "Вид списка" }).click(); await page.getByLabel("Время").waitFor({ state: "hidden", timeout: 5000 });
   });
-  await step("клавиши — страница", async () => { await open("/keys"); await title("Клавиши"); });
+  await stepRest("клавиши — страница", async () => { await open("/keys"); await title("Клавиши"); });
   await page.close();
 }
 await browser.close();

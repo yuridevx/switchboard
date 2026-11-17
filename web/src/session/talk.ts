@@ -90,10 +90,13 @@ export function useTalk(callsign: string): Talk {
     setError(null);
     seq.current = null;
     if (!online) return void setLoading(false);
+    /** номер события, на котором прочитан разговор; null — ещё не прочитан */
+    let readAt: number | null = null;
     const history = () =>
       api.call(sessionHistory, { to: callsign, limit: HISTORY }).then(
         (r) => {
           if (!alive) return;
+          readAt = r.seq;
           first.current = r.events[0]?.uuid;
           setMore(r.more);
           setEvents((live) => mergeEvents(r.events, live));
@@ -120,6 +123,8 @@ export function useTalk(callsign: string): Talk {
     const watch = () => act(sessionWatch, { to: callsign }).then((r) => {
       if (!r || !alive) return;
       seq.current = r.seq;
+      // разговор прочитан раньше, чем встала подписка: что случилось между ними, кадром уже не придёт — дочитывается
+      if (readAt !== null && r.seq > readAt) void catchUp(readAt);
       // что уже ждёт в очереди сессии — видно сразу
       // работы, которые идут сейчас: в файле разговора их нет — их отдаёт Host со своим временем начала
       if (r.running?.length) setEvents((e) => mergeEvents(e, r.running!));

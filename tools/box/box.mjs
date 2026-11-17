@@ -16,6 +16,8 @@ import { MODELS, serve } from "./model.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const command = process.argv.slice(2);
 const FLEET = "box", DEVICE = "cli", MACHINES = ["m1", "m2"], KEY = "box";
+// чего в коробке нет: проверки и шаги, которым это нужно, на ней не идут (tools/fleet/harness.mjs, lacks)
+const WITHOUT = "mind claude clickhouse r2 push github keeper";
 const UP_MS = 60_000; // предел подъёма одной части
 const STOP_MS = 10_000; // предел штатной остановки Host
 const win = process.platform === "win32";
@@ -124,6 +126,7 @@ async function up() {
   }
   await until("машины на связи", async () => (await call("fleet.list", {}, admin)).machines.filter((m) => m.online).length === MACHINES.length);
   await call("keys.set", { name: KEY, protocol: "anthropic", base: `http://127.0.0.1:${pModel}`, value: "box-key-0000" }, admin);
+  await call("project.set", { project: "box", name: "Коробка", members: ["~owner@fleet.test"] }, admin);
   say(`флот ${FLEET}: машины ${MACHINES.join(", ")}, ключ ${KEY}, модели ${MODELS.map((m) => m.id).join(", ")}`);
 
   // папка настроек — той же формы, что ~/.switchboard-dev: её читают проверки и инструменты флота
@@ -136,7 +139,7 @@ async function up() {
 
 /** Команда в окружении коробки; код выхода — её. */
 const run = (dev) => new Promise((done) => {
-  const env = { ...process.env, SB2_DEV: dev, SB2_KEY: KEY, SB2_MODEL: MODELS[0].id, SB2_SWITCH: MODELS.map((m) => `${KEY}/${m.id}`).join(" ") };
+  const env = { ...process.env, SB2_DEV: dev, SB2_KEY: KEY, SB2_MODEL: MODELS[0].id, SB2_SWITCH: MODELS.map((m) => `${KEY}/${m.id}`).join(" "), SB2_WITHOUT: WITHOUT };
   delete env.SB2_ENV;
   const child = spawn(command[0], command.slice(1), { cwd: process.cwd(), stdio: "inherit", env, shell: win });
   child.on("error", (e) => (console.error(`команда не запустилась: ${e.message}`), done(1)));
