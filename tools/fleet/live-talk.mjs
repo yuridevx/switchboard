@@ -307,7 +307,7 @@ try {
   await stepScreen("«Работа» открывает последнюю сессию; раздела «Вам» нет", async () => {
     // последняя — та, что человек открывал последней
     await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
-    await box.waitFor({ timeout: 15_000 });
+    await box.first().waitFor({ timeout: 15_000 });
     await page.goto(`${env.SB2_BASE}/#/fleet/machines`);
     await page.waitForFunction(() => location.hash.startsWith("#/fleet"), null, { timeout: 10_000 });
     await page.goto(`${env.SB2_BASE}/#/work`);

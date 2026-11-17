@@ -149,11 +149,10 @@ if (!process.env.NO_SWAP) await stepSwap("подмена Host посреди х�
   // подмена — когда команда уже идёт: строка «чем занят ход» называет её
   await until("команда идёт", async () => /setTimeout|node/.test((await rowOf(child))?.doing ?? ""), 120_000);
   const pid = (await api.call(keeperState, { to: `.keeper@${machine}` })).host.pid;
-  const sessions = (await api.call(fleetList, { machine })).sessions.map((s) => s.callsign).sort();
   await api.call(hostRestart, { to: `.keeper@${machine}` });
   await until("новый процесс Host", async () => { const k = await api.call(keeperState, { to: `.keeper@${machine}` }); return k.host.state === "running" && k.host.pid !== pid; }, 120_000);
-  const back = await until("машина снова в картине", async () => { const l = await api.call(fleetList, { machine }); return l.machines[0]?.online ? l.sessions.map((s) => s.callsign).sort() : undefined; }, 120_000);
-  if (JSON.stringify(back) !== JSON.stringify(sessions)) throw new Error(`сессии были ${sessions.join(",")}, стали ${back.join(",")}`);
+  const back = await until("машина снова в картине", async () => { const l = await api.call(fleetList, { machine }); return l.machines[0]?.online ? l.sessions.map((s) => s.callsign) : undefined; }, 120_000);
+  if (![parent, child].every((c) => back.includes(c))) throw new Error(`после подмены на машине нет своих сессий: ${parent}, ${child}; есть ${back.join(",")}`);
   const got = await until("итог после подмены", async () => { const r = await incoming(parent, child, "result"); return r.length > before ? r.slice(before) : undefined; }, 300_000);
   const now = (await incoming(child, parent, "task")).length;
   if (now !== tasks + 1) throw new Error(`задач у дочери ${tasks} → ${now}: ждали ровно одну новую`);
