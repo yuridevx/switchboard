@@ -253,7 +253,7 @@ describe("кто пришёл и что может", () => {
     const made = (await res.json()) as { ok: boolean; invite: string };
     expect(made.ok).toBe(true);
     expect(await api.who(await redeem(made.invite))).toMatchObject({ person: YURI, admin: true });
-    expect(await (await SELF.fetch("https://p.test/health")).json()).toEqual({ ok: true, part: "platform" });
+    expect(await (await SELF.fetch("https://p.test/health")).json()).toEqual({ ok: true, part: "platform", digest: "d1" });
   });
 });
 

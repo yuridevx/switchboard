@@ -49,7 +49,9 @@ export async function serve(req: Request, env: Env, exec: ExecutionContext, deps
     headers.set("cache-control", "no-store");
     return new Response(res.body, { status: res.status, headers });
   }
-  if (pathname === "/health") return Response.json({ ok: true, part: "services", modules: MODULES.map((m) => m.name) });
+  if (pathname === "/health") return Response.json({ ok: true, part: "services", digest: env.DIGEST, modules: MODULES.map((m) => m.name) });
+  // здоровье платформы — тем же адресом флота: проход в платформу как есть
+  if (pathname === "/health/platform") return (deps.platform ?? env.PLATFORM).fetch(new Request(new URL("/health", req.url)));
   if (env.ASSETS) return env.ASSETS.fetch(req);
   return new Response("switchboard services\n", { status: 404 });
 }
