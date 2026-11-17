@@ -144,8 +144,15 @@ export class Session {
   // ───────────────────────── ввод и вызовы SDK ─────────────────────────
 
   input(content: unknown, o: InputOpts = {}): void {
-    this.inbox.push({ type: "user", message: { role: "user", content }, parent_tool_use_id: null, ...o });
-    this.wake();
+    const take = () => {
+      this.inbox.push({ type: "user", message: { role: "user", content }, parent_tool_use_id: null, ...o });
+      this.wake();
+    };
+    const run = this.run;
+    // «сейчас» прерывает идущий ход и берётся сразу. Процесс сам идущую команду ради такого сообщения не снимает — берёт его
+    // на границе шага, а прерывание после него уже не действует: поэтому сначала прерывание, потом сообщение.
+    if (o.priority === "now" && run && isBusy(this.state)) void Promise.resolve(run.q.interrupt()).catch(() => {}).then(take);
+    else take();
   }
 
   /** Ввод запуска: только пока запуск текущий и готов — SDK забирает сообщение и у мёртвого процесса, оно бы пропало. */
