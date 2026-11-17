@@ -25,15 +25,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: ${{ matrix.part != 'keeper' && 'npm' || '' }}
-          cache-dependency-path: package-lock.json
       - uses: actions/setup-go@v5
         if: matrix.part == 'keeper'
         with:
           go-version-file: keeper/go.mod
           cache-dependency-path: keeper/go.sum
+      # Linux: установленные зависимости — из кэша по package-lock, npm ci только когда он изменился
+      - uses: actions/cache@v4
+        id: deps
+        if: matrix.part != 'keeper' && runner.os == 'Linux'
+        with:
+          path: |
+            node_modules
+            */node_modules
+          key: deps-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
       - run: npm ci
-        if: matrix.part != 'keeper'
+        if: matrix.part != 'keeper' && runner.os == 'Linux' && steps.deps.outputs.cache-hit != 'true'
+      # Windows: только зависимости своей части — распаковка большого кэша там дольше установки
+      - run: npm ci --workspace ${{ matrix.part }} --workspace protocol --include-workspace-root
+        if: matrix.part != 'keeper' && runner.os == 'Windows'
       - run: node tools/test/run.mjs ${{ matrix.part }}
 
   # одна обязательная проверка ветки main: зелёная, когда зелёные все части

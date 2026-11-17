@@ -40,13 +40,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - uses: actions/setup-go@v5
+      # установленные зависимости — из кэша по package-lock: npm ci только когда он изменился
+      - uses: actions/cache@v4
+        id: deps
         with:
-          go-version-file: keeper/go.mod
-          cache-dependency-path: keeper/go.sum
+          path: |
+            node_modules
+            */node_modules
+          key: deps-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+        if: steps.deps.outputs.cache-hit != 'true'
       - name: настройки флота
         env:
           SB2_BASE: ${{ inputs.fleet == 'prod' && secrets.SB2_PROD_BASE || secrets.SB2_TEST_BASE }}
