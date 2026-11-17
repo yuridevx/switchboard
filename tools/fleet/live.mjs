@@ -54,6 +54,7 @@ const LIST = [
   ["откат разговора", "live-rewind.ts", [fleet, device, machine], { SB2_PART: "rewind" }, false, QUIET],
   ["пара: ведущая и ведомый", "live-rewind.ts", [fleet, device, machine], { SB2_PART: "pair" }, false, QUIET],
   ["разговор на странице: ходы", "live-talk.mjs", [fleet, device, machine], { SB2_PART: "turn" }, false, QUIET],
+  ["разговор на странице: живое", "live-talk.mjs", [fleet, device, machine], { SB2_PART: "live" }, false, QUIET],
   ["разговор на странице: экран", "live-talk.mjs", [fleet, device, machine], { SB2_PART: "screen" }, false, QUIET],
   ["аккаунты и модели", "live-accounts.ts", [fleet, device, machine], { SB2_PART: "rest" }, false, QUIET],
   // отказ провайдера на негодный PDF воспроизводится на Claude: у этой проверки свой ключ и модель
