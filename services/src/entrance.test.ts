@@ -111,7 +111,10 @@ describe("вход служб", () => {
     expect(await (await s.http(`/f/${s.fleet}`)).text()).toBe("platform");
     expect(await (await s.http(`/m/${s.fleet}/laptop`)).text()).toBe("platform");
     expect(s.seen.fetched.map((r) => new URL(r.url).pathname)).toEqual([`/f/${s.fleet}`, `/m/${s.fleet}/laptop`]);
-    expect(await (await s.http("/health")).json()).toMatchObject({ ok: true, part: "services" });
+    expect(await (await s.http("/health")).json()).toMatchObject({ ok: true, part: "services", digest: "d1" });
+    // здоровье платформы — проход в неё по её адресу /health
+    expect(await (await s.http("/health/platform")).text()).toBe("platform");
+    expect(new URL(s.seen.fetched.at(-1)!.url).pathname).toBe("/health");
   });
 });
 

@@ -8,6 +8,8 @@ export interface Env {
   MACHINE: DurableObjectNamespace<MachineObject>;
   /** секрет заведения флота (`POST /boot`) */
   BOOT?: string;
+  /** отпечаток кода, из которого выложен Worker: ставит выкладка, по нему она решает, тронута ли часть */
+  DIGEST?: string;
   /** предел ожидания первого сообщения соединения, мс; по умолчанию HELLO_MS */
   HELLO_MS?: string;
   /** предел ответа машины на запрос, мс; по умолчанию CALL_MS договора */

@@ -141,7 +141,7 @@ export class Platform extends WorkerEntrypoint<Env> implements PlatformApi {
 async function route(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
-    if (url.pathname === ROUTES.health) return json({ ok: true, part: "platform" });
+    if (url.pathname === ROUTES.health) return json({ ok: true, part: "platform", digest: env.DIGEST });
     if (url.pathname.startsWith(ROUTES.fleet) && parts.length === 2 && NAME.test(parts[1]!)) return fleetStub(env, parts[1]!).fetch(request);
     if (url.pathname.startsWith(ROUTES.machine) && parts.length === 3 && NAME.test(parts[1]!) && NAME.test(parts[2]!)) return machineStub(env, parts[1]!, parts[2]!).fetch(request);
     if (url.pathname === ROUTES.boot && request.method === "POST") {

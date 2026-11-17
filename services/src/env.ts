@@ -20,6 +20,8 @@ export interface Env {
   R2_ACCOUNT_ID?: string;
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
+  /** отпечаток кода и страницы, из которых выложен Worker: ставит выкладка */
+  DIGEST?: string;
   /** закрытый ключ VAPID — JWK строкой */
   VAPID_PRIVATE?: string;
   VAPID_SUB?: string;

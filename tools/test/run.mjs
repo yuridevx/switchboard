@@ -46,7 +46,17 @@ for (const p of packages) {
     console.log(r.out.split("\n").slice(-40).join("\n"));
   }
 }
-if (fs.existsSync(path.join(root, "keeper", "go.mod"))) {
+if (!only || "tools".includes(only)) {
+  // эталоны инструментов выкладки — встроенным раннером node
+  const r = await run("node", ["--test", '"tools/**/*.test.mjs"'], root);
+  const tests = /pass (\d+)/.exec(r.out)?.[1] ?? "";
+  console.log(`${r.code === 0 ? "✓" : "✗"} tools · ${(r.ms / 1000).toFixed(1)} с · ${tests} passed`);
+  if (r.code !== 0) {
+    failed++;
+    console.log(r.out.split("\n").slice(-40).join("\n"));
+  }
+}
+if ((!only || "keeper".includes(only)) && fs.existsSync(path.join(root, "keeper", "go.mod"))) {
   const r = await run("go", ["test", "./..."], path.join(root, "keeper"));
   console.log(`${r.code === 0 ? "✓" : "✗"} keeper · ${(r.ms / 1000).toFixed(1)} с`);
   if (r.code !== 0) {
