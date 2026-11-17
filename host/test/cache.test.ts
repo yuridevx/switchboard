@@ -116,6 +116,15 @@ describe("кэш на любой модели", () => {
     expect(row().cache).toEqual({ size: 40_000, read: 38_000 });
   });
 
+  // эталон 11, путь с переводом — чьё: факт живой проверки 17 нояб. — у OpenAI-протокола и Meta ответ приходит без размера, размер называет конец вызова
+  it("путь с переводом: ответ без размера запись кэша не трогает, размер и прочитанное берутся из события конца вызова", async () => {
+    await fleet({ cache: 10 });
+    await open({ key: "orca", model: "grok-4.5" });
+    const empty = { ...foreign(0, 0), message: { ...foreign(0, 0).message, usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } };
+    await st!.turn(CS, [empty, { type: "stream_event", parent_tool_use_id: null, event: { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { input_tokens: 2_000, cache_read_input_tokens: 38_000, cache_creation_input_tokens: 0, output_tokens: 10 } } }]);
+    expect(row().cache).toEqual({ until: T0 + 10 * MIN, size: 40_000, read: 38_000 });
+  });
+
   // эталон 12 — чьё: факт опыта 17 нояб. — срок кэша доставался новой модели от прежней
   it("смена модели: кэш холодный до первого ответа новой модели, срок прежней не наследуется", async () => {
     await fleet();

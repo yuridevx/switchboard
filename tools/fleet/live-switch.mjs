@@ -52,15 +52,19 @@ for (let i = 1; i < pairs.length; i++) {
   const ok = !r.error && String(r.result).includes(String(n * 11)) && String(r.result).includes(String((n - 1) * 11));
   step(ok, `${pairs[i - 1]} → ${pairs[i]}`, `смена ${ms} мс${(u.result.later ?? []).length ? " · после хода перезапуск" : ""} · ${short(r.result || r.error, 90)}${r.answers ? " · ОТВЕТИЛА НЕ ТА: " + r.answers : ""}${r.cache ? ` · кэш ${r.cache.until ? "до " + new Date(r.cache.until).toTimeString().slice(0, 5) : r.cache.size ? Math.round(((r.cache.read ?? 0) / r.cache.size) * 100) + " % из кэша" : "?"}` : " · кэша в строке нет"}`);
   if (!ok) n--;
+  // окно, которое считает живой процесс: должно совпасть с окном каталога
+  const w = call("session.call", { to: cs, method: "contextUsage" });
+  if (w.ok) console.log(`    окно процесса ${w.result?.maxTokens ?? w.result?.result?.maxTokens ?? "?"}`);
 }
-// смена посреди хода: команда ждёт 30 с, через 8 с — смена на первую пару
+// смена посреди хода: команда ждёт 30 с, через 8 с — смена на другую пару из названных
 {
+  const target = pairs.find((p) => p !== pairs.at(-1));
   const t = Date.now();
   call("message", { to: cs, text: "Выполни в Bash ровно эту команду: `node -e \"setTimeout(()=>console.log(4242),30000)\"`. Потом ответь одной строкой: «число: …»." });
   await sleep(8000);
-  const u = call("session.update", { to: cs, patch: doc(pairs[0]) });
+  const u = call("session.update", { to: cs, patch: doc(target) });
   const r = await turn(t);
-  step(u.ok && !r.error && String(r.result).includes("4242") && !r.answers, `посреди хода ${pairs.at(-1)} → ${pairs[0]}`, `${u.ok ? "смена принята" : "смена ОТКАЗ " + u.error + " " + short(u.why ?? "")} · ${short(r.result || r.error, 90)}${r.answers ? " · ОТВЕТИЛА НЕ ТА: " + r.answers : ""}`);
+  step(u.ok && !r.error && String(r.result).includes("4242") && !r.answers, `посреди хода ${pairs.at(-1)} → ${target}`, `${u.ok ? "смена принята" : "смена ОТКАЗ " + u.error + " " + short(u.why ?? "")} · ${short(r.result || r.error, 90)}${r.answers ? " · ОТВЕТИЛА НЕ ТА: " + r.answers : ""}`);
 }
 const lines = journal(t0);
 const switches = lines.filter((l) => l.msg === "model_switch");

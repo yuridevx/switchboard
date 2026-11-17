@@ -102,6 +102,8 @@ export function make(): Module {
   const late = new Set<string>();
   /** в идущем ходе модель сменили: ответ прежней модели до конца хода — не тревога */
   const swapped = new Set<string>();
+  /** модель последнего ответа в основном разговоре: ей принадлежит размер, который вызов называет в конце */
+  const answered = new Map<string, string>();
   /** пара, только что сверенная с каталогом: проверка документа и запись о паре читают каталог один раз */
   const fresh = new Map<string, Pair>();
 
@@ -301,7 +303,8 @@ export function make(): Module {
     const model = m.message?.model;
     const pair = seatOf(s).get()?.pair;
     if (!model || model === SYNTHETIC || !pair || pair.key !== s.spec.key || pair.model !== s.spec.model) return;
-    if (m.message?.usage) caches.set(s.callsign, cacheOf(m.message.usage, model, pair, cacheOfSession(s), now()));
+    answered.set(s.callsign, model);
+    used(s, model, pair, m.message?.usage);
     if (pair.protocol !== CLAUDE || swapped.has(s.callsign)) return;
     const other = model === pair.model ? undefined : model;
     if (other === seatOf(s).get()?.answers) return;
@@ -312,6 +315,14 @@ export function make(): Module {
     const why = `${s.callsign}: в документе модель ${pair.model}, ответила ${other}`;
     host.log.error("model_drift", { callsign: s.callsign, word: "model_drift", why });
     void host.call(incidentRaise, { to: `@${host.machine}`, kind: MODEL_INCIDENT, key: s.callsign, text: why }).catch((e: unknown) => host.log.warn("incident", { callsign: s.callsign, why: `обращение «модель» не открыто: ${say(e)}` }));
+  }
+
+  /** Размер запроса и прочитанное из кэша — в запись кэша. Ответ без размера записи не трогает: у путей с переводом провайдер называет размер
+   *  в конце вызова, и его несёт событие потока, а не сам ответ. */
+  function used(s: SessionApi, model: string, pair: Pair, usage: Parameters<typeof cacheOf>[0] | undefined): void {
+    if (!usage) return;
+    const c = cacheOf(usage, model, pair, cacheOfSession(s), now());
+    if (c.size > 0) caches.set(s.callsign, c);
   }
 
   /** Команда живому процессу с пределом шага по часам машины. */
@@ -543,6 +554,7 @@ export function make(): Module {
       // кэш новой модели холодный до её первого ответа; привязка к аккаунту Claude остаётся, пока провайдер тот же
       seatOf(s).set({ ...(pair.key === was?.pair?.key ? { account: was.account, at: was.at } : {}), pair, ran: was?.ran });
       caches.delete(s.callsign);
+      answered.delete(s.callsign);
       disarm(s.callsign);
       const live = s.state === "idle" || s.state === "busy" || s.state === "waiting";
       if (live) {
@@ -588,6 +600,11 @@ export function make(): Module {
     on: {
       event(s, m) {
         if (m.type === "assistant" && !m.parent_tool_use_id && !m.isReplay) said(s, m);
+        // конец вызова в основном разговоре: итоговые числа запроса
+        if (m.type === "stream_event" && !m.parent_tool_use_id && m.event?.type === "message_delta" && m.event.usage) {
+          const pair = seatOf(s).get()?.pair, model = answered.get(s.callsign);
+          if (pair && model && pair.key === s.spec.key && pair.model === s.spec.model) used(s, model, pair, m.event.usage);
+        }
         // разговор сжат: кэш написан заново, размер — после сжатия
         const c = cacheOfSession(s);
         if (m.type === "system" && m.subtype === "compact_boundary" && c) {
@@ -607,6 +624,7 @@ export function make(): Module {
       removed(callsign) {
         disarm(callsign);
         caches.delete(callsign);
+        answered.delete(callsign);
         late.delete(callsign);
         swapped.delete(callsign);
       },
