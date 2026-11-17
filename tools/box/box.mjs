@@ -4,7 +4,7 @@
 // Что поднимается: платформа и службы (wrangler dev на этом компьютере, свои порты и своя папка данных), страница из web/dist,
 // Host на каждой машине (m1, m2) с настоящим claude из пакета SDK и держателем keeper, поддельная модель — ключ провайдера «box».
 // Команда получает: SB2_DEV — папка настроек (адрес флота, пропуск устройства cli), SB2_KEY, SB2_MODEL, SB2_SWITCH — ключ и модели коробки.
-// Сбой подъёма — хвосты журналов частей и код 1. Папка коробки dist/box/<номер процесса> после зелёной команды убирается.
+// Сбой подъёма или красная команда — хвосты журналов частей. Папка коробки dist/box/<номер процесса> после зелёной команды убирается.
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -58,7 +58,7 @@ function killTree(pid) {
     // процесса уже нет
   }
 }
-const tails = () => parts.map(({ name }) => `── ${name}\n${fs.readFileSync(path.join(state, name + ".log"), "utf8").split("\n").slice(-12).join("\n")}`).join("\n");
+const tails = () => [...parts.map((p) => p.name), "model"].filter((name) => fs.existsSync(path.join(state, name + ".log"))).map((name) => `── ${name}\n${fs.readFileSync(path.join(state, name + ".log"), "utf8").split("\n").slice(-12).join("\n")}`).join("\n");
 
 let down = false;
 /** Снять коробку: Host — штатно (закрытый ввод), процессы сессий у держателей и Worker'ы — снять. */
@@ -160,6 +160,7 @@ try {
   console.error(`коробка не поднялась: ${e.message}\n${tails()}`);
 }
 await teardown();
-if (code === 0) fs.rmSync(state, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
-else console.error(`журналы частей: ${state}`);
+// на Windows снятые процессы отпускают свои файлы не сразу: неубранная папка исход команды не меняет
+if (code === 0) try { fs.rmSync(state, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch (e) { console.error(`папка коробки осталась: ${state} (${e.code})`); }
+else if (command.length) console.error(`\nхвосты журналов частей (целиком — ${state}):\n${tails()}`);
 process.exit(code);
