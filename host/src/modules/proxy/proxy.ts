@@ -209,12 +209,13 @@ export function make(): Module {
         const sent = anth && (edited || named) ? Buffer.from(JSON.stringify(anth)) : body;
         const seen = (status: number, headers: Answered["headers"], ms: number, why?: string) => acc?.answer(route!, { status, headers, path, ms, hops: tried.length, waited, ...(model ? { model } : {}), ...(why ? { why } : {}) }) ?? ({ act: "pass" } as const);
         const t0 = Date.now();
+        // подсчёт токенов стороннему провайдеру не уходит: адрес есть не у каждого (OpenRouter отвечает 404), а оценку прокси даёт сам — одну для любого стороннего пути
+        if (route.key && anth && path.startsWith("/v1/messages/count_tokens")) return countTokens(res, anth, { key: "", base: "", version: "", dialect: "openai", author: "", label: route.name ?? "" });
         if (TRANSLATED.has(route.protocol)) {
           const meta = route.protocol === "meta";
           const label = meta ? "Meta" : (route.name ?? "провайдер");
           if (!anth) return say(404, "not_found_error", "not_supported", `${req.method} ${path}: у ${label} только /v1/messages`);
           const creds = { key: route.key ?? "", base: versioned(route.to), version: meta ? await muse() : "", dialect: meta ? ("meta" as const) : ("openai" as const), author: `${route.name ?? ""}/${route.model ?? ""}`, label, ...(route.window ? { window: route.window } : {}) };
-          if (path.startsWith("/v1/messages/count_tokens")) return countTokens(res, anth, creds);
           const refused = await messages(res, anth, creds, ac.signal, (why) => host.log.info("gap", { why: `${sid}: ${why}` }));
           seen(res.statusCode, {}, Date.now() - t0, refused);
           return;

@@ -282,6 +282,23 @@ describe("окно, имена и сверка", () => {
     expect([journal("model_drift"), raised]).toEqual([[], []]);
   });
 
+  // чьё: факт живой проверки на проде 17 нояб. — OpenRouter на подсчёт токенов отвечает 404: 34 отклонённых вызова за три хода
+  it("подсчёт токенов стороннему провайдеру не уходит: прокси отвечает оценкой сам; у Claude подсчёт идёт как есть", async () => {
+    const api = await fleet();
+    const { s } = await st!.open("site", { key: "orca", model: "glm-5.3" });
+    const count = (sid: string, model: string) => {
+      const base = (st!.sdk.queries.at(-1)!.options as any).env.ANTHROPIC_BASE_URL as string;
+      return fetch(`${base}/v1/messages/count_tokens?beta=true`, { method: "POST", headers: { "content-type": "application/json", "x-claude-code-session-id": sid }, body: JSON.stringify({ model, messages: [{ role: "user", content: "привет, сколько здесь токенов?" }] }) });
+    };
+    const r = await count(s.rec.sessionId, "glm-5.3");
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as any).input_tokens).toBeGreaterThan(0);
+    expect(api.hits).toHaveLength(0);
+    expect(await update({ key: "claude", model: FABLE })).toMatchObject({ ok: true });
+    await count(s.rec.sessionId, FABLE);
+    expect(api.hits.map((h) => h.path)).toEqual(["/v1/messages/count_tokens?beta=true"]);
+  });
+
   // эталон 21 — чьё: код (побочные вызовы стороннего — на модель сессии); правка слепого архитектора — имя решает хозяин пары
   it("21 · вызов с именем не из документа: путь Claude — модели Claude как есть, чужое имя — модель документа", async () => {
     const api = await fleet();

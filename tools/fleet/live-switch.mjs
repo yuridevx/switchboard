@@ -21,14 +21,15 @@ const journal = (since) => must("machine.journal", { to: "@" + machine, session:
 let bad = 0, total = 0;
 const step = (ok, label, said) => { total++; if (!ok) bad++; console.log(`${ok ? "✓" : "✗"} ${label} · ${said}`); };
 
-/** Ждём конец хода: сессия свободна и итог новый. */
-async function turn(since, ms = 300_000) {
+/** Ждём конец хода: сессия свободна и итог новый. want — слово, которое должен нести итог этого хода: строка сессии догоняет ход не сразу. */
+async function turn(since, want, ms = 300_000) {
   const end = Date.now() + ms;
   for (;;) {
     await sleep(2500);
     const r = row();
     if (!r) return { result: "", error: "сессии нет" };
-    if ((r.state === "idle" || r.state === "failed" || r.state === "stopped") && (r.last ?? 0) > since && (r.result || r.error)) return r;
+    if (r.state === "failed" || r.state === "stopped") return r;
+    if (r.state === "idle" && (r.last ?? 0) > since && (r.result || r.error) && (!want || String(r.result).includes(want) || Date.now() > end - ms + 90_000)) return r;
     if (Date.now() > end) return { ...r, result: "", error: `не дождался: ${r.state}` };
   }
 }
@@ -48,7 +49,7 @@ for (let i = 1; i < pairs.length; i++) {
   if (!u.ok) { step(false, `${pairs[i - 1]} → ${pairs[i]}`, `смена ОТКАЗ ${u.error} ${short(u.why ?? "")}`); missed = true; continue; }
   n++;
   call("message", { to: cs, text: task(n) });
-  const r = await turn(t);
+  const r = await turn(t, String(n * 11));
   // после неудавшегося шага прошлое число у модели старее — тогда сверяется только нынешнее
   const ok = !r.error && String(r.result).includes(String(n * 11)) && (missed || String(r.result).includes(String((n - 1) * 11)));
   missed = !ok;
@@ -64,7 +65,7 @@ for (let i = 1; i < pairs.length; i++) {
   call("message", { to: cs, text: "Выполни в Bash ровно эту команду: `node -e \"setTimeout(()=>console.log(4242),30000)\"`. Потом ответь одной строкой: «число: …»." });
   await sleep(8000);
   const u = call("session.update", { to: cs, patch: doc(target) });
-  const r = await turn(t);
+  const r = await turn(t, "4242");
   step(u.ok && !r.error && String(r.result).includes("4242") && !r.answers, `посреди хода ${pairs.at(-1)} → ${target}`, `${u.ok ? "смена принята" : "смена ОТКАЗ " + u.error + " " + short(u.why ?? "")} · ${short(r.result || r.error, 90)}${r.answers ? " · ОТВЕТИЛА НЕ ТА: " + r.answers : ""}`);
 }
 const lines = journal(t0);
