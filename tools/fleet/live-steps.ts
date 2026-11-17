@@ -60,6 +60,11 @@ async function open(name: string, m: string, extra: Record<string, unknown> = {}
   return r.callsign;
 }
 const tag = Date.now().toString(36).slice(-4);
+// части проверки: one — шаги на своей машине; far — шаги, которым нужна вторая машина (идут в одной очереди с перезапуском её Host)
+const PART = process.env.SB2_PART ?? "";
+const skip = async () => {};
+const stepOne = !PART || PART === "one" ? step : skip;
+const stepFar = !PART || PART === "far" ? step : skip;
 
 /* Скрипт на машине */
 for (const m of [machine, second].filter(Boolean)) {
@@ -74,7 +79,7 @@ for (const m of [machine, second].filter(Boolean)) {
 /* Вопрос сессии и ответ: режим ask — запись файла ждёт разрешения человека */
 let asker = "";
 let askTo: string | undefined;
-await step("вопрос сессии: разрешение в строке, ответ человека, ход продолжается", async () => {
+await stepOne("вопрос сессии: разрешение в строке, ответ человека, ход продолжается", async () => {
   asker = await open("ask-" + tag, machine, { mode: "ask" }, `Создай файл ask-${tag}.txt со словом ok и больше ничего не делай.`);
   const row = await until("вопрос в строке сессии", async () => {
     const r = await rowOf(asker);
@@ -96,14 +101,14 @@ await step("вопрос сессии: разрешение в строке, о�
   }, 180_000);
   return `вид ${ask.kind}, инструмент ${ask.tool ?? "—"}${ask.to ? ", адресат " + ask.to : ""}, вопросов ${asked}`;
 });
-await step("вопрос назван по адресату: в строке — кому он задан", async () => {
+await stepOne("вопрос назван по адресату: в строке — кому он задан", async () => {
   if (!asker) throw new Error("сессии с вопросом нет");
   if (!askTo) later("Host этой сборки не пишет в вопрос адресата (ask.to)");
   return `адресат ${askTo}`;
 });
 
 /* Остановка и старт */
-await step("остановка и старт: разговор возобновляется", async () => {
+await stepOne("остановка и старт: разговор возобновляется", async () => {
   if (!asker) throw new Error("сессии нет");
   await api.call(sessionStop, { to: asker });
   await until("stopped", async () => (await rowOf(asker))?.state === "stopped", 60_000);
@@ -115,7 +120,7 @@ await step("остановка и старт: разговор возобнов�
 });
 
 /* Откат файлов */
-await step("откат к сообщению: показ без отката — сколько записей и файлов уйдёт", async () => {
+await stepOne("откат к сообщению: показ без отката — сколько записей и файлов уйдёт", async () => {
   if (!asker) throw new Error("сессии нет");
   const h = await api.call(sessionHistory, { to: asker, limit: 100 });
   const first = h.events.find((e) => e.type === "user" && typeof (e as { message?: { content?: unknown } }).message?.content === "string" && e.uuid);
@@ -125,7 +130,7 @@ await step("откат к сообщению: показ без отката —
 });
 
 /* Пара */
-await step("пара: ведомый открыт вместе с ведущим, в строке ведомого — ведущий; снятие пары", async () => {
+await stepOne("пара: ведомый открыт вместе с ведущим, в строке ведомого — ведущий; снятие пары", async () => {
   const lead = await open("lead-" + tag, machine);
   let wing = "";
   try {
@@ -145,7 +150,7 @@ await step("пара: ведомый открыт вместе с ведущим
 });
 
 /* Обращение (инцидент) */
-await step("обращение: вид из настроек флота открывает сессию; обращение видно в списке", async () => {
+await stepOne("обращение: вид из настроек флота открывает сессию; обращение видно в списке", async () => {
   const kinds = ((await api.call(prefsGet, { scope: "fleet", prefix: "incidents.kinds" })).values["incidents.kinds"] ?? {}) as Record<string, unknown>;
   const kind = "live-" + tag;
   await api.call(prefsSet, { scope: "fleet", name: "incidents.kinds", value: { ...kinds, [kind]: { cwd: tmp(machine), ...DOC, prompt: "Это проверка: ответь одним словом «принято»." } } });
@@ -165,7 +170,7 @@ await step("обращение: вид из настроек флота откр
 
 /* Точка после остановки и поиск по переписке */
 let archived: { sid: string; word: string } | undefined;
-await step("точка после остановки: остановленная сессия сохранена в архив, сбоя точки в строке нет", async () => {
+await stepOne("точка после остановки: остановленная сессия сохранена в архив, сбоя точки в строке нет", async () => {
   const word = "маяк" + tag;
   const cs = await open("point-" + tag, machine, { backup: true }, `Ответь одним словом: ${word}`);
   await until("ход закончен", async () => {
@@ -180,7 +185,7 @@ await step("точка после остановки: остановленная
   archived = { sid: s.sid, word };
   return `точек ${s.points}`;
 });
-await step("поиск по слову называет запись разговора и точку, с которой она в архиве", async () => {
+await stepOne("поиск по слову называет запись разговора и точку, с которой она в архиве", async () => {
   if (!archived) throw new Error("сохранённой сессии нет");
   const { sid, word } = archived;
   const r = await until("сессия найдена поиском", async () => (await api.call(pointsList, { q: word })).sessions.find((x) => x.sid === sid), 30_000);
@@ -192,7 +197,7 @@ await step("поиск по слову называет запись разго�
 if (archived) await api.call(pointsDelete, { sid: archived.sid }).catch(() => {});
 
 /* Числа Host в наблюдении */
-await step("числа Host: машина отвечает на запрос, служба наблюдения несёт её последнее окно", async () => {
+await stepOne("числа Host: машина отвечает на запрос, служба наблюдения несёт её последнее окно", async () => {
   const now = await api.call(machineMetrics, { to: "@" + machine }).catch((e) => (e instanceof CallError && e.word === "unknown_request" ? later(`Host на ${machine} не знает machine.metrics`) : Promise.reject(e)));
   const h = await api.call(obsHealth, {});
   const mine = h.hosts?.find((x) => x.machine === machine);
@@ -202,7 +207,7 @@ await step("числа Host: машина отвечает на запрос, с
 
 /* Кусочки: правка пришла с другой машины — работающая сессия перечитывает скилы */
 if (second) {
-  await step("кусочки обновились на другой машине — работающая сессия видит новый скил", async () => {
+  await stepFar("кусочки обновились на другой машине — работающая сессия видит новый скил", async () => {
     const far = (await api.call(profileList, { to: "@" + second })).repos?.find((r) => r.state === "ok" && r.dir);
     const piece = (await api.call(profileList, { to: "@" + machine })).pieces.find((p) => p.ok && far && p.repo === far.repo && (p.has?.skill ?? 0) > 0);
     if (!far || !piece) throw new Error("на машинах нет общего сведённого репозитория кусочков со скилами");
