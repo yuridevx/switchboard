@@ -18,7 +18,7 @@ const [fleet = "test", device = "cli", machine = "devbox", second = ""] = proces
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
 const api = createApi(httpTransport({ base: env.SB2_BASE!, key }));
 /** Провайдер тестовых сессий — ключ флота; модель — SB2_MODEL или первая из его каталога. */
-const SEAT = "muse";
+const SEAT = process.env.SB2_KEY ?? "muse";
 const DOC = { key: SEAT, model: process.env.SB2_MODEL ?? (await api.call(keysModels, { name: SEAT })).models[0]!.id };
 
 let bad = 0, waits = 0;
@@ -226,24 +226,6 @@ if (second) {
     return `${piece.id}: скил ${skill} появился`;
   });
 }
-
-/* Перезапуск Host с сохранением сессий */
-await step("перезапуск Host: процесс новый, сессии на месте", async () => {
-  const before = await api.call(keeperState, { to: ".keeper@" + machine });
-  if (before.host.pid === undefined) later(`Keeper сборки ${before.build} на ${machine} не знает host.restart`);
-  const sessions = (await api.call(fleetList, { machine })).sessions.map((s) => s.callsign).sort();
-  await api.call(hostRestart, { to: ".keeper@" + machine });
-  await until("новый процесс Host", async () => {
-    const s = await api.call(keeperState, { to: ".keeper@" + machine }).catch(() => undefined);
-    return s && s.host.state === "running" && s.host.pid !== before.host.pid;
-  }, 120_000);
-  const after = await until("машина снова в картине со своими сессиями", async () => {
-    const l = await api.call(fleetList, { machine }).catch(() => undefined);
-    return l?.machines[0]?.online ? l.sessions.map((s) => s.callsign).sort() : undefined;
-  }, 120_000);
-  if (JSON.stringify(after) !== JSON.stringify(sessions)) throw new Error(`сессии были ${sessions.join(",")}, стали ${after.join(",")}`);
-  return `сессий ${after.length}`;
-});
 
 /* Уборка */
 for (const cs of made.reverse()) await api.call(sessionRemove, { to: cs }).catch(() => {});

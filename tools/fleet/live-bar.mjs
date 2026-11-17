@@ -15,15 +15,21 @@ const browser = await chromium.launch({ channel: "chrome" });
 const errors = [];
 let lines = 0;
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(fleetEnv.SB2_BASE + "/#invite=" + encodeURIComponent(invite.invite));
-  await page.locator("nav").first().waitFor({ state: "attached", timeout: 40_000 });
-  await page.waitForTimeout(3000);
-  for (const r of routes) {
+  // вход один на все вкладки: приглашение принимает первая, разделы открываются разом каждый в своей
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const first = await ctx.newPage();
+  first.on("pageerror", (e) => errors.push(e.message));
+  await first.goto(fleetEnv.SB2_BASE + "/#invite=" + encodeURIComponent(invite.invite));
+  await first.locator("nav").first().waitFor({ state: "attached", timeout: 40_000 });
+  await first.waitForTimeout(3000);
+  const seen = await Promise.all(routes.map(async (r) => {
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(fleetEnv.SB2_BASE + "/#" + r);
     await page.waitForTimeout(3500);
-    const bar = await page.locator(".banner.bad").allInnerTexts();
+    return { r, bar: await page.locator(".banner.bad").allInnerTexts() };
+  }));
+  for (const { r, bar } of seen) {
     lines += bar.length;
     console.log(`${bar.length ? "✗" : "✓"} ${r} · строк полосы ${bar.length}${bar.length ? " · " + bar.join(" | ").slice(0, 400) : ""}`);
   }
