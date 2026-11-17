@@ -8,7 +8,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall } from "./harness.mjs";
+import { chromium, fleetCall, machineTmp } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
@@ -20,7 +20,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const { call, must } = fleetCall(fleet, device);
 const me = must("whoami", {});
 const tag = Date.now().toString(36).slice(-4);
-const cwd = machine === "wsl" ? `/tmp/sb2-talk-${tag}` : `C:/Users/${os.userInfo().username}/AppData/Local/Temp/sb2-talk-${tag}`;
+const cwd = `${machineTmp(fleet, device, machine)}/sb2-talk-${tag}`;
 const made = [];
 const state = (cs) => must("fleet.list", { machine }).sessions.find((s) => s.callsign === cs)?.state;
 const idle = async (cs, ms = 150_000) => { for (const end = Date.now() + ms; Date.now() < end; await sleep(1500)) if (state(cs) === "idle") return; throw new Error(`${cs} не освободилась`); };

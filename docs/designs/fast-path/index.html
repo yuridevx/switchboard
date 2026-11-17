@@ -1,0 +1,443 @@
+<title>Быстрый путь в прод</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* раскладка: сверху карта — путь одного изменения по трём дорожкам (человек, сессия, CI); ниже по одной теме на блок: замер, остановки, очередь, строка «Готово», что уходит, эталоны, гейт, порядок */
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
+  --accent: #1f7a63; --accent-soft: #dcefe8; --warn: #a8620a; --warn-soft: #fbecd2; --bad: #b3362b; --bad-soft: #f7e1de; --code: #f0eee7; --chg: #fff3b0;
+  --display: "Space Grotesk", "Segoe UI", sans-serif; --text: Inter, "Segoe UI", system-ui, sans-serif; --mono: "JetBrains Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warn: #f0b05c; --warn-soft: #40301a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4318; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warn: #f0b05c; --warn-soft: #40301a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4318; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 400 15px/1.5 var(--text); padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 34px; }
+h1 { font: 600 30px/1.15 var(--display); margin: 0; text-wrap: balance; }
+.lead { color: var(--muted); max-width: 62ch; margin: 6px 0 0; }
+h2 { font: 600 19px/1.25 var(--display); margin: 0 0 12px; text-wrap: balance; }
+section.read > h2::after { content: " ✓ прочитал"; font: 500 12px var(--text); color: var(--accent); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.scroll { overflow-x: auto; }
+svg { display: block; width: 100%; height: auto; font-family: var(--text); }
+.map svg { min-width: 780px; }
+.n rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.n.ci rect { fill: var(--accent-soft); stroke: var(--accent); }
+.n.man rect { fill: var(--warn-soft); stroke: var(--warn); }
+.n text { fill: var(--fg); font-size: 15px; font-weight: 600; }
+.n text.sub { fill: var(--muted); font-size: 12px; font-weight: 400; }
+.a path { stroke: var(--muted); stroke-width: 2; fill: none; }
+.a.back path { stroke-dasharray: 5 4; }
+.a text { fill: var(--muted); font-size: 12px; }
+.a .head { fill: var(--muted); stroke: none; }
+.zone { fill: none; stroke: var(--line); stroke-dasharray: 5 5; }
+.zone-t { fill: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+[data-x] { cursor: pointer; }
+[data-x]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.n[data-x]:hover rect, .n.on rect { stroke: var(--accent); stroke-width: 2.5; }
+.a[data-x]:hover path, .a.on path { stroke: var(--accent); stroke-width: 3; }
+.a[data-x]:hover .head, .a.on .head { fill: var(--accent); }
+.a[data-x]:hover text, .a.on text { fill: var(--accent); }
+.dim .n:not(.hot), .dim .a:not(.hot) { opacity: .35; }
+.why { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; min-height: 64px; }
+.why b { font: 600 15px var(--display); }
+.why p { margin: 0; max-width: 70ch; }
+pre { margin: 0; background: var(--code); border-radius: 8px; padding: 10px 12px; font: 400 12.5px/1.5 var(--mono); overflow-x: auto; white-space: pre; }
+.nums { display: flex; flex-wrap: wrap; gap: 10px; }
+.num { flex: 1 1 180px; min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.num b { font: 600 24px var(--display); font-variant-numeric: tabular-nums; display: block; }
+.num span { color: var(--muted); font-size: 13px; }
+.bars { display: grid; gap: 6px; margin-top: 12px; font-size: 13px; }
+.bar { display: grid; grid-template-columns: 170px minmax(0, 1fr) 96px; gap: 10px; align-items: center; }
+.bar i { display: block; height: 14px; border-radius: 4px; background: var(--warn); min-width: 2px; }
+.bar.keep i { background: var(--muted); }
+.bar .v { font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
+@media (max-width: 560px) { .bar { grid-template-columns: 110px minmax(0, 1fr) 80px; } }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.stops { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.stop { background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.stop.ci { border-color: var(--accent); }
+.stop .who { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.stop b { font: 600 16px var(--display); display: block; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border-radius: 8px; padding: 5px 9px; font: 500 13px var(--text); border: 1.5px solid transparent; background: var(--soft); color: var(--fg); text-align: left; }
+.chip:hover, .chip.on { border-color: var(--accent); }
+.chip.off { color: var(--muted); text-decoration: line-through; background: none; border: 1.5px dashed var(--line); }
+.chip.off:hover, .chip.off.on { border-style: solid; border-color: var(--accent); }
+.steps { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.step { flex: 1 1 200px; min-width: 0; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; text-align: left; font: inherit; color: inherit; display: grid; gap: 4px; align-content: start; }
+.step:hover, .step.on { border-color: var(--accent); }
+.step .who { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.step .what { font-weight: 600; overflow-wrap: anywhere; }
+.arrow { align-self: center; color: var(--muted); font-size: 18px; flex: none; }
+.cap { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.gone { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.gone > div { min-width: 0; }
+.et { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 10px; }
+.e { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.e .io { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; }
+.e .io > div { background: var(--soft); border-radius: 8px; padding: 8px; overflow-wrap: anywhere; min-width: 0; }
+.e .io > div.out { background: var(--accent-soft); }
+.e .src { color: var(--muted); font-size: 12px; }
+.e b { font: 600 14px var(--display); }
+.gate { white-space: pre-wrap; font: 400 13px/1.6 var(--mono); overflow-wrap: anywhere; }
+.order { display: grid; gap: 8px; counter-reset: s; }
+.o { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 12px 46px; position: relative; display: grid; gap: 4px; counter-increment: s; min-width: 0; }
+.o::before { content: counter(s); position: absolute; left: 12px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 600 13px var(--display); display: grid; place-items: center; }
+.o b { font: 600 15px var(--display); }
+.o .done { color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.n.ref text { font-family: var(--mono); font-size: 14px; }
+.stem { stroke: var(--muted); stroke-width: 2; fill: none; }
+.dot { fill: var(--card); stroke: var(--muted); stroke-width: 2; }
+.gitline { stroke: var(--line); stroke-width: 3; fill: none; }
+.chg { background: var(--chg); border-radius: 3px; }
+svg .chg { fill: var(--warn); }
+button { cursor: pointer; }
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Быстрый путь в прод</h1>
+  <p class="lead">Проверяет и выкладывает один исполнитель — CI, служба проверок GitHub. Сессия Claude пишет код и <span class="chg" data-chg="lead-own">одну свою проверку</span>. Человек говорит два слова: «делай» и «в прод».</p>
+</header>
+
+<section id="b-map" data-block>
+  <h2>Путь одного изменения</h2>
+  <div class="card map" data-explain>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 350" role="img" aria-label="Изменение идёт от дизайна через код и свой тест в проверку CI, после слияния — на тестовый флот с живой проверкой, по слову человека — на прод. Сессия у себя запускает только одну свою проверку: файл теста, снимок тронутого экрана или свой живой шаг.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0 0 L10 5 L0 10 z" fill="context-stroke" stroke="none"/></marker>
+      </defs>
+      <rect class="zone" x="14" y="14" width="972" height="62" rx="10"/><text class="zone-t" x="28" y="34">человек</text>
+      <rect class="zone" x="14" y="92" width="972" height="96" rx="10"/><text class="zone-t" x="28" y="112">сессия Claude</text>
+      <rect class="zone" x="14" y="204" width="972" height="132" rx="10"/><text class="zone-t" x="28" y="224">CI</text>
+
+      <g class="n man" data-x="go" data-path="h s" tabindex="0"><rect x="290" y="30" width="90" height="32" rx="16"/><text x="335" y="51" text-anchor="middle">делай</text></g>
+      <g class="n man" data-x="word" data-path="h p" tabindex="0"><rect x="880" y="30" width="92" height="32" rx="16"/><text x="926" y="51" text-anchor="middle">в прод</text></g>
+
+      <g class="n" data-x="design" data-path="s" tabindex="0"><rect x="30" y="122" width="150" height="54" rx="10"/><text x="105" y="146" text-anchor="middle">Дизайн</text><text class="sub" x="105" y="164" text-anchor="middle">строки «Готово»</text></g>
+      <g class="n" data-x="code" data-path="s c" tabindex="0"><rect x="240" y="122" width="190" height="54" rx="10"/><text x="335" y="146" text-anchor="middle">Код и <tspan class="chg" data-chg="map-code-own">своя проверка</tspan></text><text class="sub" x="335" y="164" text-anchor="middle"><tspan class="chg" data-chg="map-code-sub">тест, экран или живой шаг</tspan></text></g>
+      <g class="n" data-x="second" data-path="s" tabindex="0"><rect x="500" y="122" width="190" height="54" rx="10"/><text x="595" y="146" text-anchor="middle">Второй проход</text><text class="sub" x="595" y="164" text-anchor="middle">пока идёт CI</text></g>
+      <g class="n" data-x="report" data-path="s t" tabindex="0"><rect x="740" y="122" width="130" height="54" rx="10"/><text x="805" y="146" text-anchor="middle">Итог</text><text class="sub" x="805" y="164" text-anchor="middle">ссылка на прогон</text></g>
+
+      <g class="n ci" data-x="check" data-path="c" tabindex="0"><rect x="240" y="252" width="190" height="62" rx="10"/><text x="335" y="279" text-anchor="middle">Проверка</text><text class="sub" x="335" y="298" text-anchor="middle">каждый push · 2 мин</text></g>
+      <g class="n ci" data-x="test" data-path="c t p" tabindex="0"><rect x="500" y="252" width="190" height="62" rx="10"/><text x="595" y="279" text-anchor="middle">Тестовый флот</text><text class="sub" x="595" y="298" text-anchor="middle">выкладка и живая проверка</text></g>
+      <g class="n ci" data-x="prod" data-path="p" tabindex="0"><rect x="760" y="252" width="212" height="62" rx="10"/><text x="866" y="279" text-anchor="middle">Прод</text><text class="sub" x="866" y="298" text-anchor="middle">тот же коммит</text></g>
+
+      <g class="a" data-x="a-go" data-path="h s" tabindex="0"><path d="M335 62 L335 120" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-design" data-path="s" tabindex="0"><path d="M180 149 L238 149" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-push" data-path="c" tabindex="0"><path d="M375 176 L375 250" marker-end="url(#ah)"/><text x="383" y="218">push</text></g>
+      <g class="a back" data-x="a-red" data-path="c" tabindex="0"><path d="M295 252 L295 178" marker-end="url(#ah)"/><text x="287" y="218" text-anchor="end">красное</text></g>
+      <g class="a" data-x="a-second" data-path="s" tabindex="0"><path d="M430 149 L498 149" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-merge" data-path="c t" tabindex="0"><path d="M430 283 L498 283" marker-end="url(#ah)"/><text x="464" y="273" text-anchor="middle">main</text></g>
+      <g class="a" data-x="a-sr" data-path="s" tabindex="0"><path d="M690 149 L738 149" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-green" data-path="t" tabindex="0"><path d="M650 252 L650 214 L790 214 L790 178" marker-end="url(#ah)"/><text x="720" y="232" text-anchor="middle"><tspan class="chg" data-chg="map-green">тест зелёный</tspan></text></g>
+      <g class="a back" data-x="a-live" data-path="s t" tabindex="0"><path d="M418 176 L516 250" marker-end="url(#ah)"/><text x="490" y="224"><tspan class="chg" data-chg="map-live">свой живой шаг</tspan></text></g>
+      <g class="a" data-x="a-word" data-path="h p" tabindex="0"><path d="M926 62 L926 250" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-prod" data-path="p" tabindex="0"><path d="M690 283 L758 283" marker-end="url(#ah)"/></g>
+    </svg>
+    </div>
+    <div class="why" aria-live="polite"><b>Три остановки, два слова.</b><p>Проверка, тестовый флот, прод. Нажмите на любой узел или стрелку.</p></div>
+  </div>
+</section>
+
+<section id="b-now" data-block>
+  <h2>Замер: что сессии запускали у себя за неделю</h2>
+  <div class="nums">
+    <div class="num"><b>459</b><span>запусков проверок, сборок и выкладок на компьютерах сессий за 11–16 ноября</span></div>
+    <div class="num"><b>7,2 ч</b><span>ушло на них</span></div>
+    <div class="num"><b>31 из 37</b><span>push, перед которыми сессия у себя прогнала то, что CI повторил через минуты</span></div>
+    <div class="num"><b>2 мин</b><span>те же гейт, типы и 757 тестов в CI — 40 прогонов из 40</span></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="bars">
+      <div class="bar"><span>живые проверки флота</span><i style="width:100%"></i><span class="v">2,1 ч · 61</span></div>
+      <div class="bar keep"><span>тесты одной части</span><i style="width:95%"></i><span class="v">2,0 ч · 156</span></div>
+      <div class="bar"><span>типы</span><i style="width:55%"></i><span class="v">1,2 ч · 133</span></div>
+      <div class="bar keep"><span><span class="chg" data-chg="bar-shots">снимки экранов</span></span><i style="width:54%"></i><span class="v">1,1 ч · 67</span></div>
+      <div class="bar"><span>выкладка</span><i style="width:44%"></i><span class="v">0,9 ч · 55</span></div>
+      <div class="bar"><span>сборка</span><i style="width:34%"></i><span class="v">0,7 ч · 50</span></div>
+      <div class="bar"><span>все тесты разом</span><i style="width:21%"></i><span class="v">0,4 ч · 12</span></div>
+    </div>
+    <div class="legend"><span><i style="background:var(--warn)"></i>уходит в CI</span><span><i style="background:var(--muted)"></i>остаётся у сессии как <span class="chg" data-chg="legend-own">одна своя проверка</span></span><span>время за неделю · число запусков; команда из нескольких проверок засчитана каждой</span></div>
+  </div>
+  <div class="nums chg" data-chg="own-facts" style="margin-top:12px; padding:8px">
+    <div class="num"><b>34 из 156</b><span>запусков тестов — один файл; остальные гнали пакет целиком</span></div>
+    <div class="num"><b>66 из 67</b><span>запусков снимков — экраны своего изменения, мышью и пальцем</span></div>
+    <div class="num"><b>54 из 61</b><span>живых запусков — одна проверка своей функции; список целиком — 7</span></div>
+  </div>
+</section>
+
+<section id="b-stops" data-block>
+  <h2>Что проверяется на каждой остановке</h2>
+  <div data-explain>
+    <div class="stops">
+      <div class="stop"><div><span class="who">сессия · у себя</span><b><span class="chg" data-chg="stop-own">Своя проверка — одна</span></b></div>
+        <div class="chips"><button class="chip" data-x="s-own">один файл теста</button><button class="chip" data-x="s-shot"><span class="chg" data-chg="chip-shot">снимок тронутого экрана</span></button><button class="chip" data-x="s-step"><span class="chg" data-chg="chip-step">свой живой шаг</span></button></div></div>
+      <div class="stop ci"><div><span class="who">CI · каждый push</span><b>Проверка</b></div>
+        <div class="chips"><button class="chip" data-x="s-gate">правило импортов</button><button class="chip" data-x="s-types">типы</button><button class="chip" data-x="s-tests"><span class="chg" data-chg="chip-tests-os">757 тестов и служба машины — на Linux и Windows</span></button><button class="chip" data-x="s-build">сборка страницы</button></div></div>
+      <div class="stop ci"><div><span class="who">CI · после слияния</span><b>Тестовый флот</b></div>
+        <div class="chips"><button class="chip" data-x="s-num">сборка под номером</button><button class="chip" data-x="s-touched"><span class="chg" data-chg="chip-touched-test">выкладка изменившегося — по отпечатку</span></button><button class="chip" data-x="s-live"><span class="chg" data-chg="chip-live">живая проверка — один список</span></button><button class="chip" data-x="s-mark"><span class="chg" data-chg="chip-mark">метка fleet/test</span></button></div></div>
+      <div class="stop ci"><div><span class="who">CI · по слову человека</span><b>Прод</b></div>
+        <div class="chips"><button class="chip" data-x="s-same"><span class="chg" data-chg="chip-same">коммит из fleet/test</span></button><button class="chip" data-x="s-touched"><span class="chg" data-chg="chip-touched-prod">выкладка изменившегося — по отпечатку</span></button><button class="chip" data-x="s-count">сессии до и после</button><button class="chip" data-x="s-plive">живая проверка</button><button class="chip" data-x="s-back">номера для отката</button><button class="chip" data-x="s-pmark"><span class="chg" data-chg="chip-pmark">метка fleet/prod</span></button></div></div>
+    </div>
+    <div class="card why" aria-live="polite"><b>Каждая проверка живёт на одной остановке.</b><p>Нажмите на плашку.</p></div>
+  </div>
+</section>
+
+<section id="b-queue" data-block>
+  <h2>Одна очередь на флот</h2>
+  <div class="card map" data-explain>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 200" role="img" aria-label="Две сессии сливают свои изменения в main; выкладки на тестовый флот идут строго по одной, вторая ждёт; на флоте всегда main.">
+      <rect class="zone" x="440" y="30" width="310" height="140" rx="10"/><text class="zone-t" x="454" y="50">очередь выкладки</text>
+      <g class="n" data-x="q-a" data-path="a" tabindex="0"><rect x="30" y="30" width="150" height="50" rx="10"/><text x="105" y="60" text-anchor="middle">Сессия А</text></g>
+      <g class="n" data-x="q-a" data-path="b" tabindex="0"><rect x="30" y="120" width="150" height="50" rx="10"/><text x="105" y="150" text-anchor="middle">Сессия Б</text></g>
+      <g class="n" data-x="q-main" data-path="a b" tabindex="0"><rect x="250" y="72" width="130" height="56" rx="10"/><text x="315" y="96" text-anchor="middle">main</text><text class="sub" x="315" y="114" text-anchor="middle">слияния в ряд</text></g>
+      <g class="n" data-x="q-wait" data-path="b" tabindex="0"><rect x="458" y="72" width="130" height="56" rx="10"/><text x="523" y="96" text-anchor="middle">сборка 40</text><text class="sub" x="523" y="114" text-anchor="middle">ждёт</text></g>
+      <g class="n ci" data-x="q-run" data-path="a" tabindex="0"><rect x="604" y="72" width="130" height="56" rx="10"/><text x="669" y="96" text-anchor="middle">сборка 39</text><text class="sub" x="669" y="114" text-anchor="middle">выкладывается</text></g>
+      <g class="n ci" data-x="q-fleet" data-path="a b" tabindex="0"><rect x="820" y="72" width="150" height="56" rx="10"/><text x="895" y="96" text-anchor="middle">Тестовый флот</text><text class="sub" x="895" y="114" text-anchor="middle">всегда main</text></g>
+      <g class="a" data-x="q-pr" data-path="a" tabindex="0"><path d="M180 55 L250 86" marker-end="url(#ah)"/><text x="204" y="56">PR</text></g>
+      <g class="a" data-x="q-pr" data-path="b" tabindex="0"><path d="M180 145 L250 114" marker-end="url(#ah)"/><text x="204" y="152">PR</text></g>
+      <g class="a" data-x="q-in" data-path="a b" tabindex="0"><path d="M380 100 L438 100" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="q-out" data-path="a b" tabindex="0"><path d="M750 100 L818 100" marker-end="url(#ah)"/></g>
+    </svg>
+    </div>
+    <div class="why" aria-live="polite"><b>Сессии не выкладывают и не договариваются.</b><p>Нажмите на любой узел или стрелку.</p></div>
+  </div>
+</section>
+
+<section id="b-git" data-block>
+  <h2><span class="chg" data-chg="git-title">Что где стоит — видно в git</span></h2>
+  <div class="card map chg" data-chg="git-block" data-explain>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 190" role="img" aria-label="Линия коммитов main слева направо. Ветка fleet/prod стоит на коммите, который на проде; правее неё fleet/test — последний коммит, прошедший живую проверку на тестовом флоте; ещё правее голова main, которая проверяется. Разница между метками — то, что уйдёт в прод.">
+      <path class="gitline" d="M60 110 L930 110" marker-end="url(#ah)"/>
+      <circle class="dot" cx="140" cy="110" r="9"/><circle class="dot" cx="300" cy="110" r="9"/><circle class="dot" cx="460" cy="110" r="9"/><circle class="dot" cx="620" cy="110" r="9"/><circle class="dot" cx="780" cy="110" r="9"/>
+      <g class="n ci ref" data-x="git-prod" data-path="live next" tabindex="0"><rect x="235" y="26" width="130" height="36" rx="8"/><text x="300" y="49" text-anchor="middle">fleet/prod</text><path class="stem" d="M300 62 L300 97" marker-end="url(#ah)"/></g>
+      <g class="n ci ref" data-x="git-test" data-path="next wait" tabindex="0"><rect x="555" y="26" width="130" height="36" rx="8"/><text x="620" y="49" text-anchor="middle">fleet/test</text><path class="stem" d="M620 62 L620 97" marker-end="url(#ah)"/></g>
+      <g class="n ref" data-x="git-main" data-path="wait" tabindex="0"><rect x="735" y="26" width="90" height="36" rx="8"/><text x="780" y="49" text-anchor="middle">main</text><path class="stem" d="M780 62 L780 97" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="git-live" data-path="live" tabindex="0"><path d="M70 132 L70 144 L296 144 L296 132"/><text x="183" y="166" text-anchor="middle">уже на проде</text></g>
+      <g class="a" data-x="git-next" data-path="next" tabindex="0"><path d="M304 132 L304 144 L616 144 L616 132"/><text x="460" y="166" text-anchor="middle">уйдёт в прод по слову</text></g>
+      <g class="a" data-x="git-wait" data-path="wait" tabindex="0"><path d="M624 132 L624 144 L780 144 L780 132"/><text x="702" y="166" text-anchor="middle">ещё проверяется</text></g>
+    </svg>
+    </div>
+    <div class="why" aria-live="polite"><b>Две ветки-метки, двигает только CI.</b><p>Нажмите на метку или на отрезок.</p></div>
+  </div>
+</section>
+
+<section id="b-done" data-block>
+  <h2>Строка «Готово» называет проверку</h2>
+  <div data-explain>
+    <div class="steps">
+      <button class="step" data-x="g-line"><span class="who">дизайн</span><span class="what">«Готово: эталон такой-то, живой шаг такой-то — 0 → 1»</span></button>
+      <span class="arrow">→</span>
+      <button class="step" data-x="g-run"><span class="who">CI</span><span class="what">Итог прогона: тесты по пакетам, живые шаги</span></button>
+      <span class="arrow">→</span>
+      <button class="step" data-x="g-report"><span class="who">сессия</span><span class="what">Итог: число до и после, ссылка на прогон</span></button>
+    </div>
+    <div class="card why" aria-live="polite"><b>Доказательство — прогон CI.</b><p>Нажмите на шаг.</p></div>
+  </div>
+</section>
+
+<section id="b-gone" data-block>
+  <h2>Что сессия больше не запускает</h2>
+  <div data-explain>
+    <div class="card gone">
+      <div><p class="cap">уходит в проверку</p><div class="chips"><button class="chip off" data-x="x-step">гейт и типы после каждого шага</button><button class="chip off" data-x="x-all">все тесты перед push</button></div></div>
+      <div><p class="cap">уходит на тестовый флот</p><div class="chips"><button class="chip off" data-x="x-build">сборка и её номер</button><button class="chip off" data-x="x-deploy">выкладка служб и машин</button><button class="chip off" data-x="x-live">живой прогон на Windows и Linux</button></div></div>
+      <div><p class="cap">уходит в прод</p><div class="chips"><button class="chip off" data-x="x-prod">выкладка руками</button><button class="chip off" data-x="x-sess">сверка сессий до и после</button></div></div>
+      <div><p class="cap">убирается совсем</p><div class="chips"><button class="chip off" data-x="x-before">полный прогон «до» перед кодом</button><button class="chip off" data-x="x-regr">отдельная регрессия после выпуска</button><button class="chip off" data-x="x-ask">опрос сессий «кто выкладывает»</button><button class="chip off" data-x="x-ci">установка зависимостей в дереве выкладки</button><button class="chip off" data-x="x-mem">запись версий флота в память</button></div></div>
+    </div>
+    <div class="card why" style="margin-top:10px" aria-live="polite"><b><span class="chg" data-chg="gone-count">Двенадцать</span> ручных шагов.</b><p>Нажмите на плашку: куда ушёл шаг и почему он лишний.</p></div>
+  </div>
+</section>
+
+<section id="b-etalons" data-block>
+  <h2>Эталоны</h2>
+  <div class="et">
+    <div class="e"><b>Красное не сливается</b><div class="io"><div>PR, в котором падает один тест</div><span>→</span><div class="out">слияний 0, на тестовом флоте прежний main</div></div><span class="src">чьё: факт GitHub — обязательная проверка ветки</span></div>
+    <div class="e"><b>Выкладки по одной</b><div class="io"><div>два слияния подряд, первая выкладка ещё идёт</div><span>→</span><div class="out">вторая ждёт; сборки N и N+1; на флоте main с обоими</div></div><span class="src">чьё: факт GitHub — группа очереди</span></div>
+    <div class="e"><b>Нетронутое не выкладывается</b><div class="io"><div>изменилась только страница</div><span>→</span><div class="out">новой сборки машин 0, платформа не тронута, службы и страница выложены</div></div><span class="src">чьё: код — <span class="chg" data-chg="et-digest">отпечаток сборки; у служб — такой же</span></span></div>
+    <div class="e chg" data-chg="et-contract"><b>Договор — часть каждой</b><div class="io"><div>изменился только общий договор запросов</div><span>→</span><div class="out">выложены все три: платформа, службы, машины</div></div><span class="src">чьё: код — договор собран в каждую часть, платформа проверяет им запросы</span></div>
+    <div class="e"><b>Порядок частей</b><div class="io"><div>изменились платформа, службы и машины</div><span>→</span><div class="out">платформа → службы и страница → машины</div></div><span class="src">чьё: код — нынешний порядок выпуска</span></div>
+    <div class="e"><b>Повтор доводит</b><div class="io"><div>выкладка оборвалась после служб; прогон запущен снова</div><span>→</span><div class="out">службы второй раз не выкладываются; машины получают сборку</div></div><span class="src">чьё: слово пользователя — чистый перезапуск начинает с хранилища</span></div>
+    <div class="e chg" data-chg="et-prod-ref"><b>На прод — только проверенное</b><div class="io"><div>main ушёл вперёд, живая проверка на нём красная; слово «в прод»</div><span>→</span><div class="out">на прод идёт коммит fleet/test, а не голова main; fleet/prod встаёт на него</div></div><span class="src">чьё: код — нынешний порядок выпуска</span></div>
+    <div class="e chg" data-chg="et-ref-green"><b>Метка — только после зелёного</b><div class="io"><div>живая проверка на тестовом флоте красная</div><span>→</span><div class="out">fleet/test на прежнем коммите; разница fleet/test..main не пуста</div></div><span class="src">чьё: слово пользователя 17 нояб. — «как отличить в гите, что куда»</span></div>
+    <div class="e"><b>Прод не идёт сам</b><div class="io"><div>слияние в main, живая проверка зелёная</div><span>→</span><div class="out">запусков выкладки на прод 0</div></div><span class="src">чьё: слово пользователя — прод только по слову</span></div>
+  </div>
+</section>
+
+<section id="b-gate" data-block>
+  <h2>Гейт</h2>
+  <div class="card gate">Гейт (23 строки реестров, с соседями — скилы выпуска и цикла тестов, память сессий; «до» — система сейчас): дубликаты ответственности 4 → 0 · состояния 2 → 0 · логики 1 → 0 · смысла 0 → 0 · других 1 → 0 · лишние коммуникации 2 → 0 · циклы 0 → 0
+  ответственность: «гонит полную проверку» — сессия у себя и CI → CI
+  ответственность: «выкладывает на флот» — любая сессия со своего компьютера → CI, одна очередь на флот
+  ответственность: «решает, какие части тронуты» — сессия по памяти → одна команда выкладки: сверяет код с тем, что стоит
+  ответственность: «назначает номер сборки» — сессии договариваются → команда выкладки внутри очереди
+  состояние: «что стоит на флоте» — каталог флота, карточки памяти сессий, файл состояния в репо → сам флот: каталог сборок и ответ службы о своём коммите
+  состояние: «числа до» — локальный снимок перед кодом и прогон main → итог прогона main
+  логика: «какие пакеты и чем проверять» — список в CI и список в раннере тестов → один список, CI зовёт раннер
+  другие: живая проверка — один список из 5 проверок и <span class="chg" data-chg="gate-live">ещё 14, которые запускают по памяти (10 рядом, 4 у страницы) → один список; вне его 1 — переписка в Telegram, свой живой шаг сессии</span>
+  коммуникации: опрос живых сессий перед каждой выкладкой → 0; запись версий в память после каждой выкладки → 0
+<span class="chg" data-chg="gate-blind">Слепой проход по самому дизайну (8 строк реестров): дубликаты ответственности 2 → 0 · состояния 2 → 0 · логики 1 → 0 · смысла 1 → 0 · других 1 → 0 · лишние коммуникации 1 → 0 · циклы 0 → 0
+  ответственность: «снимает тронутые экраны» — сессия и CI на каждый push → сессия; всех 324 снимков CI не делает
+  ответственность: «выкладывает на флот» — CI и ночной выпуск автономного цикла → CI; его порядок правится в шаге 6
+  состояние: «тест зелёный» — отметка коммита и исход прогона → <span class="chg" data-chg="gate-ref-state">одна ветка fleet/test, двигает CI</span>
+  состояние: снимки экранов — файлы прогона и папка в репо → папка в репо
+  логика: «тронута ли часть» — отпечаток у машин и сравнение коммитов у служб → отпечаток у всех трёх
+  смысл: «свой тест», ручная проверка Telegram и локальный живой запуск → одна своя проверка: файл теста, снимок тронутого экрана, свой живой шаг
+  другие: второй набор живых проверок у страницы (4) → в список или удалить как повтор
+  коммуникации: скачивание снимков из прогона → 0</span>
+Числа: исполнителей выкладки на флот: любая сессия → 1 · команд выпуска у сессии на одно изменение 9 → 2 (push с PR; запуск прода) · ручных шагов сессии <span class="chg" data-chg="gate-n-steps">12</span> → 0 · полных локальных прогонов по порядку выпуска 4 → 0 · команд в порядке выпуска, которых нет в репо, 8 → 0 · файлов CI 1 → 2 · скриптов выкладки +1 (одна команда) · <span class="chg" data-chg="gate-n-names">способов узнать, тронута ли часть, 2 → 1 · имена договора +1 (отпечаток в ответе службы о здоровье) · веток-меток +2 (fleet/test, fleet/prod) · ввод команды прода: коммит → нет</span> · запросы +0 · секреты GitHub 3 → 6 (адрес и пропуск тестового флота и прода, два ключа Cloudflare; пропуск старой системы убран) · настройки +2 (ключ и модель живой проверки) · ожидаемые ветки сбоев +0 · эталоны <span class="chg" data-chg="gate-n-et">+9</span>
+Работа: большая — меняет границу «кто проверяет и выкладывает»: сессия → CI
+Сделано:
+  1. Один владелец · выкладка · только CI, очередь на флот · выигрыш: договорённостей между сессиями 0, затёртых чужих выкладок 0, ручных шагов 12 → 0
+  2. Дубликат ответственности · полная проверка · только CI, на Linux и Windows; у сессии одна своя проверка · выигрыш: push, перед которым сессия гнала больше одной своей проверки, 31 из 37 → 0
+  3. Дубликат состояния · «что стоит на флоте» · отвечает флот · выигрыш: мест 3 → 1
+  4. Юнификация · живая проверка · один список · выигрыш: проверок вне списка <span class="chg" data-chg="gate-n-live">14 → 1</span>; новая функция проверяется на каждом слиянии
+  5. Платформа раньше своего · очередь, обязательная проверка, слияние зелёного PR — средствами GitHub · выигрыш: своих механизмов +0
+Решено одной строкой:
+  · На тестовом флоте всегда main, выкладок из веток нет: иначе вторая выкладка стирает первую (так было 16 ноября).
+  · Живая проверка идёт на двух машинах тестового флота; раннер CI машиной флота не становится. Машина выключена — проверка красная с причиной.
+  · <span class="chg" data-chg="gate-d-own">У себя сессия запускает одну свою проверку — ту, что пишет сейчас: файл теста, снимок тронутого экрана или свой живой шаг. Список целиком — только CI. Переписка в Telegram — такой же свой живой шаг: ей нужен личный аккаунт, в CI её нет.</span>
+  · <span class="chg" data-chg="gate-d-shots">Снимки в CI не идут: 324 снимка — больше 7 минут одних ожиданий на каждый push при проверке в 2 минуты, и упасть этот шаг не может. За неделю 66 запусков снимков из 67 — экраны своего изменения.</span>
+  · <span class="chg" data-chg="gate-d-digest">«Тронута ли часть» решает отпечаток собранного кода — у машин он уже есть. Общий договор запросов собран и в платформу: по отпечатку она выкладывалась бы в 7 слияниях из 18 за 15–17 ноября, её папка менялась в 1. Каждая такая выкладка — переподключение машин и страниц. Сузить зависимость платформы до конверта и договора флота — отдельная работа.</span>
+  · <span class="chg" data-chg="gate-d-mark">Что где стоит, видно в git (слово пользователя 17 нояб.): ветки fleet/test и fleet/prod двигает только CI после зелёной живой проверки. Отметка «тест зелёный» — это fleet/test, на прод идёт ровно она. «Какой коммит на флоте» хранит одно место — ветка; служба о коммите не отвечает, только об отпечатке кода. Тег не годится: передвинутый тег обычный fetch не обновляет.</span>
+  · Красная живая проверка после слияния — правка следующим PR, отката main нет.
+  · <span class="chg" data-chg="gate-d-pace">Правка живого поведения идёт через main: push, проверка, выкладка CI, свой живой шаг. Сейчас на одно слияние приходится 3 выкладки из ветки (55 на 18). Время живого списка и расход модели на нём замеряет первый шаг; резать список — после замера.</span>
+Развилки пользователю:
+  1. Правило устава «перед выкладкой спрашиваешь живые сессии, кто выкладывает и какие номера заняты» · рекомендую: заменить на «на флот выкладывает только CI, очередь одна» · иначе: оставить текст · не скажете иначе — текст остаётся, сессии не выкладывают, спрашивать некого
+  2. Журнал прогонов CI виден всем: репозиторий открытый · рекомендую: оставить открытым; адреса флотов и пропуска — секретами (GitHub закрывает их в журнале), проверка прода печатает только числа · иначе: закрыть репозиторий — 2 000 минут CI в месяц, минута Windows считается за две · не скажете иначе — открытый
+Не трогал как редакторское: имена шагов в скилах; слова живых проверок</div>
+</section>
+
+<section id="b-order" data-block>
+  <h2>Порядок реализации</h2>
+  <div class="order">
+    <div class="o"><b>Живая проверка — один список, и он идёт с раннера CI по ручному запуску</b><span class="done">Готово: прогон CI на тестовом флоте — живых шагов N из N (с раннера сейчас 0); проверок вне списка <span class="chg" data-chg="o1-live">14 → 1 (переписка в Telegram)</span>; время прогона — числом</span></div>
+    <div class="o"><b>Одна команда выкладки: <span class="chg" data-chg="o2-digest">служба отвечает отпечатком своего кода; план «что выкладывать» — чистая функция от отпечатков дерева и флота</span></b><span class="done">Готово: тесты плана — эталоны «нетронутое не выкладывается», <span class="chg" data-chg="o2-et">«договор — часть каждой»,</span> «порядок частей», «повтор доводит»; на тестовом флоте команда дважды подряд — второй запуск выкладывает 0 частей<span class="chg" data-chg="o2-ways">; способов узнать, тронута ли часть, 2 → 1</span></span></div>
+    <div class="o"><b>Слияние в main запускает выкладку на тестовый флот и живую проверку; очередь одна; <span class="chg" data-chg="o3-ref">после зелёной проверки CI двигает fleet/test</span></b><span class="done">Готово: два слияния подряд — 2 выкладки по очереди, сборки N и N+1; выкладок с компьютера сессии 0<span class="chg" data-chg="o3-ref-done">; после зелёного прогона git log origin/fleet/test..origin/main — 0 коммитов; после красного fleet/test на прежнем коммите</span></span></div>
+    <div class="o"><b>Проверка PR: <span class="chg" data-chg="o4-check">CI зовёт раннер тестов на Linux и Windows;</span> main принимает только зелёный PR, зелёный сливается сам</b><span class="done">Готово: PR с красным тестом — слияний 0 из 1; <span class="chg" data-chg="o4-done">мест со списком пакетов 2 → 1; работ проверки 3 → 2, по одной на систему; тестов Host на Windows в CI 0 → 250; время проверки — числом (сейчас 98–153 с)</span></span></div>
+    <div class="o"><b>Прод по слову: <span class="chg" data-chg="o5-ref">на прод идёт fleet/test; после зелёной проверки CI двигает fleet/prod;</span> сессии до и после числами; номера для отката в итоге прогона</b><span class="done">Готово: <span class="chg" data-chg="o5-ref-done">при красной голове main на прод идёт коммит fleet/test (1 из 1);</span> слияние в main — запусков прода 0; первая выкладка на прод — по слову, сессий до = после, failed 0<span class="chg" data-chg="o5-ref-log">; git log origin/fleet/prod..origin/fleet/test — 0 коммитов</span></span></div>
+    <div class="o"><b>Порядок выпуска и шаг «прогон» цикла тестов переписаны под этот путь<span class="chg" data-chg="o6-places">; ночной выпуск автономного цикла и файл состояния репо — тоже</span></b><span class="done">Готово: команд, которых нет в репо, 8 → 0; полных локальных прогонов в порядке 4 → 0; ручных шагов выпуска <span class="chg" data-chg="o6-done">12 → 0; файлов, где выкладывает сессия, 4 → 0</span></span></div>
+    <div class="o"><b>Повторный замер через неделю тем же подсчётом по журналам сессий</b><span class="done">Готово: node docs/designs/fast-path/runs.mjs &lt;папка журналов&gt; &lt;с даты&gt; — за неделю после выпуска: <span class="chg" data-chg="o7-done">push, перед которым сессия гнала больше одной своей проверки (правило импортов, типы, пакет целиком, все тесты), 31 из 37 → 0; выкладок с компьютера сессии 55 → 0; локальных запусков живого списка целиком 7 → 0</span></span></div>
+  </div>
+</section>
+</div>
+
+<script>
+// пояснения: клик по узлу, стрелке, шагу или плашке — короткий текст, у команды и ответа — пример; ховер подсвечивает путь
+(() => {
+  const X = {
+    go: ["«делай»", "Первое слово человека. После него сессия идёт до зелёной живой проверки на тестовом флоте. Развилки по дороге решает рекомендованным вариантом и пишет их в итог."],
+    word: ["«в прод»", "Второе слово человека. Без него на прод ничего не идёт: слияние и зелёная живая проверка прод не запускают."],
+    design: ["Дизайн", "Страница дизайна кончается порядком реализации. У каждого шага строка «Готово»: имя проверки и число. Это и вход сессии, и список того, что покажет CI."],
+    code: ["Код и своя проверка", "Сессия пишет код и проверку к нему. У себя она запускает только её одну: файл теста, снимок тронутого экрана или свой живой шаг. Правило импортов, типы, остальные тесты и список живых проверок она не запускает.", "cd host\nnpx vitest run test/accounts.test.ts"],
+    second: ["Второй проход", "Пока CI проверяет и выкладывает, сессия сверяет результат с дизайном: дубликаты, лишние обмены, хвосты, которые меняют поведение. Ожидание не простаивает."],
+    report: ["Итог", "Каждая строка «Готово» с числом до и после и ссылкой на прогон CI. Версии на флоте сессия не переписывает: их называет сам прогон."],
+    check: ["Проверка", "Чистая машина GitHub на каждый push: правило импортов между частями, типы, 757 тестов пяти пакетов, служба машины на Linux и Windows, сборка страницы. Сейчас 2 минуты. Красная проверка не даёт слить PR."],
+    test: ["Тестовый флот", "Две машины для проверок: Windows и Linux. CI собирает код под новым номером, выкладывает только изменившиеся части и гонит живую проверку: настоящие сессии, настоящая страница в браузере. На тестовом флоте всегда стоит main."],
+    prod: ["Прод", "CI выкладывает коммит из fleet/test в том же порядке, считает сессии до и после и гонит живую проверку. Зелёная — двигает fleet/prod. В итоге прогона — номера для отката."],
+    "a-go": ["От слова до кода", "Сессия берёт порядок реализации и идёт по шагам. Останавливается только на том, что задевает решение человека."],
+    "a-design": ["Строки «Готово»", "Шаги берутся по порядку. Строка без имени проверки не принимается: её нечем доказать.", "Готово: эталон «отказ провайдера несёт его текст»;\nживой шаг «причина в ленте» — 0 → 1 из 1"],
+    "a-push": ["push", "Push ветки с открытым PR запускает проверку. PR помечен «слить, когда зелёный», сессия у окна не ждёт.", "git push -u origin feat/x\ngh pr create --fill\ngh pr merge --auto --merge"],
+    "a-red": ["Красное", "Сессия читает вывод упавшей проверки, правит и делает новый push. Полный прогон у себя перед push ничего не добавляет: проверка та же.", "gh run view --log-failed"],
+    "a-second": ["Параллельно", "Второй проход начинается сразу после push, а не после зелёной проверки."],
+    "a-merge": ["Слияние в main", "Зелёный PR сливается сам. Слияние запускает выкладку на тестовый флот."],
+    "a-sr": ["Хвосты", "Хвост второго прохода идёт тем же путём: push, проверка, тестовый флот."],
+    "a-green": ["Отметка «тест зелёный»", "Живая проверка прошла — CI двигает ветку fleet/test на этот коммит. Это и есть отметка, она видна в git. Сессия берёт из прогона числа для итога. Красная живая проверка — метка стоит на месте, правка идёт следующим PR, отката нет.", "git log -1 origin/fleet/test"],
+    "a-live": ["Свой живой шаг", "Одну живую проверку своей функции сессия запускает сама — после того, как CI выложил её код из main. Выложить сама она не может: на флоте всегда main. Поправила проверку — следующий PR.", "node tools/fleet/live-errors.mjs test"],
+    "a-word": ["Запуск выкладки на прод", "После слова сессия запускает одну команду. Коммит называть не нужно: на прод идёт то, на что указывает fleet/test. Остальное делает CI.", "gh workflow run deploy.yml -f fleet=prod"],
+    "a-prod": ["Ровно проверенное", "На прод идёт коммит, на который указывает fleet/test. Голова main, которая ещё проверяется или красная, на прод не попадает. После выкладки и проверки CI двигает на этот коммит fleet/prod."],
+    "s-own": ["Один файл теста", "Тест, который сессия пишет к своему коду: так цикл «написал — увидел» занимает секунды. За неделю один файл запускали 34 раза из 156, остальные 122 гнали пакет целиком — это теперь делает CI.", "cd host\nnpx vitest run test/accounts.test.ts"],
+    "s-shot": ["Снимок тронутого экрана", "Экран, который сессия меняет, она снимает сама: настоящая страница в браузере, мышью и пальцем. За неделю такими были 66 запусков снимков из 67. Все 324 снимка разом CI не делает: это больше 7 минут одних ожиданий на каждый push, и упасть такой шаг не может.", "node docs/designs/v2-show/shots.mjs"],
+    "s-step": ["Свой живой шаг", "Живая проверка своей функции — одна, а не список. Сессия запускает её сама после того, как CI выложил main: за неделю такими были 54 живых запуска из 61. Сюда же относится переписка в Telegram: ей нужен личный аккаунт, в CI её нет.", "node tools/fleet/live-errors.mjs test"],
+    "s-gate": ["Правило импортов", "Части пользуются друг другом только через объявленный вход. Импорт мимо него — проверка падает. 1 секунда."],
+    "s-types": ["Типы", "Пять пакетов, 22 секунды."],
+    "s-tests": ["Тесты на двух системах", "protocol 16 · platform 57 · services 141 · host 250 · web 293 и служба машины. Сейчас в CI на Windows идёт только служба машины, остальное — на Linux за 58 секунд. Сессии работают на Windows и больше не гоняют пакеты у себя, поэтому весь список идёт в CI на обеих системах. Список один: CI зовёт тот же раннер, которым пакет можно прогнать отдельно."],
+    "s-build": ["Сборка страницы", "Страница собирается так же, как для выкладки. Не собралась — PR красный."],
+    "s-num": ["Сборка под номером", "Номер — последний в каталоге флота плюс один. Берёт его CI внутри очереди, поэтому два одинаковых номера не появятся."],
+    "s-touched": ["Выкладка изменившегося", "Правило одно для всех трёх частей: отпечаток кода, из которого часть собрана, сравнивается с отпечатком того, что стоит. Сборка машин уже хранит свой отпечаток в каталоге флота, службы отвечают своим. Совпал — часть не трогают. Общий договор запросов собран в каждую часть, поэтому его правка выкладывает и платформу: за 15–17 ноября — 7 слияний из 18, а папка платформы менялась в одном. Обновление платформы рвёт соединения, машины и страницы переподключаются. Порядок один: платформа, службы со страницей, машины.", "GET /health\n{ \"ok\": true, \"part\": \"platform\", \"digest\": \"4c1f09ab…\" }"],
+    "s-live": ["Живая проверка", "Один список: запросы каждого вида, серверные функции, страница в браузере, сценарии сессий, оповещение о сбое, связь сессий, откат, файлы, ошибки. Сейчас одной командой идут 5 проверок, ещё 10 лежат рядом и 4 — у страницы: все входят в список или удаляются как повтор. Новая функция добавляет свою проверку — и та идёт на каждом слиянии. Пять проверок идут 4,4 минуты; сколько идёт весь список, покажет первый шаг порядка."],
+    "s-mark": ["Метка fleet/test", "Ветка, которую CI двигает на коммит после зелёной живой проверки. По ней в git видно, что стоит на тесте проверенным, и с неё берёт код выкладка на прод.", "git log -1 origin/fleet/test"],
+    "s-same": ["Коммит из fleet/test", "Выкладка на прод берёт ровно тот коммит, на который указывает метка теста. Другой коммит назвать нельзя."],
+    "s-count": ["Сессии до и после", "Сколько сессий было на проде до выкладки, сколько осталось и сколько в сбое. В журнал прогона идут только числа."],
+    "s-plive": ["Живая проверка прода", "Часть того же списка, отмеченная годной для прода: запросы и страница со своей пробной сессией на двух машинах. Чужие сессии и перезапуски машин она не трогает."],
+    "s-back": ["Номера для отката", "Что стояло до выкладки: номер сборки машин и версии служб. Одна строка в итоге прогона."],
+    "q-a": ["Сессия", "Работает в своей ветке и ничего не выкладывает."],
+    "q-main": ["main", "Слияния встают в ряд. Что слито, то и пойдёт на тестовый флот."],
+    "q-wait": ["Ждёт", "Вторая выкладка ждёт конца первой и выкладывает main с обоими изменениями. Ждёт всегда одна, самая свежая: третье слияние занимает её место."],
+    "q-run": ["Выкладывается", "В один момент на флот идёт одна выкладка. Номер сборки она взяла из каталога флота уже внутри очереди."],
+    "q-fleet": ["Всегда main", "Выкладок из веток нет. Поэтому одна сессия не стирает правки другой, и на вопрос «что стоит на тесте» ответ один."],
+    "q-pr": ["PR", "Сессия открывает PR и помечает «слить, когда зелёный»."],
+    "q-in": ["Слияние запускает выкладку", "Отдельной команды нет."],
+    "q-out": ["Одна за другой", "Спрашивать соседние сессии, кто выкладывает и какие номера заняты, не нужно: очередь держит GitHub."],
+    "git-prod": ["fleet/prod", "Коммит, который стоит на проде. Ветку двигает только CI — после выкладки и зелёной живой проверки прода. Проверка красная — метка остаётся на прежнем коммите.", "git log -1 origin/fleet/prod"],
+    "git-test": ["fleet/test", "Последний коммит, который выложен на тестовый флот и прошёл живую проверку. Это и есть отметка «тест зелёный». Двигает только CI; выкладка на прод берёт ровно этот коммит.", "git log -1 origin/fleet/test"],
+    "git-main": ["main", "Всё слитое. Коммиты правее fleet/test ещё выкладываются или проверяются — либо живая проверка на них красная."],
+    "git-live": ["Уже на проде", "Всё, что левее метки fleet/prod, работает у людей."],
+    "git-next": ["Уйдёт в прод по слову", "Разница между двумя метками — ровно то, что получит прод по слову «в прод». Пусто — прод и тест совпадают.", "git log --oneline origin/fleet/prod..origin/fleet/test"],
+    "git-wait": ["Ещё проверяется", "Слито, но живая проверка на тестовом флоте ещё не прошла. На прод это не попадёт, пока метка fleet/test сюда не дойдёт.", "git log --oneline origin/fleet/test..origin/main"],
+    "s-pmark": ["Метка fleet/prod", "После выкладки и зелёной живой проверки прода CI двигает ветку на этот коммит. По ней в git видно, что стоит на проде."],
+    "g-line": ["Строка дизайна", "Называет проверку по имени и число, которое изменится.", "Готово: эталон «отказ провайдера несёт его текст»;\nживой шаг «причина в ленте» — 0 → 1 из 1"],
+    "g-run": ["Итог прогона", "CI печатает одну короткую сводку на прогон. Число «до» — из сводки последнего прогона main: он уже есть, снимать его у себя не нужно.", "проверка · 9e380fe2\n  protocol 16 · platform 57 · services 141 · host 250 · web 293 · keeper ✓\nтестовый флот · сборка 39 · откат 38\n  живая проверка: 58 из 58"],
+    "g-report": ["Итог сессии", "Строка, проверка, число до и после, ссылка на прогон. Отдельной регрессии нет: тот же прогон гонит все тесты и весь список живых проверок."],
+    "x-step": ["Гейт и типы после каждого шага", "Их гонит проверка на каждый push."],
+    "x-all": ["Все тесты перед push", "CI гонит те же 757 тестов за 58 секунд на чистой машине. У себя — только свой тест."],
+    "x-build": ["Сборка и её номер", "Собирает CI; номер берёт из каталога флота."],
+    "x-deploy": ["Выкладка служб и машин", "Одна команда, которую запускает CI после слияния."],
+    "x-live": ["Живой прогон на Windows и Linux", "Список идёт с раннера CI на обе машины тестового флота. У сессии остаётся один свой живой шаг."],
+    "x-prod": ["Выкладка на прод руками", "Одна команда запуска; шаги делает CI."],
+    "x-sess": ["Сверка сессий до и после", "Шаг выкладки на прод, числами в итоге прогона."],
+    "x-before": ["Полный прогон «до» перед кодом", "main уже проверен и выложен: его числа лежат в итоге последнего прогона."],
+    "x-regr": ["Отдельная регрессия", "Проверка и тестовый флот гонят всё на каждом изменении. Второй раз то же самое не запускается."],
+    "x-ask": ["Опрос сессий", "Выкладывает один исполнитель, очередь держит GitHub."],
+    "x-ci": ["Зависимости в дереве выкладки", "С компьютера сессии выкладок нет — нет и отдельного дерева под них."],
+    "x-mem": ["Версии флота в памяти", "Что стоит на флоте, отвечает сам флот; номера отката печатает прогон."],
+  };
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  for (const box of document.querySelectorAll("[data-explain]")) {
+    const out = box.querySelector(".why");
+    const items = [...box.querySelectorAll("[data-x]")];
+    const show = (el) => {
+      const [title, text, json] = X[el.dataset.x] ?? [el.dataset.x, ""];
+      for (const i of items) i.classList.toggle("on", i === el);
+      out.innerHTML = `<b>${esc(title)}</b><p>${esc(text)}</p>${json ? `<pre>${esc(json)}</pre>` : ""}`;
+    };
+    const svg = box.querySelector("svg");
+    for (const el of items) {
+      el.addEventListener("click", () => show(el));
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); show(el); } });
+      if (!svg) continue;
+      const paths = (el.dataset.path ?? "").split(" ");
+      el.addEventListener("mouseenter", () => { svg.classList.add("dim"); for (const i of items) i.classList.toggle("hot", (i.dataset.path ?? "").split(" ").some((p) => paths.includes(p))); });
+      el.addEventListener("mouseleave", () => { svg.classList.remove("dim"); for (const i of items) i.classList.remove("hot"); });
+    }
+  }
+  window.__explained = X;
+})();
+</script>
+<script>
+// метки «прочитал»: клавиша A (латинская или русская) над блоком
+(() => {
+  const KEY = "fast-path.read";
+  let read = [];
+  try { read = JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch {}
+  let over = null;
+  const draw = () => { for (const s of document.querySelectorAll("[data-block]")) s.classList.toggle("read", read.includes(s.id)); };
+  for (const s of document.querySelectorAll("[data-block]")) s.addEventListener("mouseenter", () => (over = s));
+  document.addEventListener("keydown", (e) => {
+    if (!(e.code === "KeyA" || e.key === "a" || e.key === "A" || e.key === "ф" || e.key === "Ф") || e.ctrlKey || e.metaKey || e.altKey || !over) return;
+    read = read.includes(over.id) ? read.filter((x) => x !== over.id) : [...read, over.id];
+    try { localStorage.setItem(KEY, JSON.stringify(read)); } catch {}
+    draw();
+  });
+  draw();
+})();
+</script>

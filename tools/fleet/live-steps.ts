@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fleetEnv } from "../dev.mjs";
+import { machineTmp } from "./harness.mjs";
 import {
   answer, CallError, createApi, fleetList, hostRestart, httpTransport, incidentList, incidentRaise, keeperState, machineMetrics, obsHealth, pointsDelete, pointsList, prefsGet, prefsSet, profileList, profileSync,
   sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellInfo, shellRun, keysModels, type SessionRow,
@@ -51,7 +52,8 @@ async function until<T>(what: string, fn: () => Promise<T | undefined | false | 
     await sleep(1500);
   }
 }
-const tmp = (m: string) => (m === "wsl" ? "/tmp/sb2-live-steps" : "C:/Users/" + os.userInfo().username + "/AppData/Local/Temp/sb2-live-steps");
+const tmps = new Map<string, string>();
+const tmp = (m: string) => tmps.get(m) ?? (tmps.set(m, machineTmp(fleet, device, m) + "/sb2-live-steps"), tmps.get(m)!);
 async function open(name: string, m: string, extra: Record<string, unknown> = {}, prompt?: string): Promise<string> {
   const r = await api.call(sessionOpen, { to: "@" + m, spec: { name, cwd: tmp(m), ...DOC, ...extra } as never, mkdir: true, number: true, ...(prompt ? { prompt } : {}) });
   made.push(r.callsign);

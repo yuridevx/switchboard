@@ -2,11 +2,13 @@
 // Без модели: короткая картина флота, отказ на выдуманный проект, сервер инструментов (инструкции, примеры, справка, чистка ответа, строка журнала).
 // С моделью (ключ и модель — SB2_KEY и SB2_MODEL): родитель даёт задачу дочери — итог видом result; дочь с фоновой командой отвечает дважды;
 // подмена Host посреди хода — итог дошёл, задача не пришла дважды; справка прочитана; правила пережили сжатие.
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CallError, createApi, fleetList, hostRestart, httpTransport, keysModels, logQuery, message, peopleList, sessionCall, sessionHistory, sessionOpen, sessionRemove, type Peer, type SessionRow } from "@sb/protocol";
 import { fleetEnv } from "../dev.mjs";
+import { machineTmp } from "./harness.mjs";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
 const env = fleetEnv;
@@ -17,7 +19,7 @@ const api = createApi({ ...wire, call: async (f) => { for (let i = 0; ; i++) { c
 const SEAT = process.env.SB2_KEY ?? "muse";
 const DOC = { key: SEAT, model: process.env.SB2_MODEL ?? (await api.call(keysModels, { name: SEAT })).models[0]!.id };
 const tag = Date.now().toString(36).slice(-4);
-const cwd = machine === "wsl" ? `/tmp/sb2-comms-${tag}` : `C:/Users/${os.userInfo().username}/AppData/Local/Temp/sb2-comms-${tag}`;
+const cwd = `${machineTmp(fleet, device, machine)}/sb2-comms-${tag}`;
 
 let bad = 0, total = 0;
 const made: string[] = [];
@@ -163,6 +165,12 @@ await step("правила пережили сжатие: сессия назы�
   const a = await lastAnswer(child);
   if (!a.includes(child) || !/\bmessage\b/.test(a)) throw new Error("ответ: " + a.slice(0, 120));
   return a.replace(/\s+/g, " ").slice(0, 90);
+});
+
+await step("карточки входящего от флота стоят в разговоре ведущей на выложенной странице", async () => {
+  const out = execFileSync(process.execPath, [path.join(import.meta.dirname, "live-cards.mjs"), fleet, device, parent], { encoding: "utf8", timeout: 180_000 });
+  return out.split("
+")[0]!;
 });
 
 // KEEP=1 — оставить сессии проверки для разбора

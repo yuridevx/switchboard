@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { accountList, CallError, CLAUDE, createApi, fleetList, httpTransport, keysList, keysModels, keysRemove, keysSet, logQuery, machineJournal, message, sessionOpen, sessionRemove, type SessionRow } from "@sb/protocol";
 import { fleetEnv } from "../dev.mjs";
+import { machineTmp } from "./harness.mjs";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
 const env = fleetEnv;
@@ -15,7 +16,7 @@ const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8"
 const wire = httpTransport({ base: env.SB2_BASE!, key });
 const api = createApi({ ...wire, call: async (f) => { for (let i = 0; ; i++) { const r = await wire.call(f); if (r.ok || r.error !== "offline" || i >= 4) return r; await new Promise((x) => setTimeout(x, 3000)); } } });
 const tag = Date.now().toString(36).slice(-4);
-const cwd = machine === "wsl" ? `/tmp/sb2-accounts-${tag}` : `C:/Users/${os.userInfo().username}/AppData/Local/Temp/sb2-accounts-${tag}`;
+const cwd = `${machineTmp(fleet, device, machine)}/sb2-accounts-${tag}`;
 /** Свой негодный аккаунт сценария: токен не настоящий. */
 const BOGUS = `bogus-${tag}@example.com`;
 const PROMPT = "Ответь одним словом: ok";

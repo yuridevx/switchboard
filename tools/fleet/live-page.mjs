@@ -7,12 +7,12 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall } from "./harness.mjs";
+import { chromium, fleetCall, machineTmp } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-// третьим аргументом — машина, на которой сценарий открывает свою сессию; ключ флота — SB2_SEAT (по умолчанию muse)
+// третьим аргументом — машина, на которой сценарий открывает свою сессию; ключ флота — SB2_KEY (по умолчанию muse)
 const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
-const SEAT = process.env.SB2_SEAT ?? "muse";
+const SEAT = process.env.SB2_KEY ?? "muse";
 const out = outArg ?? path.join(root, "dist", "live");
 fs.mkdirSync(out, { recursive: true });
 const dir = path.join(os.homedir(), ".switchboard-dev");
@@ -25,7 +25,7 @@ const MODEL = process.env.SB2_MODEL ?? call("keys.models", { name: SEAT }).resul
 const name = "live" + Date.now().toString(36).slice(-5);
 const invite = call("invite", { addr: name + me.person }).result;
 // своя сессия на ключе флота: ответ модели не зависит от чужой сессии и её ключа
-const cwd = machine === "wsl" ? "/tmp/sb2-live-steps" : "C:/Users/" + os.userInfo().username + "/AppData/Local/Temp/sb2-live-steps";
+const cwd = machineTmp(fleet, device, machine) + "/sb2-live-steps";
 const opened = call("session.open", { to: "@" + machine, spec: { name, cwd, key: SEAT, model: MODEL }, mkdir: true });
 const callsign = opened.ok ? opened.result.callsign : "";
 if (!opened.ok) console.log(`сессия не открылась: ${opened.error} ${opened.why ?? ""}`);

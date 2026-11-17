@@ -1,0 +1,39 @@
+# Выкладка на флот и живая проверка. Сессии с компьютера не выкладывают: на флот идёт только отсюда, по одной выкладке на флот.
+name: deploy
+on:
+  workflow_dispatch:
+    inputs:
+      fleet:
+        description: флот
+        type: choice
+        options: [test]
+        default: test
+
+jobs:
+  test:
+    if: inputs.fleet == 'test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # очередь на флот одна: вторая выкладка ждёт конца первой
+    concurrency:
+      group: fleet-test
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: настройки флота
+        env:
+          SB2_BASE: ${{ secrets.SB2_TEST_BASE }}
+          SB2_PASS: ${{ secrets.SB2_TEST_PASS }}
+        run: node tools/deploy/settings.mjs test ci
+      - name: живая проверка
+        env:
+          SB2_KEY: ${{ vars.SB2_KEY }}
+          SB2_MODEL: ${{ vars.SB2_MODEL }}
+          SB2_SWITCH: ${{ vars.SB2_SWITCH }}
+        run: node tools/fleet/live.mjs test ci devbox wsl
