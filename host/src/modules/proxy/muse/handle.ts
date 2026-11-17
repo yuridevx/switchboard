@@ -10,8 +10,8 @@ import { send, textOf } from "../upstream.ts";
 
 type Json = Record<string, any>;
 
-/** Окно muse-spark-1.3 и muse-wonder-1.0 по каталогу Meta. */
-const META_CONTEXT_WINDOW = 1007997;
+/** Окно, когда каталог провайдера его не назвал: так его называет каталог Meta. */
+const UNKNOWN_WINDOW = 1007997;
 /** Раундов поиска через прокси в одном сообщении Anthropic. */
 const MAX_SEARCH_ROUNDS = 8;
 const PING_MS = 10_000;
@@ -19,7 +19,8 @@ const PING_MS = 10_000;
 /** Конверт ошибки Anthropic: claude повторяет по коду HTTP и сжимает разговор по словам «prompt is too long». */
 export const anthropicError = (status: number, type: string, message: string) => ({ status, body: { type: "error", error: { type, message } } });
 
-function mapUpstreamError(status: number, text: string, metaBody: Json) {
+function mapUpstreamError(status: number, text: string, metaBody: Json, creds: Creds) {
+  const who = creds.label;
   let msg = text;
   try {
     const j = JSON.parse(text);
@@ -28,9 +29,9 @@ function mapUpstreamError(status: number, text: string, metaBody: Json) {
     // ответ не JSON — как есть
   }
   msg = String(msg || `HTTP ${status}`).slice(0, 2000);
-  if (status === 400 && /context|too long|maximum.*tokens|token limit|exceeds/i.test(msg)) return anthropicError(400, "invalid_request_error", `prompt is too long: ${estimateTokens(metaBody)} tokens > ${META_CONTEXT_WINDOW} maximum (Meta: ${msg})`);
-  if (status === 400 || status === 422) return anthropicError(400, "invalid_request_error", `Meta rejected the request: ${msg}`);
-  if (status === 401) return anthropicError(401, "authentication_error", `Meta API key rejected (${msg})`);
+  if (status === 400 && /context|too long|maximum.*tokens|token limit|exceeds/i.test(msg)) return anthropicError(400, "invalid_request_error", `prompt is too long: ${estimateTokens(metaBody)} tokens > ${creds.window ?? UNKNOWN_WINDOW} maximum (${who}: ${msg})`);
+  if (status === 400 || status === 422) return anthropicError(400, "invalid_request_error", `${who} rejected the request: ${msg}`);
+  if (status === 401) return anthropicError(401, "authentication_error", `${who} API key rejected (${msg})`);
   if (status === 403) return anthropicError(403, "permission_error", msg);
   if (status === 404) return anthropicError(404, "not_found_error", msg);
   if (status === 413) return anthropicError(413, "request_too_large", msg);
@@ -87,9 +88,9 @@ export async function* sseEvents(body: Readable): AsyncGenerator<Json> {
   }
 }
 
-/** count_tokens: у Meta счёта нет — оценка. */
-export function countTokens(res: ServerResponse, anth: Json): void {
-  const { body } = toMetaRequest({ ...anth, max_tokens: anth.max_tokens ?? 1024 });
+/** count_tokens: у Responses счёта нет — оценка. */
+export function countTokens(res: ServerResponse, anth: Json, creds: Creds): void {
+  const { body } = toMetaRequest({ ...anth, max_tokens: anth.max_tokens ?? 1024 }, { author: creds.author, search: creds.dialect === "meta" });
   sendJson(res, 200, { input_tokens: estimateTokens(body) });
 }
 
@@ -99,12 +100,14 @@ export async function messages(res: ServerResponse, anth: Json, creds: Creds, si
   const refuse = (e: ReturnType<typeof anthropicError>, headers?: Record<string, string>): string => (sendJson(res, e.status, e.body, headers), e.body.error.message);
   let meta;
   try {
-    meta = toMetaRequest(anth);
+    meta = toMetaRequest(anth, { author: creds.author, search: creds.dialect === "meta" });
   } catch (err) {
     return refuse(anthropicError(400, "invalid_request_error", `could not translate request: ${(err as Error).message}`));
   }
   const { body, ctx } = meta;
-  if (ctx.droppedTools.length) gap(`инструменты без пары у Meta: ${ctx.droppedTools.join(", ")}`);
+  if (ctx.droppedTools.length) gap(`инструменты без пары у ${creds.label}: ${ctx.droppedTools.join(", ")}`);
+  // заголовки клиента Meta — только её диалекту; OpenAI Responses — ключ и вид потока
+  const headers = creds.dialect === "meta" ? responsesHeaders(creds.key, creds.version, ctx.sessionId) : { authorization: `Bearer ${creds.key}`, accept: "text/event-stream", "content-type": "application/json" };
   const ac = new AbortController();
   const abort = () => ac.abort();
   signal.addEventListener("abort", abort);
@@ -127,17 +130,17 @@ export async function messages(res: ServerResponse, anth: Json, creds: Creds, si
     for (let round = 0; ; round++) {
       let up;
       try {
-        up = await send(`${creds.base}/responses`, { method: "POST", headers: responsesHeaders(creds.key, creds.version, ctx.sessionId), body: Buffer.from(JSON.stringify(roundBody)), signal: ac.signal, decode: true });
+        up = await send(`${creds.base}/responses`, { method: "POST", headers, body: Buffer.from(JSON.stringify(roundBody)), signal: ac.signal, decode: true });
       } catch (err) {
         if (res.destroyed) return;
-        const why = `cannot reach Meta: ${(err as Error).message}`;
+        const why = `cannot reach ${creds.label}: ${(err as Error).message}`;
         if (!started) return refuse(anthropicError(502, "api_error", why));
         tr.error = { message: why };
         break;
       }
       if (up.status < 200 || up.status >= 300) {
         const text = await textOf(up).catch(() => "");
-        const e = mapUpstreamError(up.status, text, roundBody);
+        const e = mapUpstreamError(up.status, text, roundBody, creds);
         if (!started) {
           const retry = up.headers["retry-after"];
           return refuse(e, { ...(typeof retry === "string" ? { "retry-after": retry } : {}), ...quotaHeaders(up.status, text) });

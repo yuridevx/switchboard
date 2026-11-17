@@ -1,6 +1,6 @@
 // Разговор сессии: шапка — только кто это и чем занят; лента; над полем ввода — дела и «Идут сейчас»; под полем — документ сессии и все действия значками.
 // Рядом — инспектор (ширина тянется) или второй разговор пары; у пары шапка одна на обоих участников.
-import { catalogModel, CLAUDE, prefsSet, sessionCall, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, type SessionRow } from "@sb/protocol";
+import { CLAUDE, prefsSet, sessionCall, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, type SessionRow } from "@sb/protocol";
 import { ActionIcon, Button, Checkbox, Group, Loader, Menu, SegmentedControl, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { useSplit } from "../lib/Split.tsx";
 import { Page } from "../shell/Page.tsx";
@@ -101,7 +101,7 @@ function DocValues({ s, ask }: { s: SessionRow; ask?: { n: number; q: string } }
 function CtxRing({ s }: { s: SessionRow }) {
   const offers = useOffers();
   const size = s.cache?.size ?? 0;
-  const window = offers.find((o) => o.key === (s.spec.key ?? CLAUDE) && o.model === catalogModel(s.spec.model ?? ""))?.window;
+  const window = offers.find((o) => o.key === (s.spec.key ?? CLAUDE) && o.model === (s.spec.model ?? ""))?.window;
   const pct = window ? Math.min(100, Math.round((size / window) * 100)) : 0;
   // каталог ещё не ответил или окна в нём нет — занятое называется числом токенов
   const said = window ? `${pct}%` : kilo(size);
@@ -122,29 +122,37 @@ function CtxRing({ s }: { s: SessionRow }) {
 
 const CACHE_HOUR = 60 * 60_000;
 
-/** Час кэша разговора из строки сессии: дуга — сколько кэшу осталось быть тёплым. Засечка на дуге — когда машина сожмёт разговор сама: её час называет машина,
- *  страница порога не считает. Кэша нет (час вышел, разговор сжат или ещё не начат) — пустое кольцо: следующий ход запишет разговор заново. */
+/** Кэш разговора из строки сессии. Срок известен — дуга показывает, сколько кэшу осталось быть тёплым; засечка на дуге — когда машина сожмёт разговор сама:
+ *  оба часа называет машина, страница их не считает. Срока нет (провайдер его не называет, и на ключе он не задан) — дуга показывает, какую долю
+ *  последнего запроса модель прочитала из кэша. Кэша нет (срок вышел, модель сменили, разговор ещё не начат) — пустое кольцо. */
 function CacheClock({ s }: { s: SessionRow }) {
   // часы идут сами: раз в 20 секунд кольцо перерисовывается по нынешнему времени
   const [, tick] = useState(0);
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 20_000); return () => clearInterval(t); }, []);
   const now = Date.now();
-  const left = s.cache ? s.cache.until - now : 0;
-  const warm = left > 0;
-  const compact = warm ? s.cache!.compact : undefined;
+  const until = s.cache?.until;
+  const left = until ? until - now : 0;
+  const timed = left > 0;
+  // доля прочитанного из кэша — когда срока нет
+  const share = s.cache && !until && s.cache.size ? Math.round(((s.cache.read ?? 0) / s.cache.size) * 100) : undefined;
+  const warm = timed || !!share;
+  const compact = timed ? s.cache!.compact : undefined;
   const r = 7, c = 2 * Math.PI * r;
-  const word = !warm ? "Кэш разговора холодный: следующий ход запишет его заново" : `Кэш разговора тёплый до ${hhmm(s.cache!.until)}${compact ? ` · в ${hhmm(compact)} разговор сожмётся сам` : ""}`;
+  const word = timed ? `Кэш разговора тёплый до ${hhmm(until!)}${compact ? ` · в ${hhmm(compact)} разговор сожмётся сам` : ""}`
+    : share !== undefined ? `Последний запрос прочитал из кэша ${share} %`
+    : "Кэш разговора холодный: следующий ход запишет его заново";
   // засечка автосжатия: на том месте круга, где дуга окажется в час сжатия
-  const a = (compact ? (s.cache!.until - compact) / CACHE_HOUR : 0) * 2 * Math.PI - Math.PI / 2;
+  const a = (compact ? (until! - compact) / CACHE_HOUR : 0) * 2 * Math.PI - Math.PI / 2;
+  const arc = timed ? Math.min(1, left / CACHE_HOUR) : (share ?? 0) / 100;
   return (
     <Tooltip label={word}>
-      <span className={`cacheclock${warm ? "" : " cold"}${compact && compact - now <= 6 * 60_000 ? " soon" : ""}`} role="img" aria-label={word} data-cache={warm ? "warm" : "cold"}>
+      <span className={`cacheclock${warm ? "" : " cold"}${compact && compact - now <= 6 * 60_000 ? " soon" : ""}`} role="img" aria-label={word} data-cache={timed ? "warm" : share !== undefined ? "read" : "cold"}>
         <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
           <circle cx="9" cy="9" r={r} className="track" />
-          {warm && <circle cx="9" cy="9" r={r} className="arc" strokeDasharray={`${c * Math.min(1, left / CACHE_HOUR)} ${c}`} transform="rotate(-90 9 9)" />}
+          {warm && <circle cx="9" cy="9" r={r} className="arc" strokeDasharray={`${c * arc} ${c}`} transform="rotate(-90 9 9)" />}
           {compact && <line className="notch" x1={9 + (r - 3) * Math.cos(a)} y1={9 + (r - 3) * Math.sin(a)} x2={9 + (r + 2) * Math.cos(a)} y2={9 + (r + 2) * Math.sin(a)} />}
         </svg>
-        {warm && <span className="w">{Math.ceil(left / 60_000)}</span>}
+        {timed ? <span className="w">{Math.ceil(left / 60_000)}</span> : share !== undefined && <span className="w">{share}%</span>}
       </span>
     </Tooltip>
   );

@@ -166,7 +166,7 @@ export class StreamTranslator {
       case "response.output_item.done": {
         const item = ev.item ?? {};
         if (st?.kind === "thinking") {
-          out.push(this.delta(st.index!, { type: "signature_delta", signature: encodeSignature(item) }));
+          out.push(this.delta(st.index!, { type: "signature_delta", signature: encodeSignature(item, this.ctx.author) }));
           out.push(this.stopBlock(st.index!));
         } else if (st?.kind === "message") {
           // сообщение без кусков несёт текст целиком в done

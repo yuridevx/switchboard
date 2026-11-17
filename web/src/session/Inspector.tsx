@@ -1,5 +1,5 @@
 // Инспектор сессии: обзор (документ и сведения), контекст, файлы, точки, журнал.
-import { catalogModel, machineJournal, peopleList, pointsDelete, pointsList, pointsSave, sessionCall, type SessionRow } from "@sb/protocol";
+import { machineJournal, peopleList, pointsDelete, pointsList, pointsSave, sessionCall, type SessionRow } from "@sb/protocol";
 import { Badge, Button, Group, Progress, SegmentedControl, Select, Stack, Switch, Tabs, Text, TextInput } from "@mantine/core";
 import { openStep } from "../shell/Page.tsx";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,7 +31,7 @@ export function pairRows(lead: SessionRow, wing: SessionRow): Array<[string, str
   const row = (label: string, of: (s: SessionRow) => string): [string, string, string] => [label, of(lead), of(wing)];
   return [
     row("Состояние", (s) => (s.compacting ? "сжимает контекст" : (s.doing ?? STATE_WORD[s.state]))),
-    row("Модель", (s) => (s.spec.model ? catalogModel(s.spec.model) : "—")),
+    row("Модель", (s) => s.spec.model ?? "—"),
     row("Кусочки", (s) => (s.spec.pieces ?? []).join(", ") || "нет"),
     row("Папка", (s) => s.spec.cwd),
     row("Открыта", (s) => ago(s.since)),

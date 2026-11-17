@@ -1,6 +1,6 @@
 // Выбор модели: один список на всю страницу — каталог Claude и каталоги провайдеров флота, как их отдала служба ключей.
-// Поиск — правило «слова → модели» из договора; закреплённые — сверху. Выбор называет сразу провайдера и точную модель.
-import { catalogModel, CLAUDE, docModel, findModels, keysList, keysModels, type Offer as Found } from "@sb/protocol";
+// Поиск — правило «слова → модели» из договора; закреплённые — сверху. Выбор называет сразу провайдера и точную модель: имя каталога — оно же имя в документе сессии.
+import { CLAUDE, findModels, keysList, keysModels, type Offer as Found } from "@sb/protocol";
 import { InputBase, Popover, TextInput } from "@mantine/core";
 import { IconPin, IconPinFilled, IconSearch } from "@tabler/icons-react";
 import { useQueries } from "@tanstack/react-query";
@@ -11,9 +11,8 @@ import { claudeKeys } from "../lib/accounts.ts";
 import { kilo } from "../lib/time.ts";
 import "./session.css";
 
-/** Модель в списке: провайдер (claude или имя ключа флота), имя каталога, название и семейство из каталога; group — заголовок группы;
- *  doc — имя для документа сессии: его даёт правило договора, страница своего не держит. */
-export type Offer = Found & { group: string; label: string; doc: string; window?: number };
+/** Модель в списке: провайдер (claude или имя ключа флота), имя каталога, название и семейство из каталога; group — заголовок группы. */
+export type Offer = Found & { group: string; label: string; window?: number };
 export const offerId = (o: { key: string; model: string }) => `${o.key}/${o.model}`;
 /** Закреплённые модели — личная настройка: одна на всех устройствах человека. */
 export const PINS = "models.pins";
@@ -24,7 +23,7 @@ export function offersOf(catalogs: Array<{ key: string; models: Array<{ id: stri
   return catalogs.flatMap(({ key, models }) => models.map((m): Offer => ({
     key, model: m.id, ...(m.name ? { name: m.name } : {}), ...(m.family ? { family: m.family } : {}),
     // семейство называет каталог; не назвал — модели провайдера идут одной группой
-    group: m.family ? `${providerWord(key)} · ${m.family}` : providerWord(key), label: m.name ?? m.id, doc: docModel(key, m), ...(m.window ? { window: m.window } : {}),
+    group: m.family ? `${providerWord(key)} · ${m.family}` : providerWord(key), label: m.name ?? m.id, ...(m.window ? { window: m.window } : {}),
   })));
 }
 
@@ -45,7 +44,7 @@ export function useOffers(): Offer[] {
 }
 
 /** Имя модели для человека: название из каталога, иначе имя каталога. model — имя из документа сессии или из ответа модели. */
-export const offerWord = (offers: Offer[], model?: string) => (model ? (offers.find((o) => o.model === catalogModel(model))?.label ?? catalogModel(model)) : "модель не выбрана");
+export const offerWord = (offers: Offer[], model?: string) => (model ? (offers.find((o) => o.model === model)?.label ?? model) : "модель не выбрана");
 /** То же — по прочитанным каталогам флота: имя встаёт, когда каталог ответил. */
 export function useModelWord(): (model?: string) => string {
   const offers = useOffers();
@@ -65,7 +64,7 @@ export function ModelPicker({ value, onPick, face, title, field, loud, ask }: { 
   const first = pinned[0] ?? groups[0]?.list[0];
   const pick = (o: Offer) => (onPick(o), setOpen(false), setQ(""));
   const row = (o: Offer, withProvider: boolean) => {
-    const id = offerId(o), on = pins.includes(id), cur = !!value?.model && (value.key ?? CLAUDE) === o.key && catalogModel(value.model) === o.model;
+    const id = offerId(o), on = pins.includes(id), cur = !!value?.model && (value.key ?? CLAUDE) === o.key && value.model === o.model;
     return (
       <div key={id} className={`mp-row${cur ? " cur" : ""}`} role="option" aria-selected={cur} data-offer={id}>
         <button type="button" className="mp-pick" onClick={() => pick(o)}>

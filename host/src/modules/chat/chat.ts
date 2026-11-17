@@ -264,9 +264,9 @@ export function make(): Module {
     const names = found.slice(0, MODELS_SHOWN).map((o) => `${o.key}/${o.model}`).join(", ");
     if (!found.length) throw new Refusal("no_model", `/model ${words}: такой модели у провайдеров флота нет`);
     if (found.length > 1) throw new Refusal("many_models", `/model ${words}: подходят ${found.length} — ${names}${found.length > MODELS_SHOWN ? " и другие" : ""}; уточните слова`);
-    const { key, doc } = found[0]!;
-    await host.call(sessionUpdate, { to, patch: { key, model: doc } }, { from: ctx.from, trace: ctx.trace });
-    return { model: doc };
+    const { key, model } = found[0]!;
+    await host.call(sessionUpdate, { to, patch: { key, model } }, { from: ctx.from, trace: ctx.trace });
+    return { model };
   }
 
   /** Событие в ленту: пачка уходит зрителям через окно. */

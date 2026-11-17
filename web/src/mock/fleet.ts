@@ -2,7 +2,7 @@
 import {
   type Account, type ArchPoint, type ArchSession, type Ask, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type Link, type LogRow, type MachineRow,
   type ObsRow, type PassRow, type PersonRow, type Piece, type Project, type Reply, type SessionRow, type Span, type Transport, fail, machineOf, newId, ok, Refusal,
-  catalogModel, CLAUDE, kindOf, type Kind,
+  CLAUDE, kindOf, type Kind,
 } from "@sb/protocol";
 import { iter2Handlers } from "./iter2.ts";
 import { iter4Handlers } from "./iter4.ts";
@@ -230,7 +230,7 @@ export function createMock(o: MockOptions = {}) {
   // сессии на провайдере: аккаунта Claude у них нет
   for (const [c, model] of [["audit@server", "glm-5.3"], ["crawler@base2", "deepseek-v4"]] as const) if (sessions[c]) { sessions[c]!.spec = { ...sessions[c]!.spec, key: "orca", model }; delete sessions[c]!.account; }
   // каталоги собраны: занятое в контексте — доля окна модели каждой сессии
-  windowOf = (spec) => catalogs[spec.key ?? CLAUDE]?.models.find((m) => m.id === catalogModel(spec.model ?? ""))?.window ?? WINDOW;
+  windowOf = (spec) => catalogs[spec.key ?? CLAUDE]?.models.find((m) => m.id === (spec.model ?? ""))?.window ?? WINDOW;
   for (const s of Object.values(sessions)) s.cache = { ...s.cache!, size: Math.round((shares.get(s.callsign) ?? 0.31) * windowOf(s.spec)) };
   for (const s of Object.values(sessions)) if (s.callsign.endsWith("@server") && s.spec.key === CLAUDE && s.account === "yuri@example.com" && s.callsign !== "ingest@server") s.account = "ops@example.com";
   const pieces: Piece[] = [
@@ -523,7 +523,7 @@ export function createMock(o: MockOptions = {}) {
       const patch = { ...f.patch };
       // как Host: модель проверяется по каталогу провайдера; сменился провайдер — аккаунт Claude выбирает машина, у провайдера аккаунта нет
       if ("model" in patch || "key" in patch) {
-        const key = String(patch.key ?? s.spec.key ?? CLAUDE), model = catalogModel(String(patch.model ?? s.spec.model ?? ""));
+        const key = String(patch.key ?? s.spec.key ?? CLAUDE), model = String(patch.model ?? s.spec.model ?? "");
         if (!catalogs[key]?.models.some((x) => x.id === model)) throw new Refusal("no_model", `у провайдера ${key} нет модели ${model}`);
         setRow(c, { account: key === CLAUDE ? (s.account ?? pickAccount(machineOf(c) ?? "")) : undefined, answers: undefined });
       }

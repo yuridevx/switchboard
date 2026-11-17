@@ -119,8 +119,8 @@ describe("ключи флота: каталог моделей", () => {
     ];
     s.state.net = (_url, init) => ((init?.headers as Record<string, string>).authorization === "Bearer sk-ant-oat01-good" ? Response.json({ data: listed, has_more: false }) : new Response("revoked", { status: 401 }));
     expect((await models(s, "claude")).result).toEqual({ models: [
-      { id: "claude-fable-5-2", name: "Claude Fable 5.2", family: "Fable", window: 1_000_000 }, { id: "claude-opus-4-8", name: "Claude Opus 4.8", family: "Opus", window: 1_000_000 },
-      { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", family: "Sonnet", window: 500_000 }, { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", family: "Haiku", window: 200_000 },
+      { id: "claude-fable-5-2", name: "Claude Fable 5.2", family: "Fable", window: 1_000_000, protocol: "claude" }, { id: "claude-opus-4-8", name: "Claude Opus 4.8", family: "Opus", window: 1_000_000, protocol: "claude" },
+      { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", family: "Sonnet", window: 500_000, protocol: "claude" }, { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", family: "Haiku", window: 200_000, protocol: "claude" },
     ] });
     const asked = s.seen.net.filter((n) => n.url.includes("/v1/models"));
     expect(asked.map((n) => n.url)).toEqual(["https://api.anthropic.com/v1/models?limit=1000", "https://api.anthropic.com/v1/models?limit=1000"]);
@@ -141,21 +141,52 @@ describe("ключи флота: каталог моделей", () => {
     await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-orca-9999", base: "https://api.orca.example/" });
     let listed = [{ id: "qwen-3.5-coder", context_length: 256_000, owned_by: "qwen" }, { id: "glm-5.3", context_length: 200_000 }];
     catalogNet(s, { "https://api.orca.example": () => Response.json({ data: listed }) });
-    expect((await models(s, "orca")).result).toEqual({ models: [{ id: "qwen-3.5-coder", family: "qwen", window: 256_000 }, { id: "glm-5.3", window: 200_000 }] });
+    expect((await models(s, "orca")).result).toEqual({ models: [{ id: "qwen-3.5-coder", family: "qwen", window: 256_000, protocol: "anthropic" }, { id: "glm-5.3", window: 200_000, protocol: "anthropic" }] });
     const asked = s.seen.net.at(-1)!;
     expect(asked.url).toBe("https://api.orca.example/v1/models?limit=1000");
     expect(asked.init!.headers).toMatchObject({ "x-api-key": "sk-orca-9999", authorization: "Bearer sk-orca-9999" });
     listed = [{ id: "glm-5.3", context_length: 200_000 }];
-    expect((await models(s, "orca")).result).toEqual({ models: [{ id: "glm-5.3", window: 200_000 }] });
+    expect((await models(s, "orca")).result).toEqual({ models: [{ id: "glm-5.3", window: 200_000, protocol: "anthropic" }] });
     expect(s.seen.net.filter((n) => n.url.includes("/v1/models"))).toHaveLength(2);
     // адрес провайдера уже назван с версией API — вторая версия в путь не идёт
     await s.ask("keys.set", { name: "muse", protocol: "meta", value: "sk-meta", base: "https://api.meta.example/v1" });
     catalogNet(s, { "https://api.meta.example": () => Response.json({ data: [{ id: "muse-2" }] }) });
-    expect((await models(s, "muse")).result).toEqual({ models: [{ id: "muse-2" }] });
+    expect((await models(s, "muse")).result).toEqual({ models: [{ id: "muse-2", protocol: "meta" }] });
     expect(s.seen.net.at(-1)!.url).toBe("https://api.meta.example/v1/models?limit=1000");
     // провайдер не ответил списком — отказ словом, прежний список не подставляется
     catalogNet(s, { "https://api.orca.example": () => new Response("<html>", { status: 502 }) });
     expect(await models(s, "orca")).toMatchObject({ ok: false, error: "catalog_failed", why: expect.stringContaining("502") });
+  });
+
+  // эталон 14 «Свободной смены модели»: провайдер объявляет API своих моделей — чьё: слово пользователя 17 нояб. — «у orcarouter есть и Anthropic, и OpenAI API»; факт: 38 из 227 моделей orcarouter отвечают по Anthropic-адресу
+  it("провайдер объявляет API моделей: протокол — Anthropic, если он объявлен, иначе OpenAI; моделей без разговорного API в каталоге нет", async () => {
+    const s = stand();
+    await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-orca", base: "https://api.orca.example" });
+    catalogNet(s, { "https://api.orca.example": () => Response.json({ data: [
+      { id: "deepseek/flash", supported_endpoint_types: ["openai", "openai-response", "anthropic"] },
+      { id: "grok/grok-4.5", supported_endpoint_types: ["openai", "openai-response"] },
+      { id: "deepseek/chat", supported_endpoint_types: ["openai"] },
+      { id: "kling/v3", supported_endpoint_types: ["openai-video"] },
+      { id: "openai/embed-3", supported_endpoint_types: ["embeddings"] },
+      { id: "orca/empty", supported_endpoint_types: [] },
+    ] }) });
+    expect((await models(s, "orca")).result).toEqual({ models: [{ id: "deepseek/flash", protocol: "anthropic" }, { id: "grok/grok-4.5", protocol: "openai" }, { id: "deepseek/chat", protocol: "openai" }] });
+  });
+
+  // эталон 15: провайдер API не объявляет — чьё: слово пользователя 17 нояб. — матрица «Anthropic-протокол, OpenAI-протокол, Claude нейтив аккаунты», muse-адаптер
+  it("провайдер API не объявляет: протокол модели — вид ключа; срок кэша — поле ключа", async () => {
+    const s = stand();
+    await s.ask("keys.set", { name: "oai", protocol: "openai", value: "sk-oai", base: "https://api.oai.example/v1", cache: 10 });
+    catalogNet(s, { "https://api.oai.example": () => Response.json({ data: [{ id: "gpt-x", context_length: 400_000 }] }) });
+    expect((await models(s, "oai")).result).toEqual({ models: [{ id: "gpt-x", window: 400_000, protocol: "openai" }] });
+    // ключ OpenAI-вида спрашивает каталог списком OpenAI: заголовка версии Anthropic в запросе нет
+    expect((s.seen.net.at(-1)!.init!.headers as Record<string, string>)["anthropic-version"]).toBeUndefined();
+    expect((await s.ask("keys.list", {}, "kanya1")).result).toMatchObject({ keys: [{ name: "oai", protocol: "openai", cache: 10 }] });
+    expect((await s.ask("keys.value", { name: "oai" }, "klaptop")).result).toMatchObject({ protocol: "openai", cache: 10 });
+    // срок снят нулём; вид ключа вне списка договора — отказ словом
+    await s.ask("keys.set", { name: "oai", protocol: "openai", cache: 0 });
+    expect(((await s.ask("keys.list", {}, "kanya1")).result as { keys: Array<{ cache?: number }> }).keys[0]!.cache).toBeUndefined();
+    expect(await s.ask("keys.set", { name: "x", protocol: "soap", value: "v" })).toMatchObject({ ok: false });
   });
 });
 

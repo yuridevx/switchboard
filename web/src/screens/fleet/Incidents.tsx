@@ -34,7 +34,7 @@ function KindForm({ name, kind, isNew, onSave, onClose }: { name: string; kind: 
       <TextInput label="Папка сессии" className="mono" value={k.cwd} onChange={(e) => set({ cwd: e.currentTarget.value })} placeholder="~/ops" />
       <Textarea label="Что сказать сессии" autosize minRows={2} value={k.prompt ?? ""} onChange={(e) => set({ prompt: e.currentTarget.value || undefined })} />
       <TagsInput label="Кусочки профиля" className="mono" value={k.pieces ?? []} onChange={(v) => set({ pieces: v.length ? v : undefined })} />
-      <ModelPicker field value={k} onPick={(o) => set({ key: o.key, model: o.doc })} face={k.model ? <ModelFace s={{ spec: k }} /> : <span className="muted">выберите модель</span>} />
+      <ModelPicker field value={k} onPick={(o) => set({ key: o.key, model: o.model })} face={k.model ? <ModelFace s={{ spec: k }} /> : <span className="muted">выберите модель</span>} />
       <TagsInput label="Кого позвать" placeholder="~почта" value={k.notify ?? []} onChange={(v) => set({ notify: v.length ? v : undefined })} error={badNotify ? `${badNotify}: нужен человек вида ~a@b.c` : undefined} />
       <MultiSelect label="Только на машинах" data={Object.keys(machines)} value={k.machines ?? []} onChange={(v) => set({ machines: v.length ? v : undefined })} clearable />
       <Group><Button disabled={!/^[a-z0-9][a-z0-9_.-]*$/i.test(n) || !k.cwd.trim() || !!badNotify} onClick={() => onSave(n, k)}>Сохранить</Button><Button variant="default" onClick={onClose}>Отмена</Button></Group>

@@ -1,6 +1,6 @@
 // Ключи флота — провайдеры моделей: аккаунты Claude (годовой токен) и ключи API провайдеров. Значение получает только машина.
 // Каталог моделей служба спрашивает у провайдера на каждый запрос и копии не держит.
-import { CLAUDE, Refusal, type Model } from "@sb/protocol";
+import { CLAUDE, Refusal, type Model, type Protocol } from "@sb/protocol";
 import type { Ctx, Env, Module } from "../../env.ts";
 import { records } from "../../records.ts";
 
@@ -16,10 +16,10 @@ const SCHEMA = [
 const db = (env: Env, fleet: string) => records(env, fleet, NAME, SCHEMA);
 
 /** keep — беречь запас недели под Fable; since — когда записано значение, мс. */
-type Opts = { settings?: Record<string, unknown>; env?: Record<string, string>; keep?: boolean; since?: number };
+type Opts = { settings?: Record<string, unknown>; env?: Record<string, string>; cache?: number; keep?: boolean; since?: number };
 type Stored = { name: string; provider: string; value: string; base: string | null; at: number; opts: string | null };
 type Seen = { name: string; win: string; used: number; resets: number | null; at: number };
-type Input = { name: string; protocol: string; value?: string; base?: string; keep?: boolean; settings?: Record<string, unknown>; env?: Record<string, string> };
+type Input = { name: string; protocol: string; value?: string; base?: string; keep?: boolean; settings?: Record<string, unknown>; env?: Record<string, string>; cache?: number };
 
 const SELECT = "SELECT keys.name, keys.provider, keys.value, keys.base, keys.at, keyopts.opts AS opts FROM keys LEFT JOIN keyopts ON keyopts.name = keys.name";
 /** Токен `claude setup-token` действует год. */
@@ -33,7 +33,7 @@ const optsOf = (s: Stored): Opts => (s.opts ? (JSON.parse(s.opts) as Opts) : {})
 function extras(s: Stored) {
   const o = optsOf(s);
   return {
-    ...(s.base ? { base: s.base } : {}), ...(o.settings ? { settings: o.settings } : {}), ...(o.env ? { env: o.env } : {}),
+    ...(s.base ? { base: s.base } : {}), ...(o.settings ? { settings: o.settings } : {}), ...(o.env ? { env: o.env } : {}), ...(o.cache ? { cache: o.cache } : {}),
     ...(s.provider === CLAUDE ? { keep: o.keep !== false } : {}),
   };
 }
@@ -49,27 +49,36 @@ async function sessionsOn(ctx: Ctx): Promise<Map<string, string[]>> {
   return by;
 }
 
-type Listed = { id?: string; display_name?: string; name?: string; family?: string; owned_by?: string; max_input_tokens?: number; context_length?: number; context_window?: number };
+type Listed = { id?: string; display_name?: string; name?: string; family?: string; owned_by?: string; max_input_tokens?: number; context_length?: number; context_window?: number; supported_endpoint_types?: unknown };
+/** Каким API говорить с моделью: что объявил о ней провайдер — Anthropic, если он есть, иначе OpenAI; не объявил ничего — вид ключа.
+ *  Объявил, но разговорного API среди объявленного нет (картинки, видео, эмбеддинги) — модели в каталоге сессий нет. */
+function protocolOf(m: Listed, key: Protocol): Protocol | undefined {
+  const said = m.supported_endpoint_types;
+  if (!Array.isArray(said)) return key;
+  if (said.includes("anthropic")) return "anthropic";
+  return said.includes("openai-response") || said.includes("openai") ? "openai" : undefined;
+}
 /** Семейство модели Claude — слово её имени: claude-opus-4-8 → Opus. */
 const claudeFamily = (id: string) => {
   const word = /^claude-(?:[\d.-]+-)?([a-z]+)/.exec(id)?.[1];
   return word ? word[0]!.toUpperCase() + word.slice(1) : undefined;
 };
-/** Модель каталога — как её отдал провайдер: имя, семейство и окно, если он их назвал. */
-function modelOf(m: Listed, claude: boolean): Model {
+/** Модель каталога — как её отдал провайдер: имя, семейство и окно, если он их назвал, и протокол. */
+function modelOf(m: Listed, key: Protocol, protocol: Protocol): Model {
   const name = m.display_name ?? m.name;
-  const family = m.family ?? (claude ? claudeFamily(m.id!) : m.owned_by);
+  const family = m.family ?? (key === CLAUDE ? claudeFamily(m.id!) : m.owned_by);
   const window = m.max_input_tokens ?? m.context_length ?? m.context_window;
-  return { id: m.id!, ...(name && name !== m.id ? { name } : {}), ...(family ? { family } : {}), ...(window ? { window } : {}) };
+  return { id: m.id!, ...(name && name !== m.id ? { name } : {}), ...(family ? { family } : {}), ...(window ? { window } : {}), protocol };
 }
 
-/** Один вопрос провайдеру о его каталоге. status — статус отказа: по нему каталог Claude идёт к следующему аккаунту. */
-async function catalog(ctx: Ctx, base: string, headers: Record<string, string>, claude: boolean): Promise<{ models: Model[] } | { status: number; why: string }> {
+/** Один вопрос провайдеру о его каталоге. status — статус отказа: по нему каталог Claude идёт к следующему аккаунту.
+ *  Ключ OpenAI-вида спрашивает список по-OpenAI — без заголовка версии Anthropic: провайдер с двумя API называет виды API своих моделей только в нём. */
+async function catalog(ctx: Ctx, base: string, headers: Record<string, string>, key: Protocol): Promise<{ models: Model[] } | { status: number; why: string }> {
   // адрес провайдера назван с версией API или без неё
   const root = base.replace(/\/+$/, "");
   let res: Response;
   try {
-    res = await ctx.fetch(`${/\/v\d+$/.test(root) ? root : `${root}/v1`}/models?limit=1000`, { headers: { "anthropic-version": "2023-06-01", ...headers }, signal: AbortSignal.timeout(CATALOG_MS) });
+    res = await ctx.fetch(`${/\/v\d+$/.test(root) ? root : `${root}/v1`}/models?limit=1000`, { headers: { ...(key === "openai" ? {} : { "anthropic-version": "2023-06-01" }), ...headers }, signal: AbortSignal.timeout(CATALOG_MS) });
   } catch (e) {
     return { status: 0, why: e instanceof Error ? e.message : String(e) };
   }
@@ -78,7 +87,7 @@ async function catalog(ctx: Ctx, base: string, headers: Record<string, string>, 
   try {
     const list = (JSON.parse(text) as { data?: Listed[] }).data;
     if (!Array.isArray(list)) return { status: res.status, why: "в ответе провайдера нет списка моделей" };
-    return { models: list.filter((m) => typeof m.id === "string" && m.id).map((m) => modelOf(m, claude)) };
+    return { models: list.filter((m) => typeof m.id === "string" && m.id).flatMap((m) => { const p = protocolOf(m, key); return p ? [modelOf(m, key, p)] : []; }) };
   } catch {
     return { status: res.status, why: "ответ провайдера — не JSON" };
   }
@@ -115,6 +124,8 @@ export const keys: Module = {
       const opts: Opts = {
         ...(i.settings ?? before.settings ? { settings: i.settings ?? before.settings } : {}),
         ...(i.env ?? before.env ? { env: i.env ?? before.env } : {}),
+        // 0 — срок снят: провайдер его не называет, и человек больше не утверждает
+        ...((i.cache ?? before.cache) ? { cache: i.cache ?? before.cache } : {}),
         // у аккаунта Claude запас Fable бережётся, пока человек не снял флаг
         ...(i.protocol === CLAUDE ? { keep: i.keep ?? before.keep ?? true, since: i.value !== undefined ? now : before.since } : {}),
       };
@@ -167,7 +178,7 @@ export const keys: Module = {
       if (i.name !== CLAUDE) {
         const s = await d.first<Stored>(`${SELECT} WHERE keys.name = ?`, i.name);
         if (!s || s.provider === CLAUDE) throw new Refusal("no_key", s ? `${i.name} — аккаунт Claude: его модели — в каталоге ${CLAUDE}` : `ключа ${i.name} нет`);
-        const r = await catalog(ctx, s.base ?? ANTHROPIC, { "x-api-key": s.value, authorization: `Bearer ${s.value}` }, false);
+        const r = await catalog(ctx, s.base ?? ANTHROPIC, { "x-api-key": s.value, authorization: `Bearer ${s.value}` }, s.provider as Protocol);
         if ("status" in r) throw new Refusal("catalog_failed", `каталог ${i.name}: ${r.why}`);
         return r;
       }
@@ -175,7 +186,7 @@ export const keys: Module = {
       if (!accounts.length) throw new Refusal("no_account", "аккаунтов Claude у флота нет");
       let why = "";
       for (const a of accounts) {
-        const r = await catalog(ctx, ANTHROPIC, { authorization: `Bearer ${a.value}`, "anthropic-beta": "oauth-2025-04-20" }, true);
+        const r = await catalog(ctx, ANTHROPIC, { authorization: `Bearer ${a.value}`, "anthropic-beta": "oauth-2025-04-20" }, CLAUDE);
         if (!("status" in r)) return r;
         why = `${a.name}: ${r.why}`;
         // токен не принят — спросить следующим аккаунтом; остальное — отказ самого Claude

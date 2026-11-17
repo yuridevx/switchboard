@@ -8,27 +8,28 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { CLAUDE, catalogModel, docModel, findModels, incidentRaise, keysLimits, keysList, keysModels, keysValue, LIMIT_WORD, READ_MS, Refusal, within, type Account as AccountOut, type Model, type Offer } from "@sb/protocol";
+import { CLAUDE, findModels, incidentRaise, keysLimits, keysList, keysModels, keysValue, LIMIT_WORD, READ_MS, Refusal, within, type Account as AccountOut, type Model, type Offer, type Protocol, type SessionState } from "@sb/protocol";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
+import { cacheOf, hours, launchEnv, launchSig, procModel, wireModel, type Cache, type Pair } from "./pair.ts";
 import { choose, closed, FABLE, FIVE, fits, isFable, nextReset, read, refusalHeaders, shown, WEEK, type Account, type Candidate } from "./limits.ts";
 
 /** Запись машины: окна и годность аккаунтов переживают подмену Host. */
 type Book = { accounts: Record<string, Account> };
-/** Настройки ключа провайдера без значения. */
-type KeyConfig = { protocol: string; base?: string; env?: Record<string, string>; settings?: Record<string, unknown> };
-/** Запись сессии. account — привязка, at — когда привязана; cut — годных аккаунтов не было, ход оборван: wait — час ближайшего сброса.
- *  key и window — настройки ключа провайдера и окно модели из каталога: подъём читает их без связи. */
-type Seat = { account?: string; at?: number; cut?: boolean; wait?: number; key?: KeyConfig; window?: number };
+/** Запись сессии — всё о паре «провайдер · модель» в одном месте. account — привязка к аккаунту Claude, at — когда привязана;
+ *  cut — годных аккаунтов не было, ход оборван: wait — час ближайшего сброса. pair — что известно о паре документа: пишется при смене и при запуске;
+ *  ran — подпись окружения, с которым поднят процесс; cache — кэш разговора у модели, которая ответила; answers — ответила не та модель. */
+type Seat = { account?: string; at?: number; cut?: boolean; wait?: number; pair?: Pair; ran?: string; cache?: Cache; answers?: string };
 
 /** Куда идёт вызов модели. account и token — аккаунт Claude: токен подписки идёт только в Authorization.
- *  key — ключ провайдера; model — модель сессии: побочный вызов с именем чужой модели уходит на неё. */
-export type Route = { /** позывной сессии; у пробы аккаунта и проверки ключа сессии нет */ callsign: string; to: string; account?: string; token?: string; key?: string; name?: string; model?: string; env?: Record<string, string> };
+ *  key — ключ провайдера; protocol — каким API с ним говорить; model — имя модели, которое слать: его решает хозяин пары, прокси только подставляет;
+ *  window — окно модели по каталогу. */
+export type Route = { /** позывной сессии; у пробы аккаунта и проверки ключа сессии нет */ callsign: string; to: string; protocol: Protocol; account?: string; token?: string; key?: string; name?: string; model?: string; window?: number; env?: Record<string, string> };
 /** Что делать с ответом: отдать сессии; послать тот же вызов на следующий аккаунт; подождать и повторить на том же. */
 export type Verdict = { act: "pass" } | { act: "next" } | { act: "wait"; ms: number };
 export type Answered = { status: number; headers: Record<string, string | string[] | undefined>; path: string; ms: number; hops: number; waited: boolean; model?: string; /** что провайдер написал в отказе */ why?: string };
 export type AccountsApi = {
-  /** Маршрут вызова сессии. skip — аккаунты, которые этот вызов уже пробовал. Маршрут в полёте, пока не назван done. */
-  route(sessionId: string, skip?: string[]): Promise<Route>;
+  /** Маршрут вызова сессии. skip — аккаунты, которые этот вызов уже пробовал; asked — имя модели из вызова. Маршрут в полёте, пока не назван done. */
+  route(sessionId: string, skip?: string[], asked?: string): Promise<Route>;
   /** Заголовки ответа пришли: окна аккаунта, вид отказа, строка журнала. */
   answer(route: Route, r: Answered): Verdict;
   /** Вызов кончился: ответ отдан или оборван. */
@@ -37,8 +38,8 @@ export type AccountsApi = {
   proxied(url: string): void;
   /** Маршрут проверки ключа провайдера: без сессии. */
   keyRoute(name: string): Promise<Route>;
-  /** Модели всех провайдеров флота: для «/model слова» из сообщения. doc — имя для документа сессии. */
-  offers(): Promise<Array<Offer & { doc: string }>>;
+  /** Модели всех провайдеров флота: для «/model слова» из сообщения. Имя модели — имя для документа сессии. */
+  offers(): Promise<Offer[]>;
 };
 
 const ANTHROPIC = "https://api.anthropic.com";
@@ -60,6 +61,14 @@ const PROBE_MS = READ_MS - 2_000;
 const PROBE = "проба";
 /** Вид обращения в «Инциденты»: токен аккаунта не принят. */
 const ACCOUNT_INCIDENT = "account";
+/** Вид обращения в «Инциденты»: ответила не та модель. */
+const MODEL_INCIDENT = "model";
+/** Имя модели у записи, которую процесс написал сам (ошибка API, прерывание): модель её не давала. */
+const SYNTHETIC = "<synthetic>";
+/** Предел шага смены: сколько ждём, пока живой процесс примет новую модель, — как у остальных шагов сессии. */
+const SWAP_MS = 30_000;
+/** Имена моделей Claude начинаются так: на пути Claude такие имена идут как есть — ими работают помощники сессии. */
+const CLAUDE_NAME = `${CLAUDE}-`;
 const KIND: Record<string, string> = { [WEEK]: "week", [FABLE]: "fable", [FIVE]: "five_hour" };
 
 const clock = (t: number) => new Date(t).toTimeString().slice(0, 5);
@@ -86,6 +95,17 @@ export function make(): Module {
   const probes = new Map<string, string>();
   const probing = new Map<string, Promise<void>>();
   let proxyUrl = "";
+  /** кэш разговора после последнего ответа: в память на каждый ответ, в запись сессии — когда она освободилась */
+  const caches = new Map<string, Cache>();
+  /** таймер сжатия при простое и его час; late — о пропущенном сроке журнал уже сказал */
+  const compacts = new Map<string, { timer: unknown; at: number }>();
+  const late = new Set<string>();
+  /** в идущем ходе модель сменили: ответ прежней модели до конца хода — не тревога */
+  const swapped = new Set<string>();
+  /** модель последнего ответа в основном разговоре: ей принадлежит размер, который вызов называет в конце */
+  const answered = new Map<string, string>();
+  /** пара, только что сверенная с каталогом: проверка документа и запись о паре читают каталог один раз */
+  const fresh = new Map<string, Pair>();
 
   const now = () => host.clock.now();
   const shelf = () => host.store<Book>();
@@ -98,7 +118,10 @@ export function make(): Module {
   const isFull = (name: string) => full.has(name) && (flying.get(name) ?? 0) >= full.get(name)!;
 
   /** Кэш разговора тёплый или привязка свежая: такая сессия держится своего аккаунта и занимает его в счёте. */
-  const warm = (s: SessionApi, seat: Seat | undefined, t: number) => Math.max((seat?.at ?? 0) + HOUR_MS, s.info.warm ?? 0) > t;
+  const cacheOfSession = (s: SessionApi): Cache | undefined => caches.get(s.callsign) ?? seatOf(s).get()?.cache;
+  /** До какого времени кэш разговора тёплый; срока нет — ноль. */
+  const warmUntil = (s: SessionApi): number => { const c = cacheOfSession(s); return c ? (hours(c).until ?? 0) : 0; };
+  const warm = (s: SessionApi, seat: Seat | undefined, t: number) => Math.max((seat?.at ?? 0) + HOUR_MS, warmUntil(s)) > t;
   /** Тёплые сессии по аккаунтам на этой машине; other — без этой сессии. */
   function warmBy(t: number, other?: string): Record<string, number> {
     const out: Record<string, number> = {};
@@ -199,8 +222,25 @@ export function make(): Module {
     });
   }
 
+  /** Каталог моделей провайдера: спрашивается у службы каждый раз, своей копии нет. */
+  const catalog = async (key: string): Promise<Model[]> => (await within(host.call(keysModels, { name: key }), READ_MS, `каталог ${key}: службы не ответили за ${READ_MS / 1000} с`)).models;
+
+  /** Пара по каталогу и ключу провайдера: одно чтение каталога; значение ключа — в память. Модели в каталоге нет — отказ словом с похожими именами. */
+  async function learn(key: string, model: string): Promise<Pair> {
+    const [models, opts] = await Promise.all([catalog(key), key === CLAUDE ? undefined : takeKey(key)]);
+    const m = models.find((x) => x.id === model);
+    if (!m) {
+      const near = findModels(model.split(/[-./]/).filter((w) => w.length > 2 && w !== CLAUDE)[0] ?? model, models.map((x) => ({ key, model: x.id }))).slice(0, 6).map((o) => o.model);
+      throw new Refusal("no_model", `у провайдера ${key} нет модели ${model}${near.length ? `; похожие: ${near.join(", ")}` : ""}`);
+    }
+    return {
+      key, model, protocol: m.protocol ?? (key === CLAUDE ? CLAUDE : ((opts?.protocol as Protocol | undefined) ?? "anthropic")), ...(m.window ? { window: m.window } : {}),
+      ...(opts?.base ? { base: opts.base } : {}), ...(opts?.env ? { env: opts.env } : {}), ...(opts?.settings && Object.keys(opts.settings).length ? { settings: opts.settings } : {}), ...(opts?.cache ? { cache: opts.cache } : {}),
+    };
+  }
+
   /** Свежий ключ провайдера: значение — в память, настройки — ответом. */
-  async function takeKey(name: string): Promise<KeyConfig> {
+  async function takeKey(name: string): Promise<{ protocol: string; base?: string; env?: Record<string, string>; settings?: Record<string, unknown>; cache?: number }> {
     try {
       const { value, keep: _keep, ...config } = await within(host.call(keysValue, { name }), READ_MS, `ключ флота ${name}: службы не ответили за ${READ_MS / 1000} с`);
       values.set(name, value);
@@ -211,22 +251,96 @@ export function make(): Module {
     }
   }
 
-  /** Каталог моделей провайдера: спрашивается у службы каждый раз, своей копии нет. */
-  const catalog = async (key: string): Promise<Model[]> => (await within(host.call(keysModels, { name: key }), READ_MS, `каталог ${key}: службы не ответили за ${READ_MS / 1000} с`)).models;
+  /** Пара документа сессии: из записи, пока она о той же паре; иначе — из каталога и ключа, и в запись. */
+  async function pairOf(s: SessionApi): Promise<Pair> {
+    const { key, model } = s.spec;
+    if (!key) throw new Refusal("key_required", `у ${s.callsign} не назван провайдер — session.update { key, model }`);
+    if (!model) throw new Refusal("model_required", `у ${s.callsign} не названа модель — session.update { key, model }`);
+    const known = seatOf(s).get()?.pair;
+    if (known && known.key === key && known.model === model) return known;
+    // пара только что сверена с каталогом при открытии: второй раз каталог не читается
+    const id = `${key}/${model}`;
+    const pair = fresh.get(id) ?? (await learn(key, model));
+    fresh.delete(id);
+    seatOf(s).update((x) => ({ ...x, pair }));
+    return pair;
+  }
 
-  /** Настройки ключа и окно модели — в запись сессии: подъём читает их без связи. */
-  async function seatKey(s: SessionApi): Promise<Seat> {
-    const name = s.spec.key!;
-    const [key, models] = await Promise.all([takeKey(name), catalog(name)]);
-    const window = models.find((m) => m.id === catalogModel(s.spec.model ?? ""))?.window;
-    return seatOf(s).update(() => ({ key, ...(window ? { window } : {}) }))!;
+  /** Кэш из памяти — в запись сессии: когда она освободилась. */
+  const flush = (s: SessionApi) => { const c = caches.get(s.callsign); if (c) seatOf(s).update((x) => ({ ...x, cache: c })); };
+
+  /** Сжатие при простое: сессия свободна, срок кэша известен, разговор большой — за шесть минут до конца срока уходит «/compact», тем же вводом, что у человека.
+   *  Срок прошёл (машина стояла) — строка журнала, догоняющего сжатия нет. Любой новый ход таймер снимает. */
+  function arm(s: SessionApi): void {
+    disarm(s.callsign);
+    const c = cacheOfSession(s);
+    const at = c ? hours(c).compact : undefined;
+    if (s.state !== "idle" || !c || !at || stopping) return;
+    const t = now();
+    if (at <= t) {
+      // строка — один раз: пока кэш ещё мог быть тёплым или только что остыл
+      if (!late.has(s.callsign)) host.log.info("idle_compact_late", { callsign: s.callsign, size: c.size, why: `сжатие при простое: срок прошёл ${Math.round((t - at) / 60_000)} мин назад — разговор не сжат` });
+      late.add(s.callsign);
+      return;
+    }
+    late.delete(s.callsign);
+    const timer = host.clock.setTimeout(() => {
+      compacts.delete(s.callsign);
+      if (s.state !== "idle" || stopping) return;
+      host.log.info("idle_compact", { callsign: s.callsign, size: c.size, why: `сжатие при простое: разговор ${Math.round(c.size / 1000)} К, кэш тёплый` });
+      s.input("/compact", { priority: "next" });
+      s.sync();
+    }, at - t);
+    (timer as { unref?: () => void }).unref?.();
+    compacts.set(s.callsign, { timer, at });
+  }
+
+  function disarm(callsign: string): void {
+    const c = compacts.get(callsign);
+    if (c) host.clock.clearTimeout(c.timer);
+    compacts.delete(callsign);
+  }
+
+  /** Ответ модели в основном разговоре: запись кэша и сверка модели с документом. Сверяется только Claude: стороннему провайдеру модель в каждый вызов ставит машина. */
+  function said(s: SessionApi, m: { message?: { model?: string; usage?: Parameters<typeof cacheOf>[0] } }): void {
+    const model = m.message?.model;
+    const pair = seatOf(s).get()?.pair;
+    if (!model || model === SYNTHETIC || !pair || pair.key !== s.spec.key || pair.model !== s.spec.model) return;
+    answered.set(s.callsign, model);
+    used(s, model, pair, m.message?.usage);
+    if (pair.protocol !== CLAUDE || swapped.has(s.callsign)) return;
+    const other = model === pair.model ? undefined : model;
+    if (other === seatOf(s).get()?.answers) return;
+    seatOf(s).update((x) => ({ ...x, answers: other }));
+    s.sync();
+    if (!other) return;
+    // система ловит, агент чинит: строка журнала и обращение в «Инциденты»; сама сессия модель не меняет
+    const why = `${s.callsign}: в документе модель ${pair.model}, ответила ${other}`;
+    host.log.error("model_drift", { callsign: s.callsign, word: "model_drift", why });
+    void host.call(incidentRaise, { to: `@${host.machine}`, kind: MODEL_INCIDENT, key: s.callsign, text: why }).catch((e: unknown) => host.log.warn("incident", { callsign: s.callsign, why: `обращение «модель» не открыто: ${say(e)}` }));
+  }
+
+  /** Размер запроса и прочитанное из кэша — в запись кэша. Ответ без размера записи не трогает: у путей с переводом провайдер называет размер
+   *  в конце вызова, и его несёт событие потока, а не сам ответ. */
+  function used(s: SessionApi, model: string, pair: Pair, usage: Parameters<typeof cacheOf>[0] | undefined): void {
+    if (!usage) return;
+    const c = cacheOf(usage, model, pair, cacheOfSession(s), now());
+    if (c.size > 0) caches.set(s.callsign, c);
+  }
+
+  /** Команда живому процессу с пределом шага по часам машины. */
+  function swap(s: SessionApi, name: string): Promise<void> {
+    return new Promise((done, fail) => {
+      const timer = host.clock.setTimeout(() => fail(Object.assign(new Error(`провайдер не ответил за ${SWAP_MS / 1000} с`), { late: true })), SWAP_MS);
+      s.sdk("setModel", name).then(() => done(), fail).finally(() => host.clock.clearTimeout(timer));
+    });
   }
 
   /** Вызов уходит этим аккаунтом: он в полёте, пока не назван done. */
   const go = (callsign: string, account: string): Route => {
     flying.set(account, (flying.get(account) ?? 0) + 1);
     // адрес Claude — из настройки модуля: на стенде на его месте подделка
-    return { callsign, to: host.config<{ api?: string }>().api ?? ANTHROPIC, account, token: tokens.get(account)! };
+    return { callsign, to: host.config<{ api?: string }>().api ?? ANTHROPIC, protocol: CLAUDE, account, token: tokens.get(account)! };
   };
 
   /** Проба окон аккаунта: разовый claude с ответом в одно слово через прокси машины, без инструментов и своих настроек. Одновременно на аккаунт — одна.
@@ -274,7 +388,7 @@ export function make(): Module {
       throw new Refusal("no_account", `${s.callsign}: ${why}`);
     }
     // аккаунт сессии с тёплым кэшем полон, а окна его открыты: этот вызов уходит на соседа, привязка прежняя; у новой сессии кэша нет — она переходит
-    if (bound && (s.info.warm ?? 0) > t && skipped.has(bound) && fits(all[bound], fable, t, true)) {
+    if (bound && warmUntil(s) > t && skipped.has(bound) && fits(all[bound], fable, t, true)) {
       routed(s, to, `${bound} полон: вызов ушёл на ${to}, привязка прежняя`, pick.candidates);
       return go(s.callsign, to);
     }
@@ -299,7 +413,7 @@ export function make(): Module {
   }
 
   const api: AccountsApi = {
-    async route(sessionId, skip = []) {
+    async route(sessionId, skip = [], asked) {
       // вызов пробы идёт названным аккаунтом и ни на какой другой не уходит
       const probed = probes.get(sessionId);
       if (probed) {
@@ -308,16 +422,15 @@ export function make(): Module {
       }
       const s = sessionOf(sessionId);
       if (!s) throw new Refusal("unknown_session", `сессии ${sessionId} на ${host.machine} нет`);
-      const name = s.spec.key;
-      if (!name) throw new Refusal("key_required", `${s.callsign}: в документе сессии нет провайдера — session.update { key, model }`);
-      if (name === CLAUDE) {
+      const pair = await pairOf(s);
+      if (pair.key === CLAUDE) {
         if (!tokens.size) await load().catch((e) => { throw new Refusal("no_account", `аккаунты Claude не прочитаны: ${say(e)}`); });
-        return claudeRoute(s, new Set(skip));
+        // на пути Claude модели Claude идут как есть — ими работают помощники сессии; чужое имя (вызов, начатый до смены) — на модель документа
+        return { ...claudeRoute(s, new Set(skip)), ...(asked && !asked.startsWith(CLAUDE_NAME) ? { model: wireModel(pair.model) } : {}) };
       }
-      const config = values.has(name) ? seatOf(s).get()?.key : (await seatKey(s)).key;
-      const key = values.get(name);
-      if (!key) throw new Refusal("no_key", `${s.callsign}: ключа ${name} нет`);
-      return { callsign: s.callsign, to: config?.base ?? ANTHROPIC, key, name, ...(s.spec.model ? { model: catalogModel(s.spec.model) } : {}) };
+      if (!values.has(pair.key)) await takeKey(pair.key);
+      // стороннему провайдеру любой вызов сессии уходит на модель документа
+      return { callsign: s.callsign, to: pair.base ?? ANTHROPIC, protocol: pair.protocol, key: values.get(pair.key)!, name: pair.key, model: wireModel(pair.model), ...(pair.window ? { window: pair.window } : {}) };
     },
 
     answer(route, r) {
@@ -391,14 +504,16 @@ export function make(): Module {
 
     async keyRoute(name) {
       const [config, models] = await Promise.all([takeKey(name), catalog(name)]);
-      return { callsign: `key.check ${name}`, to: config.base ?? ANTHROPIC, key: values.get(name)!, name, ...(models[0] ? { model: models[0].id } : {}), env: { ...config.env, ANTHROPIC_API_KEY: FLEET_WORD } };
+      const m = models[0];
+      // разовый запуск идёт тем же одним способом, что процесс сессии: вместо секрета — слово, настоящий ставит прокси
+      return { callsign: `key.check ${name}`, to: config.base ?? ANTHROPIC, protocol: m?.protocol ?? (config.protocol as Protocol), key: values.get(name)!, name, ...(m ? { model: m.id } : {}), ...(m?.window ? { window: m.window } : {}), env: { ...config.env, CLAUDE_CODE_OAUTH_TOKEN: FLEET_WORD } };
     },
 
     async offers() {
       const { keys } = await within(host.call(keysList, {}), READ_MS, `список ключей флота: службы не ответили за ${READ_MS / 1000} с`);
       const names = [...(keys.some((k) => k.protocol === CLAUDE) ? [CLAUDE] : []), ...keys.filter((k) => k.protocol !== CLAUDE).map((k) => k.name)];
       // каталог одного провайдера не ответил — остальные в списке остаются
-      const lists = await Promise.all(names.map((n) => catalog(n).then((ms) => ms.map((m) => ({ key: n, model: m.id, ...(m.name ? { name: m.name } : {}), ...(m.family ? { family: m.family } : {}), doc: docModel(n, m) })), () => [])));
+      const lists = await Promise.all(names.map((n) => catalog(n).then((ms) => ms.map((m) => ({ key: n, model: m.id, ...(m.name ? { name: m.name } : {}), ...(m.family ? { family: m.family } : {}) })), () => [])));
       return lists.flat();
     },
   };
@@ -409,6 +524,9 @@ export function make(): Module {
     spec: {
       key(value) {
         if (typeof value !== "string" || !value) throw new Refusal("bad_spec", "key — имя провайдера: claude или имя ключа флота");
+      },
+      model(value) {
+        if (typeof value !== "string" || !value) throw new Refusal("bad_spec", "model — точное имя модели из каталога провайдера (keys.models)");
       },
     },
     fill: {
@@ -422,46 +540,96 @@ export function make(): Module {
       if (!keys.includes("key") && !keys.includes("model")) return;
       if (!spec.key) throw new Refusal("key_required", "назовите провайдера: key — claude или имя ключа флота (keys.list)");
       if (!spec.model) throw new Refusal("model_required", `назовите модель: model — точное имя из каталога провайдера ${spec.key} (keys.models)`);
-      const key = spec.key, model = spec.model;
-      const models = await catalog(key);
-      const m = models.find((x) => x.id === catalogModel(model));
-      if (m && (model === m.id || model === docModel(key, m))) return;
-      const near = findModels(catalogModel(model).split(/[-.]/).filter((w) => w.length > 2 && w !== "claude")[0] ?? model, models.map((x) => ({ key, model: x.id }))).slice(0, 6).map((o) => o.model);
-      throw new Refusal("no_model", `у провайдера ${key} нет модели ${model}${near.length ? `; похожие: ${near.join(", ")}` : ""}`);
+      fresh.set(`${spec.key}/${spec.model}`, await learn(spec.key, spec.model));
     },
+    /** Документ записан — пара доходит до живого процесса командой; прокси с этой секунды шлёт вызовы новой паре, и проба процесса идёт уже новому провайдеру.
+     *  Отказ или молчание процесса — запись о паре возвращена, отказ словом: документ возвращает ядро. Перезапуск — только когда процессу нужно другое окружение. */
     async applied(s, keys) {
       if (!keys.includes("key") && !keys.includes("model")) return;
+      const id = `${s.spec.key}/${s.spec.model}`;
+      const pair = fresh.get(id) ?? (await learn(s.spec.key!, s.spec.model!));
+      fresh.delete(id);
       const was = seatOf(s).get();
-      if (onClaude(s)) {
-        // модель у того же провайдера ставит ядро на живом процессе; смена провайдера — другое окружение, процесс новый
-        if (!keys.includes("key")) return;
-        seatOf(s).set(undefined);
-      } else {
-        const seat = await seatKey(s);
-        if (!keys.includes("key") && seat.window === was?.window) return;
+      // та же пара, что уже в документе: ни команды, ни перезапуска
+      if (was?.pair && was.pair.key === pair.key && was.pair.model === pair.model) return void seatOf(s).update((x) => ({ ...x, pair }));
+      const cached = caches.get(s.callsign);
+      const t0 = now();
+      // кэш новой модели холодный до её первого ответа; привязка к аккаунту Claude остаётся, пока провайдер тот же
+      seatOf(s).set({ ...(pair.key === was?.pair?.key ? { account: was.account, at: was.at } : {}), pair, ran: was?.ran });
+      caches.delete(s.callsign);
+      answered.delete(s.callsign);
+      disarm(s.callsign);
+      const live = s.state === "idle" || s.state === "busy" || s.state === "waiting";
+      if (live) {
+        if (s.state !== "idle") swapped.add(s.callsign);
+        try {
+          await swap(s, procModel(pair));
+        } catch (e) {
+          seatOf(s).set(was);
+          if (cached) caches.set(s.callsign, cached);
+          swapped.delete(s.callsign);
+          // процесс молчит: что он сделал с командой, неизвестно — после хода чистый перезапуск на паре документа
+          if ((e as { late?: boolean }).late) void s.restart();
+          throw new Refusal("model_refused", `${id}: ${say(e).replace(/^.*setModel — /, "")}`);
+        }
+        const restart = launchSig(pair) !== was?.ran;
+        if (restart) void s.restart();
+        host.log.info("model_switch", { callsign: s.callsign, from: was?.pair ? `${was.pair.key}/${was.pair.model}` : "", to: id, protocol: pair.protocol, how: restart ? "restart" : "hot", ms: now() - t0, why: `${s.callsign}: модель ${id}${restart ? " — после хода перезапуск: другое окружение" : ""}` });
       }
       s.sync();
-      if (alive(s)) void s.restart();
     },
-    // подъём берёт настройки ключа из записи сессии и флот не спрашивает: на старте связи ещё нет
+    // один способ запуска для любого провайдера: своего входа у процесса нет, вместо секрета слово — настоящий ставит прокси.
+    // Пара — из записи сессии, пока она о паре документа: на старте связи может не быть.
     async compose(s): Promise<QueryPart> {
-      if (!s.spec.key) throw new Refusal("key_required", `у ${s.callsign} не назван провайдер — session.update { key, model }`);
-      // своего входа у процесса нет: вместо токена слово, настоящий ставит прокси
-      if (onClaude(s)) return { env: { CLAUDE_CODE_OAUTH_TOKEN: FLEET_WORD } };
-      const seat = seatOf(s).get()?.key ? seatOf(s).get()! : await seatKey(s);
+      const pair = await pairOf(s);
+      seatOf(s).update((x) => ({ ...x, ran: launchSig(pair) }));
       return {
-        env: { ...seat.key!.env, ANTHROPIC_API_KEY: FLEET_WORD, ...(seat.window ? { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(seat.window) } : {}) },
-        ...(seat.key!.settings && Object.keys(seat.key!.settings).length ? { defaults: { settings: seat.key!.settings } } : {}),
+        model: procModel(pair),
+        env: { ...launchEnv(pair), CLAUDE_CODE_OAUTH_TOKEN: FLEET_WORD },
+        ...(pair.settings ? { defaults: { settings: pair.settings } } : {}),
       };
     },
     row(s) {
-      if (!onClaude(s)) return {};
       const seat = seatOf(s).get();
-      return { ...(seat?.account ? { account: seat.account } : {}), ...(seat?.cut && seat.wait ? { wait: seat.wait } : {}) };
+      const c = cacheOfSession(s);
+      const armed = compacts.get(s.callsign);
+      return {
+        ...(onClaude(s) && seat?.account ? { account: seat.account } : {}), ...(onClaude(s) && seat?.cut && seat.wait ? { wait: seat.wait } : {}),
+        // итог, а не правило: часы кэша считает хозяин пары, страница их только показывает
+        ...(c ? { cache: { ...(hours(c).until ? { until: hours(c).until } : {}), ...(armed ? { compact: armed.at } : {}), size: c.size, read: c.read } } : {}),
+        ...(seat?.answers ? { answers: seat.answers } : {}),
+      };
     },
     on: {
-      state(s, state) {
-        if (state === "idle" && seatOf(s).get()?.cut) revive();
+      event(s, m) {
+        if (m.type === "assistant" && !m.parent_tool_use_id && !m.isReplay) said(s, m);
+        // конец вызова в основном разговоре: итоговые числа запроса
+        if (m.type === "stream_event" && !m.parent_tool_use_id && m.event?.type === "message_delta" && m.event.usage) {
+          const pair = seatOf(s).get()?.pair, model = answered.get(s.callsign);
+          if (pair && model && pair.key === s.spec.key && pair.model === s.spec.model) used(s, model, pair, m.event.usage);
+        }
+        // разговор сжат: кэш написан заново, размер — после сжатия
+        const c = cacheOfSession(s);
+        if (m.type === "system" && m.subtype === "compact_boundary" && c) {
+          const meta = (m.compact_metadata ?? m.compactMetadata ?? {}) as { post_tokens?: number; postTokens?: number };
+          caches.set(s.callsign, { ...c, at: now(), size: meta.post_tokens ?? meta.postTokens ?? 0 });
+        }
+      },
+      state(s, state: SessionState) {
+        if (state === "idle") {
+          swapped.delete(s.callsign);
+          flush(s);
+          if (seatOf(s).get()?.cut) revive();
+        }
+        arm(s);
+        s.sync();
+      },
+      removed(callsign) {
+        disarm(callsign);
+        caches.delete(callsign);
+        answered.delete(callsign);
+        late.delete(callsign);
+        swapped.delete(callsign);
       },
       changed(what) {
         if (what !== "keys") return;
@@ -501,6 +669,7 @@ export function make(): Module {
       stopping = true;
       host.clock.clearTimeout(wake);
       host.clock.clearTimeout(round);
+      for (const callsign of [...compacts.keys()]) disarm(callsign);
     },
   };
 }

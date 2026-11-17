@@ -193,7 +193,7 @@ describe("привязка сессии", () => {
     await fleet({ [A]: { week: 0.4, hours: 21 }, [B]: { week: 0.4, hours: 72 } });
     const { s } = await st!.open("site", claude(OPUS));
     expect(await routed(s.rec.sessionId)).toBe(A);
-    mod().answer({ callsign: "other@laptop", to: "", account: B, token: "" }, { status: 200, headers: windows({ week: 0.4, hours: 2 }), path: "/v1/messages", ms: 1, hops: 0, waited: false });
+    mod().answer({ callsign: "other@laptop", to: "", protocol: "claude", account: B, token: "" }, { status: 200, headers: windows({ week: 0.4, hours: 2 }), path: "/v1/messages", ms: 1, hops: 0, waited: false });
     expect(await routed(s.rec.sessionId)).toBe(A);
     const { s: fresh } = await st!.open("fresh", claude(OPUS));
     expect(await routed(fresh.rec.sessionId)).toBe(B);
@@ -204,7 +204,7 @@ describe("привязка сессии", () => {
     await fleet({ [A]: { week: 0.4, hours: 21 }, [B]: { week: 0.4, hours: 72 } });
     const { s } = await st!.open("site", claude(OPUS));
     expect(await routed(s.rec.sessionId)).toBe(A);
-    mod().answer({ callsign: "other@laptop", to: "", account: B, token: "" }, { status: 200, headers: windows({ week: 0.4, hours: 2 }), path: "/v1/messages", ms: 1, hops: 0, waited: false });
+    mod().answer({ callsign: "other@laptop", to: "", protocol: "claude", account: B, token: "" }, { status: 200, headers: windows({ week: 0.4, hours: 2 }), path: "/v1/messages", ms: 1, hops: 0, waited: false });
     st!.clock.advance(61 * 60_000);
     expect(await routed(s.rec.sessionId)).toBe(B);
     expect(row().account).toBe(B);
@@ -226,7 +226,7 @@ describe("привязка сессии", () => {
     await fleet(all);
     const { s } = await st!.open("site", claude(OPUS));
     expect(await routed(s.rec.sessionId)).toBe(A);
-    mod().answer({ callsign: "other@laptop", to: "", account: B, token: "" }, { status: 200, headers: windows({ week: 0.4, hours: 2 }), path: "/v1/messages", ms: 1, hops: 0, waited: false });
+    mod().answer({ callsign: "other@laptop", to: "", protocol: "claude", account: B, token: "" }, { status: 200, headers: windows({ week: 0.4, hours: 2 }), path: "/v1/messages", ms: 1, hops: 0, waited: false });
     const home = st!.home, sid = s.rec.sessionId;
     await st!.stop();
     await fleet(all, () => ({}), { home });
@@ -390,8 +390,9 @@ describe("провайдеры и модели", () => {
     const api = await fleet({ [A]: {} });
     const { s, q } = await st!.open("site", { key: "orca", model: "qwen-3.5-coder" });
     expect(s.rec.spec).toMatchObject({ key: "orca", model: "qwen-3.5-coder" });
+    // один способ запуска для любого провайдера; окно 256 К — имя с «[1m]» и точный предел
     const env = (q.options as any).env;
-    expect([env.ANTHROPIC_API_KEY, env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, env.CLAUDE_CODE_OAUTH_TOKEN]).toEqual(["fleet", "256000", undefined]);
+    expect([env.ANTHROPIC_API_KEY, env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, env.CLAUDE_CODE_OAUTH_TOKEN, (q.options as any).model]).toEqual([undefined, "256000", "fleet", "qwen-3.5-coder[1m]"]);
     await call(s.rec.sessionId, "qwen-3.5-coder");
     await call(s.rec.sessionId, HAIKU);
     expect(api.hits.map((h) => [h.headers["x-api-key"], h.model])).toEqual([["sk-orca", "qwen-3.5-coder"], ["sk-orca", "qwen-3.5-coder"]]);
@@ -419,19 +420,21 @@ describe("провайдеры и модели", () => {
     expect(s.rec.spec).toMatchObject(claude());
     expect(await st!.request("session.open", { to: "@laptop", spec: { name: "x", cwd: st!.dir } })).toMatchObject({ ok: false, error: "key_required" });
     expect(await st!.request("session.open", { to: "@laptop", spec: { name: "x", cwd: st!.dir, key: "claude" } })).toMatchObject({ ok: false, error: "model_required" });
-    // имя каталога и имя с суффиксом окна в миллион — оба точные
-    expect(await st!.request("session.update", { to: CS, patch: { model: `${OPUS}[1m]` } })).toMatchObject({ ok: true });
+    // в документе — имя каталога как есть; суффикс окна знает только имя для процесса
+    expect(await st!.request("session.update", { to: CS, patch: { model: `${OPUS}[1m]` } })).toMatchObject({ ok: false, error: "no_model" });
+    expect(await st!.request("session.update", { to: CS, patch: { model: OPUS } })).toMatchObject({ ok: true });
   });
 
   // чьё: слово пользователя 15 нояб. — «убрать любой десинк»
   it("ответ пришёл от другой модели — в строке сессии обе модели, строка журнала, происшествие; ответила названная — расхождения нет", async () => {
     await fleet({ [A]: {} });
-    await st!.open("site", claude(`${FABLE}[1m]`));
+    const { q } = await st!.open("site", claude(FABLE));
+    expect((q.options as any).model).toBe(`${FABLE}[1m]`);
     const said = (model: string) => ({ type: "assistant", uuid: `u-${model}-${Math.random()}`, parent_tool_use_id: null, message: { model, content: [{ type: "text", text: "ок" }] } });
     await st!.turn(CS, [said(FABLE)]);
     expect(row().answers).toBeUndefined();
     await st!.turn(CS, [said("claude-opus-5-5")]);
-    expect(row()).toMatchObject({ spec: { model: `${FABLE}[1m]` }, answers: "claude-opus-5-5" });
+    expect(row()).toMatchObject({ spec: { model: FABLE }, answers: "claude-opus-5-5" });
     expect(journal("model_drift")).toMatchObject([{ callsign: CS, level: "error" }]);
     await until(() => raised.length === 1, 5000, "обращение о модели");
     expect(raised[0]).toMatchObject({ kind: "model", key: CS });
@@ -446,8 +449,8 @@ describe("провайдеры и модели", () => {
     await fleet({ [A]: {} }, () => ({}), { extra: [chat()] });
     const { s, proc, q } = await st!.open("site", claude());
     const r = await st!.request("message", { to: CS, text: "/model opus 4.8" }, "lead@laptop");
-    expect(r).toMatchObject({ ok: true, result: { model: `${OPUS}[1m]` } });
-    expect(s.rec.spec).toMatchObject({ key: "claude", model: `${OPUS}[1m]` });
+    expect(r).toMatchObject({ ok: true, result: { model: OPUS } });
+    expect(s.rec.spec).toMatchObject({ key: "claude", model: OPUS });
     expect(proc.inputs).toHaveLength(0);
     expect(q.calls.filter((c) => c.name === "setModel").map((c) => c.args[0])).toEqual([`${OPUS}[1m]`]);
   });

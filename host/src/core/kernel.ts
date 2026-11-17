@@ -280,15 +280,14 @@ export class Kernel {
     return { options: all, conflicts };
   }
 
-  /** Вклад самого ядра: сервер инструментов флота, промпт, режим и модель из документа. */
+  /** Вклад самого ядра: сервер инструментов флота, промпт и режим из документа. Модель — у хозяина пары «провайдер · модель». */
   corePart(s: SessionApi): QueryPart {
-    const { model, effort, mode, fast, style, thinking } = s.spec;
+    const { effort, mode, fast, style, thinking } = s.spec;
     const settings = { ...(fast !== undefined ? { fastMode: fast } : {}), ...(style ? { outputStyle: style } : {}), ...(thinking !== undefined ? { alwaysThinkingEnabled: thinking } : {}) };
     return {
       enableFileCheckpointing: true,
       includePartialMessages: true,
       permissionMode: MODES[mode ?? "all"],
-      ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(Object.keys(settings).length ? { settings } : {}),
       mcpServers: { fleet: { type: "http", url: `${this.o.base}/mcp`, headers: { Authorization: `Bearer ${this.o.key}`, "x-sb-as": s.callsign } } },

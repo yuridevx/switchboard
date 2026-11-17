@@ -12,13 +12,18 @@ export const SRV_PREFIX = "srvtoolu_";
 export const EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"];
 const DEFAULT_EFFORT = "high";
 
-export function encodeSignature(item: Json): string {
+/** Диалект перевода: author — кто даёт рассуждение, «провайдер/модель»: оно возвращается только ему; search — поиск в вебе ведёт прокси (умеет только Meta). */
+export type Dialect = { author: string; search: boolean };
+const PLAIN: Dialect = { author: "", search: true };
+
+export function encodeSignature(item: Json, author = ""): string {
   const payload: Json = { i: item.id };
   if (item.encrypted_content) payload.e = item.encrypted_content;
+  if (author) payload.a = author;
   return SIG_PREFIX + Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
-function decodeSignature(sig: unknown): { i: string; e?: string } | null {
+function decodeSignature(sig: unknown): { i: string; e?: string; a?: string } | null {
   if (typeof sig !== "string" || !sig.startsWith(SIG_PREFIX)) return null;
   try {
     const p = JSON.parse(Buffer.from(sig.slice(SIG_PREFIX.length), "base64url").toString("utf8"));
@@ -92,7 +97,7 @@ function toolResultOutput(block: Json): string | Json[] {
   return parts;
 }
 
-type State = { messageEffort: string | null; webSearch: SearchConfig | null; droppedTools: string[] };
+type State = { messageEffort: string | null; webSearch: SearchConfig | null; droppedTools: string[]; author: string };
 
 function convertMessages(messages: Json[] | undefined, state: State): Json[] {
   const input: Json[] = [];
@@ -117,9 +122,9 @@ function convertMessages(messages: Json[] | undefined, state: State): Json[] {
       switch (b.type) {
         case "thinking":
         case "redacted_thinking": {
-          // чужие подписи (настоящий thinking Anthropic) и незаконченное рассуждение Meta не принимает
+          // чужие подписи (настоящий thinking Anthropic), рассуждение другой модели и незаконченное рассуждение провайдер не принимает
           const carried = decodeSignature(b.signature ?? b.data);
-          if (carried?.e) input.push({ type: "reasoning", id: carried.i, encrypted_content: carried.e, summary: [] });
+          if (carried?.e && (carried.a ?? "") === state.author) input.push({ type: "reasoning", id: carried.i, encrypted_content: carried.e, summary: [] });
           break;
         }
         case "text":
@@ -165,7 +170,9 @@ function convertTools(tools: Json[] | undefined, state: State, loaded: Set<strin
     if (t.defer_loading && !loaded.has(t.name)) continue;
     const type: string = t.type ?? "custom";
     if (type.startsWith("web_search")) {
-      out.push(searchTool);
+      // поиск ведёт прокси — и только там, где у провайдера он есть; иначе инструмента у модели нет
+      if (state.webSearch) out.push(searchTool);
+      else state.droppedTools.push(t.name ?? type);
       continue;
     }
     if (type !== "custom") {
@@ -255,11 +262,13 @@ export type MetaCtx = {
   webSearch: SearchConfig | null;
   droppedTools: string[];
   sessionId: string | null;
+  /** кто даёт рассуждение: идёт в его подпись */
+  author: string;
 };
 
 /** Модель — как её назвал claude: какими моделями идёт ключ, говорит env ключа флота, карты моделей нет. */
-export function toMetaRequest(req: Json): { body: Json; ctx: MetaCtx } {
-  const state: State = { messageEffort: null, webSearch: webSearchConfig(req.tools), droppedTools: [] };
+export function toMetaRequest(req: Json, dialect: Dialect = PLAIN): { body: Json; ctx: MetaCtx } {
+  const state: State = { messageEffort: null, webSearch: dialect.search ? webSearchConfig(req.tools) : null, droppedTools: [], author: dialect.author };
   const input = convertMessages(req.messages, state);
   const tools = convertTools(req.tools, state, loadedToolNames(req.messages));
   // строка учёта Claude Code в system — дело клиента
@@ -304,6 +313,7 @@ export function toMetaRequest(req: Json): { body: Json; ctx: MetaCtx } {
       webSearch: state.webSearch,
       droppedTools: state.droppedTools,
       sessionId: sessionIdOf(req),
+      author: dialect.author,
     },
   };
 }

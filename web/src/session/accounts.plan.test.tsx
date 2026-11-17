@@ -133,14 +133,14 @@ describe("эталоны страницы «Аккаунты и модели»",
     await waitFor(() => expect(within(row()).getByLabelText("Модель").textContent).toBe("qwen-3.5-coder · orca"));
   });
 
-  it("5 · модель Claude с окном от миллиона уходит в документ с суффиксом [1m] — имя даёт правило договора; в ряду стоит название из каталога", async () => {
-    // чьё: факт — окно миллион Claude Code включает суффиксом имени модели; правило одно, в договоре
+  it("5 · модель Claude с окном от миллиона уходит в документ именем каталога как есть; в ряду стоит название из каталога", async () => {
+    // чьё: дизайн «Свободная смена модели», эталон 16 — имя в документе как в каталоге у любого провайдера; суффикс окна знает только машина
     page(<Conversation callsign="docs@laptop" />, "/work/docs@laptop");
     const spy = vi.spyOn(apiModule.api, "call");
     await modelList();
     fireEvent.click(listbox()!.querySelector('[data-offer="claude/claude-opus-4-8"] .mp-pick')!);
-    await waitFor(() => expect(called(spy, sessionUpdate)).toEqual([{ to: "docs@laptop", patch: { key: CLAUDE, model: "claude-opus-4-8[1m]" } }]));
-    await waitFor(() => expect(mock.state.sessions["docs@laptop"]!.spec.model).toBe("claude-opus-4-8[1m]"));
+    await waitFor(() => expect(called(spy, sessionUpdate)).toEqual([{ to: "docs@laptop", patch: { key: CLAUDE, model: "claude-opus-4-8" } }]));
+    await waitFor(() => expect(mock.state.sessions["docs@laptop"]!.spec.model).toBe("claude-opus-4-8"));
     setRow("docs@laptop");
     await waitFor(() => expect(within(row()).getByLabelText("Модель").textContent).toBe("Opus 4.8"));
   });
@@ -170,5 +170,21 @@ describe("эталоны страницы «Аккаунты и модели»",
     expect(clock().textContent).toBe("30");
     setRow("lead@laptop", { cache: undefined });
     await waitFor(() => expect(clock().getAttribute("data-cache")).toBe("cold"));
+  });
+
+  it("8 · провайдер срока кэша не называет: кольцо показывает долю последнего запроса, прочитанную из кэша; прочитано ноль — кэш холодный", async () => {
+    // чьё: слово пользователя 17 нояб. — «на всех моделях должен работать горячий кэш-индикатор»; факт опыта — сторонние называют чтения из кэша, срок — нет
+    page(<Conversation callsign="lead@laptop" />, "/work/lead@laptop");
+    const clock = () => document.querySelector("[data-cache]") as HTMLElement;
+    await waitFor(() => expect(clock()).toBeTruthy());
+    setRow("lead@laptop", { cache: { size: 40_000, read: 38_000 } });
+    await waitFor(() => expect(clock().getAttribute("data-cache")).toBe("read"));
+    expect(clock().getAttribute("aria-label")).toBe("Последний запрос прочитал из кэша 95 %");
+    expect(clock().textContent).toBe("95%");
+    expect(clock().querySelector(".arc")).toBeTruthy();
+    setRow("lead@laptop", { cache: { size: 40_000, read: 0 } });
+    await waitFor(() => expect(clock().textContent).toBe("0%"));
+    expect(clock().className).toContain("cold");
+    expect(clock().querySelector(".arc")).toBeNull();
   });
 });
