@@ -71,13 +71,14 @@ function modelOf(m: Listed, key: Protocol, protocol: Protocol): Model {
   return { id: m.id!, ...(name && name !== m.id ? { name } : {}), ...(family ? { family } : {}), ...(window ? { window } : {}), protocol };
 }
 
-/** Один вопрос провайдеру о его каталоге. status — статус отказа: по нему каталог Claude идёт к следующему аккаунту. */
+/** Один вопрос провайдеру о его каталоге. status — статус отказа: по нему каталог Claude идёт к следующему аккаунту.
+ *  Ключ OpenAI-вида спрашивает список по-OpenAI — без заголовка версии Anthropic: провайдер с двумя API называет виды API своих моделей только в нём. */
 async function catalog(ctx: Ctx, base: string, headers: Record<string, string>, key: Protocol): Promise<{ models: Model[] } | { status: number; why: string }> {
   // адрес провайдера назван с версией API или без неё
   const root = base.replace(/\/+$/, "");
   let res: Response;
   try {
-    res = await ctx.fetch(`${/\/v\d+$/.test(root) ? root : `${root}/v1`}/models?limit=1000`, { headers: { "anthropic-version": "2023-06-01", ...headers }, signal: AbortSignal.timeout(CATALOG_MS) });
+    res = await ctx.fetch(`${/\/v\d+$/.test(root) ? root : `${root}/v1`}/models?limit=1000`, { headers: { ...(key === "openai" ? {} : { "anthropic-version": "2023-06-01" }), ...headers }, signal: AbortSignal.timeout(CATALOG_MS) });
   } catch (e) {
     return { status: 0, why: e instanceof Error ? e.message : String(e) };
   }

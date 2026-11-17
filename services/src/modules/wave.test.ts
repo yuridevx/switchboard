@@ -179,6 +179,8 @@ describe("ключи флота: каталог моделей", () => {
     await s.ask("keys.set", { name: "oai", protocol: "openai", value: "sk-oai", base: "https://api.oai.example/v1", cache: 10 });
     catalogNet(s, { "https://api.oai.example": () => Response.json({ data: [{ id: "gpt-x", context_length: 400_000 }] }) });
     expect((await models(s, "oai")).result).toEqual({ models: [{ id: "gpt-x", window: 400_000, protocol: "openai" }] });
+    // ключ OpenAI-вида спрашивает каталог списком OpenAI: заголовка версии Anthropic в запросе нет
+    expect((s.seen.net.at(-1)!.init!.headers as Record<string, string>)["anthropic-version"]).toBeUndefined();
     expect((await s.ask("keys.list", {}, "kanya1")).result).toMatchObject({ keys: [{ name: "oai", protocol: "openai", cache: 10 }] });
     expect((await s.ask("keys.value", { name: "oai" }, "klaptop")).result).toMatchObject({ protocol: "openai", cache: 10 });
     // срок снят нулём; вид ключа вне списка договора — отказ словом
