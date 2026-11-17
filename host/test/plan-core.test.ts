@@ -228,16 +228,6 @@ describe("план v2: стоп и старт сессии", () => {
     expect(logged("stop_late")[0]).toMatchObject({ callsign: CS });
   });
 
-  // чьё: код — запись после согласия SDK: отвергнутая модель проваливала бы каждый ход после resume
-  it("session.update: Claude отверг модель — sdk_error, модель в документе прежняя", async () => {
-    st = await stand();
-    const { s, q } = await st.open("site", { model: "claude-fable-5-2" });
-    (q as any).setModel = async () => {
-      throw new Error("модель недоступна");
-    };
-    expect(await st.request("session.update", { to: CS, patch: { model: "нет-такой" } }, PULT)).toMatchObject({ ok: false, error: "sdk_error" });
-    expect(s.rec.spec.model).toBe("claude-fable-5-2");
-  });
 });
 
 describe("план v2: связь и остановка Host", () => {

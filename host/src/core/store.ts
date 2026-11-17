@@ -25,10 +25,6 @@ export type CoreRecord = {
   title?: string;
   /** убрать после конца хода: кто просил */
   removeAfter?: string;
-  /** кэш разговора после последнего ответа модели: at — когда ответ, мс; size — размер разговора, токены; hour — кэш часовой, а не пятиминутный */
-  cache?: { at: number; size: number; hour: boolean };
-  /** модель, которая ответила вместо названной в документе */
-  answers?: string;
 };
 
 type Sections = { machine?: unknown; sessions?: Record<string, unknown> };

@@ -160,8 +160,8 @@ describe("ввод и документ", () => {
       { key: "orca", models: [{ id: "glm-5.3", window: 200_000 }, { id: "qwen-3.5-coder" }] },
     ]);
     expect(offers.map((o) => o.group)).toEqual(["Claude · Fable", "Claude · Opus", "Claude · Haiku", "orca", "orca"]);
-    // окно от миллиона у модели Claude включает суффикс [1m]; у провайдера имя каталога идёт как есть
-    expect(offers.map((o) => o.doc)).toEqual(["claude-fable-5-2[1m]", "claude-opus-4-8[1m]", "claude-haiku-4-5-20251001", "glm-5.3", "qwen-3.5-coder"]);
+    // имя для документа сессии — имя каталога как есть, у любого провайдера: суффикс окна знает только машина
+    expect(offers.map((o) => o.model)).toEqual(["claude-fable-5-2", "claude-opus-4-8", "claude-haiku-4-5-20251001", "glm-5.3", "qwen-3.5-coder"]);
     const all = arrange(offers, "", ["orca/glm-5.3"]);
     expect(all.pinned.map((o) => o.model)).toEqual(["glm-5.3"]);
     expect(all.groups.map((g) => [g.group, g.list.map((o) => o.model)])).toEqual([["Claude · Fable", ["claude-fable-5-2"]], ["Claude · Opus", ["claude-opus-4-8"]], ["Claude · Haiku", ["claude-haiku-4-5-20251001"]], ["orca", ["qwen-3.5-coder"]]]);
@@ -178,10 +178,10 @@ describe("ввод и документ", () => {
     // своя команда закрывает одноимённую команду Claude: в подсказках она одна
     expect(commandPicks([{ name: "model", description: "Claude" }, { name: "compact" }], "mo").map((p) => [p.label, p.about])).toEqual([["/model", "выбрать модель: слова поиска"]]);
   });
-  it("имя модели для человека: название из каталога; каталог не прочитан — имя каталога без [1m]", () => {
+  it("имя модели для человека: название из каталога; каталог не прочитан — имя из документа как есть", () => {
     const offers = offersOf([{ key: "claude", models: [{ id: "claude-fable-5-2", name: "Fable 5.2", window: 1_000_000 }] }]);
-    expect(offerWord(offers, "claude-fable-5-2[1m]")).toBe("Fable 5.2");
-    expect(offerWord([], "claude-unknown-9[1m]")).toBe("claude-unknown-9");
+    expect(offerWord(offers, "claude-fable-5-2")).toBe("Fable 5.2");
+    expect(offerWord([], "claude-unknown-9")).toBe("claude-unknown-9");
     expect(offerWord([], undefined)).toBe("модель не выбрана");
   });
   it("пометка «после хода»: новое добавляется, применённое сразу снимается", () => {

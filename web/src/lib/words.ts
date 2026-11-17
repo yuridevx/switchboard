@@ -12,7 +12,7 @@ export const SAY: Record<string, string> = {
   // сессии
   already_answered: "На вопрос уже ответили", unknown_question: "Такого вопроса нет", unknown_session: "Такой сессии нет", open_failed: "Сессия не открылась", bad_spec: "Документ сессии не подходит",
   bad_dir: "Папка не подходит", no_project: "Такого проекта нет", has_wing: "У сессии есть ведомый", pair_inside: "Сессия уже в паре", has_sessions: "На нём идут сессии", not_started: "Сессия не запущена", running: "Уже идёт",
-  stopped: "Остановлено", sdk_error: "Ошибка Claude", waiting: "Сессия ждёт ответа", not_text: "Нужен текст",
+  stopped: "Остановлено", sdk_error: "Ошибка Claude", model_refused: "Провайдер не принял модель", waiting: "Сессия ждёт ответа", not_text: "Нужен текст",
   // аккаунты и ключи
   no_account: "Нет годного аккаунта", no_accounts: "Аккаунтов нет", bad_code: "Код не подошёл", catalog_failed: "Каталог моделей не получен", key_required: "Назовите провайдера", model_required: "Назовите модель", no_model: "Такой модели у провайдера нет", many_models: "Подходит несколько моделей",
   account_dir_busy: "Папка аккаунта занята", slot_dir_busy: "Папка входа занята", refresh_locked: "Вход обновляется другим процессом", no_key: "Такого ключа нет", rate_limit: "Лимит исчерпан",

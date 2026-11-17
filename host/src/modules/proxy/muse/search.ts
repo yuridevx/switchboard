@@ -6,7 +6,9 @@ import { send, textOf } from "../upstream.ts";
 
 type Json = Record<string, any>;
 export type SearchConfig = { maxUses: number | null; allowedDomains: string[] | null; blockedDomains: string[] | null };
-export type Creds = { key: string; base: string; version: string };
+/** С кем говорит переводчик: dialect — Meta (свои заголовки и поиск) или OpenAI Responses как есть; window — окно модели по каталогу;
+ *  author — «провайдер/модель»: идёт в подпись рассуждения; label — как назвать провайдера в словах отказа. */
+export type Creds = { key: string; base: string; version: string; dialect: "meta" | "openai"; author: string; label: string; window?: number };
 
 export const SEARCH_TOOL = "web_search";
 const MAX_RESULTS = 10;

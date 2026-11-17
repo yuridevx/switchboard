@@ -163,9 +163,13 @@ export async function stand(o: StandOptions = {}): Promise<Stand> {
   let turns: WeakMap<object, number> | undefined;
   const clock = new FakeClock();
   const exits: number[] = [];
+  // у ключей документа «провайдер» и «модель» хозяин один — модуль аккаунтов; стенд без него ставит подделку: ключи приняты, модель уходит процессу как есть
+  const given = o.modules ?? [];
+  const free = ["key", "model"].filter((k) => !given.some((m) => m.spec?.[k]));
+  const pairStub: Module = { name: "stand-pair", spec: Object.fromEntries(free.map((k) => [k, () => {}])), compose: (s) => (s.spec.model ? { model: s.spec.model } : {}) };
   const kernel = new Kernel({
     home, machine, fleet: "home", base: "https://fleet.test", key: "home:k00001:0123456789abcdef0123", build: 1, sdkVersion: sdk.version,
-    modules: o.modules ?? [], sdk: sdk as never, holders, config: o.config, connect: link.connect, transport: services, clock, exit: (c) => void exits.push(c),
+    modules: given.some((m) => m.spec?.model) ? given : [...given, pairStub], sdk: sdk as never, holders, config: o.config, connect: link.connect, transport: services, clock, exit: (c) => void exits.push(c),
   });
   const st: Stand = {
     kernel, sdk, holders, link, services, clock, home, dir, exits,

@@ -9,7 +9,7 @@ import type { Kernel } from "./kernel.ts";
 import { quiet, type Session } from "./session.ts";
 
 /** Ключи документа, которыми владеет ядро. */
-export const CORE_KEYS = ["name", "cwd", "model", "effort", "mode", "fast", "style", "thinking", "title", "parent", "wing", "project"] as const;
+export const CORE_KEYS = ["name", "cwd", "effort", "mode", "fast", "style", "thinking", "title", "parent", "wing", "project"] as const;
 
 /** Имя запроса session.call → метод SDK. */
 const SDK: Record<string, string> = {
@@ -137,9 +137,7 @@ export function coreModule(k: Kernel): Module {
       await k.checkSpec(patch as Record<string, unknown>, s);
       const cwd = patch.cwd === undefined ? s.rec.cwd : k.folder(patch.cwd);
       const alive = live(view);
-      // запись — после согласия SDK: отвергнутая модель проваливала бы каждый ход после resume
       if (alive) {
-        if (patch.model !== undefined) await sdk(view, "setModel", patch.model);
         const flags = Object.fromEntries((Object.keys(FLAGS) as Array<keyof typeof FLAGS>).filter((f) => patch[f] !== undefined).map((f) => [FLAGS[f], patch[f]]));
         if (Object.keys(flags).length) await sdk(view, "applyFlagSettings", flags);
         if (patch.mode !== undefined) await sdk(view, "setPermissionMode", MODES[patch.mode]);
@@ -149,6 +147,7 @@ export function coreModule(k: Kernel): Module {
         await sdk(view, "renameSession", patch.title).catch((e: unknown) => ctx.log.warn("title", { callsign: to, why: (e as Error).message }));
         s.rec.title = patch.title;
       }
+      const before = { spec: s.rec.spec, cwd: s.rec.cwd };
       s.rec.spec = { ...s.rec.spec, ...patch };
       s.rec.cwd = cwd;
       if (dropWing && s.rec.spec.wing) {
@@ -159,11 +158,20 @@ export function coreModule(k: Kernel): Module {
       k.save();
       // что вступит в силу только с новым процессом: хозяин ключа попросил перезапуск после хода
       const later = new Set<string>();
-      for (const m of k.mods) {
-        if (!m.applied || m === self) continue;
-        const before = s.restarts;
-        await m.applied(s.facade(m), keys);
-        if (s.restarts > before) for (const key of keys) if (k.specOwner(key) === m) later.add(key);
+      try {
+        for (const m of k.mods) {
+          if (!m.applied || m === self) continue;
+          const asked = s.restarts;
+          await m.applied(s.facade(m), keys);
+          if (s.restarts > asked) for (const key of keys) if (k.specOwner(key) === m) later.add(key);
+        }
+      } catch (e) {
+        // хозяин ключа отказал применить правку: документ возвращает ядро — одним правилом для любого хозяина; своё хозяин вернул сам
+        s.rec.spec = before.spec;
+        s.rec.cwd = before.cwd;
+        k.save();
+        s.sync();
+        throw e;
       }
       if (patch.cwd !== undefined && alive) {
         later.add("cwd");
@@ -299,7 +307,6 @@ export function coreModule(k: Kernel): Module {
   self.spec = {
     name: text,
     cwd: (v) => void k.folder(v as string),
-    model: text,
     effort: () => {},
     mode: () => {},
     fast: () => {},

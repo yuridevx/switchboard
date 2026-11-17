@@ -1,6 +1,6 @@
 // «Новая сессия»: одно поле и Enter — сессия пошла с разумными значениями; все поля — на одном уровне, ничего не спрятано.
 // Недавние места — пары «машина + папка»; папку можно создать; кусочки подхватываются от соседней сессии той же папки.
-import { catalogModel, CLAUDE, keysList, machineConversations, machineDirs, peopleList, profileList, profileView, sessionOpen, type MachineRow, type SessionRow } from "@sb/protocol";
+import { CLAUDE, keysList, machineConversations, machineDirs, peopleList, profileList, profileView, sessionOpen, type MachineRow, type SessionRow } from "@sb/protocol";
 import { Badge, Button, Chip, Group, Select, SimpleGrid, Stack, Switch, Text, Textarea, TextInput } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -41,7 +41,7 @@ export function piecesFor(sessions: Record<string, SessionRow>, machine: string,
 /** Модель новой сессии, пока человек не выбрал сам: как у последней сессии той же машины — если она есть в списке; иначе первая закреплённая; иначе выбирать человеку. */
 export function modelFor(offers: Offer[], sessions: Record<string, SessionRow>, machine: string, pins: string[]): Offer | undefined {
   const mate = Object.values(sessions).filter((s) => s.callsign.endsWith("@" + machine) && s.spec.model).sort((a, b) => (b.last ?? b.since) - (a.last ?? a.since))[0];
-  const same = mate && offers.find((o) => o.key === (mate.spec.key ?? CLAUDE) && o.model === catalogModel(mate.spec.model!));
+  const same = mate && offers.find((o) => o.key === (mate.spec.key ?? CLAUDE) && o.model === mate.spec.model);
   return same ?? pins.map((id) => offers.find((o) => offerId(o) === id)).find(Boolean);
 }
 
@@ -135,7 +135,7 @@ export function NewForm() {
     setBusy(true);
     const r = await act(sessionOpen, {
       to: "@" + machine,
-      spec: { name: finalName, cwd, key: model.key, model: model.doc, ...(effort ? { effort: effort as never } : {}), mode: mode as never, pieces: picked, backup, ...(fast ? { fast: true } : {}), thinking, ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
+      spec: { name: finalName, cwd, key: model.key, model: model.model, ...(effort ? { effort: effort as never } : {}), mode: mode as never, pieces: picked, backup, ...(fast ? { fast: true } : {}), thinking, ...(style.trim() ? { style: style.trim() } : {}), ...(project ? { project } : {}) },
       ...(prompt.trim() ? { prompt: prompt.trim() } : {}), ...(missing ? { mkdir: true } : {}), ...(pair ? { pair: true } : {}), ...(number ? { number: true } : {}), ...(resume.trim() ? { resume: resume.trim(), ...(fork || held(talks.data?.conversations) ? { fork: true } : {}) } : {}),
     });
     setBusy(false);
@@ -201,7 +201,7 @@ export function NewForm() {
         )}
       </div>
       <SimpleGrid cols={{ base: 1, xs: 2, md: 3 }} spacing="sm">
-        <ModelPicker field value={model ? { key: model.key, model: model.doc } : undefined} onPick={setChosen}
+        <ModelPicker field value={model ? { key: model.key, model: model.model } : undefined} onPick={setChosen}
           face={model ? <span>{model.label}{model.key !== CLAUDE ? <span className="mp-on"> · {model.key}</span> : null}</span> : <span className="muted">выберите модель</span>} />
         <Select label="Усилие" placeholder={from("effortLevel", "как у модели")} clearable data={EFFORTS.map(([value, label]) => ({ value, label }))} value={effort} onChange={setEffort} />
         <Select label="Режим" data={MODES.map(([value, label]) => ({ value, label }))} value={mode} onChange={(v) => v && setMode(v)} allowDeselect={false} />

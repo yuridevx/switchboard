@@ -26,8 +26,8 @@ export interface SessionApi {
   readonly callsign: string;
   readonly spec: Spec;
   readonly state: SessionState;
-  /** разговор claude, папка, кто открыл, модель процесса */
-  readonly info: { sessionId: string; cwd: string; by: string; since: number; last?: number; model: string | null; /** сколько сообщений ждёт во вводе */ queue: number; /** до какого времени кэш разговора тёплый, мс: из последнего ответа модели */ warm?: number; /** в последнем ходе модель ответила: ход без ответа (сжатие, очистка, команда) не зовёт человека */ answered: boolean; /** причина сбоя словами, пока сессия failed */ error?: string; /** как поднят нынешний процесс: attach — процесс пережил подмену Host и ввод у него на руках */ launch?: "spawn" | "resume" | "attach" | "fork" };
+  /** разговор claude, папка, кто открыл */
+  readonly info: { sessionId: string; cwd: string; by: string; since: number; last?: number; /** сколько сообщений ждёт во вводе */ queue: number; /** в последнем ходе модель ответила: ход без ответа (сжатие, очистка, команда) не зовёт человека */ answered: boolean; /** причина сбоя словами, пока сессия failed */ error?: string; /** как поднят нынешний процесс: attach — процесс пережил подмену Host и ввод у него на руках */ launch?: "spawn" | "resume" | "attach" | "fork" };
   /** текст или блоки — в очередь ввода */
   input(content: unknown, opts?: InputOpts): void;
   /** метод query() или функция SDK о разговоре */

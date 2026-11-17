@@ -31,7 +31,10 @@ const MESSAGES = /^\/v1\/messages(\/count_tokens)?(\?|$)/;
 const CHECK_PROMPT = "Ответь одним словом: ok";
 
 /** Перевод протокола нужен провайдеру Meta: у него Responses API, а не Messages. */
-const isMeta = (to: string) => /(^|\.)meta\.ai$/.test(new URL(to).hostname);
+/** Протоколы, которые прокси переводит в OpenAI Responses: Meta — тот же перевод со своим диалектом. */
+const TRANSLATED = new Set(["openai", "meta"]);
+/** Адрес провайдера с версией API: назван с ней — как есть, без неё — /v1. */
+const versioned = (to: string) => { const root = to.replace(/\/+$/, ""); return /\/v\d+$/.test(root) ? root : `${root}/v1`; };
 
 /** Ответ разового запуска: модель и время или причина словами самого claude. */
 function checked(code: number | null, out: string): { ok: boolean; word: string } {
@@ -127,8 +130,8 @@ export function make(): Module {
   }
 
   /** Вызов проверки ключа идёт своим маршрутом; вызов сессии — маршрутом модуля аккаунтов. */
-  async function routeOf(sid: string, tried: string[]): Promise<Route> {
-    return checks.get(sid) ?? accounts().route(sid, tried);
+  async function routeOf(sid: string, tried: string[], asked?: string): Promise<Route> {
+    return checks.get(sid) ?? accounts().route(sid, tried, asked);
   }
 
   /** Ответ провайдера — claude как есть: статус, заголовки, байты. read — тело отказа, уже прочитанное ради причины. */
@@ -159,10 +162,12 @@ export function make(): Module {
     const acc = checks.has(sid) ? null : accounts();
     /** аккаунты, которые этот вызов уже пробовал: не больше, чем их есть — у соседа кончатся годные */
     const tried: string[] = [];
+    /** имя модели из вызова: по нему хозяин пары решает, какое имя слать */
+    let asked: string | undefined;
     /** Маршрут вызова; отказ — ответ сессии словом. */
     const routed = async (): Promise<Route | null> => {
       try {
-        return await routeOf(sid, tried);
+        return await routeOf(sid, tried, asked);
       } catch (e) {
         const { word, why } = e as { word: string; why?: string };
         host.log.warn("proxy", { word, why: `${sid || "без id сессии"}: ${why ?? word}` });
@@ -177,6 +182,15 @@ export function make(): Module {
     try {
       const path = req.url ?? "/";
       const body = await readBody(req);
+      let anth: Json | null = null;
+      if (req.method === "POST" && MESSAGES.test(path)) {
+        try {
+          anth = JSON.parse(body.toString("utf8"));
+        } catch {
+          return say(400, "invalid_request_error", "bad_json", "тело запроса — не JSON");
+        }
+        if (typeof anth?.model === "string") asked = anth.model as string;
+      }
       route = await routed();
       if (!route) return;
       const set = rules ?? (await loadRules().catch((e) => e as Error));
@@ -185,29 +199,22 @@ export function make(): Module {
         host.log.warn("proxy", { word, why });
         return say(529, "overloaded_error", word, why);
       }
-      let anth: Json | null = null;
-      let edited = false;
-      if (req.method === "POST" && MESSAGES.test(path)) {
-        try {
-          anth = JSON.parse(body.toString("utf8"));
-        } catch {
-          return say(400, "invalid_request_error", "bad_json", "тело запроса — не JSON");
-        }
-        edited = Object.keys(editRequest(anth!, set)).length > 0;
-      }
-      const model = typeof anth?.model === "string" ? (anth.model as string) : undefined;
+      const edited = !!anth && Object.keys(editRequest(anth, set)).length > 0;
       let waited = false;
       for (;;) {
-        // побочный вызов сессии провайдера с именем чужой модели уходит на модель сессии
-        const foreign = !!route.key && !!route.model && !!anth && anth.model !== route.model;
-        if (foreign) anth!.model = route.model;
-        const sent = anth && (edited || foreign) ? Buffer.from(JSON.stringify(anth)) : body;
+        // какое имя модели слать, решил хозяин пары: прокси только подставляет
+        const named = !!anth && !!route.model && anth.model !== route.model;
+        if (named) anth!.model = route.model;
+        const model = anth ? (anth.model as string | undefined) : undefined;
+        const sent = anth && (edited || named) ? Buffer.from(JSON.stringify(anth)) : body;
         const seen = (status: number, headers: Answered["headers"], ms: number, why?: string) => acc?.answer(route!, { status, headers, path, ms, hops: tried.length, waited, ...(model ? { model } : {}), ...(why ? { why } : {}) }) ?? ({ act: "pass" } as const);
         const t0 = Date.now();
-        if (isMeta(route.to)) {
-          if (!anth) return say(404, "not_found_error", "not_supported", `${req.method} ${path}: у Meta только /v1/messages`);
-          if (path.startsWith("/v1/messages/count_tokens")) return countTokens(res, anth);
-          const creds = { key: route.key ?? "", base: route.to.replace(/\/+$/, ""), version: await muse() };
+        if (TRANSLATED.has(route.protocol)) {
+          const meta = route.protocol === "meta";
+          const label = meta ? "Meta" : (route.name ?? "провайдер");
+          if (!anth) return say(404, "not_found_error", "not_supported", `${req.method} ${path}: у ${label} только /v1/messages`);
+          const creds = { key: route.key ?? "", base: versioned(route.to), version: meta ? await muse() : "", dialect: meta ? ("meta" as const) : ("openai" as const), author: `${route.name ?? ""}/${route.model ?? ""}`, label, ...(route.window ? { window: route.window } : {}) };
+          if (path.startsWith("/v1/messages/count_tokens")) return countTokens(res, anth, creds);
           const refused = await messages(res, anth, creds, ac.signal, (why) => host.log.info("gap", { why: `${sid}: ${why}` }));
           seen(res.statusCode, {}, Date.now() - t0, refused);
           return;

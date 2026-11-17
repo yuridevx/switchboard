@@ -1,0 +1,595 @@
+<title>Свободная смена модели</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* раскладка: смена на лету (схема с пятью случаями) → четыре пути вызова (схема) → один хозяин пары (схема) → окно, кэш и остальные функции (сетка по видам провайдера) → матрица переходов 4×4 и замеры → один разговор на пяти моделях → эталоны → развилки → гейт → порядок */
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
+  --accent: #1f7a63; --accent-soft: #dcefe8; --warm: #c9772a; --warm-soft: #fbe9d7; --bad: #b3362b; --bad-soft: #f7e1de; --code: #f0eee7;
+  --p-claude: #c9772a; --p-anth: #1f7a63; --p-oai: #3d6fb4; --p-meta: #8a5fb8;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warm: #f0a25c; --warm-soft: #40291a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26;
+  --p-claude: #f0a25c; --p-anth: #5fc3a6; --p-oai: #8fb4ea; --p-meta: #c3a2ea; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warm: #f0a25c; --warm-soft: #40291a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26;
+  --p-claude: #f0a25c; --p-anth: #5fc3a6; --p-oai: #8fb4ea; --p-meta: #c3a2ea; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 Inter, system-ui, sans-serif; margin: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
+main { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
+h1, h2, h3 { font-family: "Space Grotesk", Inter, sans-serif; text-wrap: balance; margin: 0; }
+h1 { font-size: 34px; line-height: 1.1; }
+h2 { font-size: 21px; }
+h3 { font-size: 16px; }
+.lead { color: var(--muted); max-width: 64ch; margin: 8px 0 0; }
+section { display: flex; flex-direction: column; gap: 14px; }
+section.read > h2::after { content: " ✓ прочитал"; font: 500 12px Inter, sans-serif; color: var(--accent); }
+.chg { background: #fff3a8; color: #1c211f; border-radius: 4px; padding: 0 4px; }
+.card.chg, .fx .f.chg, .cost span.chg { background: #fff3a8; color: #1c211f; }
+.card.et.chg .no, .card.et.chg .to { color: #4a524e; }
+.card.tile.chg b { color: #1c211f; }
+.steps .card.chg .done, .steps .card.chg .done b { color: #1c211f; }
+.dia .n.chg rect { fill: #fff3a8; }
+.dia .n.chg text { fill: #1c211f; }
+.dia .n.chg text.s { fill: #4a524e; }
+.dia .a.chg text { fill: #1c211f; paint-order: stroke; stroke: #fff3a8; stroke-width: 7px; stroke-linejoin: round; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+pre { margin: 0; background: var(--code); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; line-height: 1.45; overflow-x: auto; white-space: pre; }
+button { font: 500 13px Inter, sans-serif; color: var(--fg); background: var(--soft); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+button.on { background: var(--accent-soft); border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+svg { width: 100%; height: auto; display: block; font: 500 13px Inter, sans-serif; }
+svg text { fill: var(--fg); }
+svg text.s { fill: var(--muted); font-size: 11.5px; font-weight: 400; }
+.wide { overflow-x: auto; }
+.wide svg { min-width: 800px; }
+
+/* схемы */
+.dia .zone { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 5 5; }
+.dia .n rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.dia .n text { text-anchor: middle; }
+.dia .n.claude rect { stroke: var(--p-claude); } .dia .n.anth rect { stroke: var(--p-anth); } .dia .n.oai rect { stroke: var(--p-oai); } .dia .n.meta rect { stroke: var(--p-meta); }
+.dia .a path { fill: none; stroke-width: 2; }
+.dia .a.ctx path { stroke: var(--warm); } .dia .a.ctx text { fill: var(--warm); }
+.dia .a.by path { stroke: var(--accent); } .dia .a.by text { fill: var(--accent); }
+.dia .a.no path { stroke: var(--bad); stroke-dasharray: 6 6; } .dia .a.no text { fill: var(--bad); }
+.dia .hit { stroke: transparent !important; stroke-width: 22 !important; stroke-dasharray: none !important; }
+.dia [data-i] { cursor: pointer; }
+.dia.dim .n:not(.hi) { opacity: .3; }
+.dia [data-i].on rect { stroke: var(--fg); stroke-width: 2.5; }
+.dia .a.on text { text-decoration: underline; }
+.dia [data-i]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.mk-ctx path { fill: var(--warm); } .mk-by path { fill: var(--accent); } .mk-no path { fill: var(--bad); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.legend i { display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--warm); margin-right: 6px; vertical-align: 4px; }
+.legend i.by { border-top-color: var(--accent); }
+.legend i.no { border-top: 2px dashed var(--bad); }
+.legend b { font: 600 13px "Space Grotesk", sans-serif; margin-right: 5px; }
+.legend b.ok { color: var(--accent); } .legend b.new { color: var(--warm); } .legend b.no { color: var(--bad); }
+.say { font-size: 14px; border-radius: 10px; padding: 10px 14px; background: var(--soft); min-height: 44px; }
+.say b { font-weight: 600; }
+.say pre { margin-top: 8px; background: var(--card); }
+
+/* сетки: матрица переходов и функции по видам провайдера */
+.mx, .fx { display: grid; gap: 6px; font-size: 13px; }
+.mx { grid-template-columns: minmax(84px, 11em) repeat(4, minmax(0, 1fr)); }
+.fx { grid-template-columns: minmax(110px, 17em) repeat(4, minmax(0, 1fr)); }
+.mx .h, .fx .h, .fx .f { font-weight: 600; padding: 6px 4px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.fx .f { font-weight: 500; border-radius: 8px; }
+.mx .h i, .fx .h i, .chain i { flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.mx .h.col, .fx .h.col { justify-content: center; text-align: center; }
+button.c { border-radius: 10px; padding: 10px 4px; font: 600 17px "Space Grotesk", sans-serif; background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+button.c.no { background: var(--bad-soft); color: var(--bad); }
+button.c.new, button.c.todo { background: var(--warm-soft); color: var(--warm); }
+button.c.na { background: var(--soft); color: var(--muted); }
+button.c.on { border-color: var(--fg); }
+.dot-claude { background: var(--p-claude); } .dot-anth { background: var(--p-anth); } .dot-oai { background: var(--p-oai); } .dot-meta { background: var(--p-meta); }
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.tile { display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
+.tile b { font: 600 22px "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
+.tile.bad b { color: var(--bad); } .tile.good b { color: var(--accent); }
+@media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .tiles { grid-template-columns: minmax(0, 1fr); } .mx, .fx { font-size: 11px; gap: 4px; } .mx { grid-template-columns: 5.4em repeat(4, minmax(0, 1fr)); } .fx { grid-template-columns: 8.6em repeat(4, minmax(0, 1fr)); } .mx .h.col, .fx .h.col { flex-direction: column; gap: 2px; } }
+
+/* один разговор */
+.chain { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.chain .t { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--card); font-size: 12.5px; min-width: 0; }
+.chain .t .m { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.chain .t .r { font-family: "JetBrains Mono", monospace; font-size: 12px; }
+.chain .t.off { background: var(--soft); color: var(--muted); }
+.chain .arr { align-self: center; color: var(--muted); }
+.kinds { display: flex; flex-wrap: wrap; gap: 6px; }
+.kinds span { font-size: 12.5px; border-radius: 8px; padding: 3px 9px; background: var(--soft); }
+
+/* эталоны */
+.ets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.et { display: grid; grid-template-columns: 2em minmax(0, 1fr) 1.4em minmax(0, 1fr); gap: 8px; align-items: center; padding: 10px 12px; font-size: 13.5px; }
+.et .no { font: 600 13px "Space Grotesk", sans-serif; color: var(--muted); }
+.et .in { font: 400 12px "JetBrains Mono", monospace; overflow-wrap: anywhere; }
+.et .to { color: var(--muted); text-align: center; }
+.et .out { display: flex; gap: 8px; align-items: center; }
+.et .out i { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+.et .out i.no { background: var(--bad); }
+.etgroup { font: 600 13px "Space Grotesk", sans-serif; color: var(--muted); grid-column: 1 / -1; margin-top: 4px; }
+@media (max-width: 760px) { .ets { grid-template-columns: minmax(0, 1fr); } }
+
+/* развилки */
+.forkrow { display: flex; flex-direction: column; gap: 8px; }
+.forks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.fork { display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.fork.rec { border-color: var(--accent); border-width: 2px; }
+.fork .tag { font: 600 12px Inter, sans-serif; color: var(--accent); }
+.fork .tag.alt { color: var(--muted); }
+.cost { display: flex; gap: 6px; flex-wrap: wrap; }
+.cost span { font-size: 12.5px; border-radius: 8px; padding: 3px 9px; background: var(--soft); }
+.cost span.plus { background: var(--warm-soft); }
+@media (max-width: 760px) { .forks { grid-template-columns: minmax(0, 1fr); } }
+
+.gate { white-space: pre-wrap; font-size: 13.5px; line-height: 1.6; }
+.steps { display: flex; flex-direction: column; gap: 10px; }
+.steps .card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; font-size: 14px; }
+.steps .done { color: var(--muted); }
+.steps .done b { color: var(--fg); }
+@media (max-width: 760px) { .steps .card { grid-template-columns: minmax(0, 1fr); gap: 6px; } }
+</style>
+
+<main>
+<header>
+  <h1>Свободная смена модели</h1>
+  <p class="lead">Модель сессии — запись в её документе: провайдер и точное имя. <span class="chg" data-chg="lead-hot">Смена правит запись и переключает живой процесс на лету — без перезапуска, хоть посреди хода.</span> Провайдер любой: аккаунт Claude, Anthropic-протокол, OpenAI-протокол или Meta. <span class="chg" data-chg="lead-features">Окно контекста, сжатие, индикатор кэша и остальные функции работают на любой модели.</span></p>
+</header>
+
+<section id="b-flow" data-block>
+  <h2><span class="chg" data-chg="flow-title">Смена на лету</span></h2>
+  <div class="btns" id="flows" role="tablist" aria-label="Случай"></div>
+  <div class="wide">
+    <svg class="dia" id="dia" viewBox="0 0 1000 420" role="img" aria-label="Путь смены модели: человек, документ сессии, каталог, живой процесс, прокси машины, провайдеры, журнал"></svg>
+  </div>
+  <div class="legend"><span><i></i>запрос и ответ</span><span><i class="by"></i>вызов модели</span><span><i class="no"></i>отказ или обращений нет</span></div>
+  <div class="say" id="say" aria-live="polite">Нажмите на блок или стрелку.</div>
+</section>
+
+<section id="b-proto" data-block>
+  <h2><span class="chg" data-chg="proto-title">Четыре пути — один процесс</span></h2>
+  <div class="wide">
+    <svg class="dia" id="dia2" viewBox="0 0 1000 372" role="img" aria-label="Пути вызова модели: аккаунт Claude, Anthropic-протокол, OpenAI-протокол, адаптер Meta"></svg>
+  </div>
+  <div class="say" id="say2" aria-live="polite">Нажмите на блок или стрелку.</div>
+</section>
+
+<section id="b-owner" data-block>
+  <h2><span class="chg" data-chg="owner-title">У пары один хозяин</span></h2>
+  <div class="wide">
+    <svg class="dia" id="dia3" viewBox="0 0 1000 356" role="img" aria-label="Кто на машине ведёт пару «провайдер · модель»: ядро машины, хозяин пары, прокси машины, каталог моделей"></svg>
+  </div>
+  <div class="say" id="say3" aria-live="polite">Нажмите на блок или стрелку.</div>
+</section>
+
+<section id="b-features" data-block>
+  <h2><span class="chg" data-chg="features-title">Окно, кэш и остальное — на любой модели</span></h2>
+  <div class="fx" id="fx"></div>
+  <div class="legend"><span><b class="ok">✓</b>работает и сейчас</span><span><b class="new">◆</b>заработает по этому дизайну</span><span><b class="no">✗</b>у провайдера этого нет</span></div>
+  <div class="say" id="fxsay" aria-live="polite">Нажмите на клетку.</div>
+</section>
+
+<section id="b-proof" data-block>
+  <h2>Опыты на живом флоте</h2>
+  <div class="btns" id="mxmode" role="tablist" aria-label="Что показать"></div>
+  <div class="mx" id="mx"></div>
+  <div class="legend"><span><b class="ok">✓</b>замер</span><span><b class="no">✗</b>отказ</span><span><b class="new">◌</b>клетка живой проверки</span><span><b>—</b>такого вида ключа сейчас нет</span></div>
+  <div class="say" id="mxsay" aria-live="polite">Нажмите на клетку.</div>
+  <div class="tiles" id="tiles"></div>
+</section>
+
+<section id="b-talk" data-block>
+  <h2>Один разговор — пять моделей</h2>
+  <div class="chain" id="chain"></div>
+  <div class="kinds" id="kinds"></div>
+</section>
+
+<section id="b-etalons" data-block>
+  <h2>Эталоны</h2>
+  <div class="ets" id="ets"></div>
+</section>
+
+<section id="b-fork" data-block>
+  <h2>Развилки</h2>
+  <div class="forkrow">
+    <h3>Как менять модель</h3>
+    <div class="forks">
+      <div class="card fork rec"><span class="tag">Рекомендую · не скажете иначе — так</span><span class="chg" data-chg="fork-hot">На лету: живой процесс получает команду и со следующего вызова говорит с новой моделью — и посреди хода. Перезапуск остаётся только там, где процессу нужно другое окружение.</span><div class="cost"><span class="chg" data-chg="fork-hot-cost">один процесс, 16 переходов матрицы из 16</span><span>первая смена на модель 1,4–2,5 с, повторная 3 мс</span></div></div>
+      <div class="card fork"><span class="tag alt">Иначе</span>Всегда перезапуском на границе хода.<div class="cost"><span class="plus">≈ 3 с на каждую смену</span><span class="plus">посреди хода — ждать его конца</span><span class="plus">фоновые команды процесса снимаются</span></div></div>
+    </div>
+  </div>
+  <div class="forkrow">
+    <h3><span class="chg" data-chg="fork-cache-title">Срок кэша у провайдера, который его не называет</span></h3>
+    <div class="forks">
+      <div class="card fork rec"><span class="tag">Рекомендую · не скажете иначе — так</span><span class="chg" data-chg="fork-cache">Срок — поле ключа провайдера, в минутах. Задан — индикатор отсчитывает его, как у Claude. Не задан — индикатор показывает долю последнего запроса, прочитанную из кэша.</span><div class="cost"><span class="plus">поле ключа +1</span><span>выдуманных сроков: 0</span><span class="chg" data-chg="a2-fork-cache-scope">срок один на все модели ключа: у orcarouter по двум адресам он разный</span></div></div>
+      <div class="card fork"><span class="tag alt">Иначе</span>Без поля: у сторонних только доля прочитанного из кэша, отсчёта нет.<div class="cost"><span>полей 0</span><span class="plus">сжатия при простое у сторонних нет</span></div></div>
+    </div>
+  </div>
+  <div class="forkrow">
+    <h3>Сверка «ответила не та модель» у сторонних провайдеров</h3>
+    <div class="forks">
+      <div class="card fork rec"><span class="tag">Рекомендую · не скажете иначе — так</span>Сверять только Claude. Стороннему провайдеру прокси сам ставит модель в каждый запрос — разойтись нечему.<div class="cost"><span>ложных тревог: 0</span></div></div>
+      <div class="card fork"><span class="tag alt">Иначе</span>Сверять всех по точному имени, как сейчас.<div class="cost"><span class="plus">OpenRouter называет модель в ответе иначе: тревога 3 раза из 3</span></div></div>
+    </div>
+  </div>
+  <div class="forkrow">
+    <h3>Второй OpenAI-диалект — Chat Completions</h3>
+    <div class="forks">
+      <div class="card fork rec"><span class="tag">Рекомендую · не скажете иначе — так</span>Не строить. OpenAI-протокол — это Responses: переводчик для него уже есть и проверен.<div class="cost"><span>новых переводчиков: 0</span><span>модель «только Chat» на Responses-адресе orcarouter: ответила</span></div></div>
+      <div class="card fork"><span class="tag alt">Иначе</span>Построить второй переводчик для провайдеров, у которых есть только Chat Completions.<div class="cost"><span class="plus">ещё один переводчик запроса и потока</span><span class="plus">такого провайдера у флота сейчас нет</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="b-gate" data-block>
+  <h2>Гейт</h2>
+  <div class="card gate" id="gate"><span class="chg" data-chg="gate-counts">Гейт (38 строк реестров, со слепым проходом): дубликаты ответственности 2 → 0 · состояния 2 → 0 · логики 2 → 0 · смысла 2 → 0 · других 1 → 0 · лишние коммуникации 1 → 0 · циклы 1 → 0
+Числа: модули 0 · запросы 0 · кадры 0 · дорог смены модели 2 → 1 (на лету) · перезапусков на смену между моделями Claude и Meta 1 → 0 · режимов запуска процесса 2 → 1 · мест в ядре, знающих о провайдерах, 1 → 0 · поля каталога модели +1 (протокол) · виды ключа провайдера 3 → 4 (OpenAI) · поля ключа +1 (срок кэша) · поля кэша в строке сессии +1 (доля прочитанного) · переводчиков 1 → 1 · слов отказа при смене 2 → 2 · строк журнала +1 · настройки 0 · секреты 0 · эталоны <span class="chg" data-chg="a2-gate-etalons">+24</span> · живых проверок +1</span>
+<span class="chg" data-chg="a2-gate-counts">Второй слепой проход (67 строк реестров — с кодом машины, служб и страницы): дубликаты ответственности 2 → 0 · состояния 1 → 0 · логики 3 → 0 · смысла 1 → 0 · других 0 · лишние коммуникации 1 → 0 · циклы 0
+Числа второго прохода: правил имени модели в договоре 2 → 0 · мест правила «[1m]» 2 → 1 · мест срока кэша 2 → 1 · полей ядра о кэше и модели процесса 4 → 0 · чтений каталога на смену 2 → 1 · ожиданий без предела 1 → 0 · эталоны +2</span>
+Работа: большая — меняет договор каталога моделей (у модели появляется протокол) и вид ключа провайдера
+Сделано:
+  1. Слово пользователя 17 нояб. · основа · свободно переключать любые модели: с Claude на других провайдеров, между ними, с Meta; матрица — аккаунты Claude, Anthropic-протокол, OpenAI-протокол, адаптер Meta; смена на лету, а не перезапуском; окно, сжатие, индикатор кэша и остальные функции — на любой модели
+<span class="chg" data-chg="gate-2">  2. Дубликат механизма · модель доходила до процесса двумя дорогами: командой живому процессу и перезапуском · остаётся команда: документ записан первым, затем процесс переключается · дорог 2 → 1; перезапуск — только смена окружения процесса, как у папки и кусочков сессии</span>
+<span class="chg" data-chg="gate-3">  3. Лишняя коммуникация · проверочный вызов Claude Code уходил прежнему провайдеру с именем новой модели и ломал смену · теперь прокси всегда шлёт пару документа: проба идёт новому провайдеру и отвечает на один вопрос — жив ли он · отказов «с Claude на другого» 5 из 5 → 0</span>
+<span class="chg" data-chg="gate-4">  4. Дубликат ответственности и цикл (слепой проход) · ключ «модель» вело ядро, ключ «провайдер» — модуль, сверку ответа — ядро · у пары один хозяин: оба ключа, маршрут, сверка, запись кэша, строка журнала; ядро о провайдерах не знает · просящих смену 2 → 1, цикл 1 → 0</span>
+<span class="chg" data-chg="gate-5">  5. Дубликат логики · процесс поднимался двумя способами: для Claude и для стороннего · один способ на всех; провайдера выбирает прокси на каждом вызове · режимов 2 → 1</span>
+<span class="chg" data-chg="gate-6">  6. Состояние в одном месте · окно модели жило в каталоге и в процессе и расходилось: процесс считал 200 К при любом каталоге · окно процесса выводится из каталога одним правилом: имя, имя с «[1m]» или предел при запуске</span>
+<span class="chg" data-chg="gate-7">  7. Состояние в одном месте · срок кэша переходил к новой модели от прежней · запись кэша — о модели, которая ответила; смена её сбрасывает; срок называет ответ Claude или поле ключа</span>
+  8. Явное · каким API говорить с провайдером, решали поле ключа и имя хоста в прокси · протокол — поле модели в каталоге; диалект Meta включает протокол «Meta», а не адрес · мест правила 2 → 1
+  9. Юнификация · OpenAI-протокол — существующий переводчик, написанный для Meta · переводчиков 1 → 1
+<span class="chg" data-chg="gate-10">  10. Явное (слепой проход, подтверждено опытом) · рассуждение возвращается только той модели, что его дала: чужое провайдер отклонил 1 раз из 3</span>
+  11. Дубликат смысла · «[1m]» — и суффикс широкого окна, и часть имени модели у OpenRouter · <span class="chg" data-chg="a2-gate-11">имя в документе — имя каталога как есть у любого провайдера, и у Claude; «[1m]» знает одно правило — имя для процесса; правило имени документа и обратное ему из договора уходят</span> · невыбираемых моделей OpenRouter 121 → 0
+  12. Удаление раньше добавления · модели без разговорного API (картинки, видео, эмбеддинги) в каталог сессий не идут · у orcarouter 33 из 227
+  13. Простая устойчивость · прежний провайдер не отвечает — смена к нему не обращается; новый не ответил на пробу — отказ его словами, документ прежний; запасных режимов нет
+<span class="chg" data-chg="gate-14">  14. Наблюдаемость · одна строка журнала машины на смену, имя своё — model_switch: откуда, куда, протокол, на лету или перезапуском, миллисекунды</span>
+<span class="chg" data-chg="a2-gate-15">  15. Дубликат состояния и логики (второй слепой проход) · запись кэша уходила хозяину пары, а сжатие при простое со своей записью и своим сроком оставалось у ядра · запись, срок и оба часа — до какого кэш тёплый и когда сжать — у хозяина; ядро и страница получают часы готовыми · мест срока 2 → 1</span>
+<span class="chg" data-chg="a2-gate-16">  16. Дубликат логики · какое имя модели уходит в вызове, решали бы двое: хозяин — маршрутом, прокси — исключением для моделей Claude · маршрут называет имя, которое слать; прокси только подставляет · мест правила 2 → 1</span>
+<span class="chg" data-chg="a2-gate-17">  17. Дубликат ответственности · кто возвращает документ после отказа пробы, названо не было: писать документ могли бы двое · пишет и возвращает только ядро, хозяин отвечает отказом · пишущих документ 1</span>
+<span class="chg" data-chg="a2-gate-18">  18. Лимит операции (правило 2 нояб.) · ожидание пробы было без предела, а документ в это время уже новый · предел шага 30 с, как у остальных шагов сессии: отказ словом, документ назад, после хода чистый перезапуск процесса · ожиданий без предела 1 → 0</span>
+<span class="chg" data-chg="a2-gate-19">  19. Явное · перезапуск из-за окружения был закреплён только со стороны новой пары · правило одно, в обе стороны: окружение запуска новой пары отличается от того, с чем поднят процесс; тем же одним способом запуска идут и разовые запуски — проверка ключа и проба аккаунта · эталон +1</span>
+<span class="chg" data-chg="a2-gate-20">  20. Лишняя коммуникация · каталог стороннего провайдера на одну смену спрашивался дважды: при проверке пары и при записи о ней · одно чтение: проверка, протокол и окно — из одного ответа · чтений 2 → 1</span>
+<span class="chg" data-chg="a2-gate-21">  21. Цена отмены · у развилки о сроке кэша не было цены: срок один на все модели ключа, а у orcarouter по двум адресам он разный · цена названа в развилке</span>
+<span class="chg" data-chg="gate-proved">Проверено опытом до «делай»: все 16 переходов матрицы — на лету, в одном живом процессе, через настоящий прокси машины тестового флота (аккаунт Claude, Meta, ключ Anthropic-протокола) и переводчик на OpenAI-адрес orcarouter; порядок как в дизайне — сначала документ, потом команда процессу; запусков процесса 1; на каждом виде — картинка и сжатие.</span>
+Проверено и оставлено: сверка модели с каталогом до записи документа; метка «после хода» на кнопке модели — теперь только для смены с перезапуском; подмена чужого имени модели в побочных вызовах; выбор аккаунта Claude по лимитам; правило сжатия при простое — от 200 К и за 6 минут до конца срока кэша.
+<span class="chg" data-chg="gate-pages">Страницы: индикатор кэша у сессии стороннего провайдера и два поля формы ключа (протокол «OpenAI», срок кэша) — прототип на настоящем фронте делается после ответа на развилку о сроке кэша.</span>
+Не трогал как редакторское: названия протоколов в подсказках.</div>
+</section>
+
+<section id="b-order" data-block>
+  <h2>Порядок реализации</h2>
+  <div class="steps">
+    <div class="card chg" data-chg="order-1"><div><b>Хозяин пары и смена на лету.</b> Оба ключа документа, маршрут, сверка и строка журнала — у одного хозяина; документ → команда живому процессу; прокси шлёт пару документа; один способ запуска процесса.</div><div class="done">Готово: <b>эталоны 1–9, <span class="chg" data-chg="a2-order-1">21–24 — 13 из 13</span></b> на стенде машины; тесты машины зелёные; перезапусков при смене между моделями Claude и Meta <b>0</b>.</div></div>
+    <div class="card chg" data-chg="order-2"><div><b>Окно.</b> Имя для процесса и предел при запуске — из окна каталога.</div><div class="done">Готово: <b>эталон 10</b>; на живом процессе окно равно окну каталога для трёх размеров — 200 К, 500 К, 1 М: <b>3 из 3</b> (сейчас 1 из 3).</div></div>
+    <div class="card chg" data-chg="order-3"><div><b>Кэш.</b> Запись кэша о модели, которая ответила; срок — из ответа Claude или из поля ключа; сжатие при простое — по сроку.</div><div class="done">Готово: <b>эталоны 11–13 — 3 из 3</b>; тесты страницы зелёные; снимки индикатора на четырёх видах провайдера, светлая и тёмная тема, мышью и пальцем.</div></div>
+    <div class="card chg" data-chg="a2-order-names"><div><b>Имена и сверка.</b> Имя в документе — как в каталоге, у любого провайдера; «[1m]» — только в имени для процесса; документы сессий Claude агент переписывает один раз; сверка ответившей модели — только Claude.</div><div class="done">Готово: <b>эталоны 16, 17 — 2 из 2</b>; проверку документа проходят <b>379 имён каталога OpenRouter из 379</b> (сейчас 258); у сессий Claude в документе имён с «[1m]» <b>0</b>.</div></div>
+    <div class="card"><div><b>Протокол.</b> Поле протокола у модели каталога; вид ключа OpenAI; прокси выбирает путь по протоколу; рассуждение — только своей модели.</div><div class="done">Готово: <b>эталоны 14, 15, 18–20 — 5 из 5</b>; в каталоге orcarouter <b>194 модели с протоколом из 227</b>, остальных 33 в нём нет.</div></div>
+    <div class="card chg" data-chg="order-live"><div><b>Живая проверка.</b> Одна сессия, один процесс: все клетки матрицы 4×4 сменой на лету, запросом как со страницы; смена посреди хода; строки сетки функций на каждом виде провайдера.</div><div class="done">Готово на тестовом флоте: <b>16 клеток из 16</b> без отказа, каждый ход называет число прошлого; перезапусков процесса <b>0</b>; функции — <b>все клетки ✓ и ◆ сетки</b> подтверждены числом.</div></div>
+    <div class="card"><div><b>Тестовый флот.</b> Выкладка на Windows и WSL.</div><div class="done">Готово: живая проверка <b>2 машины из 2</b>; смена на лету — <b>секунды числом</b>.</div></div>
+    <div class="card"><div><b>Прод.</b> По вашему слову.</div><div class="done">Готово: за 7 дней в истории флота отказов смены из-за прежнего провайдера <b>0</b>, ложных «не та модель» <b>0</b>; число смен, доля смен на лету и медиана миллисекунд — из строки журнала.</div></div>
+  </div>
+</section>
+</main>
+
+<script>
+// схемы: блоки и стрелки из данных; наведение подсвечивает концы стрелки, нажатие объясняет
+(() => {
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text !== undefined) e.textContent = text; return e; };
+  function diagram(svg, say, tabs, { zones = [], nodes, flows }) {
+    const id = svg.id;
+    const defs = el("defs", {});
+    for (const k of ["ctx", "by", "no"]) { const m = el("marker", { id: `${id}-${k}`, class: "mk-" + k, viewBox: "0 0 10 10", refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }); m.append(el("path", { d: "M0,0 L10,5 L0,10 z" })); defs.append(m); }
+    svg.append(defs);
+    for (const [x, y, w, h, label] of zones) svg.append(el("rect", { class: "zone", x, y, width: w, height: h, rx: 16 }), el("text", { class: "s", x: x + 14, y: y + 20 }, label));
+    const box = el("g", {});
+    svg.append(box);
+    const INFO = {};
+    const show = (node) => {
+      const [title, text, json] = INFO[node.dataset.i];
+      for (const x of svg.querySelectorAll("[data-i].on")) x.classList.remove("on");
+      node.classList.add("on");
+      say.textContent = "";
+      const b = document.createElement("b"); b.textContent = title + ". "; say.append(b, text);
+      if (json) { const pre = document.createElement("pre"); pre.textContent = JSON.stringify(json, null, 2); say.append(pre); }
+    };
+    const wire = (node, ends) => {
+      node.setAttribute("tabindex", "0");
+      node.setAttribute("role", "button");
+      const light = (on) => { svg.classList.toggle("dim", on); for (const n of svg.querySelectorAll(".n")) n.classList.toggle("hi", on && ends.includes(n.dataset.i)); };
+      node.addEventListener("mouseenter", () => light(true));
+      node.addEventListener("mouseleave", () => light(false));
+      node.addEventListener("click", () => show(node));
+      node.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), show(node)));
+    };
+    // правка блока или стрелки: последний элемент строки данных — её метка; элемент встаёт жёлтым
+    const mark = (g, chg) => { if (chg) { g.classList.add("chg"); g.setAttribute("data-chg", chg); } };
+    for (const [key, x, y, w, h, title, sub, text, json, cls, chg] of nodes) {
+      const g = el("g", { class: "n" + (cls ? " " + cls : ""), "data-i": key });
+      mark(g, chg);
+      g.append(el("rect", { x, y, width: w, height: h, rx: 12 }), el("text", { x: x + w / 2, y: y + (sub ? h / 2 - 3 : h / 2 + 5) }, title));
+      if (sub) g.append(el("text", { class: "s", x: x + w / 2, y: y + h / 2 + 15 }, sub));
+      svg.append(g);
+      INFO[key] = [title, text, json];
+      wire(g, [key]);
+    }
+    function draw(i) {
+      if (tabs) [...tabs.children].forEach((b, j) => { b.classList.toggle("on", i === j); b.setAttribute("aria-selected", String(i === j)); });
+      box.textContent = "";
+      say.textContent = "Нажмите на блок или стрелку.";
+      for (const [aid, cls, d, label, x, y, anchor, ends, text, json, chg] of flows[i].arrows) {
+        INFO[aid] = [label, text, json];
+        const g = el("g", { class: "a " + cls, "data-i": aid });
+        mark(g, chg && `${chg}-${i}`);
+        g.append(el("path", { d, "marker-end": `url(#${id}-${cls})` }), el("path", { class: "hit", d }), el("text", { x, y, "text-anchor": anchor }, label));
+        box.append(g);
+        wire(g, ends.split(" "));
+      }
+    }
+    if (tabs) flows.forEach((f, i) => { const b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "tab"); b.id = `${id}-flow-${i}`; b.textContent = f.name; b.addEventListener("click", () => draw(i)); tabs.append(b); });
+    draw(0);
+  }
+
+  const UPDATE = { type: "session.update", to: "site@laptop", patch: { key: "orca", model: "grok/grok-4.5" } };
+  const OK = { ok: true, result: { now: ["key", "model"], later: [] } };
+  const ask = ["u1", "ctx", "M170,92 L246,92", "смена", 208, 82, "middle", "person doc", "Один запрос: провайдер и точное имя модели. Его шлёт страница по выбору в списке, сообщение «/model слова» или другая сессия инструментом.", UPDATE];
+  const check = ["u2", "ctx", "M290,134 L130,296", "есть такая?", 196, 220, "end", "doc catalog", "Машина сверяет пару с каталогом провайдера и берёт оттуда протокол и окно модели. Прошло — документ записан: с этой секунды прокси шлёт вызовы новой паре.", { type: "keys.models", name: "orca" }];
+  const set = ["u3", "ctx", "M440,97 L536,97", "смени модель", 488, 87, "middle", "doc proc", "Команда живому процессу. Процесс тот же: разговор, фоновые команды и подключённые инструменты остаются. Идёт ход — следующий вызов этого же хода уйдёт уже новой модели.", undefined, "hot-set"];
+  const probe = ["u4", "by", "M640,134 L640,296", "проба, дальше вызовы", 648, 220, "start", "proc proxy", "Получив команду, Claude Code сам делает пробный вызов на один токен: отвечает ли модель. Модель, которую он уже пробовал, меняется без пробы — за 3 мс.", undefined, "hot-probe"];
+  const toNew = ["u5", "by", "M740,340 L826,356", "пара документа", 820, 382, "end", "proxy new", "Прокси ставит в каждый вызов пару из документа: провайдера, его ключ и точное имя модели. Проба поэтому идёт новому провайдеру.", undefined, "hot-new"];
+  const done = ["u6", "ctx", "M250,118 L174,118", "принято", 212, 136, "middle", "doc person", "Ответ приходит, когда процесс уже на новой модели: первая смена на модель — 1,4–2,5 с, повторная — миллисекунды.", OK, "hot-done"];
+  const journal = ["u9", "ctx", "M740,92 L826,92", "строка", 783, 82, "middle", "proc journal", "Одна строка на смену: откуда, куда, протокол, на лету или перезапуском и сколько это заняло. Имя строки своё, чтобы смены не смешивались со строками «ответила не та модель».", { t: 1794909000000, part: "host", level: "info", msg: "model_switch", session: "site@laptop", from: "claude/claude-opus-5-5", to: "orca/grok/grok-4.5", protocol: "openai", how: "hot", ms: 1700 }, "journal-name"];
+  diagram(document.getElementById("dia"), document.getElementById("say"), document.getElementById("flows"), {
+    zones: [[232, 34, 526, 350, "Машина"]],
+    nodes: [
+      ["person", 20, 60, 150, 64, "Человек", "страница · «/model»", "Выбирает модель в списке под полем ввода или пишет «/model слова». Кнопка модели показывает новую, как только смена принята."],
+      ["doc", 250, 60, 190, 74, "Документ сессии", "провайдер · модель", "Запись о сессии на машине. Провайдер — аккаунты Claude или имя ключа флота; модель — точное имя из каталога этого провайдера. Документ записывается первым: по нему прокси ведёт каждый вызов."],
+      ["catalog", 20, 300, 170, 64, "Каталог моделей", "имя · протокол · окно", "Список моделей провайдера, как его отдаёт сам провайдер. У каждой модели — протокол, которым с ней говорить, и окно контекста. Моделей без разговорного API в нём нет.", { id: "grok/grok-4.5", name: "Grok 4.5", window: 500000, protocol: "openai" }],
+      ["proc", 540, 60, 200, 74, "Процесс Claude Code", "один на всю жизнь сессии", "Процесс поднят одинаково для любого провайдера и при смене модели не перезапускается. Модель ему меняют командой. Перезапуск нужен только тогда, когда меняется его окружение: точный предел окна или окружение ключа.", undefined, undefined, "proc-hot"],
+      ["proxy", 540, 300, 200, 64, "Прокси машины", "шлёт пару документа", "Через него идёт каждый вызов модели. Провайдера, ключ и имя модели он ставит из документа сессии. Исключение одно: на пути Claude другие модели Claude проходят как есть — так работают помощники сессии.", undefined, undefined, "proxy-doc"],
+      ["old", 830, 216, 150, 56, "Прежний провайдер", "", "Провайдер, на котором сессия шла до смены. Смена к нему не обращается."],
+      ["new", 830, 330, 150, 56, "Новый провайдер", "", "Провайдер из документа. Первым к нему приходит пробный вызов."],
+      ["journal", 830, 60, 150, 64, "Журнал", "история флота", "Журнал машины уходит в историю флота. По строкам о смене считается, сколько смен было, сколько на лету и сколько они заняли."],
+    ],
+    flows: [
+      { name: "Смена", arrows: [ask, check, set, probe, toNew, done, journal] },
+      { name: "Прежний не отвечает", arrows: [ask, check, set, probe,
+        ["x1", "no", "M740,318 L826,256", "0 обращений", 792, 300, "start", "proxy old", "Смена не спрашивает прежнего провайдера ни о чём. Уйти можно с любого — и с того, у которого выбран лимит или который отвечает ошибкой."],
+        toNew, done, journal] },
+      { name: "Новый не отвечает", arrows: [ask, check, set, probe,
+        ["y1", "no", "M740,340 L826,356", "проба: 503", 820, 382, "end", "proxy new", "Новый провайдер отказал пробному вызову: сервер недоступен, лимит выбран, ключ не принят.", undefined, "probe-refused"],
+        ["y2", "ctx", "M250,118 L174,118", "отказ его словами", 212, 136, "middle", "doc person", "Документ возвращён к прежней паре, процесс остался на прежней модели. В отказе — слова провайдера.", { ok: false, error: "model_refused", why: "orca/grok/grok-4.5: The upstream provider is temporarily unavailable" }, "probe-back"],
+        ["y3", "no", "M540,122 L444,122", "молчит 30 с", 490, 114, "middle", "proc doc", "Проба не вернулась за предел шага — те же 30 секунд, что у остальных шагов сессии. Отказ словом, документ возвращён к прежней паре; после хода процесс перезапускается и встаёт на пару документа.", { ok: false, error: "model_refused", why: "orca/grok/grok-4.5: провайдер не ответил за 30 с" }, "a2-limit"]] },
+      { name: "Такой модели нет", arrows: [ask, check,
+        ["n1", "ctx", "M170,300 L330,138", "нет", 262, 232, "start", "catalog doc", "В каталоге провайдера такой модели нет."],
+        ["n2", "ctx", "M250,118 L174,118", "отказ словом", 212, 136, "middle", "doc person", "Документ и процесс прежние. В отказе — похожие имена из каталога.", { ok: false, error: "no_model", why: "у провайдера orca нет модели grok-4; похожие: grok/grok-4.5, grok/grok-4.6" }]] },
+      { name: "Нужно другое окружение", arrows: [ask, check,
+        ["e1", "ctx", "M440,84 L536,84", "смени модель", 488, 74, "middle", "doc proc", "Смена идёт сразу, как всегда.", undefined, "env-set"],
+        ["e2", "ctx", "M440,118 L536,118", "после хода: перезапуск", 488, 138, "middle", "doc proc", "Окно модели не 200 К и не от миллиона, или у ключа провайдера своё окружение. Тогда после хода процесс поднимается заново с точным пределом окна — около трёх секунд, разговор тот же. На кнопке модели до этого метка «после хода».", { ok: true, result: { now: ["key", "model"], later: ["key", "model"] } }, "env-restart"],
+        probe, toNew, done, journal] },
+    ],
+  });
+
+  diagram(document.getElementById("dia2"), document.getElementById("say2"), null, {
+    nodes: [
+      ["proc", 20, 150, 190, 70, "Процесс Claude Code", "говорит по Anthropic API", "Сессия любого провайдера — тот же Claude Code, поднятый одним способом. Он шлёт запросы в формате Anthropic на адрес прокси машины. Ключей и токенов у него нет."],
+      ["proxy", 330, 150, 190, 70, "Прокси машины", "путь — по протоколу модели", "Протокол модели записан рядом с документом при смене — его называет каталог. По нему прокси выбирает один из четырёх путей. Имя хоста провайдера на выбор не влияет."],
+      ["claude", 640, 14, 340, 64, "Claude · аккаунт", "подписка: токен ставит прокси", "Аккаунты Claude флота. Прокси выбирает аккаунт по лимитам и ставит его токен. Запрос уходит как есть.", undefined, "claude"],
+      ["anth", 640, 104, 340, 64, "Anthropic-протокол", "OpenRouter · orcarouter · DeepSeek", "Провайдеры с API в формате Anthropic. Запрос уходит как есть, с ключом провайдера и моделью документа. Перевода нет.", undefined, "anth"],
+      ["oai", 640, 194, 340, 64, "OpenAI-протокол", "orcarouter — Responses", "Провайдеры с OpenAI Responses API. Прокси переводит запрос и поток ответа — тем же переводчиком, что работает для Meta.", undefined, "oai"],
+      ["meta", 640, 284, 340, 64, "Meta · адаптер muse", "Responses + заголовки и поиск Meta", "Тот же переводчик со своим диалектом: заголовки клиента Meta и поиск в вебе через прокси. Диалект включает протокол «Meta» из каталога; по адресу провайдера не решается ничего.", undefined, "meta", "meta-dialect"],
+    ],
+    flows: [{ name: "", arrows: [
+      ["p1", "by", "M210,185 L326,185", "/v1/messages", 268, 175, "middle", "proc proxy", "Запрос Claude Code: модель, история, инструменты.", { model: "grok/grok-4.5", stream: true, messages: [{ role: "user", content: "Собери срез 2" }], tools: ["…"] }],
+      ["p2", "by", "M520,160 L636,52", "как есть + токен", 566, 92, "end", "proxy claude", "Тело запроса не меняется; в заголовке — токен выбранного аккаунта."],
+      ["p3", "by", "M520,178 L636,140", "как есть + ключ", 590, 172, "start", "proxy anth", "Тело запроса не меняется, кроме имени модели: любой вызов сессии идёт на модель документа."],
+      ["p4", "by", "M520,196 L636,222", "перевод ⇄ Responses", 572, 232, "end", "proxy oai", "Запрос Anthropic становится запросом Responses, поток ответа — событиями Anthropic. Рассуждение возвращается только той модели того провайдера, что его дала: подпись прокси их называет. Чужое провайдер может отклонить — на опыте 1 раз из 3.", { model: "grok/grok-4.5", stream: true, input: [{ type: "message", role: "user", content: "Собери срез 2" }, { type: "function_call", call_id: "c1", name: "Bash", arguments: "{\"command\":\"npm test\"}" }, { type: "function_call_output", call_id: "c1", output: "ok" }], tools: [{ type: "function", name: "Bash" }] }, "own-reasoning"],
+      ["p5", "by", "M520,212 L636,312", "перевод + диалект", 566, 290, "end", "proxy meta", "Тот же перевод; сверху — заголовки клиента Meta, поиск в вебе через прокси и её лимит в виде, который понимает Claude Code.", undefined, "meta-path"],
+    ] }],
+  });
+
+  diagram(document.getElementById("dia3"), document.getElementById("say3"), null, {
+    nodes: [
+      ["core", 20, 40, 210, 176, "Ядро машины", "документ · процесс", "Хранит документ сессии, держит процесс, передаёт ему команды и отдаёт его события. О провайдерах, протоколах и именах моделей не знает ничего.", undefined, undefined, "owner-core"],
+      ["pair", 410, 40, 220, 176, "Хозяин пары", "провайдер · модель", "Одна часть машины ведёт пару целиком: сверяет её с каталогом, командует смену, называет прокси маршрут, сверяет ответившую модель, ведёт запись кэша и пишет строку журнала. Оба ключа документа — провайдер и модель — её.", undefined, undefined, "owner-pair"],
+      ["proxy", 790, 40, 190, 176, "Прокси машины", "везёт вызов", "Спрашивает маршрут на каждый вызов и идёт по нему. Сам о паре ничего не решает.", undefined, undefined, "owner-proxy"],
+      ["catalog", 410, 280, 220, 56, "Каталог и ключ провайдера", "", "Список моделей провайдера и настройки его ключа. На машине их читает только хозяин пары.", undefined, undefined, "owner-catalog"],
+    ],
+    flows: [{ name: "", arrows: [
+      ["o1", "ctx", "M230,62 L406,62", "пара изменена", 318, 54, "middle", "core pair", "Ядро записало документ и говорит хозяину ключей, что они изменились, — как любому хозяину ключей документа.", undefined, "owner-changed"],
+      ["o2", "ctx", "M410,95 L234,95", "смени модель", 322, 87, "middle", "pair core", "Команду процессу даёт один — хозяин пары, через ядро. Перезапуск он просит, только когда процессу нужно другое окружение; тогда ответ на смену называет ключи «после хода» — тем же правилом, что у папки и кусочков сессии.", undefined, "owner-set"],
+      ["o6", "no", "M410,128 L234,128", "отказ: документ назад", 322, 120, "middle", "pair core", "Провайдер отклонил пробу или она не вернулась за 30 секунд — хозяин отвечает ядру отказом словами провайдера. Документ пишет и возвращает только ядро, тем же правилом для любого хозяина ключей; хозяин возвращает лишь свою запись о паре.", undefined, "a2-owner-back"],
+      ["o3", "ctx", "M230,161 L406,161", "события процесса", 318, 153, "middle", "core pair", "Модель ответила — хозяин сверяет её имя с документом и обновляет запись кэша: размер разговора, сколько прочитано из кэша, срок.", undefined, "owner-events"],
+      ["o7", "ctx", "M410,194 L234,194", "сжатие при простое", 322, 186, "middle", "pair core", "Запись кэша ведёт хозяин, и оба её часа считает он же, в одном месте: до какого кэш тёплый и когда сжать — за 6 минут до конца срока. В этот час он даёт сессии «/compact» тем же вводом, что человек. Ядро и страница получают часы готовыми и срока не считают.", undefined, "a2-owner-compact"],
+      ["o4", "ctx", "M790,95 L634,95", "куда вызов?", 712, 87, "middle", "proxy pair", "Маршрут — пара документа и то, что хозяин записал о ней при смене: адрес и ключ провайдера, протокол модели.", undefined, "owner-route"],
+      ["o8", "ctx", "M630,128 L786,128", "маршрут и модель", 708, 120, "middle", "pair proxy", "Ответ на каждый вызов: адрес, секрет, протокол и имя модели, которое слать. Прокси называет имя из вызова; оставить модель Claude как есть или заменить моделью документа — решает хозяин, в прокси этого правила нет.", undefined, "a2-owner-model"],
+      ["o5", "ctx", "M520,216 L520,276", "проверка · протокол · окно", 530, 251, "start", "pair catalog", "При смене: есть ли такая модель, каким протоколом с ней говорить, какое у неё окно; адрес и настройки ключа.", undefined, "owner-read"],
+    ] }],
+  });
+})();
+
+// сетки: функции по видам провайдера, матрица переходов, замеры
+(() => {
+  const P = [["claude", "Claude · аккаунт"], ["anth", "Anthropic-протокол"], ["oai", "OpenAI-протокол"], ["meta", "Meta · адаптер"]];
+  const div = (cls, text) => { const e = document.createElement("div"); e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  const head = (cls, [dot, label]) => { const h = div("h " + cls); if (dot) { const i = document.createElement("i"); i.className = "dot-" + dot; h.append(i); } h.append(label); return h; };
+  const SIGN = { ok: "✓", no: "✗", new: "◆", todo: "◌", na: "—" };
+  const WORD = { ok: "работает", no: "нет", new: "заработает по дизайну", todo: "клетка живой проверки", na: "такого вида сейчас нет" };
+  function cell(box, say, state, title, text) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "c" + (state === "ok" ? "" : " " + state);
+    b.textContent = SIGN[state];
+    b.setAttribute("aria-label", `${title}: ${WORD[state]}`);
+    b.addEventListener("click", () => { for (const x of box.querySelectorAll(".on")) x.classList.remove("on"); b.classList.add("on"); say.textContent = ""; const t = document.createElement("b"); t.textContent = title + ". "; say.append(t, text); });
+    box.append(b);
+  }
+
+  // функции: строка — функция, клетки — виды провайдера
+  const FEATURES = [
+    ["Окно контекста и порог сжатия", "ok new new new", "Claude Code узнаёт окно по имени модели: 200 К, а с «[1m]» в имени — 1 М, и меняет его на лету вместе с моделью (замер на живом процессе: 200 000 → 1 000 000 → 200 000). Окно другого размера задаётся пределом при запуске: предел 500 000 дал окно 500 000 и порог сжатия 467 000. В общем процессе матрицы: Claude Haiku — 1 М, Meta с «[1m]» — 1 М, DeepSeek и Grok — 200 К. Сейчас у любой сторонней модели процесс считает 200 К. По дизайну имя для процесса и предел выводятся из окна каталога: 200 К — имя как есть, от миллиона — имя с «[1m]», иначе — предел при запуске.", "f-window"],
+    ["Кольцо контекста на странице", "ok ok ok ok", "Размер разговора называет каждый ответ модели, окно — каталог. Все провайдеры размер называют."],
+    ["Индикатор кэша", "ok new new new", "Claude сам называет срок в ответе: час или пять минут. Сторонние кэшируют автоматически и называют только прочитанное из кэша — замер: Grok 19 ответов из 19, DeepSeek 21 из 26, GPT 8 из 9, Meta 10 из 16; записей в кэш и срока не называет никто. Срок у каждого свой: кэш DeepSeek по OpenAI-адресу жив через 13 минут, по Anthropic-адресу — через 6 жив, через 13 уже нет. Кэш Claude в общем процессе пишется на час. Сейчас срок у сторонней модели достаётся от прежней: после Claude индикатор показывает час, которого нет. По дизайну запись кэша — о модели, которая ответила; смена делает кэш холодным; срок — поле ключа провайдера, а без него индикатор показывает долю последнего запроса, прочитанную из кэша.", "f-cache"],
+    ["Сжатие при простое", "ok new new new", "Свободная сессия с разговором от 200 К сжимается за 6 минут до конца срока кэша — пока сжатие дёшево. Правило одно для всех: срок известен — работает.", "f-idle"],
+    ["Усилие и рассуждения", "ok ok new ok", "Уровень усилия уходит провайдеру: в Anthropic-протоколе как есть, в OpenAI-протоколе и у Meta — переводится в их уровень. Рассуждение модели возвращается ей следующим запросом."],
+    ["Инструменты и поиск инструментов", "ok ok new ok", "Инструменты флота, отложенные инструменты и их поиск: на опыте инструмент флота вызвали все модели цепочки; OpenAI-адрес orcarouter принял запросы с отложенными инструментами от настоящего Claude Code."],
+    ["Помощники сессии", "ok ok new ok", "Побочные вызовы — помощники, заголовок разговора, сжатие — у стороннего провайдера идут на модель документа; у Claude — на модели Claude, которые назвал процесс."],
+    ["Откат, очистка, сжатие, вопросы человеку", "ok ok new ok", "Функции самого процесса: от модели не зависят. Сжатие — обычный вызов модели документа; в общем процессе оно прошло на всех четырёх видах: 70 721 → 8 741 токенов у Claude, 35 472 → 9 019 у DeepSeek, 17 671 → 9 050 у Grok, 17 574 → 9 114 у Meta, и после него каждая модель назвала число из разговора. Откат и вопросы человеку подтверждает живая проверка.", "f-compact"],
+    ["Картинки и файлы", "ok ok new ok", "Файл встаёт в папку сессии, сессии приходит уведомление — от модели не зависит. Картинку в общем процессе прочитали все четыре: Claude Haiku, DeepSeek, Grok и Meta назвали цвет.", "f-image"],
+    ["Поиск в вебе", "ok no no ok", "У Claude поиск — свой инструмент. У Meta поиск ведёт прокси. У остальных провайдеров пары этому инструменту нет: модель его не видит, а машина пишет об этом строку журнала."],
+    ["Лимиты и выбор аккаунта", "ok no no ok", "Аккаунты Claude выбираются по лимитам; лимит Meta приходит сессии в виде, который понимает Claude Code. У остальных провайдеров лимит — отказ вызова словами провайдера в ленте."],
+    ["Расход по моделям", "ok ok new ok", "На каждый вызов — строка журнала с провайдером и моделью; расход в истории флота считается по ним."],
+  ];
+  const fx = document.getElementById("fx"), fxsay = document.getElementById("fxsay");
+  fx.append(div("h", ""), ...P.map((p) => head("col", p)));
+  for (const [name, states, text, chg] of FEATURES) {
+    const f = div("f" + (chg ? " chg" : ""), name);
+    if (chg) f.dataset.chg = chg;
+    fx.append(f);
+    states.split(" ").forEach((s, j) => cell(fx, fxsay, s, `${name} · ${P[j][1]}`, text));
+  }
+
+  // матрица переходов 4×4
+  const MODES = [
+    { name: "Разговор после смены", rows: P, cells: [
+      [["ok", "Haiku → Sonnet: «число: 88, прошлое число: 77»."], ["ok", "Claude → DeepSeek (orcarouter) и Claude → GPT (OpenRouter), 3 перехода: каждый ход назвал число прошлого. В разговоре — рассуждения Claude с подписью и ответы поиска инструментов; провайдеры их приняли."], ["ok", "Claude → Grok на OpenAI-адресе orcarouter: «число: 110, прошлое число: 99» — в общем процессе, сменой на лету."], ["ok", "Claude → Meta: «число: 22, прошлое число: 11». Адаптер принял разговор с рассуждениями Claude и ответами поиска инструментов."]],
+      [["ok", "DeepSeek → Claude и GPT → Claude, 4 перехода."], ["ok", "GPT (OpenRouter) → DeepSeek (orcarouter)."], ["ok", "Anthropic-адрес orcarouter → его же OpenAI-адрес, 2 перехода на настоящем Claude Code."], ["ok", "DeepSeek → Meta и GPT → Meta, 2 перехода."]],
+      [["ok", "Grok на OpenAI-адресе orcarouter → Claude: «число: 187, прошлое число: 176» — в общем процессе."], ["ok", "OpenAI-адрес orcarouter → его же Anthropic-адрес, 2 перехода."], ["ok", "Grok 4.5 на OpenAI-адресе orcarouter: 3 хода, рассуждение возвращается модели. Чужое рассуждение Grok отклонил — поэтому оно идёт только своей модели."], ["ok", "Grok → Meta: «число: 77, прошлое число: 66» — в общем процессе."]],
+      [["ok", "Meta → Claude, 2 перехода, один — посреди хода. Рассуждения Meta с подписью адаптера Claude принял."], ["ok", "Meta → GPT (OpenRouter) и Meta → DeepSeek (orcarouter), 2 перехода."], ["ok", "Meta → Grok: «число: 176, прошлое число: 165» — в общем процессе. Рассуждения Meta другому провайдеру не уходят."], ["ok", "Meta muse-spark 1.3 → 1.2: «число: 44, прошлое число: 33»."]],
+    ] },
+    { name: "Смена на лету, один процесс", rows: P, chg: "mx-hot", cells: [
+      [["ok", "Haiku → Sonnet в том же процессе: «число: 22, прошлое число: 11». Кэш Claude пишется на час и в общем процессе."], ["ok", "Claude → DeepSeek: «число: 33, прошлое число: 22». Проба ушла новому провайдеру."], ["ok", "Claude → Grok на OpenAI-адресе orcarouter: «число: 110, прошлое число: 99». Модель уже пробовали — смена за 4 мс."], ["ok", "Claude → Meta: «число: 165, прошлое число: 154»."]],
+      [["ok", "DeepSeek → Claude: «число: 154, прошлое число: 143». Вернувшись, Claude прочитал из кэша 68 608 токенов из 68 766."], ["ok", "DeepSeek → вторая модель того же провайдера: «число: 44, прошлое число: 33»."], ["ok", "DeepSeek → Grok: «число: 55, прошлое число: 44». В опыте без флота — и посреди хода: ход закончила новая модель."], ["ok", "DeepSeek → Meta: «число: 132, прошлое число: 121»."]],
+      [["ok", "Grok → Claude: «число: 187, прошлое число: 176»."], ["ok", "Grok → DeepSeek: «число: 121, прошлое число: 110»."], ["ok", "Grok 4.5 → Grok 4.6: «число: 66, прошлое число: 55»."], ["ok", "Grok → Meta: «число: 77, прошлое число: 66»."]],
+      [["ok", "Meta → Claude: «число: 99, прошлое число: 88»."], ["ok", "Meta → DeepSeek: «число: 143, прошлое число: 132»."], ["ok", "Meta → Grok: «число: 176, прошлое число: 165»."], ["ok", "Meta muse-spark 1.3 → 1.2: «число: 88, прошлое число: 77»."]],
+    ] },
+    { name: "Смена сегодня", rows: [...P, ["", "провайдер не отвечает"]], cells: [
+      [["ok", "Проходит, пока открыто окно прежней модели: проверочный вызов идёт по маршруту прежней."], ["no", "Отказ 4 из 4: «setModel — Model 'deepseek/deepseek-v4.1-flash' not found». Проверочный вызов с именем новой модели уходит прежнему провайдеру — Claude."], ["na", "Ключа OpenAI-протокола у флота сейчас нет."], ["no", "Отказ: «setModel — Model 'muse-spark-1.3' not found»."]],
+      [["ok", "Проходит: проверочный вызов прокси переписывает на прежнюю модель, она отвечает. Следом — перезапуск."], ["ok", "Проходит так же."], ["na", "Ключа OpenAI-протокола у флота сейчас нет."], ["ok", "Проходит так же."]],
+      [["na", "Ключа OpenAI-протокола у флота сейчас нет."], ["na", "Ключа OpenAI-протокола у флота сейчас нет."], ["na", "Ключа OpenAI-протокола у флота сейчас нет."], ["na", "Ключа OpenAI-протокола у флота сейчас нет."]],
+      [["ok", "Проходит; посреди хода — ложная тревога «в документе claude-haiku-5-5, ответила muse-spark-1.3»."], ["ok", "Проходит."], ["na", "Ключа OpenAI-протокола у флота сейчас нет."], ["ok", "Проходит."]],
+      [["no", "Отказ: «API error: 400 · model not changed». Проверочный вызов получает ту же ошибку, от которой человек уходит."], ["no", "Отказ: «API error: 503 The upstream provider is temporarily unavailable · model not changed»."], ["na", "Ключа OpenAI-протокола у флота сейчас нет."], ["no", "Отказ так же: с неотвечающего провайдера не уйти, 2 из 2."]],
+    ] },
+  ];
+  const box = document.getElementById("mx"), say = document.getElementById("mxsay"), tabs = document.getElementById("mxmode");
+  function draw(m) {
+    [...tabs.children].forEach((b, j) => { b.classList.toggle("on", m === j); b.setAttribute("aria-selected", String(m === j)); });
+    box.textContent = "";
+    say.textContent = "Нажмите на клетку.";
+    box.append(div("h", "с ↓ на →"), ...P.map((p) => head("col", p)));
+    MODES[m].rows.forEach((r, i) => {
+      box.append(head("", r));
+      MODES[m].cells[i].forEach(([state, text], j) => cell(box, say, state, `${r[1]} → ${P[j][1]}`, text));
+    });
+  }
+  MODES.forEach((m, i) => { const b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "tab"); b.id = "mx-mode-" + i; if (m.chg) { const s = document.createElement("span"); s.className = "chg"; s.dataset.chg = m.chg; s.textContent = m.name; b.append(s); } else b.textContent = m.name; b.addEventListener("click", () => draw(i)); tabs.append(b); });
+  draw(0);
+
+  const TILES = [
+    ["bad", "5 из 5", "смена с Claude на другого провайдера сегодня — отказ"],
+    ["bad", "2 из 2", "с провайдера, который не отвечает, сегодня — отказ"],
+    ["good", "24 из 24", "переезда разговора: ход назвал число прошлого хода"],
+    ["good", "16 из 16", "переходов матрицы на лету в одном живом процессе: настоящий аккаунт Claude, Meta, DeepSeek и Grok", "t-hot"],
+    ["good", "4 из 4", "видов провайдера в том же процессе прочитали картинку и сжали разговор", "t-features"],
+    ["", "1,4–2,5 с", "первая смена на модель; повторная — 3 мс; перезапуск — около 3 с", "t-time"],
+    ["", "200 К · 1 М", "окно по имени модели меняется на лету; точный предел — только при запуске", "t-window"],
+    ["", "6 и 13 мин", "автоматический кэш DeepSeek по OpenAI-адресу жив через 13 минут, по Anthropic-адресу — через 6 жив, через 13 нет; срок не называет никто", "t-cache"],
+    ["", "38 → 194", "моделей orcarouter из 227 доступны сессии: по Anthropic-протоколу и с OpenAI-протоколом"],
+    ["", "121 из 379", "моделей OpenRouter сейчас не выбрать: имя кончается на «[1m]»"],
+    ["", "1 из 3", "чужих рассуждений провайдер OpenAI-протокола отклонил", "t-reason"],
+  ];
+  const tiles = document.getElementById("tiles");
+  for (const [cls, n, text, chg] of TILES) { const c = div("card tile" + (cls ? " " + cls : "") + (chg ? " chg" : "")); if (chg) c.dataset.chg = chg; const b = document.createElement("b"); b.textContent = n; c.append(b, text); tiles.append(c); }
+})();
+
+// один разговор на пяти моделях: цепочка ходов опыта
+(() => {
+  const TURNS = [
+    ["meta", "Meta muse-spark-1.3", "число: 11"], ["anth", "GPT-5.4 mini · OpenRouter", "22, прошлое: 11"], ["meta", "Meta muse-spark-1.3", "33, прошлое: 22"],
+    ["", "Gemini 2.5 · orcarouter", "503: провайдер недоступен", true], ["anth", "GPT-5.4 mini · OpenRouter", "55, прошлое: 33"], ["anth", "DeepSeek 4.1 · orcarouter", "66, прошлое: 55"],
+    ["claude", "Claude Haiku 5.5", "77, прошлое: 66"], ["anth", "GPT-5.4 mini · OpenRouter", "88, прошлое: 77"], ["claude", "Claude Haiku 5.5", "99, прошлое: 88"],
+  ];
+  const box = document.getElementById("chain");
+  TURNS.forEach(([dot, model, said, off], i) => {
+    if (i) { const a = document.createElement("span"); a.className = "arr"; a.textContent = "→"; box.append(a); }
+    const t = document.createElement("div"); t.className = "t" + (off ? " off" : "");
+    const m = document.createElement("span"); m.className = "m";
+    if (dot) { const d = document.createElement("i"); d.className = "dot-" + dot; m.append(d); }
+    m.append(model);
+    const r = document.createElement("span"); r.className = "r"; r.textContent = said;
+    t.append(m, r); box.append(t);
+  });
+  const kinds = document.getElementById("kinds");
+  for (const k of ["в файле разговора остаётся всё:", "текст", "вызовы инструментов и их ответы", "рассуждения Claude с подписью Anthropic", "рассуждения Meta с подписью прокси", "ответы поиска инструментов", "каждый провайдер принял весь файл"]) { const s = document.createElement("span"); s.textContent = k; kinds.append(s); }
+})();
+
+// эталоны: вход → итог
+(() => {
+  const ETS = [
+    ["Машина · смена"],
+    [1, "сессия свободна · Claude → модель OpenAI-протокола", "ok", "документ записан; живой процесс переключён командой; первый вызов — новому провайдеру; перезапуска нет", "et-1"],
+    [2, "смена посреди хода", "ok", "следующий вызов того же хода — новой модели; ответ прежней модели, пришедший после смены, — не тревога", "et-2"],
+    [3, "та же пара, что уже в документе", "ok", "ничего: ни команды, ни перезапуска"],
+    [4, "прежний провайдер отвечает 503 · лимит выбран", "ok", "смена принята; обращений к прежнему 0"],
+    [5, "новый провайдер отклонил пробу", "no", "отказ его словами; документ и процесс — на прежней паре", "et-5"],
+    [6, "модели нет в каталоге", "no", "отказ словом с похожими именами; документ и процесс прежние"],
+    [7, "сессия остановлена", "ok", "документ записан; запуск поднимает процесс с новой парой"],
+    [8, "модели нужен точный предел окна · у ключа своё окружение", "ok", "смена сразу; после хода — перезапуск с новым окружением; ответ называет ключи «после хода»", "et-8"],
+    [9, "программа машины подменена после смены", "ok", "процесс тот же; вызовы идут паре документа", "et-9"],
+    [23, "с модели с точным пределом окна — на модель без него · с ключа со своим окружением — на ключ без него", "ok", "смена сразу; после хода — перезапуск: предел и окружение прежней пары сняты", "a2-et-23"],
+    [24, "новый провайдер молчит: проба не вернулась за 30 с", "no", "отказ словом; документ — на прежней паре; после хода процесс перезапущен на паре документа", "a2-et-24"],
+    ["Окно и кэш"],
+    [10, "окно каталога: 200 К · от миллиона · иное", "ok", "имя как есть · имя с «[1m]» · предел при запуске; окно процесса равно окну каталога", "et-10"],
+    [11, "ответ Claude с записью в кэш · ответ стороннего с чтением из кэша", "ok", "тёплый до срока из ответа · тёплый на срок из ключа, без срока — доля прочитанного", "et-11"],
+    [12, "смена модели", "ok", "кэш холодный до первого ответа новой модели; срок прежней не наследуется", "et-12"],
+    [13, "сессия свободна, срок кэша известен, разговор от 200 К", "ok", "сжатие за 6 минут до конца срока — у любого провайдера", "et-13"],
+    ["Каталог и имена"],
+    [14, "провайдер объявляет API своих моделей", "ok", "у модели протокол: Anthropic, если он объявлен, иначе OpenAI; моделей без разговорного API в каталоге нет"],
+    [15, "провайдер API не объявляет", "ok", "протокол модели — протокол ключа"],
+    [16, "модель Claude с окном от миллиона · имя с «[1m]» у стороннего провайдера", "ok", "в документе — имя каталога как есть, у любого провайдера; «[1m]» добавляет только имя для процесса", "a2-et-16"],
+    [17, "ответ назвал другое имя модели: Claude · сторонний", "ok", "Claude — строка «не та модель» и обращение; сторонний — тревоги нет"],
+    ["Прокси"],
+    [18, "путь Anthropic-протокола", "ok", "запрос как есть, ключ провайдера, модель документа"],
+    [19, "путь OpenAI-протокола · путь Meta", "ok", "запрос Responses; поток — событиями Anthropic; заголовки и поиск Meta — только у протокола «Meta», при любом адресе", "et-19"],
+    [20, "в истории рассуждения Claude, другой модели OpenAI-протокола и ответы поиска инструментов", "ok", "уходит только рассуждение этой же модели этого провайдера; текст и инструменты целы", "et-20"],
+    [21, "вызов с именем не из документа: сторонний путь · путь Claude", "ok", "сторонний — модель документа; Claude — модели Claude как есть, чужое имя — модель документа", "et-21"],
+    ["Журнал"],
+    [22, "смена применена", "ok", "одна строка model_switch: откуда, куда, протокол, на лету или перезапуском, миллисекунды", "et-22"],
+  ];
+  const box = document.getElementById("ets");
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  for (const [no, input, kind, out, chg] of ETS) {
+    if (input === undefined) { box.append(el("div", "etgroup", no)); continue; }
+    const card = el("div", "card et" + (chg ? " chg" : "")), res = el("span", "out");
+    if (chg) card.dataset.chg = chg;
+    res.append(el("i", kind === "ok" ? "" : kind), out);
+    card.append(el("span", "no", String(no)), el("span", "in", input), el("span", "to", "→"), res);
+    box.append(card);
+  }
+})();
+</script>
+
+<script>
+// метки «прочитал»: клавиша A (латинская или русская) над блоком
+(() => {
+  const KEY = "v2-model-switch.read.2";
+  let read = [];
+  try { read = JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch {}
+  let over = null;
+  const draw = () => { for (const s of document.querySelectorAll("[data-block]")) s.classList.toggle("read", read.includes(s.id)); };
+  for (const s of document.querySelectorAll("[data-block]")) s.addEventListener("mouseenter", () => (over = s));
+  document.addEventListener("keydown", (e) => {
+    if (!(e.code === "KeyA" || e.key === "a" || e.key === "A" || e.key === "ф" || e.key === "Ф") || e.ctrlKey || e.metaKey || e.altKey || !over) return;
+    read = read.includes(over.id) ? read.filter((x) => x !== over.id) : [...read, over.id];
+    try { localStorage.setItem(KEY, JSON.stringify(read)); } catch {}
+    draw();
+  });
+  draw();
+})();
+</script>

@@ -1,6 +1,6 @@
 // «Флот → Аккаунты»: аккаунты Claude — годовые токены, заведённые один раз на весь флот, столбцами на общей шкале; рядом — что система сделала с ними сама;
 // ниже — провайдеры: ключи флота, каждый открывает каталог своих моделей.
-import { accountList, CLAUDE, keyCheck, keysList, keysRemove, keysSet, logQuery, type KeyRow, type LogRow } from "@sb/protocol";
+import { accountList, CLAUDE, keyCheck, keysList, keysRemove, keysSet, logQuery, PROTOCOLS, type KeyRow, type LogRow } from "@sb/protocol";
 import { ActionIcon, Button, CopyButton, Group, JsonInput, Menu, PasswordInput, Select, Stack, Text, Textarea, TextInput, Tooltip } from "@mantine/core";
 import { Page } from "../../shell/Page.tsx";
 import { notifications } from "@mantine/notifications";
@@ -162,10 +162,10 @@ function Moves() {
 /** Адрес провайдера коротко: только имя узла. */
 const hostOf = (base: string) => { try { return new URL(base).host; } catch { return base; } };
 
-/** Виды API провайдера: anthropic — Messages API по адресу; meta — Meta. */
-const PROTOCOLS = ["anthropic", "meta"];
-type KeyForm = { name: string; protocol: string; value: string; base: string; settings: string; env: string; isNew: boolean };
-const formOf = (k?: KeyRow): KeyForm => ({ name: k?.name ?? "", protocol: k?.protocol ?? PROTOCOLS[0]!, value: "", base: k?.base ?? "", settings: k?.settings ? JSON.stringify(k.settings, null, 2) : "", env: pairsText(k?.env), isNew: !k });
+/** Виды API провайдера — из договора ключей; аккаунт Claude заводится своей формой. */
+const KEY_PROTOCOLS = PROTOCOLS.filter((p) => p !== CLAUDE);
+type KeyForm = { name: string; protocol: string; value: string; base: string; settings: string; env: string; /** срок кэша разговора у провайдера, минуты */ cache: string; isNew: boolean };
+const formOf = (k?: KeyRow): KeyForm => ({ name: k?.name ?? "", protocol: k?.protocol ?? KEY_PROTOCOLS[0]!, value: "", base: k?.base ?? "", cache: k?.cache ? String(k.cache) : "", settings: k?.settings ? JSON.stringify(k.settings, null, 2) : "", env: pairsText(k?.env), isNew: !k });
 
 /** Поля формы провайдера → ввод keys.set. Значение не задано — правятся только свойства записанного ключа. */
 export function keyInput(f: KeyForm): { ok: true; input: Parameters<typeof api.call<typeof keysSet>>[1] } | { ok: false; why: string } {
@@ -182,7 +182,10 @@ export function keyInput(f: KeyForm): { ok: true; input: Parameters<typeof api.c
   if (f.name.trim() === CLAUDE) return { ok: false, why: "Имя claude занято аккаунтами Claude" };
   if (f.isNew && !f.value) return { ok: false, why: "Нужно значение ключа" };
   const env = parsePairs(f.env);
-  return { ok: true, input: { name: f.name.trim(), protocol: f.protocol, ...(f.value ? { value: f.value } : {}), ...(f.base ? { base: f.base } : {}), ...(settings ? { settings } : {}), ...(Object.keys(env).length ? { env } : {}) } };
+  const cache = f.cache.trim() ? Number(f.cache) : 0;
+  if (!Number.isFinite(cache) || cache < 0) return { ok: false, why: "Срок кэша — число минут" };
+  // пустое поле у записанного ключа снимает срок: ноль
+  return { ok: true, input: { name: f.name.trim(), protocol: f.protocol as never, ...(cache || !f.isNew ? { cache } : {}), ...(f.value ? { value: f.value } : {}), ...(f.base ? { base: f.base } : {}), ...(settings ? { settings } : {}), ...(Object.keys(env).length ? { env } : {}) } };
 }
 
 /** Провайдеры: ключ флота открывает весь каталог моделей провайдера; модель выбирают в списке моделей сессии. */
@@ -231,8 +234,9 @@ function Providers({ keys, machines, refresh }: { keys: KeyRow[]; machines: stri
         {f && (
           <Stack gap="sm">
             <TextInput label="Имя" className="mono" disabled={!f.isNew} value={f.name} onChange={(e) => setF({ ...f, name: e.currentTarget.value })} />
-            <Select label="Протокол" data={[...new Set([...PROTOCOLS, f.protocol])]} value={f.protocol} onChange={(v) => setF({ ...f, protocol: v ?? f.protocol })} allowDeselect={false} />
+            <Select label="Протокол" data={[...new Set([...KEY_PROTOCOLS, f.protocol])]} value={f.protocol} onChange={(v) => setF({ ...f, protocol: v ?? f.protocol })} allowDeselect={false} />
             <TextInput label="Адрес API" value={f.base} onChange={(e) => setF({ ...f, base: e.currentTarget.value })} />
+            <TextInput label="Срок кэша, минут" inputMode="numeric" value={f.cache} onChange={(e) => setF({ ...f, cache: e.currentTarget.value })} />
             <JsonInput label="Настройки сессии" autosize minRows={2} value={f.settings} onChange={(v) => setF({ ...f, settings: v })} />
             <Textarea label="Окружение сессии" placeholder="ИМЯ = значение" autosize minRows={2} className="mono" value={f.env} onChange={(e) => setF({ ...f, env: e.currentTarget.value })} />
             <PasswordInput label={f.isNew ? "Ключ" : "Новый ключ"} value={f.value} onChange={(e) => setF({ ...f, value: e.currentTarget.value })} />

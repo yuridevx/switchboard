@@ -15,7 +15,7 @@ export function useDoc(s: SessionRow) {
 }
 
 /** Провайдер и модель меняются вместе, одним запросом: сессия не остаётся с моделью одного провайдера на ключе другого. */
-export const pickModel = (s: SessionRow, o: Offer) => patchDoc(s, { key: o.key, model: o.doc });
+export const pickModel = (s: SessionRow, o: Offer) => patchDoc(s, { key: o.key, model: o.model });
 
 /** Что стоит на кнопке модели: выбранная модель, провайдер — если не Claude, и модель, которая ответила вместо выбранной (её называет машина в строке сессии). */
 export function ModelFace({ s }: { s: Pick<SessionRow, "answers"> & { spec: { key?: string; model?: string } } }) {

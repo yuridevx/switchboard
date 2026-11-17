@@ -186,10 +186,15 @@ export const prefsSet = request("prefs.set", {
 
 /** Имя провайдера «аккаунты Claude флота» в документе сессии (key) и в keys.models. Ключ флота так назвать нельзя. */
 export const CLAUDE = "claude";
-/** Дополнения ключа провайдера: settings — настройки сессии на этом ключе; env — окружение сессии. */
-const KeyOpts = { settings: z.record(z.string(), z.unknown()).optional(), env: z.record(z.string(), z.string()).optional() };
-/** Ключ флота — провайдер: один ключ открывает весь каталог его моделей. protocol — вид его API:
- *  claude — аккаунт Claude (имя — почта, значение — годовой токен claude setup-token); остальное — провайдер с протоколом Claude (Messages API) по адресу base. */
+/** Виды API провайдера: claude — аккаунт Claude (имя — почта, значение — годовой токен claude setup-token); anthropic — Messages API по адресу base;
+ *  openai — OpenAI Responses API по адресу base: запрос и поток переводит прокси машины; meta — тот же перевод с заголовками и поиском Meta. */
+export const PROTOCOLS = ["claude", "anthropic", "openai", "meta"] as const;
+export const Protocol = z.enum(PROTOCOLS);
+export type Protocol = z.infer<typeof Protocol>;
+/** Дополнения ключа провайдера: settings — настройки сессии на этом ключе; env — окружение сессии;
+ *  cache — сколько минут живёт кэш разговора у этого провайдера: сам он срока не называет (нет или 0 — срок неизвестен). */
+const KeyOpts = { settings: z.record(z.string(), z.unknown()).optional(), env: z.record(z.string(), z.string()).optional(), cache: z.number().nonnegative().optional() };
+/** Ключ флота — провайдер: один ключ открывает весь каталог его моделей. protocol — вид его API: им говорят с моделями, о которых провайдер не сказал иного. */
 export const KeyRow = z.object({
   name: z.string(), protocol: z.string(), base: z.string().optional(), at: z.number(), tail: z.string(), ...KeyOpts,
   /** у аккаунта Claude: беречь запас недели под Fable */
@@ -215,24 +220,18 @@ export const keysList = request("keys.list", {
 /** value не задан — правятся только свойства уже записанного ключа. */
 export const keysSet = request("keys.set", {
   owner: "keys", target: "service", admin: true,
-  tool: "Записать ключ флота: name — имя (у аккаунта Claude — почта), protocol — вид API (claude — аккаунт Claude, value — токен claude setup-token), value — значение ключа, base — адрес API провайдера, keep — беречь запас недели аккаунта под Fable.", example: {"name":"router","protocol":"anthropic","base":"https://api.example.com"},
-  input: z.object({ name: z.string(), protocol: z.string(), value: z.string().optional(), base: z.string().optional(), keep: z.boolean().optional(), ...KeyOpts }), output: Done,
+  tool: "Записать ключ флота: name — имя (у аккаунта Claude — почта), protocol — вид API (claude — аккаунт Claude, value — токен claude setup-token; anthropic — Messages API; openai — OpenAI Responses API; meta — Meta), value — значение ключа, base — адрес API провайдера, cache — сколько минут живёт кэш разговора у провайдера, keep — беречь запас недели аккаунта под Fable.", example: {"name":"router","protocol":"anthropic","base":"https://api.example.com"},
+  input: z.object({ name: z.string(), protocol: Protocol, value: z.string().optional(), base: z.string().optional(), keep: z.boolean().optional(), ...KeyOpts }), output: Done,
 });
-/** Модель каталога провайдера, как её отдал сам провайдер: id — точное имя для документа сессии; family — семейство (группа в списке); window — окно контекста, токены. */
-export const Model = z.object({ id: z.string(), name: z.string().optional(), family: z.string().optional(), window: z.number().optional() });
+/** Модель каталога провайдера, как её отдал сам провайдер: id — точное имя для документа сессии; family — семейство (группа в списке); window — окно контекста, токены;
+ *  protocol — каким API с ней говорить: что объявил о модели провайдер, иначе — вид ключа. */
+export const Model = z.object({ id: z.string(), name: z.string().optional(), family: z.string().optional(), window: z.number().optional(), protocol: Protocol.optional() });
 export type Model = z.infer<typeof Model>;
 /** Каталог моделей провайдера: служба спрашивает провайдера на каждый запрос и копии не держит. name — имя ключа; claude — каталог Claude по токену любого аккаунта. */
 export const keysModels = request("keys.models", {
-  owner: "keys", target: "service", tool: "Каталог моделей провайдера: name — имя ключа флота или claude. В ответе точные имена моделей для документа сессии (key и model), семейство и окно контекста.", example: {"name":"claude"}, reads: true,
+  owner: "keys", target: "service", tool: "Каталог моделей провайдера: name — имя ключа флота или claude. В ответе точные имена моделей для документа сессии (key и model), семейство, окно контекста и протокол.", example: {"name":"claude"}, reads: true,
   input: z.object({ name: z.string() }), output: z.object({ models: z.array(Model) }),
 });
-/** Суффикс Claude Code у имени модели: включает окно контекста в миллион токенов. */
-const WIDE = "[1m]";
-/** Имя модели для документа сессии и процесса: точное имя каталога; у модели Claude с окном от миллиона — с суффиксом [1m], которым Claude Code включает это окно.
- *  Одно правило: его зовут страница при выборе и машина для «/model слова». */
-export const docModel = (key: string, m: Model): string => (key === CLAUDE && (m.window ?? 0) >= 1_000_000 ? m.id + WIDE : m.id);
-/** Имя каталога по имени из документа: без суффикса [1m]. С ним сверяют каталог провайдера и модель ответа. */
-export const catalogModel = (model: string): string => (model.endsWith(WIDE) ? model.slice(0, -WIDE.length) : model);
 /** Предложение списка моделей: провайдер и модель каталога. */
 export type Offer = { key: string; model: string; name?: string; family?: string };
 /** Одно правило «слова → модели»: его зовут и поиск списка на странице, и машина для «/model слова» из сообщения.

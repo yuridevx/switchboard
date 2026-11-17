@@ -68,7 +68,7 @@ describe("ключи флота", () => {
     await s.ask("keys.remove", { name: "orca" });
     expect(await s.ask("keys.value", { name: "orca" }, "klaptop")).toMatchObject({ ok: false, error: "not_found" });
     expect(s.seen.broadcasts.map((b) => [b.role, b.frame.type, b.frame.what])).toEqual([["host", "changed", "keys"], ["host", "changed", "keys"]]);
-    expect(await s.ask("keys.set", { name: "x", protocol: "p", value: "v" }, "kanya1")).toMatchObject({ ok: false, error: "forbidden" });
+    expect(await s.ask("keys.set", { name: "x", protocol: "anthropic", value: "v" }, "kanya1")).toMatchObject({ ok: false, error: "forbidden" });
   });
 });
 

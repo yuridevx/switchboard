@@ -288,9 +288,13 @@ describe("аккаунты и провайдеры", () => {
   it("форма провайдера: пары «a = b», настройки — объект JSON, новый ключ без значения не записать, старый — можно; имя claude занято", () => {
     expect(parsePairs("a = b\n\nплохо\n c=d = e ")).toEqual({ a: "b", c: "d = e" });
     expect(pairsText({ a: "b", c: "d" })).toBe("a = b\nc = d");
-    const f = { name: "orca", protocol: "anthropic", value: "", base: "https://api.orca.example", settings: "", env: "A = 1", isNew: true };
+    const f = { name: "orca", protocol: "anthropic", value: "", base: "https://api.orca.example", settings: "", env: "A = 1", cache: "", isNew: true };
     expect(keyInput(f)).toEqual({ ok: false, why: "Нужно значение ключа" });
-    expect(keyInput({ ...f, isNew: false })).toEqual({ ok: true, input: { name: "orca", protocol: "anthropic", base: "https://api.orca.example", env: { A: "1" } } });
+    expect(keyInput({ ...f, isNew: false })).toEqual({ ok: true, input: { name: "orca", protocol: "anthropic", cache: 0, base: "https://api.orca.example", env: { A: "1" } } });
+    // срок кэша провайдера — минуты; у нового ключа пустое поле в запрос не идёт
+    expect(keyInput({ ...f, value: "sk-1", cache: "30" })).toMatchObject({ ok: true, input: { cache: 30 } });
+    expect(keyInput({ ...f, value: "sk-1" })).toEqual({ ok: true, input: { name: "orca", protocol: "anthropic", value: "sk-1", base: "https://api.orca.example", env: { A: "1" } } });
+    expect(keyInput({ ...f, value: "sk-1", cache: "много" })).toEqual({ ok: false, why: "Срок кэша — число минут" });
     expect(keyInput({ ...f, value: "sk-1", settings: "[1]" })).toEqual({ ok: false, why: "Настройки сессии — объект JSON" });
     expect(keyInput({ ...f, value: "sk-1", settings: "{oops" })).toEqual({ ok: false, why: "Настройки сессии — не JSON" });
     expect(keyInput({ ...f, name: "claude", value: "sk-1" })).toEqual({ ok: false, why: "Имя claude занято аккаунтами Claude" });
