@@ -24,7 +24,8 @@ function run(cmd, args, cwd, env = {}) {
       else child.kill("SIGKILL");
       out += "\nпредел вышел";
     }, LIMIT_MS);
-    child.on("close", (code) => (clearTimeout(timer), res({ code, out, ms: Date.now() - t0 })));
+    // цвета вывода в счёт не идут: в CI vitest красит числа
+    child.on("close", (code) => (clearTimeout(timer), res({ code, out: out.replace(/\x1b\[[0-9;]*m/g, ""), ms: Date.now() - t0 })));
   });
 }
 
