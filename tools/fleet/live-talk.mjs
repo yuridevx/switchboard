@@ -100,6 +100,8 @@ try {
     await page.getByText(/^прервано/).last().waitFor({ timeout: 20_000 });
     const ms = Date.now() - t0;
     await shot("now");
+    // после прерывания сессия берёт оба сообщения по очереди; между ними она на миг свободна — ждём, пока очередь опустеет
+    await page.locator(".me-note").filter({ hasText: "в очереди" }).first().waitFor({ state: "detached", timeout: 60_000 });
     await sleep(2500);
     await idle(cs);
     return `прервано через ${Math.round(ms / 1000)} с после нажатия`;
