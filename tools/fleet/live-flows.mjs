@@ -47,7 +47,9 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
       bad++;
       // причина — в журнале действия браузера: чего ждал клик и что его не пустило; повторы одной строки сведены
       const why = [...new Set(String(e.message).split("\n").slice(2).map((l) => l.replace(/^\s*(\d+ × )?-?\s*/, "")).filter((l) => l && !/^retrying|^waiting \d+ms|^attempting|^scrolling|^done scrolling/.test(l)))].slice(0, 5).join(" → ");
-      console.log(`✗ ${w} · ${label} · ${String(e.message).split("\n")[0]}${why ? " · " + why.slice(0, 500) : ""}`);
+      // где страница стояла в момент сбоя: адрес и заголовок экрана
+      const where = await page.evaluate(() => `${location.hash} · «${document.querySelector("h1")?.textContent ?? ""}»`).catch(() => "страница не ответила");
+      console.log(`✗ ${w} · ${label} · ${String(e.message).split("\n")[0]}${why ? " · " + why.slice(0, 500) : ""} · адрес ${where}`);
     }
   };
   const stepRest = !PART || PART === "rest" ? step : skip;
