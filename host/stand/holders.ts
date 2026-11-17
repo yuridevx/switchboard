@@ -23,6 +23,8 @@ export class FakeProc {
   /** ввод сессии: сообщения user от SDK */
   inputs: Array<{ message: { content: unknown }; priority?: string; [k: string]: unknown }> = [];
   interrupts = 0;
+  /** в каком порядке SDK отдал процессу ввод и прерывания */
+  order: Array<"user" | "interrupt"> = [];
   /** процесс не отвечает на прерывание итогом хода */
   noInterrupt = false;
   /** закрытие ввода не завершает процесс: выйдет только от kill */
@@ -136,8 +138,11 @@ export class FakeProc {
       this.write({ $: "initialized" });
       // ждущие разрешения — заново, с тем же toolUseID (опыт 20)
       for (const [toolUseID, a] of this.asks) this.write({ $: "can_use_tool", tool: a.tool, input: a.input, toolUseID });
-    } else if (x.$ === "user") this.inputs.push(x.message as FakeProc["inputs"][number]);
-    else if (x.$ === "interrupt") {
+    } else if (x.$ === "user") {
+      this.order.push("user");
+      this.inputs.push(x.message as FakeProc["inputs"][number]);
+    } else if (x.$ === "interrupt") {
+      this.order.push("interrupt");
       this.interrupts++;
       if (this.busy && !this.noInterrupt) {
         // как настоящий SDK 0.3.321: итог прерванного хода называет прерывание сам

@@ -210,6 +210,28 @@ describe("chat: строка и лента", () => {
     expect((far.result as any).events).toBeUndefined();
   }, 30_000);
 
+  it("сообщение «сейчас» посреди хода: сначала прерывание, потом сообщение процессу; «следующим» хода не прерывает", async () => {
+    // чьё: слово пользователя — дизайн «Низ разговора»: «Сейчас. Ход прерывается, сообщение берётся сразу»;
+    // факт опытов 17 нояб.: процесс ради сообщения «сейчас» идущую команду не снимает (взял через 27 с), а прерывание после такого сообщения не действует
+    st = await stand({ modules: [chat()] });
+    const { proc, s } = await st.open("site");
+    proc.busy = true;
+    proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
+    await until(() => s.state === "busy", 5000, "ход");
+    await st.request("message", { to: CS, text: "потом" }, PULT);
+    await until(() => proc.inputs.length === 1, 5000, "ввод «следующим»");
+    expect(proc.interrupts).toBe(0);
+    await st.request("message", { to: CS, text: "стоп", priority: "now" }, PULT);
+    await until(() => proc.inputs.length === 2, 5000, "ввод «сейчас»");
+    expect(proc.order).toEqual(["user", "interrupt", "user"]);
+    expect(proc.inputs[1]).toMatchObject({ priority: "now", message: { content: "стоп" } });
+    // свободной сессии прерывать нечего
+    await until(() => s.state === "idle", 5000, "ход прерван");
+    await st.request("message", { to: CS, text: "ещё" , priority: "now" }, PULT);
+    await until(() => proc.inputs.length === 3, 5000, "ввод свободной");
+    expect(proc.interrupts).toBe(1);
+  });
+
   it("своё сообщение занятой сессии: в очереди — статус и список у зрителя; отмена; ход взял — статус taken; срочность «следующим» доходит до SDK", async () => {
     st = await stand({ modules: [chat()] });
     const { proc, s } = await st.open("site");
