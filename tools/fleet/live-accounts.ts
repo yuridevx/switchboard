@@ -133,10 +133,13 @@ await stepRest("модель провайдера из каталога: сес�
   if (!provider) throw new Error("у флота нет ключа провайдера");
   const list = (await api.call(keysModels, { name: provider.name })).models;
   if (!list.length) throw new Error(`каталог ${provider.name} пуст`);
-  const model = process.env.SB2_MODEL ?? list[0]!.id;
+  // модель выбирается сама из бесплатных моделей каталога («…-free», с названным видом API): платная тратит дневной предел ключа,
+  // а с исчерпанным пределом провайдер не отдаёт и каталог. Бесплатных нет — первая из каталога. SB2_PROVIDER_MODEL — своя.
+  const free = list.filter((m) => /-free$/.test(m.id) && m.protocol);
+  const model = process.env.SB2_PROVIDER_MODEL ?? (free[0] ?? list[0]!).id;
   const row = await answered(await open("prov", { key: provider.name, model }));
   if (row.account) throw new Error("у сессии провайдера в строке аккаунт Claude: " + row.account);
-  return `${provider.name}/${model}: моделей в каталоге ${list.length}`;
+  return `${provider.name}/${model}: моделей в каталоге ${list.length}, бесплатных ${free.length}`;
 });
 
 for (const c of made) await api.call(sessionRemove, { to: c }).catch(() => {});
