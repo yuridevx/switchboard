@@ -8,7 +8,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { digests } from "../build/digest.mjs";
-import { dev, fleetEnv } from "../dev.mjs";
+import { fleetEnv } from "../dev.mjs";
+import { fleetCall } from "../fleet/harness.mjs";
 import { nextBuild, plan } from "./plan.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -19,7 +20,6 @@ if (!fleet) throw new Error("нужно: <флот> [устройство] [--pl
 const only = process.argv.includes("--plan");
 const prod = process.env.SB2_ENV === "prod";
 const base = fleetEnv.SB2_BASE;
-const key = fs.readFileSync(path.join(dev, `v2-${fleet}-${device}.pass`), "utf8").trim();
 const ROLL_MS = 10 * 60_000; // предел ожидания, пока машины встанут на новую сборку
 const BACK_MS = 3 * 60_000; // предел ожидания, пока сессии вернутся после подмены Host
 const STEP_MS = 15 * 60_000; // предел одной команды выкладки
@@ -30,12 +30,8 @@ const sh = (cmd, cmdArgs, opts = {}) => {
   return r;
 };
 const node = (file, fileArgs, opts) => sh(process.execPath, [path.join(root, file), ...fileArgs], opts);
-async function call(type, fields = {}) {
-  const res = await fetch(base + "/call", { method: "POST", headers: { authorization: "Bearer " + key, "content-type": "application/json" }, body: JSON.stringify({ ...fields, type, id: "d" + Date.now().toString(36), trace: "td" + Date.now().toString(36) }), signal: AbortSignal.timeout(60_000) });
-  const reply = await res.json();
-  if (!reply.ok) throw new Error(`${type}: ${reply.error} ${reply.why ?? ""}`);
-  return reply.result;
-}
+// запрос флоту пропуском устройства — общий вход инструментов: результат или отказ словом
+const call = fleetCall(fleet, device).must;
 // до первой выкладки отсюда служба об отпечатке не отвечает: ответа-JSON нет — отпечатка нет, часть выкладывается
 const health = async (p) => (await (await fetch(base + p, { signal: AbortSignal.timeout(30_000) })).json().catch(() => ({}))).digest;
 /** Версия Worker'а, которая стоит сейчас: номер для отката. */
