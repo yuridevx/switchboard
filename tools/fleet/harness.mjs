@@ -7,6 +7,12 @@ import { fileURLToPath } from "node:url";
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const { chromium } = createRequire(path.join(root, "package.json"))("playwright-core");
 
+/** Временная папка машины глазами самой машины: проверка идёт с любого компьютера, в том числе с раннера CI. */
+export function machineTmp(fleet, device, machine) {
+  const run = fleetCall(fleet, device).must("shell.run", { to: "@" + machine, shell: "node", script: 'import os from "node:os";process.stdout.write(os.tmpdir())', wait: 30 });
+  return String(run.out).trim().replaceAll("\\", "/");
+}
+
 /** Запросы флоту от устройства: call — ответ целиком; must — результат или ошибка со словом отказа.
  *  Сеть машины разработки моргает: запрос, не дошедший до флота (offline), повторяется до пяти раз. */
 export function fleetCall(fleet, device) {

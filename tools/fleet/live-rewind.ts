@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { CallError, createApi, fleetList, httpTransport, machineConversations, message, sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellRun, answer, type SessionRow, keysModels } from "@sb/protocol";
 import { fleetEnv } from "../dev.mjs";
+import { machineTmp } from "./harness.mjs";
 
 const dir = path.join(os.homedir(), ".switchboard-dev");
 const env = fleetEnv;
@@ -17,7 +18,7 @@ const SEAT = process.env.SB2_KEY ?? "muse";
 /** Модель тестовых сессий — SB2_MODEL или первая из каталога провайдера. */
 const DOC = { key: SEAT, model: process.env.SB2_MODEL ?? (await api.call(keysModels, { name: SEAT })).models[0]!.id };
 const tag = Date.now().toString(36).slice(-4);
-const cwd = machine === "wsl" ? `/tmp/sb2-rewind-${tag}` : `C:/Users/${os.userInfo().username}/AppData/Local/Temp/sb2-rewind-${tag}`;
+const cwd = `${machineTmp(fleet, device, machine)}/sb2-rewind-${tag}`;
 
 let bad = 0, total = 0;
 const made: string[] = [];

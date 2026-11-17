@@ -3,15 +3,14 @@
 // Первая пара — с чем открыть; каждая следующая — смена и ход. Ход печатает число и называет число прошлого хода: так видно, что разговор переехал.
 // В конце — смена посреди хода и итог: переходов без отказа, перезапусков процесса, строк журнала о смене.
 // SB2_ENV=prod — прод; KEEP=1 — сессию не убирать.
-import os from "node:os";
-import { fleetCall } from "./harness.mjs";
+import { fleetCall, machineTmp } from "./harness.mjs";
 
 const [fleet = "test", device = "cli", machine = "devbox", ...pairs] = process.argv.slice(2);
 if (pairs.length < 2) throw new Error("нужно: <флот> <устройство> <машина> <key/model> <key/model> …");
 const { call, must } = fleetCall(fleet, device);
 const tag = Date.now().toString(36).slice(-4);
 const cs = `switch-${tag}@${machine}`;
-const cwd = process.env.SB2_CWD ?? (machine.includes("wsl") || machine.startsWith("hz-ex44-1") || machine.startsWith("hz-ex44-2") ? `/tmp/sb2-switch-${tag}` : `C:/Users/${os.userInfo().username}/AppData/Local/Temp/sb2-switch-${tag}`);
+const cwd = process.env.SB2_CWD ?? `${machineTmp(fleet, device, machine)}/sb2-switch-${tag}`;
 const doc = (s) => { const i = s.indexOf("/"); return { key: s.slice(0, i), model: s.slice(i + 1) }; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const row = () => must("fleet.list", { machine, full: true }).sessions.find((s) => s.callsign === cs);
