@@ -40,7 +40,9 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
       console.log(`✓ ${w} · ${label}`);
     } catch (e) {
       bad++;
-      console.log(`✗ ${w} · ${label} · ${String(e.message).split("\n")[0]}`);
+      // причина — в журнале действия браузера: чего ждал клик и что его не пустило; повторы одной строки сведены
+      const why = [...new Set(String(e.message).split("\n").slice(2).map((l) => l.replace(/^\s*(\d+ × )?-?\s*/, "")).filter((l) => l && !/^retrying|^waiting \d+ms|^attempting|^scrolling|^done scrolling/.test(l)))].slice(0, 5).join(" → ");
+      console.log(`✗ ${w} · ${label} · ${String(e.message).split("\n")[0]}${why ? " · " + why.slice(0, 500) : ""}`);
     }
   };
   const shot = (name) => page.screenshot({ path: path.join(out, `${w}-${name}.png`) });
@@ -68,10 +70,14 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
   await step("аккаунты и провайдеры — формы на месте: токен аккаунта и ключ провайдера; очередей нет", async () => {
     await open("/fleet/accounts");
     await page.locator("[data-card=claude]").waitFor({ timeout: 15_000 });
+    // форма — страница шага со своим адресом: на экран с кнопками возвращает «Назад» браузера
+    const back = async () => { await page.goBack(); await page.waitForFunction(() => !/do=/.test(location.hash) && !document.querySelector("[data-step]")); };
     await page.getByRole("button", { name: "Добавить аккаунт" }).first().click();
-    await page.getByLabel("Почта аккаунта").waitFor(); await page.getByLabel("Токен", { exact: true }).waitFor(); await shot("account-new");
+    await at(/do=account/); await page.getByLabel("Почта аккаунта").waitFor(); await page.getByLabel("Токен", { exact: true }).waitFor(); await shot("account-new");
+    await back();
     await page.getByRole("button", { name: "Добавить провайдера" }).first().click();
-    await page.getByLabel("Протокол").first().waitFor(); await shot("provider-new");
+    await at(/do=key/); await page.getByLabel("Протокол").first().waitFor(); await shot("provider-new");
+    await back();
     if (await page.getByRole("button", { name: "+ очередь" }).count()) throw new Error("на экране осталась кнопка очереди");
     if (!page.url().endsWith("#/fleet/accounts")) throw new Error("адрес экрана: " + page.url());
   });
