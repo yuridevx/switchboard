@@ -57,7 +57,8 @@ try {
     const add = call("ledger.add", { what: "host.failed", machine: "probe-" + tag, text });
     say(add.ok, "сбой части записан в журнал флота", add.ok ? "" : `${add.error}: ${add.why ?? ""}`);
     let got = [];
-    for (let i = 0; i < 10 && !got.length; i++) {
+    // уведомление идёт через службу пушей браузера: когда рядом идут другие проверки, оно приходит позже — ждём до 45 с
+    for (let i = 0; i < 30 && !got.length; i++) {
       await page.waitForTimeout(1500);
       got = await page.evaluate(async () => (await (await navigator.serviceWorker.getRegistration("/")).getNotifications()).map((n) => n.title + " — " + n.body));
     }
