@@ -51,10 +51,11 @@ const step = async (label, fn) => {
   }
 };
 const shot = (name) => page.screenshot({ path: path.join(out, name + ".png") });
-// части проверки: turn — ходы сессии со страницы (очередь, молния, откат, вопрос, фон, кольцо); screen — экран (очистка, границы, разрешение, пара, списки)
+// части проверки: turn — ходы сессии со страницы (очередь, молния, файл, откат); live — живое в ленте (вопрос, фоновая команда, кольцо контекста, ряд значков); screen — экран (очистка, границы, разрешение, пара, списки)
 const PART = process.env.SB2_PART ?? "";
 const skip = async () => {};
 const stepTurn = !PART || PART === "turn" ? step : skip;
+const stepLive = !PART || PART === "live" ? step : skip;
 const stepScreen = !PART || PART === "screen" ? step : skip;
 const box = page.getByRole("textbox", { name: "Сообщение сессии" });
 const opts = page.locator(".composer-opts");
@@ -142,7 +143,7 @@ try {
     if (await page.locator(".feed-in .me").getByText("ровно с одной строкой: второй").count()) throw new Error("откаченное сообщение вернулось");
   });
 
-  await stepTurn("вопрос сессии — карточкой ленты; ответ остаётся карточкой с выбранным вариантом", async () => {
+  await stepLive("вопрос сессии — карточкой ленты; ответ остаётся карточкой с выбранным вариантом", async () => {
     await box.fill("Задай мне один вопрос инструментом AskUserQuestion: «Какой цвет?» с вариантами «Красный» и «Синий». После ответа напиши одним словом выбранный цвет.");
     await box.press("Enter");
     const card = page.locator(".feed-in .askcard[data-open]");
@@ -160,7 +161,7 @@ try {
     await shot("answered");
   });
 
-  await stepTurn("«Идут сейчас»: фоновая команда строкой; время — от начала работы и после перезагрузки страницы", async () => {
+  await stepLive("«Идут сейчас»: фоновая команда строкой; время — от начала работы и после перезагрузки страницы", async () => {
     await box.fill(machine === "wsl" ? "Запусти инструментом Bash в фоне (run_in_background: true) команду: sleep 90. Сразу ответь одним словом: запущено." : "Запусти инструментом Bash в фоне (run_in_background: true) команду: sleep 90. Сразу ответь одним словом: запущено.");
     await box.press("Enter");
     const runs = page.getByRole("group", { name: "Идут сейчас" });
@@ -178,7 +179,7 @@ try {
     return `${before} с → после перезагрузки ${after} с`;
   });
 
-  await stepTurn("кольцо контекста: процент виден, нажатие сжимает", async () => {
+  await stepLive("кольцо контекста: процент виден, нажатие сжимает", async () => {
     await idle(cs);
     const ring = opts.getByRole("button", { name: /^Контекст \d+% · сжать$/ });
     await ring.waitFor({ timeout: 40_000 });
@@ -190,7 +191,7 @@ try {
     return word;
   });
 
-  await stepTurn("ряд под полем: значки действий на месте, «/ команды» нет; шапка без кнопок действий", async () => {
+  await stepLive("ряд под полем: значки действий на месте, «/ команды» нет; шапка без кнопок действий", async () => {
     for (const name of ["Фокус", "Инспектор", "Ещё", "Очистить"]) await opts.getByRole("button", { name, exact: true }).waitFor({ timeout: 8000 });
     if (await opts.getByText("/ команды").count()) throw new Error("кнопка «/ команды» осталась");
     if (await page.locator(".conv-head").getByRole("button", { name: /Ещё|Инспектор/ }).count()) throw new Error("кнопки действий остались в шапке");
