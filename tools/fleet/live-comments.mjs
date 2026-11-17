@@ -43,4 +43,4 @@ await browser.close();
 const got = run("comments.ts", "0.01");
 if (!got.includes(word) || /элемент: \n/.test(got)) throw new Error("сторож не получил пачку:\n" + got);
 if (errors.length) throw new Error("ошибки страницы: " + errors.join(" | "));
-console.log(got.trim() + "\n\nкомментарии: пачка дошла");
+console.log(got.trim() + "\n\n✓ комментарий со страницы дошёл сторожу пачкой");

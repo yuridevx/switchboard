@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, root } from "./harness.mjs";
+import { chromium, fleetCall, putFile, root } from "./harness.mjs";
 
 const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
 const out = outArg ?? path.join(root, "dist", "live");
@@ -65,7 +65,10 @@ await step("сессия на дешёвой модели открыта", async
 });
 
 await step("провайдер отклонил вызов: причина его словами — событием log в ленте сессии", async () => {
-  await turn(cs, { text: "Что в этом файле? Ответь одним словом.", files: [{ name: "broken.pdf", mime: "application/pdf", base64: Buffer.from("это не PDF").toString("base64") }] });
+  // файл сообщения встаёт в uploads/ папки сессии; негодный PDF провайдер отклоняет, когда сессия его читает
+  // заголовок PDF настоящий, тело — нет: сессия отдаёт файл провайдеру документом, и тот его отклоняет
+  const pdf = await putFile(fleet, device, "broken.pdf", Buffer.from("%PDF-1.7\n%âãÏÓ\nэто не PDF " + tag + "\n%%EOF\n"));
+  await turn(cs, { text: "Что в этом файле? Прочитай uploads/broken.pdf инструментом Read и ответь одним словом.", files: [pdf] });
   const refused = await until("строка отказа в ленте", () => logsOf(cs).find((e) => e.msg === "call" && String(e.why ?? "").startsWith(REFUSED)), 60_000);
   // причина — не один статус: за двоеточием стоят слова провайдера
   const said = String(refused.why).split("): ")[1] ?? "";

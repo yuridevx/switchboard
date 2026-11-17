@@ -20,7 +20,8 @@ let session = named;
 if (!session) {
   const r = run("call.ts", [fleet, device, "fleet.list", JSON.stringify({ machine })]);
   try {
-    session = JSON.parse(r.stdout).result.sessions.find((s) => s.state === "idle")?.callsign;
+    // источник для подъёма копии — на том же ключе, что пробные сессии проверок: чужой ключ с вышедшим пределом её не поднимет
+    session = JSON.parse(r.stdout).result.sessions.find((s) => s.state === "idle" && (!process.env.SB2_KEY || s.key === process.env.SB2_KEY))?.callsign;
   } catch {}
 }
 const pairs = (process.env.SB2_SWITCH ?? "").split(" ").filter(Boolean);
@@ -39,7 +40,8 @@ const LIST = [
   ["связь сессий и карточки входящего", "live-comms.ts", [fleet, device, machine], {}, false],
   ["откат разговора", "live-rewind.ts", [fleet, device, machine], {}, false],
   ["разговор на странице", "live-talk.mjs", [fleet, device, machine], {}, false],
-  ["ошибки на виду", "live-errors.mjs", [fleet, device, machine], {}, false],
+  // отказ провайдера на негодный PDF воспроизводится на Claude: у этой проверки свой ключ и модель
+  ["ошибки на виду", "live-errors.mjs", [fleet, device, machine], { SB2_KEY: "claude", SB2_MODEL: "claude-haiku-5-5" }, false],
   ["файлы сессии", "live-files.mjs", [fleet, device, machine], { SB2_BIG_MB: process.env.SB2_BIG_MB ?? "10" }, false],
   ["смена модели", "live-switch.mjs", [fleet, device, machine, ...pairs], {}, false],
 ].filter((c) => !prod || c[4]);
@@ -56,12 +58,13 @@ for (const [title, file, args, env] of LIST) {
   const sec = ((Date.now() - t0) / 1000).toFixed(0);
   const why = r.status === 0 ? "" : r.status === null ? " · предел проверки вышел" : " · код " + r.status;
   console.log(`\n== ${title}: ${ok} из ${ok + bad}${wait ? `, ждут выкладки ${wait}` : ""} · ${sec} с${why}`);
-  for (const l of lines) console.log(l.slice(0, 260));
+  // журнал прогона открыт всем: на проде в него идут только названия шагов и числа
+  for (const l of lines) console.log(prod ? l.split(" · ")[0] : l.slice(0, 260));
   okAll += ok;
   badAll += bad;
   if (r.status !== 0) {
     failed++;
-    if (!lines.length || !bad) console.log(out.split("\n").slice(-8).join("\n"));
+    if (!prod && (!lines.length || !bad)) console.log(out.split("\n").slice(-8).join("\n"));
   }
   rows.push(`| ${r.status === 0 ? "✓" : "✗"} | ${title} | ${ok} из ${ok + bad} | ${sec} с |`);
 }

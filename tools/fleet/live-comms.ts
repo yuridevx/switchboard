@@ -169,8 +169,7 @@ await step("правила пережили сжатие: сессия назы�
 
 await step("карточки входящего от флота стоят в разговоре ведущей на выложенной странице", async () => {
   const out = execFileSync(process.execPath, [path.join(import.meta.dirname, "live-cards.mjs"), fleet, device, parent], { encoding: "utf8", timeout: 180_000 });
-  return out.split("
-")[0]!;
+  return out.split("\n")[0]!;
 });
 
 // KEEP=1 — оставить сессии проверки для разбора
