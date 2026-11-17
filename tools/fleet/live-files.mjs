@@ -165,7 +165,7 @@ try {
 
   let sent;
   await step("сессия отправляет файл инструментом: в хранилище он целиком, в её разговоре содержимого нет", async () => {
-    await turn(`Выполни одну команду: node -e "const c=require('crypto'),f=require('fs');f.mkdirSync('out',{recursive:true});f.writeFileSync('out/data.txt',c.randomBytes(150000).toString('hex'))". Файл не читай. Потом отправь мне out/data.txt инструментом file_send с подписью «Данные» и ответь одним словом: отправлено.`);
+    await turn(`Выполни одну команду: node -e "const c=require('crypto'),f=require('fs');f.mkdirSync('out',{recursive:true});f.writeFileSync('out/data.txt',c.randomBytes(150000).toString('hex'))". Файл не читай. Потом отправь мне out/data.txt инструментом file_send (to — твой позывной ${callsign}) с подписью «Данные» и ответь одним словом: отправлено.`);
     const events = history();
     // путь сессия называет и от своей папки, и полным; вызов, потерянный на обрыве связи машины, она повторяет — считаем вызовы
     const mine = (i) => String(i.path).replaceAll("\\", "/").endsWith("out/data.txt");
@@ -190,7 +190,7 @@ try {
       `out/site/index.html:\n<!doctype html><meta charset="utf-8"><title>ждёт</title><link rel="stylesheet" href="site.css"><h1>Отчёт ${tag}</h1><script src="js/site.js"></script>`,
       "out/site/site.css:\nh1 { color: rgb(1, 2, 3); }",
       `out/site/js/site.js:\ndocument.title = "loaded-${tag}";`,
-      "Потом подними папку out/site сайтом инструментом site_publish с подписью «Отчёт» и ответь одним словом: поднято.",
+      `Потом подними папку out/site сайтом инструментом site_publish (to — твой позывной ${callsign}) с подписью «Отчёт» и ответь одним словом: поднято.`,
     ].join("\n\n"));
     const site = answerOf(history(), "site_publish", (i) => String(i.dir).replace(/\\/g, "/").replace(/\/$/, "").endsWith("out/site"));
     if (!/\/s\/[0-9a-f]{32}\/$/.test(site.url) || site.files !== 3 || "sent" in site) throw new Error(`ответ сайта не тот: ${JSON.stringify(site)}`);
@@ -220,7 +220,7 @@ try {
     await page.setViewportSize({ width: 390, height: 844 });
     const file = randomFile(path.join(tmp, "big.bin"), BIG_MB);
     const hash = await sha(file);
-    const up = await uploadFromPage(file, "Файл не читай. Отправь мне обратно uploads/big.bin инструментом file_send с подписью «Обратно» и ответь одним словом: отправлено.", 1_200_000);
+    const up = await uploadFromPage(file, `Файл не читай. Отправь мне обратно uploads/big.bin инструментом file_send (to — твой позывной ${callsign}) с подписью «Обратно» и ответь одним словом: отправлено.`, 1_200_000);
     if (up.file.hash !== hash) throw new Error("в сообщении не тот хэш");
     await idle();
     const back = answerOf(history(), "file_send", (i) => String(i.path).replace(/\\/g, "/").endsWith("uploads/big.bin"));
