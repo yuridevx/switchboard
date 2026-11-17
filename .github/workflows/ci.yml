@@ -1,5 +1,6 @@
-# Проверка на каждый push в PR и в main: правило импортов и весь список tools/test/run.mjs — на Linux и Windows.
-# Сессии у себя список не гоняют: main принимает только PR с обеими зелёными работами.
+# Проверка на каждый push в PR и в main: весь список tools/test/run.mjs, каждая часть — своей работой, все разом.
+# На Linux идут все части; на Windows — те, чей код зависит от системы: Host и служба машины.
+# Сессии у себя список не гоняют: main принимает только PR с зелёной работой «проверка».
 name: ci
 on:
   push:
@@ -7,24 +8,40 @@ on:
   pull_request:
 
 jobs:
-  test:
+  part:
+    name: ${{ matrix.part }} · ${{ matrix.os == 'windows-latest' && 'windows' || 'linux' }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
+        part: [protocol, platform, services, host, web, tools, keeper]
+        include:
+          - { os: windows-latest, part: host }
+          - { os: windows-latest, part: keeper }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ matrix.part != 'keeper' && 'npm' || '' }}
           cache-dependency-path: package-lock.json
       - uses: actions/setup-go@v5
+        if: matrix.part == 'keeper'
         with:
           go-version-file: keeper/go.mod
           cache-dependency-path: keeper/go.sum
       - run: npm ci
-      - run: node tools/gate/gate.mjs
-      - run: node tools/test/run.mjs
+        if: matrix.part != 'keeper'
+      - run: node tools/test/run.mjs ${{ matrix.part }}
+
+  # одна обязательная проверка ветки main: зелёная, когда зелёные все части
+  check:
+    name: проверка
+    needs: part
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: test "${{ needs.part.result }}" = "success"

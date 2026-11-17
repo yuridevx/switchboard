@@ -24,7 +24,7 @@ jobs:
     # всегда с main: выкладок из веток нет; слияние — это тест, прод — только ручной запуск
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 15
     # очередь на флот одна: вторая выкладка ждёт конца первой; ждёт всегда одна — самая свежая
     concurrency:
       group: fleet-${{ inputs.fleet || 'test' }}
