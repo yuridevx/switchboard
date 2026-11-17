@@ -30,6 +30,10 @@ export function procModel(p: Pick<Pair, "model" | "window">): string {
   return (p.window ?? 0) > NAME_WINDOW && !p.model.endsWith(WIDE) ? p.model + WIDE : p.model;
 }
 
+/** Имя модели для провайдера. Суффикс «[1m]» в имени каталога — знак широкого окна для Claude Code: сам Claude Code в запросе его не шлёт,
+ *  и провайдер знает модель без него (факт живой проверки: OpenRouter на имя с суффиксом отвечает 404). */
+export const wireModel = (model: string): string => (model.endsWith(WIDE) ? model.slice(0, -WIDE.length) : model);
+
 /** Точный предел окна при запуске: нужен, когда окно каталога не совпадает ни с одним из двух окон по имени. */
 export function capOf(p: Pick<Pair, "window">): number | undefined {
   const w = p.window;

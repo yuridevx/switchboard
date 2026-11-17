@@ -36,7 +36,7 @@ async function turn(since, ms = 300_000) {
 const t0 = Date.now();
 const opened = call("session.open", { to: "@" + machine, spec: { name: `switch-${tag}`, cwd, ...doc(pairs[0]) }, mkdir: true, prompt: task(1) });
 if (!opened.ok) throw new Error(`session.open: ${opened.error} ${opened.why ?? ""}`);
-let n = 1;
+let n = 1, missed = false;
 {
   const r = await turn(t0);
   step(!r.error && String(r.result).includes("11"), `открыта на ${pairs[0]}`, short(r.result || r.error));
@@ -45,13 +45,14 @@ for (let i = 1; i < pairs.length; i++) {
   const t = Date.now();
   const u = call("session.update", { to: cs, patch: doc(pairs[i]) });
   const ms = Date.now() - t;
-  if (!u.ok) { step(false, `${pairs[i - 1]} → ${pairs[i]}`, `смена ОТКАЗ ${u.error} ${short(u.why ?? "")}`); continue; }
+  if (!u.ok) { step(false, `${pairs[i - 1]} → ${pairs[i]}`, `смена ОТКАЗ ${u.error} ${short(u.why ?? "")}`); missed = true; continue; }
   n++;
   call("message", { to: cs, text: task(n) });
   const r = await turn(t);
-  const ok = !r.error && String(r.result).includes(String(n * 11)) && String(r.result).includes(String((n - 1) * 11));
+  // после неудавшегося шага прошлое число у модели старее — тогда сверяется только нынешнее
+  const ok = !r.error && String(r.result).includes(String(n * 11)) && (missed || String(r.result).includes(String((n - 1) * 11)));
+  missed = !ok;
   step(ok, `${pairs[i - 1]} → ${pairs[i]}`, `смена ${ms} мс${(u.result.later ?? []).length ? " · после хода перезапуск" : ""} · ${short(r.result || r.error, 90)}${r.answers ? " · ОТВЕТИЛА НЕ ТА: " + r.answers : ""}${r.cache ? ` · кэш ${r.cache.until ? "до " + new Date(r.cache.until).toTimeString().slice(0, 5) : r.cache.size ? Math.round(((r.cache.read ?? 0) / r.cache.size) * 100) + " % из кэша" : "?"}` : " · кэша в строке нет"}`);
-  if (!ok) n--;
   // окно, которое считает живой процесс: должно совпасть с окном каталога
   const w = call("session.call", { to: cs, method: "contextUsage" });
   if (w.ok) console.log(`    окно процесса ${w.result?.maxTokens ?? w.result?.result?.maxTokens ?? "?"}`);

@@ -261,14 +261,16 @@ describe("окно, имена и сверка", () => {
   });
 
   // эталон 16 — чьё: факт 17 нояб. — 121 из 379 имён каталога OpenRouter кончаются на «[1m]» и не выбирались; правка слепого архитектора — имя в документе как в каталоге
-  it("16 · имя с «[1m]» в каталоге стороннего провайдера: в документе и у провайдера — как в каталоге; имя для процесса суффикс не удваивает", async () => {
+  it("16 · имя с «[1m]» в каталоге стороннего провайдера: в документе — как в каталоге; имя для процесса суффикс не удваивает; провайдеру уходит имя без суффикса", async () => {
     const api = await fleet();
     const { s, q } = await st!.open("site", { key: "claude", model: HAIKU });
     expect((q.options as any).model).toBe(HAIKU);
     expect(await update({ key: "orca", model: "big[1m]" })).toMatchObject({ ok: true, result: { later: [] } });
     expect([s.rec.spec.model, swaps(q)]).toEqual(["big[1m]", ["big[1m]"]]);
+    // Claude Code шлёт имя без суффикса; провайдеру оно так и уходит — с суффиксом он модели не знает
     await call(s.rec.sessionId, "big");
-    expect(api.hits.map((h) => h.model)).toEqual(["big[1m]"]);
+    await call(s.rec.sessionId, HAIKU);
+    expect(api.hits.map((h) => h.model)).toEqual(["big", "big"]);
   });
 
   // эталон 17 — чьё: факт опыта 17 нояб. — OpenRouter называет модель в ответе иначе: ложная тревога 3 из 3; развилка решена рекомендованным вариантом

@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CLAUDE, findModels, incidentRaise, keysLimits, keysList, keysModels, keysValue, LIMIT_WORD, READ_MS, Refusal, within, type Account as AccountOut, type Model, type Offer, type Protocol, type SessionState } from "@sb/protocol";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
-import { cacheOf, hours, launchEnv, launchSig, procModel, type Cache, type Pair } from "./pair.ts";
+import { cacheOf, hours, launchEnv, launchSig, procModel, wireModel, type Cache, type Pair } from "./pair.ts";
 import { choose, closed, FABLE, FIVE, fits, isFable, nextReset, read, refusalHeaders, shown, WEEK, type Account, type Candidate } from "./limits.ts";
 
 /** Запись машины: окна и годность аккаунтов переживают подмену Host. */
@@ -426,11 +426,11 @@ export function make(): Module {
       if (pair.key === CLAUDE) {
         if (!tokens.size) await load().catch((e) => { throw new Refusal("no_account", `аккаунты Claude не прочитаны: ${say(e)}`); });
         // на пути Claude модели Claude идут как есть — ими работают помощники сессии; чужое имя (вызов, начатый до смены) — на модель документа
-        return { ...claudeRoute(s, new Set(skip)), ...(asked && !asked.startsWith(CLAUDE_NAME) ? { model: pair.model } : {}) };
+        return { ...claudeRoute(s, new Set(skip)), ...(asked && !asked.startsWith(CLAUDE_NAME) ? { model: wireModel(pair.model) } : {}) };
       }
       if (!values.has(pair.key)) await takeKey(pair.key);
       // стороннему провайдеру любой вызов сессии уходит на модель документа
-      return { callsign: s.callsign, to: pair.base ?? ANTHROPIC, protocol: pair.protocol, key: values.get(pair.key)!, name: pair.key, model: pair.model, ...(pair.window ? { window: pair.window } : {}) };
+      return { callsign: s.callsign, to: pair.base ?? ANTHROPIC, protocol: pair.protocol, key: values.get(pair.key)!, name: pair.key, model: wireModel(pair.model), ...(pair.window ? { window: pair.window } : {}) };
     },
 
     answer(route, r) {
