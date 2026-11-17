@@ -50,17 +50,23 @@ const LIST = [
   ["оповещение о сбое", "live-alert.mjs", [fleet, device, "headless"], {}, false, QUIET],
   ["флоу без окон", "live-flows.mjs", [fleet, device], {}, false, QUIET],
   ["комментарии к странице", "live-comments.mjs", [fleet, device], {}, false, QUIET],
-  ["откат разговора", "live-rewind.ts", [fleet, device, machine], {}, false, QUIET],
-  ["разговор на странице", "live-talk.mjs", [fleet, device, machine], {}, false, QUIET],
+  // длинные проверки идут частями (SB2_PART): у каждой части свои сессии, части идут разом
+  ["откат разговора", "live-rewind.ts", [fleet, device, machine], { SB2_PART: "rewind" }, false, QUIET],
+  ["пара: ведущая и ведомый", "live-rewind.ts", [fleet, device, machine], { SB2_PART: "pair" }, false, QUIET],
+  ["разговор на странице: ходы", "live-talk.mjs", [fleet, device, machine], { SB2_PART: "turn" }, false, QUIET],
+  ["разговор на странице: экран", "live-talk.mjs", [fleet, device, machine], { SB2_PART: "screen" }, false, QUIET],
+  ["аккаунты и модели", "live-accounts.ts", [fleet, device, machine], { SB2_PART: "rest" }, false, QUIET],
   // отказ провайдера на негодный PDF воспроизводится на Claude: у этой проверки свой ключ и модель
   ["ошибки на виду", "live-errors.mjs", [fleet, device, machine], { SB2_KEY: "claude", SB2_MODEL: "claude-haiku-5-5" }, false, QUIET],
   ["файлы сессии", "live-files.mjs", [fleet, device, machine], { SB2_BIG_MB: process.env.SB2_BIG_MB ?? "10" }, false, QUIET],
   ["смена модели", "live-switch.mjs", [fleet, device, machine, ...pairs], {}, false, QUIET],
-  ["сценарии", "live-steps.ts", [fleet, device, machine, second], {}, false, QUIET],
-  // перезапускает Host своей машины — вторая машина
-  ["связь сессий и карточки входящего", "live-comms.ts", [fleet, device, second], {}, false, NOISY],
+  ["сценарии", "live-steps.ts", [fleet, device, machine], { SB2_PART: "one" }, false, QUIET],
+  ["связь сессий и карточки входящего", "live-comms.ts", [fleet, device, machine], { SB2_PART: "talk" }, false, QUIET],
+  // вторая машина: её Host перезапускает подмена — всё, что трогает вторую машину, идёт с ней в одной очереди
+  ["сценарии: вторая машина", "live-steps.ts", [fleet, device, machine, second], { SB2_PART: "far" }, false, NOISY],
+  ["подмена Host посреди хода", "live-comms.ts", [fleet, device, second], { SB2_PART: "swap" }, false, NOISY],
   // заводит и убирает негодный аккаунт Claude флота: при нём чужой ход на Claude получил бы лишний переход — идёт до всех
-  ["аккаунты и модели", "live-accounts.ts", [fleet, device, machine], {}, false, ALONE],
+  ["аккаунты: негодный токен", "live-accounts.ts", [fleet, device, machine], { SB2_PART: "token" }, false, ALONE],
 ].filter((c) => !prod || c[4]);
 
 const t00 = Date.now();

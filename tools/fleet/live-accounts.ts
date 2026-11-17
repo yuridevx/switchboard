@@ -56,6 +56,11 @@ const journal = async (msg: string, session: string) => (await api.call(machineJ
 let models: Array<{ id: string; family?: string; window?: number }> = [];
 let cheap = "";
 let real: string[] = [];
+// части проверки: token — негодный аккаунт (меняет общее для флота: идёт одна); rest — остальное
+const PART = process.env.SB2_PART ?? "";
+const skip = async () => {};
+const stepRest = !PART || PART === "rest" ? step : skip;
+const stepToken = !PART || PART === "token" ? step : skip;
 
 await step("каталог Claude по токену аккаунта: модели с семейством и окном", async () => {
   real = (await api.call(keysList, {})).keys.filter((k) => k.protocol === CLAUDE).map((k) => k.name);
@@ -68,7 +73,7 @@ await step("каталог Claude по токену аккаунта: модел
 });
 
 let first = "";
-await step("ход без входа: сессия ответила на аккаунте, который выбрала машина; кэш разговора часовой", async () => {
+await stepRest("ход без входа: сессия ответила на аккаунте, который выбрала машина; кэш разговора часовой", async () => {
   first = await open("acc", { key: CLAUDE, model: cheap });
   const row = await answered(first);
   if (!row.account || !real.includes(row.account)) throw new Error("аккаунт в строке: " + row.account);
@@ -80,7 +85,7 @@ await step("ход без входа: сессия ответила на акк�
   return `${row.account}: кэш тёплый ещё ${left} мин; неделя ${Math.round((list.limits.find((l) => l.name === "seven_day")!.used) * 100)} %`;
 });
 
-await step("каждый вызов и решение — строка журнала машины; те же строки читаются из ClickHouse", async () => {
+await stepRest("каждый вызов и решение — строка журнала машины; те же строки читаются из ClickHouse", async () => {
   const calls = await journal("call", first);
   const ok = calls.filter((l) => l.status === 200 && l.account && l.req);
   if (!ok.length) throw new Error("строк call со статусом 200, аккаунтом и номером запроса нет: " + JSON.stringify(calls.slice(0, 2)));
@@ -89,7 +94,7 @@ await step("каждый вызов и решение — строка журн�
   return `call на машине ${calls.length}, в ClickHouse ${stored.length}`;
 });
 
-await step("токен аккаунта не годен: вызов ушёл на следующий аккаунт, ход не оборван; аккаунт выбыл с причиной; происшествие", async () => {
+await stepToken("токен аккаунта не годен: вызов ушёл на следующий аккаунт, ход не оборван; аккаунт выбыл с причиной; происшествие", async () => {
   await api.call(keysSet, { name: BOGUS, protocol: CLAUDE, value: `sk-ant-oat01-${tag}-not-a-token` });
   await until("машина прочитала новый аккаунт", async () => (await api.call(accountList, { to: "@" + machine })).accounts.some((a) => a.name === BOGUS), 30_000);
   // свежая неделя негодного аккаунта даёт ему высокий счёт: новая сессия пробует его первым
@@ -103,7 +108,7 @@ await step("токен аккаунта не годен: вызов ушёл н�
 });
 await api.call(keysRemove, { name: BOGUS }).catch(() => {});
 
-await step("«/model слова» сообщением ставит модель, в разговор команда не уходит; несколько подходящих — отказ; у каждого семейства Claude модель ответа совпала с каталогом", async () => {
+await stepRest("«/model слова» сообщением ставит модель, в разговор команда не уходит; несколько подходящих — отказ; у каждого семейства Claude модель ответа совпала с каталогом", async () => {
   const many = await api.call(message, { to: first, text: "/model claude" }).then(() => "ok", (e) => (e as CallError).word);
   if (many !== "many_models") throw new Error("«/model claude»: " + many);
   // по одной модели семейства — первая в каталоге; SB2_FAMILIES=Haiku,Sonnet сужает проверку
@@ -123,7 +128,7 @@ await step("«/model слова» сообщением ставит модель
   return `совпали ${firsts.length} из ${firsts.length}: ${firsts.map((m) => m.id).join(", ")}`;
 });
 
-await step("модель провайдера из каталога: сессия на ключе флота отвечает моделью, названной в документе", async () => {
+await stepRest("модель провайдера из каталога: сессия на ключе флота отвечает моделью, названной в документе", async () => {
   const provider = (await api.call(keysList, {})).keys.find((k) => k.protocol !== CLAUDE);
   if (!provider) throw new Error("у флота нет ключа провайдера");
   const list = (await api.call(keysModels, { name: provider.name })).models;

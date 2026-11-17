@@ -69,7 +69,13 @@ async function mcp(method: string, params: unknown = {}): Promise<any> {
 
 // ───────── без модели ─────────
 
-await step("картина флота: короткая строка сессии; полная — по full", async () => {
+// части проверки: talk — разговор сессий без перезапуска; swap — подмена Host посреди хода (перезапускает Host своей машины)
+const PART = process.env.SB2_PART ?? "";
+const skip = async () => {};
+const stepTalk = !PART || PART === "talk" ? step : skip;
+const stepSwap = !PART || PART === "swap" ? step : skip;
+
+await stepTalk("картина флота: короткая строка сессии; полная — по full", async () => {
   const brief = await api.call(fleetList, {});
   const full = await api.call(fleetList, { full: true });
   if (brief.sessions.some((s) => "spec" in s || "result" in s)) throw new Error("в короткой строке документ или последний ответ");
@@ -77,7 +83,7 @@ await step("картина флота: короткая строка сесси�
   return `сессий ${brief.sessions.length}, знаков: короткая ${JSON.stringify(brief).length}, полная ${JSON.stringify(full).length}`;
 });
 
-await step("выдуманный проект отвергнут: отказ no_project со списком «номер — имя»", async () => {
+await stepTalk("выдуманный проект отвергнут: отказ no_project со списком «номер — имя»", async () => {
   const projects = (await api.call(peopleList, {})).projects;
   const r = await api.call(sessionOpen, { to: "@" + machine, spec: { name: "np-" + tag, cwd, ...DOC, project: "vydumannyj-proekt" } as never, mkdir: true }).then(() => "открылась", (e: unknown) => (e as CallError));
   if (typeof r === "string") { made.push(`np-${tag}@${machine}`); throw new Error("сессия с выдуманным проектом открылась"); }
@@ -86,7 +92,7 @@ await step("выдуманный проект отвергнут: отказ no_
   return `проектов во флоте ${projects.length}; отказ: ${String(r.why).slice(0, 90)}`;
 });
 
-await step("сервер инструментов: инструкции, пример у каждого инструмента, пометка «только чтение», две страницы справки", async () => {
+await stepTalk("сервер инструментов: инструкции, пример у каждого инструмента, пометка «только чтение», две страницы справки", async () => {
   const init = await mcp("initialize", { protocolVersion: "2025-06-18" });
   if (!String(init.instructions).includes("fleet_list") || String(init.instructions).length > 4096) throw new Error("инструкций нет или они длиннее 4 096");
   const tools = (await mcp("tools/list")).tools as Array<{ name: string; description: string; annotations?: { readOnlyHint?: boolean } }>;
@@ -116,7 +122,7 @@ await step("родитель даёт задачу дочери — итог е�
   return `задач у дочери ${tasks.length}, итог: ${results[0]!.slice(0, 60)}`;
 });
 
-await step("история через сервер инструментов: подписей и счётчиков нет, номер события на месте; строка о вызове — в истории флота", async () => {
+await stepTalk("история через сервер инструментов: подписей и счётчиков нет, номер события на месте; строка о вызове — в истории флота", async () => {
   const raw = JSON.stringify(await api.call(sessionHistory, { to: child, limit: 50 }));
   const text = (await mcp("tools/call", { name: "session_history", arguments: { to: child, limit: 50 } })).content[0].text as string;
   for (const word of ['"signature"', '"usage"', '"modelUsage"', '"session_id"']) if (text.includes(word)) throw new Error(`в ответе модели осталось ${word}`);
@@ -125,7 +131,7 @@ await step("история через сервер инструментов: п�
   return `знаков: странице ${raw.length}, модели ${text.length} (${(raw.length / text.length).toFixed(1)}×); строка: ${JSON.stringify(line).slice(0, 110)}`;
 });
 
-await step("дочь с фоновой командой отвечает дважды — оба итога у родителя", async () => {
+await stepTalk("дочь с фоновой командой отвечает дважды — оба итога у родителя", async () => {
   await idle(parent);
   const before = (await incoming(parent, child, "result")).length;
   await turn(parent, `Вызови инструмент message сервера fleet один раз: to — ${child}, text — «Запусти инструментом Bash команду sleep 25 && echo fon-gotov с параметром run_in_background: true. Сразу после запуска ответь одним словом: запустила. Когда придёт уведомление о конце фоновой команды, ответь: фон кончился.». После вызова ничего больше не делай и ничего не пиши другим сессиям.`);
@@ -134,7 +140,7 @@ await step("дочь с фоновой командой отвечает два�
 });
 
 // NO_SWAP=1 — без подмены Host: на флоте с чужими сессиями подмену делает сама выкладка сборки
-if (!process.env.NO_SWAP) await step("подмена Host посреди хода дочери — процесс новый, сессии на месте, итог дошёл родителю, задача не пришла дважды", async () => {
+if (!process.env.NO_SWAP) await stepSwap("подмена Host посреди хода дочери — процесс новый, сессии на месте, итог дошёл родителю, задача не пришла дважды", async () => {
   await Promise.all([idle(parent), idle(child)]);
   const before = (await incoming(parent, child, "result")).length;
   const tasks = (await incoming(child, parent, "task")).length;
@@ -154,7 +160,7 @@ if (!process.env.NO_SWAP) await step("подмена Host посреди ход�
   return `итог: ${got[0]!.replace(/\s+/g, " ").slice(0, 50)}; задач у дочери ${tasks} → ${now}`;
 });
 
-await step("справка прочитана: сессия по просьбе читает страницу практик и называет инструмент", async () => {
+await stepTalk("справка прочитана: сессия по просьбе читает страницу практик и называет инструмент", async () => {
   await idle(child);
   await turn(child, "Прочитай ресурс fleet://guide/practices сервера fleet инструментом чтения ресурсов MCP и назови одной строкой имя инструмента, которым сессия убирает сама себя.");
   const a = await lastAnswer(child);
@@ -162,7 +168,7 @@ await step("справка прочитана: сессия по просьбе 
   return a.replace(/\s+/g, " ").slice(0, 80);
 });
 
-await step("правила пережили сжатие: сессия называет свой позывной и инструмент ответа соседу", async () => {
+await stepTalk("правила пережили сжатие: сессия называет свой позывной и инструмент ответа соседу", async () => {
   await api.call(sessionCall, { to: child, method: "compact" });
   await sleep(5000);
   await idle(child);
@@ -172,7 +178,7 @@ await step("правила пережили сжатие: сессия назы�
   return a.replace(/\s+/g, " ").slice(0, 90);
 });
 
-await step("карточки входящего от флота стоят в разговоре ведущей на выложенной странице", async () => {
+await stepTalk("карточки входящего от флота стоят в разговоре ведущей на выложенной странице", async () => {
   const out = execFileSync(process.execPath, [path.join(import.meta.dirname, "live-cards.mjs"), fleet, device, parent], { encoding: "utf8", timeout: 180_000 });
   return out.split("\n")[0]!;
 });

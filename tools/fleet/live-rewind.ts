@@ -61,8 +61,13 @@ async function file(name: string): Promise<string> {
 }
 
 let cs = "";
+// части проверки: rewind — откат и очистка одной сессии; pair — ведущая и ведомый
+const PART = process.env.SB2_PART ?? "";
+const skip = async () => {};
+const stepRewind = !PART || PART === "rewind" ? step : skip;
+const stepPair = !PART || PART === "pair" ? step : skip;
 let u1 = "", u2 = "", u3 = "";
-await step("сессия на ключе флота: три хода правят один файл", async () => {
+await stepRewind("сессия на ключе флота: три хода правят один файл", async () => {
   cs = (await api.call(sessionOpen, { to: "@" + machine, spec: { name: "rw-" + tag, cwd, ...DOC } as never, mkdir: true })).callsign;
   made.push(cs);
   await idle(cs);
@@ -74,7 +79,7 @@ await step("сессия на ключе флота: три хода правя�
   return `людских сообщений ${(await humans(cs)).length}, файл: ${text.replace(/\s+/g, " ")}`;
 });
 
-await step("показ: записи и файлы до отката, ничего не тронуто", async () => {
+await stepRewind("показ: записи и файлы до отката, ничего не тронуто", async () => {
   const before = (await said(cs)).length;
   const r = await api.call(sessionRewind, { to: cs, upto: u3, files: true, dry: true });
   if (r.nofiles) throw new Error("снимка файлов нет: " + r.nofiles);
@@ -83,7 +88,7 @@ await step("показ: записи и файлы до отката, ничег
   return `уйдёт записей ${r.cut}, файлов ${r.files.length}, текст «${r.text.slice(0, 30)}…»`;
 });
 
-await step("откат «разговор и файлы» к третьему сообщению: файл вернулся, лента обрезана, сессия та же", async () => {
+await stepRewind("откат «разговор и файлы» к третьему сообщению: файл вернулся, лента обрезана, сессия та же", async () => {
   const before = (await humans(cs)).length;
   const r = await api.call(sessionRewind, { to: cs, upto: u3, files: true });
   await idle(cs);
@@ -96,7 +101,7 @@ await step("откат «разговор и файлы» к третьему с
   return `ушло ${r.cut}, файл: ${text.replace(/\s+/g, " ")}, людских сообщений ${before} → ${after.length}`;
 });
 
-await step("второй откат подряд с файлами — к более раннему сообщению: файл вернулся 2 раза из 2", async () => {
+await stepRewind("второй откат подряд с файлами — к более раннему сообщению: файл вернулся 2 раза из 2", async () => {
   const r = await api.call(sessionRewind, { to: cs, upto: u2, files: true });
   await idle(cs);
   const text = await file("note.txt");
@@ -106,7 +111,7 @@ await step("второй откат подряд с файлами — к бол
   return `ушло ${r.cut}, файл: ${text.replace(/\s+/g, " ")}`;
 });
 
-await step("обрезка переживает остановку и запуск сессии до первого нового хода", async () => {
+await stepRewind("обрезка переживает остановку и запуск сессии до первого нового хода", async () => {
   await api.call(sessionStop, { to: cs });
   await api.call(sessionStart, { to: cs });
   await idle(cs);
@@ -115,7 +120,7 @@ await step("обрезка переживает остановку и запус
   return "людских сообщений 1";
 });
 
-await step("сессия после отката помнит оставшееся и не помнит ушедшее", async () => {
+await stepRewind("сессия после отката помнит оставшееся и не помнит ушедшее", async () => {
   await turn(cs, "Ответь одним словом без инструментов: сколько строк ты записал в note.txt последним своим действием в этом разговоре — одну, две или три?");
   const last = (await said(cs)).filter((e) => e.type === "assistant").at(-1);
   const text = JSON.stringify(last?.message?.content ?? "").toLowerCase();
@@ -123,7 +128,7 @@ await step("сессия после отката помнит оставшеес
   return "ответ: одну";
 });
 
-await step("откат «только разговор»: файл на диске прежний", async () => {
+await stepRewind("откат «только разговор»: файл на диске прежний", async () => {
   const u = await turn(cs, "Перезапиши инструментом Write файл note.txt ровно с одной строкой: четыре. Больше ничего не делай.");
   if (!/четыре/.test(await file("note.txt"))) throw new Error("ход не записал файл");
   const r = await api.call(sessionRewind, { to: cs, upto: u });
@@ -133,20 +138,20 @@ await step("откат «только разговор»: файл на диск
   return `ушло ${r.cut}, файл прежний`;
 });
 
-await step("сообщения с таким номером нет — отказ not_found, сессия работает", async () => {
+await stepRewind("сообщения с таким номером нет — отказ not_found, сессия работает", async () => {
   const r = await api.call(sessionRewind, { to: cs, upto: "00000000-0000-4000-8000-000000000000" }).then(() => "ok", (e) => (e as CallError).word);
   if (r !== "not_found") throw new Error("ответ: " + r);
   return (await rowOf(cs))!.state;
 });
 
-await step("разговоры папки: разговор сессии в списке и помечен её позывным", async () => {
+await stepRewind("разговоры папки: разговор сессии в списке и помечен её позывным", async () => {
   const r = await api.call(machineConversations, { to: "@" + machine, cwd });
   const mine = r.conversations.find((c) => c.live === cs);
   if (!mine) throw new Error("разговора сессии нет в списке: " + JSON.stringify(r.conversations.map((c) => [c.title.slice(0, 20), c.live])));
   return `разговоров ${r.conversations.length}, первая реплика «${mine.title.slice(0, 40)}»`;
 });
 
-await step("очистка: история пуста, сессия та же", async () => {
+await stepRewind("очистка: история пуста, сессия та же", async () => {
   await api.call(sessionRewind, { to: cs });
   await until("история пуста", async () => (await humans(cs)).length === 0, 60_000);
   await idle(cs);
@@ -155,8 +160,8 @@ await step("очистка: история пуста, сессия та же", 
 
 /* Пара */
 let lead = "", wing = "";
-await step("пара: ведущая сжимает и откатывает ведомого инструментами и получает вести", async () => {
-  const o = await api.call(sessionOpen, { to: "@" + machine, spec: { name: "rwlead-" + tag, cwd, ...DOC } as never, pair: true });
+await stepPair("пара: ведущая сжимает и откатывает ведомого инструментами и получает вести", async () => {
+  const o = await api.call(sessionOpen, { to: "@" + machine, spec: { name: "rwlead-" + tag, cwd, ...DOC } as never, pair: true, mkdir: true });
   lead = o.callsign;
   wing = o.wing!;
   made.push(lead);
@@ -176,7 +181,7 @@ await step("пара: ведущая сжимает и откатывает ве
 /** Вести ведущей о ведомом: входящие вида news от него. */
 const news = async () => (await said(lead)).map((e) => (e as { peer?: { from: string; kind: string; text: string } }).peer).filter((p) => p?.from === wing && p.kind === "news").map((p) => p!.text);
 
-await step("пара: ведомого очистил человек — ведущей пришла весть; сжатие ведомого вести не даёт", async () => {
+await stepPair("пара: ведомого очистил человек — ведущей пришла весть; сжатие ведомого вести не даёт", async () => {
   // почти пустой разговор Claude не сжимает: сначала ведомый набирает разговор
   for (let i = 1; i <= 2; i++) await turn(wing, `Напиши связный текст на 300 слов о том, как устроен велосипед, часть ${i}. Инструменты не используй.`);
   const before = (await news()).length;
@@ -190,7 +195,7 @@ await step("пара: ведомого очистил человек — вед�
   return `вестей ${got.length - before}: ${got.at(-1)!.slice(0, 60)}`;
 });
 
-await step("пара: ведомый ждёт разрешения человека — ведущей пришла весть «ждёт ответа человека»", async () => {
+await stepPair("пара: ведомый ждёт разрешения человека — ведущей пришла весть «ждёт ответа человека»", async () => {
   await idle(wing);
   await api.call(sessionUpdate, { to: wing, patch: { mode: "ask" } as never });
   await idle(wing);
@@ -205,7 +210,7 @@ await step("пара: ведомый ждёт разрешения челове�
   return "весть пришла, вопрос отвечен";
 });
 
-await step("метод вне закрытого списка от сессии — отказ; от человека — проходит", async () => {
+await stepPair("метод вне закрытого списка от сессии — отказ; от человека — проходит", async () => {
   const mine = await api.call(sessionCall, { to: wing, method: "permissionRules" }).then(() => "ok", (e) => (e as CallError).word);
   if (mine !== "ok") throw new Error("человеку отказано: " + mine);
   return "человеку — ok (отказ сессии закреплён тестом Host)";
