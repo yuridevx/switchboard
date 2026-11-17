@@ -257,10 +257,10 @@ const AROUND = 60;
 /** Строка вокруг первого найденного слова запроса: до AROUND знаков с каждой стороны, обрыв помечен многоточием. */
 export function around(body: string, q: string): string {
   const low = body.toLowerCase();
-  const found = q.split(/s+/).filter(Boolean).map((w) => ({ at: low.indexOf(w.toLowerCase()), len: w.length })).filter((f) => f.at >= 0).sort((a, b) => a.at - b.at)[0];
+  const found = q.split(/\s+/).filter(Boolean).map((w) => ({ at: low.indexOf(w.toLowerCase()), len: w.length })).filter((f) => f.at >= 0).sort((a, b) => a.at - b.at)[0];
   if (!found) return body.slice(0, AROUND * 2);
   const from = Math.max(0, found.at - AROUND), to = Math.min(body.length, found.at + found.len + AROUND);
-  return (from > 0 ? "…" : "") + body.slice(from, to).replace(/s+/g, " ") + (to < body.length ? "…" : "");
+  return (from > 0 ? "…" : "") + body.slice(from, to).replace(/\s+/g, " ") + (to < body.length ? "…" : "");
 }
 
 /** Слова запроса — в запрос полнотекстового поиска: каждое слово целиком, все сразу. */
