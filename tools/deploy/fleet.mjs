@@ -44,8 +44,8 @@ const version = (part) => {
   return /"version_id":\s*"([^"]+)"/.exec(r.stdout ?? "")?.[1] ?? "нет";
 };
 
-// страница — часть служб: её отдаёт тот же Worker, поэтому собирается до отпечатков
-sh("npx", ["vite", "build"], { cwd: path.join(root, "web"), shell: true, env: { ...process.env, VITE_FLEET: "origin" }, stdio: ["ignore", "ignore", "inherit"] });
+// страница — часть служб: её отдаёт тот же Worker, поэтому собирается до отпечатков; режим комментариев к странице — только на тестовом флоте
+sh("npx", ["vite", "build"], { cwd: path.join(root, "web"), shell: true, env: { ...process.env, VITE_FLEET: "origin", ...(prod ? {} : { VITE_COMMENTS: "1" }) }, stdio: ["ignore", "ignore", "inherit"] });
 const tree = await digests(root);
 const catalog = await call("builds.list");
 const stands = { platform: await health("/health/platform"), services: await health("/health"), machines: catalog.builds.find((b) => b.build === catalog.stable)?.digest };
