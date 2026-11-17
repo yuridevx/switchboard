@@ -3,6 +3,7 @@
 # Прод — только ручным запуском по слову человека: идёт ровно коммит fleet/test; зелёная проверка двигает fleet/prod.
 #   gh workflow run deploy.yml -f fleet=prod
 # Что где стоит, видно в git: git log origin/fleet/prod..origin/fleet/test — уйдёт в прод; origin/fleet/test..origin/main — ещё проверяется.
+# Путь у обоих флотов один — одна работа; отличаются только настройки флота и коммит.
 name: deploy
 on:
   push:
@@ -19,59 +20,23 @@ permissions:
   contents: write
 
 jobs:
-  test:
-    # ручной запуск теста — тоже только main: выкладок из веток нет
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.fleet == 'test')
+  fleet:
+    # всегда с main: выкладок из веток нет; слияние — это тест, прод — только ручной запуск
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     # очередь на флот одна: вторая выкладка ждёт конца первой; ждёт всегда одна — самая свежая
     concurrency:
-      group: fleet-test
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: keeper/go.mod
-          cache-dependency-path: keeper/go.sum
-      - run: npm ci
-      - name: настройки флота
-        env:
-          SB2_BASE: ${{ secrets.SB2_TEST_BASE }}
-          SB2_PASS: ${{ secrets.SB2_TEST_PASS }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: node tools/deploy/settings.mjs test ci
-      - name: выкладка изменившегося
-        run: node tools/deploy/fleet.mjs test ci
-      - name: живая проверка
-        env:
-          SB2_KEY: ${{ vars.SB2_KEY }}
-          SB2_MODEL: ${{ vars.SB2_MODEL }}
-          SB2_SWITCH: ${{ vars.SB2_SWITCH }}
-        run: node tools/fleet/live.mjs test ci devbox wsl
-      - name: метка fleet/test
-        run: git push origin HEAD:refs/heads/fleet/test
-
-  prod:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.fleet == 'prod'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    concurrency:
-      group: fleet-prod
+      group: fleet-${{ inputs.fleet || 'test' }}
       cancel-in-progress: false
     env:
-      SB2_ENV: prod
+      FLEET: ${{ inputs.fleet || 'test' }}
+      SB2_ENV: ${{ inputs.fleet == 'prod' && 'prod' || '' }}
     steps:
       # на прод идёт ровно то, что прошло живую проверку на тесте
       - uses: actions/checkout@v4
         with:
-          ref: fleet/test
+          ref: ${{ inputs.fleet == 'prod' && 'fleet/test' || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -84,17 +49,19 @@ jobs:
       - run: npm ci
       - name: настройки флота
         env:
-          SB2_BASE: ${{ secrets.SB2_PROD_BASE }}
-          SB2_PASS: ${{ secrets.SB2_PROD_PASS }}
+          SB2_BASE: ${{ inputs.fleet == 'prod' && secrets.SB2_PROD_BASE || secrets.SB2_TEST_BASE }}
+          SB2_PASS: ${{ inputs.fleet == 'prod' && secrets.SB2_PROD_PASS || secrets.SB2_TEST_PASS }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: node tools/deploy/settings.mjs prod ci
+        run: node tools/deploy/settings.mjs $FLEET ci
       - name: выкладка изменившегося
-        run: node tools/deploy/fleet.mjs prod ci
+        run: node tools/deploy/fleet.mjs $FLEET ci
       - name: живая проверка
         env:
-          SB2_KEY: ${{ vars.SB2_PROD_KEY }}
-          SB2_MODEL: ${{ vars.SB2_PROD_MODEL }}
-        run: node tools/fleet/live.mjs prod ci ${{ vars.SB2_PROD_MACHINES }}
-      - name: метка fleet/prod
-        run: git push origin HEAD:refs/heads/fleet/prod
+          SB2_KEY: ${{ inputs.fleet == 'prod' && vars.SB2_PROD_KEY || vars.SB2_KEY }}
+          SB2_MODEL: ${{ inputs.fleet == 'prod' && vars.SB2_PROD_MODEL || vars.SB2_MODEL }}
+          SB2_SWITCH: ${{ vars.SB2_SWITCH }}
+          MACHINES: ${{ inputs.fleet == 'prod' && vars.SB2_PROD_MACHINES || vars.SB2_MACHINES }}
+        run: node tools/fleet/live.mjs $FLEET ci $MACHINES
+      - name: метка fleet/${{ inputs.fleet || 'test' }}
+        run: git push origin HEAD:refs/heads/fleet/$FLEET
