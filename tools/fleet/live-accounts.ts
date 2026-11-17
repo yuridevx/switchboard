@@ -1,7 +1,7 @@
 // Живая проверка аккаунтов и моделей: node tools/fleet/live-accounts.ts [флот] [устройство] [машина]
 // Нужен хотя бы один аккаунт Claude — ключ флота с протоколом claude. Модель сессий — SB2_CLAUDE_MODEL или самая дешёвая из каталога (Haiku).
 // Шаги: каталог Claude; ход без входа и час кэша; строки журнала вызова — на машине и в ClickHouse; негодный токен — переход без обрыва хода;
-// «/model слова» сообщением; модель провайдера из каталога. Свой негодный аккаунт сценарий заводит и убирает сам.
+// «/model слова» сообщением; модель провайдера из каталога (часть provider — только руками). Свой негодный аккаунт сценарий заводит и убирает сам.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -56,11 +56,14 @@ const journal = async (msg: string, session: string) => (await api.call(machineJ
 let models: Array<{ id: string; family?: string; window?: number }> = [];
 let cheap = "";
 let real: string[] = [];
-// части проверки: token — негодный аккаунт (меняет общее для флота: идёт одна); rest — остальное
+// части проверки: token — негодный аккаунт (меняет общее для флота: идёт одна); rest — остальное;
+// provider — ключ провайдера: в список выпуска не входит — выпуск не зависит от чужого ключа и его предела трат. Запуск руками:
+// SB2_PART=provider [SB2_PROVIDER_KEY=имя] node tools/fleet/live-accounts.ts [флот] [устройство] [машина]
 const PART = process.env.SB2_PART ?? "";
 const skip = async () => {};
 const stepRest = !PART || PART === "rest" ? step : skip;
 const stepToken = !PART || PART === "token" ? step : skip;
+const stepProvider = !PART || PART === "provider" ? step : skip;
 
 await step("каталог Claude по токену аккаунта: модели с семейством и окном", async () => {
   real = (await api.call(keysList, {})).keys.filter((k) => k.protocol === CLAUDE).map((k) => k.name);
@@ -128,9 +131,10 @@ await stepRest("«/model слова» сообщением ставит моде
   return `совпали ${firsts.length} из ${firsts.length}: ${firsts.map((m) => m.id).join(", ")}`;
 });
 
-await stepRest("модель провайдера из каталога: сессия на ключе флота отвечает моделью, названной в документе", async () => {
-  const provider = (await api.call(keysList, {})).keys.find((k) => k.protocol !== CLAUDE);
-  if (!provider) throw new Error("у флота нет ключа провайдера");
+await stepProvider("модель провайдера из каталога: сессия на ключе флота отвечает моделью, названной в документе", async () => {
+  const want = process.env.SB2_PROVIDER_KEY;
+  const provider = (await api.call(keysList, {})).keys.find((k) => k.protocol !== CLAUDE && (!want || k.name === want));
+  if (!provider) throw new Error(want ? `у флота нет ключа провайдера ${want}` : "у флота нет ключа провайдера");
   const list = (await api.call(keysModels, { name: provider.name })).models;
   if (!list.length) throw new Error(`каталог ${provider.name} пуст`);
   // модель выбирается сама из бесплатных моделей каталога («…-free», с названным видом API): платная тратит дневной предел ключа,
