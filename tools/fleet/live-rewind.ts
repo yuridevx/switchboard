@@ -2,13 +2,12 @@
 // Одна сессия на ключе флота: три хода правят файл; откат «разговор и файлы» дважды подряд, затем «только разговор», показ, очистка;
 // пара: ведущая читает историю ведомого, сжимает и откатывает его инструментами и получает вести; разговоры папки.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { CallError, createApi, fleetList, httpTransport, machineConversations, message, sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellRun, answer, type SessionRow, keysModels } from "@sb/protocol";
-import { fleetEnv } from "../dev.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
 import { machineTmp } from "./harness.mjs";
 
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const [fleet = "test", device = "cli", machine = "devbox"] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();

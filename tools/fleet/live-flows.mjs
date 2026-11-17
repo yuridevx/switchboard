@@ -2,18 +2,17 @@
 // В настоящем Chrome на 1440 и 390: шаги открываются страницами с адресом, «Назад» браузера возвращает на экран, окон поверх экрана нет.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { fleetEnv } from "../dev.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
 import { chromium, fleetCall } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const [fleet = "test", device = "cli", outArg] = process.argv.slice(2);
 const out = outArg ?? path.join(root, "dist", "flows");
 fs.mkdirSync(out, { recursive: true });
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const { call } = fleetCall(fleet, device);
 const me = call("whoami", {}).result;

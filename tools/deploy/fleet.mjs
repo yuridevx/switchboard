@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { digests } from "../build/digest.mjs";
+import { buildPage } from "../build/page.mjs";
 import { fleetEnv } from "../dev.mjs";
 import { fleetCall } from "../fleet/harness.mjs";
 import { nextBuild, plan } from "./plan.mjs";
@@ -41,7 +42,7 @@ const version = (part) => {
 };
 
 // страница — часть служб: её отдаёт тот же Worker, поэтому собирается до отпечатков; режим комментариев к странице — только на тестовом флоте
-sh("npx", ["vite", "build"], { cwd: path.join(root, "web"), shell: true, env: { ...process.env, VITE_FLEET: "origin", ...(prod ? {} : { VITE_COMMENTS: "1" }) }, stdio: ["ignore", "ignore", "inherit"] });
+buildPage(root, { prod });
 const tree = await digests(root);
 const catalog = await call("builds.list");
 const stands = { platform: await health("/health/platform"), services: await health("/health"), machines: catalog.builds.find((b) => b.build === catalog.stable)?.digest };

@@ -4,9 +4,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createApi, httpTransport, keysSet } from "@sb/protocol";
-import { fleetEnv } from "../dev.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
 
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const [fleet = "test", device = "cli", name = "muse"] = process.argv.slice(2);
 const meta = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".config", "muse", "auth.json"), "utf8")).providers?.meta;

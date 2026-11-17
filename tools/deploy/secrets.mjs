@@ -3,12 +3,12 @@
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { dev } from "../dev.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const read = (f) => Object.fromEntries(fs.readFileSync(path.join(dir, f), "utf8").split("\n").filter((l) => l && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
 const cf = read("v2-cloudflare.env");
 // SB2_ENV=prod — прод: настройки v2-prod.env, пользователь ClickHouse прода, wrangler --env prod

@@ -4,13 +4,12 @@
 // Сессии пишутся в ~/.switchboard-dev/v2-tg-1.session и v2-tg-2.session. Ключи приложения — из ~/.switchboard-dev/telegram.env.
 import fs from "node:fs";
 import http from "node:http";
-import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { dev } from "../dev.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const dev = path.join(os.homedir(), ".switchboard-dev");
 const tg = createRequire(path.join(dev, "tg", "package.json"));
 const { TelegramClient } = tg("telegram");
 const { StringSession } = tg("telegram/sessions");

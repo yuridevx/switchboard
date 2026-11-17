@@ -4,13 +4,12 @@
 // подмена Host посреди хода — итог дошёл, задача не пришла дважды; справка прочитана; правила пережили сжатие.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { CallError, createApi, fleetList, hostRestart, httpTransport, keeperState, keysModels, logQuery, message, peopleList, sessionCall, sessionHistory, sessionOpen, sessionRemove, type Peer, type SessionRow } from "@sb/protocol";
-import { fleetEnv } from "../dev.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
 import { machineTmp } from "./harness.mjs";
 
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const [fleet = "test", device = "cli", machine = "devbox"] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();

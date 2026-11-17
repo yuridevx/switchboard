@@ -46,6 +46,31 @@ jobs:
         if: matrix.part != 'keeper' && runner.os == 'Windows'
       - run: node tools/test/run.mjs ${{ matrix.part }}
 
+  # флот в коробке: весь Switchboard на раннере — Worker'ы, две машины с Host и claude, поддельная модель; на нём идёт живой список
+  box:
+    name: коробка
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: keeper/go.mod
+          cache-dependency-path: keeper/go.sum
+      - uses: actions/cache@v4
+        id: deps
+        with:
+          path: |
+            node_modules
+            */node_modules
+          key: deps-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+        if: steps.deps.outputs.cache-hit != 'true'
+      - run: node tools/box/box.mjs node tools/fleet/live.mjs box cli m1 m2
+
   # одна обязательная проверка ветки main: зелёная, когда зелёные все части
   check:
     name: проверка

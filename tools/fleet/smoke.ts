@@ -1,12 +1,11 @@
 // Живая проверка флота: node tools/fleet/smoke.ts <флот> [устройство]
 // Зовёт по одному запросу каждого вида цели и открывает соединение страницы; печатает исход и путь запроса по частям.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createApi, httpTransport, ledgerRead, obsRecent, passes, peopleList, prefsGet, prefsSet, whoami, type Frame, type RequestDef } from "@sb/protocol";
-import { fleetEnv } from "../dev.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
 
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const [fleet = "test", device = "cli"] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
