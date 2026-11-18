@@ -85,9 +85,13 @@ async function push(c: Sender, d: Device, plain: Uint8Array): Promise<boolean> {
 
 type TgAnswer<T = Record<string, unknown>> = { ok: boolean; result?: T; error_code?: number; description?: string };
 
-async function bot<T>(f: typeof fetch, token: string, method: string, body: unknown): Promise<TgAnswer<T>> {
+/** Чем зовут Telegram: сеть и окружение с его адресом. */
+type Wire = { fetch: typeof fetch; env: Env };
+
+async function bot<T>(w: Wire, token: string, method: string, body: unknown): Promise<TgAnswer<T>> {
   try {
-    const res = await f(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(CALL_MS) });
+    // адрес Telegram: по умолчанию — сам Telegram; TELEGRAM_API — другой сервер с тем же API бота
+    const res = await w.fetch(`${(w.env.TELEGRAM_API ?? "https://api.telegram.org").replace(/\/+$/, "")}/bot${token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(CALL_MS) });
     return (await res.json()) as TgAnswer<T>;
   } catch (e) {
     return { ok: false, description: `Telegram не ответил: ${e}` };
@@ -97,10 +101,10 @@ async function bot<T>(f: typeof fetch, token: string, method: string, body: unkn
 const threadGone = (a: TgAnswer<unknown>) => /thread not found/i.test(a.description ?? "");
 
 /** Тема сессии в чате: первая запись сессии создаёт её. Тем в чате нет — null: сообщение уйдёт в общий поток с позывным. */
-async function topic(f: typeof fetch, token: string, d: Db, chat: number, callsign: string): Promise<number | null> {
+async function topic(w: Wire, token: string, d: Db, chat: number, callsign: string): Promise<number | null> {
   const known = await d.first<{ thread: number }>("SELECT thread FROM threads WHERE chat = ? AND callsign = ?", chat, callsign);
   if (known) return known.thread;
-  const made = await bot<{ message_thread_id: number }>(f, token, "createForumTopic", { chat_id: chat, name: callsign });
+  const made = await bot<{ message_thread_id: number }>(w, token, "createForumTopic", { chat_id: chat, name: callsign });
   if (!made.ok) return null;
   await d.run("INSERT OR IGNORE INTO threads (chat, callsign, thread) VALUES (?, ?, ?)", chat, callsign, made.result!.message_thread_id);
   return (await d.first<{ thread: number }>("SELECT thread FROM threads WHERE chat = ? AND callsign = ?", chat, callsign))!.thread;
@@ -113,10 +117,10 @@ const fitsButton = (ask: string) => new TextEncoder().encode(buttonData(99, ask)
 /** Одно сообщение одному чату: в тему сессии; у вопроса — кнопки вариантов. Человек удалил тему — новая тема и ещё одна попытка. */
 async function tell(c: Sender, token: string, d: Device, n: Note, again = true): Promise<boolean> {
   const store = db(c.env, c.fleet);
-  const thread = n.callsign ? await topic(c.fetch, token, store, d.chat!, n.callsign) : null;
+  const thread = n.callsign ? await topic(c, token, store, d.chat!, n.callsign) : null;
   const text = thread === null && n.callsign ? `${n.callsign} · ${n.title}\n\n${n.text}` : `${n.title}\n\n${n.text}`;
   const buttons = n.ask && n.options?.length && fitsButton(n.ask) ? { reply_markup: { inline_keyboard: n.options.map((label, i) => [{ text: label, callback_data: buttonData(i, n.ask!) }]) } } : {};
-  const a = await bot<{ message_id: number }>(c.fetch, token, "sendMessage", { chat_id: d.chat, text, ...(thread === null ? {} : { message_thread_id: thread }), ...buttons });
+  const a = await bot<{ message_id: number }>(c, token, "sendMessage", { chat_id: d.chat, text, ...(thread === null ? {} : { message_thread_id: thread }), ...buttons });
   if (a.ok) {
     // по этому сообщению ответ человека и нажатая кнопка найдут сессию и там, где тем нет
     if (n.callsign && a.result?.message_id !== undefined)
@@ -189,7 +193,7 @@ async function senderOf(d: Db, platform: Platform, fleet: string, chat: number, 
 
 /** Вебхук Telegram флота: код привязки делает чат устройством человека; сообщение в теме сессии уходит сессии кадром message; кнопка вопроса — кадром answer. */
 export async function telegram(req: Request, env: Env, exec: ExecutionContext, deps: Deps): Promise<Response> {
-  const f = deps.fetch ?? outbound;
+  const wire: Wire = { fetch: deps.fetch ?? outbound, env };
   const platform: Platform = deps.platform ?? env.PLATFORM;
   const fleet = new URL(req.url).pathname.split("/")[2] ?? "";
   if (req.method !== "POST" || !FLEET.test(fleet)) return new Response(null, { status: 404 });
@@ -201,12 +205,12 @@ export async function telegram(req: Request, env: Env, exec: ExecutionContext, d
   // всегда 200: повтор доставки дал бы двойной ввод
   const done = new Response(null, { status: 200 });
   const d = db(env, fleet);
-  const mark = (chat: number, msg: number, emoji: string) => exec.waitUntil(scheduler.wait(REACT_MS).then(() => bot(f, token, "setMessageReaction", { chat_id: chat, message_id: msg, reaction: [{ type: "emoji", emoji }] })));
+  const mark = (chat: number, msg: number, emoji: string) => exec.waitUntil(scheduler.wait(REACT_MS).then(() => bot(wire, token, "setMessageReaction", { chat_id: chat, message_id: msg, reaction: [{ type: "emoji", emoji }] })));
   const refuse = (word: string, why: string) => log.warn("Telegram: отказ", { module: NAME, fleet, word, why });
 
   if (u.callback_query) {
     const q = u.callback_query, m = q.message;
-    const ack = (text?: string) => bot(f, token, "answerCallbackQuery", { callback_query_id: q.id, ...(text ? { text } : {}) });
+    const ack = (text?: string) => bot(wire, token, "answerCallbackQuery", { callback_query_id: q.id, ...(text ? { text } : {}) });
     try {
       const callsign = m ? await callsignOf(d, m.chat.id, { ...m, reply_to_message: { message_id: m.message_id } }) : null;
       const from = m ? await senderOf(d, platform, fleet, m.chat.id, q.from) : null;
@@ -226,7 +230,7 @@ export async function telegram(req: Request, env: Env, exec: ExecutionContext, d
         await ack(r?.error === "already_answered" ? "На вопрос уже ответили" : "Машина не на связи");
         if (r?.error !== "already_answered") return done;
       } else await ack();
-      await bot(f, token, "editMessageReplyMarkup", { chat_id: m.chat.id, message_id: m.message_id, reply_markup: { inline_keyboard: [] } });
+      await bot(wire, token, "editMessageReplyMarkup", { chat_id: m.chat.id, message_id: m.message_id, reply_markup: { inline_keyboard: [] } });
     } catch (e) {
       log.error("вебхук Telegram упал", { module: NAME, fleet, ...errFields(e) });
       await ack("Машина не на связи");
@@ -243,7 +247,7 @@ export async function telegram(req: Request, env: Env, exec: ExecutionContext, d
       // группа без тем отказывается до приёма: код не сгорает
       if (!isPrivate(chat) && !m.chat.is_forum) {
         refuse("no_topics", `группа ${chat} без тем`);
-        await bot(f, token, "sendMessage", { chat_id: chat, text: "Включите темы в настройках группы и отправьте код снова." });
+        await bot(wire, token, "sendMessage", { chat_id: chat, text: "Включите темы в настройках группы и отправьте код снова." });
         return done;
       }
       const row = code[1] === fleet ? await d.first<{ person: string; kid: string; at: number }>("SELECT person, kid, at FROM codes WHERE code = ?", code[0]) : null;
@@ -257,7 +261,7 @@ export async function telegram(req: Request, env: Env, exec: ExecutionContext, d
         ["INSERT OR REPLACE INTO tg (chat, author, forum) VALUES (?, ?, ?)", chat, m.from?.id ?? 0, m.chat.is_forum ? 1 : 0],
         ["DELETE FROM codes WHERE code = ?", code[0]],
       ]);
-      await bot(f, token, "sendMessage", { chat_id: chat, text: `Привязано: ${row.person}` });
+      await bot(wire, token, "sendMessage", { chat_id: chat, text: `Привязано: ${row.person}` });
       log.info("чат Telegram привязан", { module: NAME, fleet, person: row.person });
       return done;
     }
@@ -379,13 +383,13 @@ export const reach: Module = {
       const was = await botOf(ctx.env, ctx.fleet);
       if (i.token === undefined) return was ? { bot: was.name, on: true } : { on: false };
       if (i.token === null) {
-        if (was) await bot(ctx.fetch, was.token, "deleteWebhook", {});
+        if (was) await bot(ctx, was.token, "deleteWebhook", {});
         await d.run("DELETE FROM bot WHERE one = 1");
         return { on: false };
       }
-      const me = await bot<{ username: string }>(ctx.fetch, i.token, "getMe", {});
+      const me = await bot<{ username: string }>(ctx, i.token, "getMe", {});
       if (!me.ok || !me.result?.username) throw new Refusal("bad_token", `Telegram не принял токен бота: ${me.description ?? "нет имени"}`);
-      const hook = await bot(ctx.fetch, i.token, "setWebhook", { url: `${ctx.origin}/telegram/${ctx.fleet}`, secret_token: await hookSecret(i.token), allowed_updates: ["message", "callback_query"] });
+      const hook = await bot(ctx, i.token, "setWebhook", { url: `${ctx.origin}/telegram/${ctx.fleet}`, secret_token: await hookSecret(i.token), allowed_updates: ["message", "callback_query"] });
       if (!hook.ok) throw new Refusal("bad_token", `Telegram не поставил вебхук: ${hook.description}`);
       await d.run("INSERT OR REPLACE INTO bot (one, token, name) VALUES (1, ?, ?)", i.token, me.result.username);
       return { bot: me.result.username, on: true };

@@ -63,6 +63,8 @@ const LIST = [
   ["подмена Host посреди хода", "live-comms.ts", [fleet, device, second], { SB2_PART: "swap" }, false, NOISY, ["keeper"]],
   // меняет состав проекта: платформа при этом рвёт соединения всех страниц человека — идёт до всех
   ["флоу: галочка проекта", "live-flows.mjs", [fleet, device], { SB2_PART: "people" }, false, ALONE],
+  // человека в Telegram играет двойник коробки; бот — общий для флота, а человек проверки не должен быть на связи страницей — идёт до всех
+  ...(process.env.SB2_TG_HUMAN ? [["переписка с человеком", "live-rooms.mjs", [fleet, device, machine], {}, false, ALONE]] : []),
   // подменяет Host на всех машинах флота — идёт до всех; только на флоте в коробке: на живой флот сборку доводит CI
   ...(local() ? [["выкладка сборки", "live-roll.mjs", [fleet, device, machine, second], {}, false, ALONE]] : []),
   // заводит и убирает негодный аккаунт Claude флота: при нём чужой ход на Claude получил бы лишний переход — идёт до всех
