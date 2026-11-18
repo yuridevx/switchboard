@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, machineTmp, newTag, putFile, root } from "./harness.mjs";
+import { fleetCall, launchBrowser, machineTmp, newTag, putFile, root } from "./harness.mjs";
 import { say, tool, turn as script } from "./turn.mjs";
 
 const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
@@ -104,7 +104,7 @@ await step("история отдаёт строку на месте: за со�
 
 const me = must("whoami", {});
 const invite = must("invite", { addr: "errors" + tag + me.person });
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await launchBrowser();
 const errors = [];
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: "light" });

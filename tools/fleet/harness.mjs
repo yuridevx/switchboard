@@ -9,6 +9,10 @@ import { fleetEnv } from "../dev.mjs";
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const { chromium } = createRequire(path.join(root, "package.json"))("playwright-core");
 
+/** Браузер живых сценариев — одна точка запуска. На Windows это свой chrome-headless-shell из Playwright: настоящий Chrome на свежем профиле
+ *  проверяет, не пуст ли пароль Windows, входом с пустым паролем; каждый запуск — отказ входа, десять отказов за десять минут блокируют учётную запись. */
+export const launchBrowser = () => chromium.launch({ channel: process.platform === "win32" ? undefined : "chrome" });
+
 /** Флот в коробке: его адрес — этот компьютер. Проверка, которая меняет сам флот (несёт на него сборку), идёт только на таком. */
 export const local = () => /^http:\/\/127\.0\.0\.1[:/]/.test(fleetEnv.SB2_BASE ?? "");
 

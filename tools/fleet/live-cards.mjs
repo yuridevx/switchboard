@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, newTag } from "./harness.mjs";
+import { fleetCall, launchBrowser, newTag } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const [fleet = "test", device = "cli", callsign, outArg] = process.argv.slice(2);
@@ -16,7 +16,7 @@ const { call } = fleetCall(fleet, device);
 const me = call("whoami", {}).result;
 const invite = call("invite", { addr: "cards" + newTag() + me.person }).result;
 
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await launchBrowser();
 const errors = [];
 let cards = [];
 try {

@@ -2,7 +2,7 @@
 // Называет строки полосы отказов чтения («Не загрузилось: …») на каждом разделе: чтение, которое не проходит на исправном флоте, видно сразу.
 // Выход 0 — полоса пуста на всех разделах.
 import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, lacks, newTag } from "./harness.mjs";
+import { fleetCall, lacks, launchBrowser, newTag } from "./harness.mjs";
 
 const [fleet = "test", device = "cli", ...machines] = process.argv.slice(2);
 const { call, must } = fleetCall(fleet, device);
@@ -13,7 +13,7 @@ const session = must("fleet.list", {}).sessions?.[0]?.callsign;
 const history = lacks("clickhouse") ? [] : ["/spend", "/fleet", "/fleet/accounts"];
 const routes = ["/work", ...(session ? ["/work/" + session] : []), "/archive", ...history, "/fleet/profiles", "/fleet/releases", "/fleet/incidents", "/observe", "/observe/journal", "/observe/analytics", "/settings", "/settings/alerts", "/settings/people", "/settings/passes", "/settings/proxy", "/new", ...machines.map((m) => "/machine/" + m)];
 
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await launchBrowser();
 const errors = [];
 let lines = 0;
 try {

@@ -6,7 +6,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dev, fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, lacks, machineTmp, newTag } from "./harness.mjs";
+import { fleetCall, lacks, launchBrowser, machineTmp, newTag } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
@@ -24,7 +24,7 @@ const skip = async () => {};
 const SEAT = process.env.SB2_KEY ?? "muse";
 const session = PART === "people" ? undefined : must("session.open", { to: "@" + machine, spec: { name: "flow-" + newTag(), cwd: `${machineTmp(fleet, device, machine)}/sb2-flows`, key: SEAT, model: process.env.SB2_MODEL ?? must("keys.models", { name: SEAT }).models[0].id }, mkdir: true }).callsign;
 
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await launchBrowser();
 let bad = 0, total = 0;
 // окно — видимое; скрытый список выпадающего поля окном не считается
 const overlays = '[role="dialog"]:visible, .mantine-Modal-root:visible, .mantine-Drawer-root:visible, .mantine-Popover-dropdown:not(.mantine-Select-dropdown):visible';
