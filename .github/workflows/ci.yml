@@ -88,6 +88,39 @@ jobs:
           SB2_BOX_CH: http://default:box@127.0.0.1:8123
           SB2_SHARD: ${{ matrix.shard }}
 
+  # тот же список на Windows: пути, процессы, оболочки. Контейнеров Linux на раннере Windows нет — шаги с историей флота там не идут
+  box-win:
+    name: коробка · windows ${{ matrix.shard }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/2", "2/2"]
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: keeper/go.mod
+          cache-dependency-path: keeper/go.sum
+      - uses: actions/cache@v4
+        id: deps
+        with:
+          path: |
+            node_modules
+            */node_modules
+          key: deps-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+        if: steps.deps.outputs.cache-hit != 'true'
+      # браузер проверок на Windows — свой chrome-headless-shell из Playwright (см. launchBrowser)
+      - run: npx playwright-core install chromium-headless-shell
+      - run: node tools/box/box.mjs node tools/fleet/live.mjs box cli m1 m2
+        env:
+          SB2_SHARD: ${{ matrix.shard }}
+
   # одна обязательная проверка ветки main: зелёная, когда зелёные все части и коробка
   check:
     name: проверка
