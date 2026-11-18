@@ -6,7 +6,7 @@ import { useHotkeys } from "@mantine/hooks";
 import { IconAdjustmentsHorizontal, IconCheck, IconChevronDown, IconChevronRight, IconDots, IconFilter, IconPencil, IconPin, IconPinFilled, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { act } from "../api.ts";
 import { confirmDanger, Lamp, personWord, ROW_PARTS, SessionLine, useCall, useMachineName, useMyPrefs, useWide, type RowParts } from "../common.tsx";
 import { newPath } from "../shell/NewSession.tsx";
@@ -83,6 +83,7 @@ export const clampList = (w: number, total: number): number => clampSplit(w, tot
 
 export function Work() {
   const { callsign } = useParams();
+  const { pathname } = useLocation();
   const go = useNavigate();
   const wide = useWide();
   const qc = useQueryClient();
@@ -130,6 +131,9 @@ export function Work() {
   }, [callsign, picture.rev]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!picture.rev || !wide || callsign || view !== "list") return;
+    // человек уже ушёл с «Работы» (нажал «Новая сессия» до первой картины): экран ещё не снят, а адрес окна уже другой — его переход не перебивается
+    const real = window.location.hash.slice(1).split("?")[0];
+    if (real && real !== pathname) return;
     const pick = pickOpen(picture.sessions, flat, last);
     if (pick) go(`/work/${pick}`, { replace: true });
   }, [picture.rev, wide, callsign, view]); // eslint-disable-line react-hooks/exhaustive-deps
