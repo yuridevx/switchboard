@@ -1,0 +1,440 @@
+<title>Проверка всех систем</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* раскладка: сверху числа и карта своих частей с чужими службами; ниже по одной теме на блок: покрытие, два места, новые проверки, опыты, эталоны, гейт, порядок */
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
+  --accent: #1f7a63; --accent-soft: #dcefe8; --warn: #a8620a; --warn-soft: #fbecd2; --bad: #b3362b; --bad-soft: #f7e1de; --code: #f0eee7; --chg: #fff3b0;
+  --display: "Space Grotesk", "Segoe UI", sans-serif; --text: Inter, "Segoe UI", system-ui, sans-serif; --mono: "JetBrains Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warn: #f0b05c; --warn-soft: #40301a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4318; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warn: #f0b05c; --warn-soft: #40301a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4318; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 400 15px/1.5 var(--text); padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 34px; }
+h1 { font: 600 30px/1.15 var(--display); margin: 0; text-wrap: balance; }
+.lead { color: var(--muted); max-width: 62ch; margin: 6px 0 0; }
+h2 { font: 600 19px/1.25 var(--display); margin: 0 0 12px; text-wrap: balance; }
+section.read > h2::after { content: " ✓ прочитал"; font: 500 12px var(--text); color: var(--accent); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.scroll { overflow-x: auto; }
+svg { display: block; width: 100%; height: auto; font-family: var(--text); }
+.map svg { min-width: 780px; }
+.n rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.n.ci rect { fill: var(--accent-soft); stroke: var(--accent); }
+.n.man rect { fill: var(--warn-soft); stroke: var(--warn); }
+.n text { fill: var(--fg); font-size: 15px; font-weight: 600; }
+.n text.sub { fill: var(--muted); font-size: 12px; font-weight: 400; }
+.a path { stroke: var(--muted); stroke-width: 2; fill: none; }
+.a.back path { stroke-dasharray: 5 4; }
+.a text { fill: var(--muted); font-size: 12px; }
+.a .head { fill: var(--muted); stroke: none; }
+.zone { fill: none; stroke: var(--line); stroke-dasharray: 5 5; }
+.zone-t { fill: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+[data-x] { cursor: pointer; }
+[data-x]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.n[data-x]:hover rect, .n.on rect { stroke: var(--accent); stroke-width: 2.5; }
+.a[data-x]:hover path, .a.on path { stroke: var(--accent); stroke-width: 3; }
+.a[data-x]:hover .head, .a.on .head { fill: var(--accent); }
+.a[data-x]:hover text, .a.on text { fill: var(--accent); }
+.dim .n:not(.hot), .dim .a:not(.hot) { opacity: .35; }
+.why { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; min-height: 64px; }
+.why b { font: 600 15px var(--display); }
+.why p { margin: 0; max-width: 70ch; }
+pre { margin: 0; background: var(--code); border-radius: 8px; padding: 10px 12px; font: 400 12.5px/1.5 var(--mono); overflow-x: auto; white-space: pre; }
+.nums { display: flex; flex-wrap: wrap; gap: 10px; }
+.num { flex: 1 1 180px; min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.num b { font: 600 24px var(--display); font-variant-numeric: tabular-nums; display: block; }
+.num span { color: var(--muted); font-size: 13px; }
+.bars { display: grid; gap: 6px; margin-top: 12px; font-size: 13px; }
+.bar { display: grid; grid-template-columns: 170px minmax(0, 1fr) 96px; gap: 10px; align-items: center; }
+.bar i { display: block; height: 14px; border-radius: 4px; background: var(--warn); min-width: 2px; }
+.bar.keep i { background: var(--muted); }
+.bar .v { font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
+@media (max-width: 560px) { .bar { grid-template-columns: 110px minmax(0, 1fr) 80px; } }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.stops { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.stop { background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.stop.ci { border-color: var(--accent); }
+.stop .who { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.stop b { font: 600 16px var(--display); display: block; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border-radius: 8px; padding: 5px 9px; font: 500 13px var(--text); border: 1.5px solid transparent; background: var(--soft); color: var(--fg); text-align: left; }
+.chip:hover, .chip.on { border-color: var(--accent); }
+.chip.off { color: var(--muted); text-decoration: line-through; background: none; border: 1.5px dashed var(--line); }
+.chip.off:hover, .chip.off.on { border-style: solid; border-color: var(--accent); }
+.steps { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.step { flex: 1 1 200px; min-width: 0; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; text-align: left; font: inherit; color: inherit; display: grid; gap: 4px; align-content: start; }
+.step:hover, .step.on { border-color: var(--accent); }
+.step .who { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.step .what { font-weight: 600; overflow-wrap: anywhere; }
+.arrow { align-self: center; color: var(--muted); font-size: 18px; flex: none; }
+.cap { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.gone { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.gone > div { min-width: 0; }
+.et { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 10px; }
+.e { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.e .io { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; }
+.e .io > div { background: var(--soft); border-radius: 8px; padding: 8px; overflow-wrap: anywhere; min-width: 0; }
+.e .io > div.out { background: var(--accent-soft); }
+.e .src { color: var(--muted); font-size: 12px; }
+.e b { font: 600 14px var(--display); }
+.gate { white-space: pre-wrap; font: 400 13px/1.6 var(--mono); overflow-wrap: anywhere; }
+.order { display: grid; gap: 8px; counter-reset: s; }
+.o { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 12px 46px; position: relative; display: grid; gap: 4px; counter-increment: s; min-width: 0; }
+.o::before { content: counter(s); position: absolute; left: 12px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 600 13px var(--display); display: grid; place-items: center; }
+.o b { font: 600 15px var(--display); }
+.o .done { color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.n.ref text { font-family: var(--mono); font-size: 14px; }
+.stem { stroke: var(--muted); stroke-width: 2; fill: none; }
+.dot { fill: var(--card); stroke: var(--muted); stroke-width: 2; }
+.gitline { stroke: var(--line); stroke-width: 3; fill: none; }
+.chg { background: var(--chg); border-radius: 3px; }
+svg .chg { fill: var(--warn); }
+.n text.chg, .n text.sub.chg { fill: var(--warn); }
+button { cursor: pointer; }
+/* покрытие: ряд на часть, точка на подсистему */
+.grid { display: grid; gap: 6px; }
+.row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; align-items: center; background: none; border: 1.5px solid transparent; border-radius: 8px; padding: 6px 8px; font: inherit; color: inherit; text-align: left; }
+.row:hover, .row.on { border-color: var(--accent); }
+.rn { font-weight: 600; }
+.dots { display: flex; flex-wrap: wrap; gap: 5px; }
+.d { width: 16px; height: 16px; border-radius: 4px; display: block; }
+.d.b { background: var(--accent); } .d.f { background: var(--warn); } .d.n { background: var(--bad); }
+.step[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 560px) { .row { grid-template-columns: 1fr; gap: 4px; } }
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Проверка всех систем</h1>
+  <p class="lead">Своё проверяется настоящим. Чужое, которое можно поднять, поднимается настоящим — контейнером. Двойник остаётся только тому, чего на раннере никак не получить. Один список проверок идёт в двух местах: в коробке до слияния и на живом флоте после выкладки.</p>
+</header>
+
+<section id="b-nums" data-block>
+  <h2>Что изменится</h2>
+  <div class="nums">
+    <div class="num"><b>38 → 60</b><span>подсистем из 62 проверяются вживую до слияния</span></div>
+    <div class="num"><b>9 → 0</b><span>подсистем, которые вживую не проверяет никто</span></div>
+    <div class="num"><b>15 → 2</b><span>подсистем, которые видит только живой флот</span></div>
+    <div class="num"><b>6 → 0</b><span>адресов чужих служб, которые нельзя задать настройкой</span></div>
+    <div class="num"><b>4</b><span>двойника на всю систему: модель, Telegram, токены GitHub, вход в хранилище по ссылке</span></div>
+    <div class="num"><b>144 → 144+</b><span>шагов на живом флоте: список остаётся целиком и растёт</span></div>
+  </div>
+</section>
+
+<section id="b-map" data-block>
+  <h2>Свои части и чужие службы</h2>
+  <div class="card map" data-explain>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 430" role="img" aria-label="В центре свои части: страница, платформа и службы, Host, служба машины и Claude Code — они настоящие и в коробке, и на флоте. Вокруг восемь чужих служб. Настоящими в коробке поднимаются бакет хранилища файлов, история флота, git и реестр пакетов. Двойник — у модели, Claude по аккаунту, Telegram, токенов GitHub и входа в хранилище по ссылке. Уведомления браузера остаются только на живом флоте.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0 0 L10 5 L0 10 z" fill="context-stroke" stroke="none"/></marker>
+      </defs>
+      <rect class="zone" x="330" y="14" width="340" height="402" rx="10"/><text class="zone-t" x="344" y="34">своё · настоящее везде</text>
+      <text class="zone-t" x="20" y="34">чужое · в коробке</text>
+      <text class="zone-t" x="760" y="34">чужое · в коробке</text>
+
+      <g class="n ci" data-x="own-page" data-path="own" tabindex="0"><rect x="350" y="52" width="300" height="46" rx="10"/><text x="500" y="80" text-anchor="middle">Страница</text></g>
+      <g class="n ci" data-x="own-workers" data-path="own r2 ch tg gh cl" tabindex="0"><rect x="350" y="118" width="300" height="56" rx="10"/><text x="500" y="142" text-anchor="middle">Платформа и службы</text><text class="sub" x="500" y="160" text-anchor="middle">16 модулей · три адреса — настройки</text></g>
+      <g class="n ci" data-x="own-host" data-path="own m cl r2 gh" tabindex="0"><rect x="350" y="194" width="300" height="56" rx="10"/><text x="500" y="218" text-anchor="middle">Host</text><text class="sub" x="500" y="236" text-anchor="middle">ядро и 11 модулей</text></g>
+      <g class="n ci" data-x="own-keeper" data-path="own r2 npm" tabindex="0"><rect x="350" y="270" width="300" height="56" rx="10"/><text x="500" y="294" text-anchor="middle">Служба машины</text><text class="sub" x="500" y="312" text-anchor="middle">ставит и держит Host</text></g>
+      <g class="n ci" data-x="own-claude" data-path="own m cl" tabindex="0"><rect x="350" y="346" width="300" height="46" rx="10"/><text x="500" y="374" text-anchor="middle">Claude Code</text></g>
+
+      <g class="n man" data-x="f-model" data-path="m" tabindex="0"><rect x="20" y="52" width="230" height="56" rx="10"/><text x="135" y="76" text-anchor="middle">Модель по ключу</text><text class="sub" x="135" y="94" text-anchor="middle">двойник · три языка</text></g>
+      <g class="n man" data-x="f-claude" data-path="cl" tabindex="0"><rect x="20" y="132" width="230" height="56" rx="10"/><text x="135" y="156" text-anchor="middle">Claude по аккаунту</text><text class="sub" x="135" y="174" text-anchor="middle">двойник · отказ заказан токеном</text></g>
+      <g class="n man" data-x="f-r2" data-path="r2" tabindex="0"><rect x="20" y="212" width="230" height="56" rx="10"/><text x="135" y="236" text-anchor="middle">Хранилище файлов</text><text class="sub" x="135" y="254" text-anchor="middle">бакет настоящий · ссылки — двойник</text></g>
+      <g class="n" data-x="f-ch" data-path="ch" tabindex="0"><rect x="20" y="292" width="230" height="56" rx="10"/><text x="135" y="316" text-anchor="middle">История флота</text><text class="sub" x="135" y="334" text-anchor="middle">настоящий · контейнер раннера</text></g>
+
+      <g class="n man" data-x="f-gh" data-path="gh" tabindex="0"><rect x="750" y="52" width="230" height="56" rx="10"/><text x="865" y="76" text-anchor="middle">GitHub</text><text class="sub" x="865" y="94" text-anchor="middle">git настоящий · токены — двойник</text></g>
+      <g class="n man" data-x="f-tg" data-path="tg" tabindex="0"><rect x="750" y="132" width="230" height="56" rx="10"/><text x="865" y="156" text-anchor="middle">Telegram</text><text class="sub" x="865" y="174" text-anchor="middle">двойник · бот и человек</text></g>
+      <g class="n" data-x="f-npm" data-path="npm" tabindex="0"><rect x="750" y="212" width="230" height="56" rx="10"/><text x="865" y="236" text-anchor="middle">Реестр пакетов</text><text class="sub" x="865" y="254" text-anchor="middle">настоящий · внешних реестров два</text></g>
+      <g class="n" data-x="f-push" data-path="push" tabindex="0"><rect x="750" y="292" width="230" height="56" rx="10" stroke-dasharray="5 4"/><text x="865" y="316" text-anchor="middle">Уведомления браузера</text><text class="sub" x="865" y="334" text-anchor="middle">только живой флот</text></g>
+
+      <g class="a" data-x="a-model" data-path="m" tabindex="0"><path d="M348 216 L300 216 L300 80 L252 80" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-claude" data-path="cl" tabindex="0"><path d="M348 228 L285 228 L285 160 L252 160" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-r2" data-path="r2" tabindex="0"><path d="M348 150 L270 150 L270 240 L252 240" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-ch" data-path="ch" tabindex="0"><path d="M348 164 L316 164 L316 320 L252 320" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-gh" data-path="gh" tabindex="0"><path d="M652 136 L700 136 L700 80 L748 80" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="a-tg" data-path="tg" tabindex="0"><path d="M652 160 L748 160" marker-end="url(#ah)" marker-start="url(#ah)"/></g>
+      <g class="a" data-x="a-npm" data-path="npm" tabindex="0"><path d="M652 298 L700 298 L700 240 L748 240" marker-end="url(#ah)"/></g>
+      <g class="a back" data-x="a-push" data-path="push" tabindex="0"><path d="M652 170 L720 170 L720 320 L748 320" marker-end="url(#ah)"/></g>
+    </svg>
+    </div>
+    <div class="legend"><span><i style="background:var(--accent-soft);border:1.5px solid var(--accent)"></i>своё</span><span><i style="background:var(--card);border:1.5px solid var(--line)"></i>чужое, поднято настоящим</span><span><i style="background:var(--warn-soft);border:1.5px solid var(--warn)"></i>двойник</span><span><i style="background:var(--card);border:1.5px dashed var(--muted)"></i>только живой флот</span></div>
+    <div class="why" aria-live="polite"><b>Двойник — только там, где настоящего на раннере не получить.</b><p>Нажмите на любой узел или стрелку.</p></div>
+  </div>
+</section>
+
+<section id="b-cover" data-block>
+  <h2>Покрытие по подсистемам</h2>
+  <div class="card" data-explain>
+    <div class="steps" style="margin-bottom:12px">
+      <button class="step" data-view="now" data-x="v-now"><span class="who">вид</span><span class="what">сейчас</span></button>
+      <button class="step" data-view="after" data-x="v-after"><span class="who">вид</span><span class="what">после</span></button>
+    </div>
+    <div class="grid" id="grid" data-view="now">
+      <button class="row" data-x="g-platform"><span class="rn">Платформа</span><span class="dots" data-now="bbb" data-after="bbb"></span></button>
+      <button class="row" data-x="g-services"><span class="rn">Службы</span><span class="dots" data-now="bbbbbbbbffffffnn" data-after="bbbbbbbbbbbbbbbf"></span></button>
+      <button class="row" data-x="g-core"><span class="rn">Ядро Host</span><span class="dots" data-now="bbbbbb" data-after="bbbbbb"></span></button>
+      <button class="row" data-x="g-mods"><span class="rn">Модули Host</span><span class="dots" data-now="bbbbbbffffn" data-after="bbbbbbbbbbb"></span></button>
+      <button class="row" data-x="g-keeper"><span class="rn">Служба машины</span><span class="dots" data-now="bffnnnnn" data-after="bbbbbbbb"></span></button>
+      <button class="row" data-x="g-web"><span class="rn">Страница</span><span class="dots" data-now="bbbbbbbbbbbbbbfffn" data-after="bbbbbbbbbbbbbbbbbf"></span></button>
+    </div>
+    <div class="legend"><span><i style="background:var(--accent)"></i>в коробке и на флоте</span><span><i style="background:var(--warn)"></i>только на живом флоте</span><span><i style="background:var(--bad)"></i>нигде вживую</span></div>
+    <div class="why" aria-live="polite"><b>62 подсистемы, точка — подсистема.</b><p>Нажмите на ряд — покажу, что в нём меняется.</p></div>
+  </div>
+</section>
+
+<section id="b-two" data-block>
+  <h2>Одна проверка — два места</h2>
+  <div class="card map" data-explain>
+    <div class="scroll">
+    <svg viewBox="-110 0 1000 230" role="img" aria-label="Шаг проверки называет, что ему нужно. До слияния он идёт в коробке и держит слияние. После выкладки тот же шаг идёт на живом флоте на настоящих службах. Красный шаг на флоте — находка: коробка этого коммита зелёная, значит, расходится двойник или окружение. Метку выкладки находка не держит.">
+      <g class="n" data-x="s-step" data-path="a b" tabindex="0"><rect x="20" y="86" width="170" height="58" rx="10"/><text x="105" y="111" text-anchor="middle">Шаг проверки</text><text class="sub" x="105" y="129" text-anchor="middle">называет, что нужно</text></g>
+      <g class="n ci" data-x="s-box" data-path="a" tabindex="0"><rect x="270" y="28" width="210" height="62" rx="10"/><text x="375" y="55" text-anchor="middle">Коробка</text><text class="sub" x="375" y="74" text-anchor="middle">двойники · до слияния</text></g>
+      <g class="n ci" data-x="s-fleet" data-path="b" tabindex="0"><rect x="270" y="140" width="210" height="62" rx="10"/><text x="375" y="167" text-anchor="middle">Живой флот</text><text class="sub" x="375" y="186" text-anchor="middle">настоящее · после выкладки</text></g>
+      <g class="n man" data-x="s-gate" data-path="a" tabindex="0"><rect x="560" y="28" width="200" height="62" rx="10"/><text x="660" y="55" text-anchor="middle">Держит слияние</text><text class="sub" x="660" y="74" text-anchor="middle">красное не попадает в main</text></g>
+      <g class="n" data-x="s-find" data-path="b" tabindex="0"><rect x="560" y="140" width="200" height="62" rx="10"/><text x="660" y="167" text-anchor="middle">Находка</text><text class="sub" x="660" y="186" text-anchor="middle">красный шаг · метку не держит</text></g>
+      <g class="a" data-x="sa-1" data-path="a" tabindex="0"><path d="M190 104 L230 104 L230 59 L268 59" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="sa-2" data-path="b" tabindex="0"><path d="M190 126 L230 126 L230 171 L268 171" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="sa-3" data-path="a" tabindex="0"><path d="M480 59 L558 59" marker-end="url(#ah)"/></g>
+      <g class="a" data-x="sa-4" data-path="b" tabindex="0"><path d="M480 171 L558 171" marker-end="url(#ah)"/></g>
+    </svg>
+    </div>
+    <div class="gone" style="margin-top:12px">
+      <div><p class="cap">только живой флот</p><div class="chips">
+        <button class="chip" data-x="o-push">уведомление на устройстве</button>
+        <button class="chip" data-x="o-mind">шаги на понимание модели</button>
+        <button class="chip" data-x="o-tgreal">настоящий Telegram: тот же сценарий, живые аккаунты</button>
+      </div></div>
+      <div><p class="cap">только коробка</p><div class="chips">
+        <button class="chip" data-x="o-limit">отказ по заказу: заказ — сам токен</button>
+        <button class="chip" data-x="o-human">человек в Telegram по сценарию</button>
+        <button class="chip" data-x="o-install">установка службы машины с нуля</button>
+      </div></div>
+    </div>
+    <div class="why" aria-live="polite"><b>Живой флот не теряет ни одной проверки.</b><p>Нажмите на любой узел, стрелку или плашку.</p></div>
+  </div>
+</section>
+
+<section id="b-new" data-block>
+  <h2>Новые проверки: что сегодня не проверяет никто</h2>
+  <div class="card" data-explain>
+    <div class="chips">
+      <button class="chip" data-x="n-deploy">выкладка сборки и подмена Host — шагом самой выкладки</button>
+      <button class="chip" data-x="n-self">служба машины обновляет себя</button>
+      <button class="chip" data-x="n-install">установка машины по приглашению</button>
+      <button class="chip" data-x="n-rooms">переписка с человеком в Telegram — один сценарий</button>
+      <button class="chip" data-x="n-oauth">вход внешнего клиента с согласием</button>
+      <button class="chip" data-x="n-rules">правила прокси меняют запрос</button>
+      <button class="chip" data-x="n-port">обращение через порт машины</button>
+      <button class="chip" data-x="n-dialects">три языка провайдеров</button>
+      <button class="chip" data-x="n-limits">лимит аккаунта исчерпан посреди хода</button>
+      <button class="chip" data-x="n-win">всё то же на Windows</button>
+    </div>
+    <div class="why" aria-live="polite"><b>Десять проверок закрывают девять красных точек.</b><p>Нажмите на плашку.</p></div>
+  </div>
+</section>
+
+<section id="b-facts" data-block>
+  <h2>Опыты: на чём стоит решение</h2>
+  <div class="et" data-explain>
+    <button class="e step" data-x="x-r2"><span class="who">хранилище</span><b>30 из 30</b><span class="src">записей видит соседний процесс сразу</span></button>
+    <button class="e step" data-x="x-ch"><span class="who">история флота</span><b>6 с</b><span class="src">настоящий ClickHouse на раннере: скачан и отвечает</span></button>
+    <button class="e step" data-x="x-win"><span class="who">Windows</span><b>72 из 89</b><span class="src">шагов в первом прогоне коробки на Windows: 17 сбоев одного рода</span></button>
+    <button class="e step" data-x="x-keeper"><span class="who">служба машины</span><b>запуск без службы ОС</b><span class="src">в коде уже есть: папка флота из окружения</span></button>
+    <div class="why" aria-live="polite" style="grid-column:1/-1"><b>Четыре факта, а не предположения.</b><p>Нажмите на опыт.</p></div>
+  </div>
+</section>
+
+<section id="b-etalons" data-block>
+  <h2>Эталоны</h2>
+  <div class="et">
+    <div class="e"><b>Адрес чужой службы — настройка</b><div class="io"><div>настройка не задана</div><span>→</span><div class="out">запрос идёт на боевой адрес, как сейчас</div></div><span class="src">чьё: код — нынешнее поведение флота</span></div>
+    <div class="e"><b>Вход в хранилище по ссылке</b><div class="io"><div>файл положен по подписанной ссылке</div><span>→</span><div class="out">подпись сверена, службы видят файл в своём бакете</div></div><span class="src">чьё: факт — опыт 18 нояб., 30 из 30</span></div>
+    <div class="e"><b>Настоящее раньше двойника</b><div class="io"><div>служба поднимается контейнером или уже стоит на раннере</div><span>→</span><div class="out">двойника у неё нет</div></div><span class="src">чьё: слово пользователя 18 нояб.</span></div>
+    <div class="e"><b>Лимит по заказу</b><div class="io"><div>двойник отвечает «лимит недели» первому аккаунту</div><span>→</span><div class="out">ход продолжен на втором, сессия отказа не видит</div></div><span class="src">чьё: слово пользователя — отказ лимита не доходит до сессии</span></div>
+    <div class="e"><b>Сборка доезжает до машины</b><div class="io"><div>новая сборка в каталоге, 4 сессии на машине</div><span>→</span><div class="out">Host новой сборки, сессий 4, пропало 0</div></div><span class="src">чьё: слово пользователя — сессии не останавливаются</span></div>
+    <div class="e"><b>Разговор с диска на Windows</b><div class="io"><div>сессия с одним ходом на раннере Windows</div><span>→</span><div class="out">история с диска не пуста: записи хода на месте</div></div><span class="src">чьё: факт — коробка на Windows, 17 сбоев: история пуста</span></div>
+  </div>
+</section>
+
+<section id="b-gate" data-block>
+  <h2>Гейт</h2>
+  <div class="card"><div class="gate">Работа: большая — у служб появляются три настройки адресов чужих служб; машины коробки поднимает служба машины; растёт обязательная проверка
+Слово пользователя 18 нояб.: настоящее поднимается контейнерами; двойник — только тому, что в проверке на раннере никак не получить
+Гейт: дубликаты ответственности 0 → 0 · состояния 2 → 0 · логики 2 → 0 · смысла 1 → 0 · других 3 → 0 · лишние коммуникации 1 → 0 · циклы 0 → 0 · строк реестров 41
+  состояние · адрес Claude знали двое (службы — в коде, Host — в своей настройке) → поле аккаунта, как адрес у любого ключа флота
+  состояние · итог коробки, сохранённый для сверки → не хранится: в main попадает только зелёная коробка
+  логика · шаги переписки в Telegram в двух сценариях, ручном и в списке → один сценарий; человек — двойник или живые аккаунты
+  логика · путь сборки до машины у подъёма коробки и у выкладки → один хозяин: шаг «машины» инструмента выкладки
+  смысл · вход в хранилище по ссылке — наш код на месте чужой службы — назывался настоящим → двойник, четвёртый
+  другие · два способа поднять машину в коробке не появляются: Host напрямую уходит, остаётся служба машины
+  другие · настройка адреса Claude у служб рядом с полем адреса ключа → поле ключа
+  другие · сверка мест рядом с итогом списка на флоте → красный шаг на флоте и есть расхождение
+  коммуникации · итог коробки → хранение → сравнение в выкладке → обмена нет
+Числа: шаги порядка 12 → 10 · настройки частей +4, −1 → +3, −1 · новые поля в ответах служб 1 → 0 · эталоны 7 → 6 · развилки пользователю 4 → 1
+  адреса чужих служб, которые нельзя задать, 6 → 0 · двойники 1 → 4 (модель, Telegram, токены GitHub, вход в хранилище по ссылке)
+  настоящих чужих служб в коробке 1 → 4 (реестр пакетов; + бакет хранилища, история флота, git) · проверки списка 22 → около 32
+  подсистем вживую до слияния 38 → 60 из 62 · нигде вживую 9 → 0 · работы обязательной проверки 10 → 11
+Сделано:
+  1. Гейт · сверка мест · убрана целиком: шаг порядка, узел и две стрелки, эталон, хранение итога коробки · выигрыш: шаги −1, потоки −1, эталоны −1
+  2. Юнификация · адрес Claude · поле аккаунта вместо новой настройки служб · выигрыш: настройки −1
+  3. Платформа раньше своего · GitHub у машин · репозиторий на диске коробки и настройка самого git вместо сервера git и адреса рядом с токеном · выигрыш: поля ответа −1, серверы коробки −1, правок Host 0; опыт — первым делом шага
+  4. Платформа раньше своего · история флота · контейнер поднимает раннер как службу работы, коробка получает адрес · выигрыш: управления контейнерами в коробке нет
+  5. YAGNI · адреса отдельным шагом · каждый адрес уходит в шаг, где у него появляется второе значение · выигрыш: шаги −1
+  6. Явное · отказ по заказу · заказ — сам токен аккаунта: двойник без состояния и без канала управления
+  7. Явное · адрес канала версии Meta · выводится из адреса ключа: шестой адрес закрыт без настройки
+  8. Источник эталона · «Разговор с диска на Windows» · свойство — факт (история не пуста); догадка о коротком пути эталоном не была
+Решено одной строкой:
+  путь до слияния — не дольше 5 мин (слово пользователя 17 нояб.): работа, которая выводит за предел, идёт после слияния рядом с живым списком; замеры — на шагах «служба машины» и «Windows»
+  машины коробки поднимает служба машины · уведомления браузера — только живой флот, без двойника
+  контейнеров Linux на раннере Windows нет: шаги с историей флота там не идут · внешнего у проверки два публичных реестра: пакетов и образов
+Развилки пользователю:
+  1. Хранилище. Слово пользователя: MinIO не мокать, поднять контейнером. У служб два входа в хранилище: подписанные ссылки и
+     прямой доступ изнутри Cloudflare. MinIO даёт только ссылки — прямой доступ его содержимого не увидит · рекомендую: бакет —
+     локальный R2, он уже в коробке, прямой доступ настоящий; вход по ссылке — двойник со сверкой подписи · иначе: MinIO
+     контейнером и перевод служб на один вход по ссылкам — правка продукта, на флоте станет медленнее · не скажете иначе —
+     локальный R2 с двойником входа
+Не трогал как редакторское: имена проверок и настроек; подпись «двойники» у коробки на схеме двух мест; цвет «в коробке и на флоте» у точек, которые идут только в коробке; в ряду «Служба машины» названо шесть подсистем при семи точках; пример lacks("r2")
+Вердикт: ждёт слова</div></div>
+</section>
+
+<section id="b-order" data-block>
+  <h2>Порядок реализации</h2>
+  <div class="order">
+    <div class="o"><b>Хранилище в коробке</b><span class="done">Готово: «файлы сессии» в коробке 7 из 7 (сейчас 0), шаги архива и поиска 2 из 2 (сейчас 0). Адрес хранилища становится настройкой служб в этом же шаге; на живом флоте без неё «окружение» — 144 из 144.</span></div>
+    <div class="o"><b>История флота в коробке</b><span class="done">Готово: шаги с ClickHouse в коробке 6 из 6 (сейчас 0): «Расход», «Аккаунты», состояние, строки журнала. Контейнер поднимает раннер как службу работы; коробка получает адрес и сама контейнеров не запускает.</span></div>
+    <div class="o"><b>Claude у двойника модели</b><span class="done">Готово: «аккаунты и модели» 4 из 4 и «негодный токен» 2 из 2 в коробке (сейчас 0); новый шаг «лимит исчерпан посреди хода». Адрес Claude — поле аккаунта, как адрес у любого ключа флота; настроек адреса у служб и у Host: 1 → 0.</span></div>
+    <div class="o"><b>Три языка провайдеров</b><span class="done">Готово: «смена модели» в коробке идёт через три вида ключа (сейчас один). Адрес канала версии Meta выводится из адреса ключа.</span></div>
+    <div class="o"><b>Машины коробки поднимает служба машины</b><span class="done">Готово: «подмена Host посреди хода» 2 из 2 в коробке (сейчас 0); новая проверка «выкладка сборки» — сессий до и после, пропало 0; подъём коробки — число до и после. Сборку до машин и в подъёме коробки, и в проверке доводит шаг «машины» инструмента выкладки; работа «коробка» — не дольше 5 мин.</span></div>
+    <div class="o"><b>GitHub в коробке</b><span class="done">Готово: «кусочки обновились на другой машине» и поля кусочков в «Новой сессии» в коробке 3 из 3 (сейчас 0). Первым — опыт: git двух машин сводит репозиторий на диске коробки по настройке самого git, без правки Host. Адрес API GitHub — настройка служб.</span></div>
+    <div class="o"><b>Telegram в коробке</b><span class="done">Готово: проверка переписки (сейчас 11 шагов руками) в списке, в коробке зелёная; сценарий один — человека играет двойник или живые аккаунты. Адрес Telegram — настройка служб.</span></div>
+    <div class="o"><b>Непокрытое своё</b><span class="done">Готово: четыре новых шага — вход внешнего клиента, манифест приглашения, порт обращений, правила прокси — зелёные в коробке и на флоте.</span></div>
+    <div class="o"><b>Коробка на Windows</b><span class="done">Готово: работа «коробка · windows» — весь список (сейчас 72 из 89); время работы — число: до 5 мин — держит слияние, дольше — идёт после слияния.</span></div>
+    <div class="o"><b>Установка службы машины на раннере</b><span class="done">Готово: машина, поставленная по приглашению на раннерах Linux и Windows, на связи; опыт до кода.</span></div>
+  </div>
+</section>
+</div>
+
+<script>
+// покрытие: точки рисуются из строк состояния ряда; кнопки «сейчас» и «после» переключают вид
+(() => {
+  const grid = document.getElementById("grid");
+  const draw = () => {
+    for (const d of grid.querySelectorAll(".dots")) d.innerHTML = [...d.dataset[grid.dataset.view]].map((c) => `<i class="d ${c}"></i>`).join("");
+    for (const b of document.querySelectorAll("[data-view].step")) b.setAttribute("aria-pressed", String(b.dataset.view === grid.dataset.view));
+  };
+  for (const b of document.querySelectorAll("[data-view].step")) b.addEventListener("click", () => { grid.dataset.view = b.dataset.view; draw(); });
+  draw();
+})();
+</script>
+<script>
+// пояснения: клик по узлу, стрелке, ряду или плашке — короткий текст, у запроса — пример; ховер подсвечивает путь
+(() => {
+  const X = {
+    "own-page": ["Страница", "Собранная страница пульта в настоящем браузере — и в коробке, и на флоте."],
+    "own-workers": ["Платформа и службы", "Серверный код без правок. Вся работа дизайна в нём — три адреса чужих служб становятся настройками с боевым значением по умолчанию: хранилище по ссылке, API GitHub, Telegram. Адрес Claude настройкой не становится: он — поле аккаунта."],
+    "own-host": ["Host", "Программа, которая на каждой машине держит сессии. В коробке её ставит и запускает служба машины — тем же путём, что на флоте."],
+    "own-keeper": ["Служба машины", "Скачивает сборку Host, сверяет её, ставит и держит запущенной, обновляет себя. Сейчас коробка берёт от неё только держателя процессов; путь сборки не проверяет никто, кроме самой выкладки."],
+    "own-claude": ["Claude Code", "Настоящий, из того же пакета, что на флоте."],
+    "f-model": ["Модель по ключу", "Двойник уже есть: исполняет сценарий хода. Добавляются два языка — OpenAI и Meta. Тогда перевод запроса и потока между языками, который делает Host, проверяется вживую. Адрес канала версии Meta Host выводит из адреса ключа — отдельной настройки для него нет.", "ключ box        → язык Anthropic  (есть)\nключ box-openai → язык OpenAI     (новый)\nключ box-meta   → язык Meta       (новый)"],
+    "f-claude": ["Claude по аккаунту", "Тот же двойник в роли Claude: узнаёт токены аккаунтов и отвечает заголовками недельных лимитов. Отказ заказывает сам токен: проверка заводит аккаунт с токеном, который называет нужный ответ — лимит исчерпан, токен негоден. Двойник остаётся без состояния, отдельного канала управления у него нет. Адрес двойника — поле аккаунта, как у любого ключа флота.", "аккаунт a@example.com · токен box-limit-7d · адрес двойника\nHTTP 429 · anthropic-ratelimit-unified-7d-utilization: 1\n→ Host переводит вызов на аккаунт b@example.com"],
+    "f-r2": ["Хранилище файлов", "Бакет в коробке настоящий: это локальный R2 от самой Cloudflare, он поднимается вместе со службами, и службы ходят в него напрямую, как на флоте. Ему не хватает одного — входа по подписанной ссылке, по которой файлы идут мимо наших серверов. Этот вход — двойник: наш код на месте чужой службы. Он сверяет подпись тем же способом, каким службы её ставят, и пишет в тот же бакет. MinIO дал бы настоящий вход по ссылке, но прямой доступ служб его содержимого не увидит — это развилка в блоке «Гейт».", "PUT http://127.0.0.1:41873/sb2-files/files/box/3fa9…?X-Amz-Signature=…\n→ подпись верна, файл в бакете, службы его видят: 5 242 880 байт"],
+    "f-ch": ["История флота", "Журнал и аналитика лежат в ClickHouse. Он поднимается настоящим, контейнером: запросы наши, и проверять их надо на настоящем сервере. Контейнер поднимает сам раннер — как службу работы; коробка получает готовый адрес и контейнерами не управляет. Адрес у служб уже настройка. Где контейнеров нет — на раннере Windows или на компьютере без Docker — шаги с историей не идут."],
+    "f-gh": ["GitHub", "Две части. Git — настоящий: репозиторий кусочков лежит на диске коробки, обе машины клонируют и отправляют в него как обычно. Адрес GitHub в Host не меняется: в коробке его подменяет настройка самого git, поэтому сервера git и правки Host нет. Токены доступа выдаёт только сам GitHub по своим правилам приложений — их на раннере не получить, поэтому пять запросов о токенах отвечает двойник."],
+    "f-tg": ["Telegram", "Двойник играет обе стороны: принимает вызовы бота и присылает сообщения «от человека» по сценарию. Сейчас это проверяется руками, двумя живыми аккаунтами.", "бот → sendMessage «Сессия ждёт ответа»\nчеловек → «да, продолжай»\n→ сессия получила ответ"],
+    "f-npm": ["Реестр пакетов", "Служба машины ставит зависимости Host из реестра npm. В коробке реестр настоящий — как при любой установке на раннере."],
+    "f-push": ["Уведомления браузера", "Доставку на устройство делает служба производителя браузера. Ценность шага — в ней; двойник проверил бы только то, что уже проверено тестами шифрования. Остаётся на живом флоте."],
+    "a-model": ["Вызов модели", "Host шлёт вызов провайдеру по адресу из ключа флота. Адрес двойника — обычное поле ключа."],
+    "a-claude": ["Вызов Claude", "Адрес Claude — поле аккаунта, то же, что адрес у любого ключа флота: службы отдают его вместе с аккаунтом, не задан — боевой. Своей настройки адреса нет ни у служб, ни у Host."],
+    "a-r2": ["Подписанная ссылка", "Адрес хранилища — настройка служб; не задана — боевой адрес, собранный из номера учётной записи. Подпись ссылки в коробке сверяет двойник входа."],
+    "a-ch": ["Запросы истории", "Службы пишут и читают историю по адресу из настройки. Нет адреса — аналитика выключена, как сейчас в коробке."],
+    "a-gh": ["Токены и git", "Адрес API GitHub — настройка служб: в коробке на нём двойник токенов. Ответ с токеном остаётся прежним, адреса в нём нет: куда идёт git машин, в коробке решает настройка самого git."],
+    "a-tg": ["Бот и вебхук", "Службы зовут Telegram, Telegram зовёт службы. Адрес Telegram станет настройкой служб."],
+    "a-npm": ["Установка зависимостей", "Внешнего у проверки остаётся два публичных реестра: пакетов — для службы машины, образов — для контейнера истории флота. Секретов им не нужно."],
+    "a-push": ["Отправка уведомления", "Службы шлют зашифрованное уведомление на адрес из подписки браузера."],
+    "v-now": ["Сейчас", "38 подсистем проверяются вживую до слияния, 15 — только на живом флоте, 9 — нигде."],
+    "v-after": ["После", "60 в коробке и на флоте, 2 — только на флоте (уведомления: отправка и приём), 0 — нигде."],
+    "g-platform": ["Платформа", "Три подсистемы, все уже идут в коробке: вход, объект флота, объект машины."],
+    "g-services": ["Службы", "Из шестнадцати в коробку приходят семь: подписанные ссылки, архив, файлы, каталог сборок, аналитика, GitHub, Telegram. Уведомления браузера остаются флоту."],
+    "g-core": ["Ядро Host", "Шесть подсистем, все уже идут в коробке."],
+    "g-mods": ["Модули Host", "Приходят пять: файлы, точки архива, кусочки, перевод языков провайдеров, правила прокси."],
+    "g-keeper": ["Служба машины", "Самый красный ряд: вживую идёт только держатель процессов. Приходят запуск и связь, скачивание сборки, обновление себя, установка по приглашению, регистрация в системе, журнал."],
+    "g-web": ["Страница", "Приходят три экрана: «Расход», файлы сессии, согласие на вход внешнего клиента. Приём уведомлений остаётся флоту."],
+    "s-step": ["Шаг проверки", "Шаг пишется один раз и называет, что ему нужно от флота: хранилище, история, Claude. Место, где этого нет, шаг пропускает.", "lacks(\"r2\") — в этом месте нет хранилища"],
+    "s-box": ["Коробка", "Весь флот на раннере: свои части настоящие, чужие службы — двойники. Идёт на каждый запрос на слияние."],
+    "s-fleet": ["Живой флот", "Тот же список на настоящих машинах, с настоящей моделью, аккаунтами и хранилищем. Идёт после каждой выкладки, как сейчас."],
+    "s-gate": ["Держит слияние", "Красная коробка не пускает изменение в main. От окружения это не зависит."],
+    "s-find": ["Находка", "Красный шаг на живом флоте — находка. В main попадает только то, что в коробке зелёное, поэтому красное на флоте само называет расхождение: неверен двойник или беда окружения. Итог коробки для этого не хранится и ни с чем не сравнивается: шаги уже названы в итоге списка на флоте. Двойник неверен — правится двойник. Метку выкладки находка не держит."],
+    "sa-1": ["До слияния", "Шаг идёт в коробке."],
+    "sa-2": ["После выкладки", "Тот же шаг идёт на флоте."],
+    "sa-3": ["Условие слияния", "Зелёная коробка — часть обязательной проверки."],
+    "sa-4": ["Красный шаг", "Итог списка на флоте называет каждый красный шаг строкой — как сейчас."],
+    "o-push": ["Уведомление на устройстве", "Браузер подписывается у своей службы доставки, уведомление показывается на экране. Два шага."],
+    "o-mind": ["Шаги на понимание", "Сессия называет свой позывной после сжатия разговора. Два шага; двойник модели не понимает прочитанного."],
+    "o-tgreal": ["Настоящий Telegram", "Сценарий переписки один. В коробке человека играет двойник, на живом флоте — два живых аккаунта; шаги те же. С живыми аккаунтами его запускают руками, когда меняется модуль переписки: аккаунты личные. Второго сценария нет."],
+    "o-limit": ["Отказ по заказу", "Лимит недели исчерпан посреди хода, токен отозван, провайдер ответил ошибкой. На живом флоте такое не вызвать. Заказ — сам токен аккаунта: двойник отвечает отказом тому токену, который его называет. Состояния и канала управления у двойника нет.", "токен box-limit-7d → HTTP 429, лимит недели\nтокен box-revoked  → HTTP 401, токен не принят"],
+    "o-human": ["Человек по сценарию", "Двойник Telegram пишет «от человека» в нужный момент: ответ на вопрос сессии, чужой человек в комнате."],
+    "o-install": ["Установка с нуля", "Раннер — чистая машина на один прогон: на нём можно ставить службу в систему и сносить. На живых машинах это не повторить."],
+    "n-deploy": ["Выкладка сборки и подмена Host", "Сборка собирается, кладётся в каталог, служба машины её скачивает, сверяет и подменяет Host посреди хода. Сессии на месте. Путь сборки до машин знает один хозяин — шаг «машины» инструмента выкладки: его зовут и CI, и подъём коробки, и эта проверка. Счёт сессий до и после — его же, второй раз он не пишется."],
+    "n-self": ["Обновление службы машины", "В сборке другая служба машины: она скачивает себя, проверяет, подменяет файл и перезапускается."],
+    "n-install": ["Установка машины", "Приглашение принято, настройки и пропуск записаны, служба зарегистрирована в системе и поднимается сама."],
+    "n-rooms": ["Переписка с человеком", "Сессия зовёт человека, у бота появляется тема, человек отвечает, ответ доходит до сессии; чужой человек получает отказ. Это нынешняя ручная проверка, перенесённая в список: шаги одни, меняется только тот, кто играет человека."],
+    "n-oauth": ["Вход внешнего клиента", "Внешняя программа просит доступ, человек соглашается на странице, программа получает пропуск и зовёт инструменты флота."],
+    "n-rules": ["Правила прокси", "Правило флота меняет слово в запросе к модели — модель отвечает уже изменённым словом. Идёт и в коробке, и на флоте."],
+    "n-port": ["Порт обращений", "Программа на машине шлёт обращение в локальный порт — открывается сессия."],
+    "n-dialects": ["Три языка провайдеров", "Сессия переходит между ключами трёх видов и помнит прошлый ход."],
+    "n-limits": ["Лимит посреди хода", "Первый аккаунт получает отказ лимита, ход продолжается на втором, сессия отказа не видит."],
+    "n-win": ["То же на Windows", "Весь список в коробке на раннере Windows: пути, процессы, оболочки."],
+    "x-r2": ["Хранилище: один бакет на двоих", "Два отдельных локальных сервера с одним именем бакета и одной папкой данных. Тридцать записей вперемешку — соседний процесс видит каждую сразу; файл в 3 МБ и перезапись тоже. Значит, вход по ссылке можно поставить рядом со службами: они видят положенное сразу."],
+    "x-ch": ["ClickHouse на раннере", "Опыт шёл с сервером одним файлом: 229 МБ скачались за 3 секунды, сервер ответил через 3,3 секунды, таблица создана, строка записана и прочитана. Контейнером это тот же сервер; его подъём замерится на шаге «История флота в коробке»."],
+    "x-win": ["Коробка на Windows", "Коробка поднялась за 8 секунд, 9 проверок из 16 зелёные. Все 17 сбоев одного рода: история сессии с диска пуста. На Linux и на рабочей Windows-машине этого нет. Причина ещё не установлена; догадка — папка сессии, названная коротким путём. Это находка, которую сегодня не видит ни одна проверка."],
+    "x-keeper": ["Служба машины без службы ОС", "Команда запуска берёт папку флота из окружения и работает на переднем плане. После обновления себя она выходит с кодом 3 — в системе её поднимает ОС, в коробке поднимет сама коробка."],
+  };
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  for (const box of document.querySelectorAll("[data-explain]")) {
+    const out = box.querySelector(".why");
+    const items = [...box.querySelectorAll("[data-x]")];
+    const show = (el) => {
+      const [title, text, json] = X[el.dataset.x] ?? [el.dataset.x, ""];
+      for (const i of items) i.classList.toggle("on", i === el);
+      out.innerHTML = `<b>${esc(title)}</b><p>${esc(text)}</p>${json ? `<pre>${esc(json)}</pre>` : ""}`;
+    };
+    const svg = box.querySelector("svg");
+    for (const el of items) {
+      el.addEventListener("click", () => show(el));
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); show(el); } });
+      if (!svg || !svg.contains(el)) continue;
+      const paths = (el.dataset.path ?? "").split(" ");
+      el.addEventListener("mouseenter", () => { svg.classList.add("dim"); for (const i of items) i.classList.toggle("hot", (i.dataset.path ?? "").split(" ").some((p) => paths.includes(p))); });
+      el.addEventListener("mouseleave", () => { svg.classList.remove("dim"); for (const i of items) i.classList.remove("hot"); });
+    }
+  }
+  window.__explained = X;
+})();
+</script>
+<script>
+// метки «прочитал»: клавиша A (латинская или русская) над блоком
+(() => {
+  const KEY = "all-systems.read";
+  let read = [];
+  try { read = JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch {}
+  let over = null;
+  const draw = () => { for (const s of document.querySelectorAll("[data-block]")) s.classList.toggle("read", read.includes(s.id)); };
+  for (const s of document.querySelectorAll("[data-block]")) s.addEventListener("mouseenter", () => (over = s));
+  document.addEventListener("keydown", (e) => {
+    if (!(e.code === "KeyA" || e.key === "a" || e.key === "A" || e.key === "ф" || e.key === "Ф") || e.ctrlKey || e.metaKey || e.altKey || !over) return;
+    read = read.includes(over.id) ? read.filter((x) => x !== over.id) : [...read, over.id];
+    try { localStorage.setItem(KEY, JSON.stringify(read)); } catch {}
+    draw();
+  });
+  draw();
+})();
+</script>
