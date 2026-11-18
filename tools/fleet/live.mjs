@@ -12,7 +12,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { lacks } from "./harness.mjs";
+import { lacks, local } from "./harness.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
@@ -63,6 +63,8 @@ const LIST = [
   ["подмена Host посреди хода", "live-comms.ts", [fleet, device, second], { SB2_PART: "swap" }, false, NOISY, ["keeper"]],
   // меняет состав проекта: платформа при этом рвёт соединения всех страниц человека — идёт до всех
   ["флоу: галочка проекта", "live-flows.mjs", [fleet, device], { SB2_PART: "people" }, false, ALONE],
+  // подменяет Host на всех машинах флота — идёт до всех; только на флоте в коробке: на живой флот сборку доводит CI
+  ...(local() ? [["выкладка сборки", "live-roll.mjs", [fleet, device, machine, second], {}, false, ALONE]] : []),
   // заводит и убирает негодный аккаунт Claude флота: при нём чужой ход на Claude получил бы лишний переход — идёт до всех
   ["аккаунты: негодный токен", "live-accounts.ts", [fleet, device, machine], { SB2_PART: "token" }, false, ALONE, ["claude"]],
 ].filter((c) => (!prod || c[4]) && !(c[6] ?? []).some(lacks)).filter((_, i) => i % shards === shard - 1);

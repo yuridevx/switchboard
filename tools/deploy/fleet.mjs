@@ -11,7 +11,8 @@ import { digests } from "../build/digest.mjs";
 import { buildPage } from "../build/page.mjs";
 import { fleetEnv } from "../dev.mjs";
 import { fleetCall } from "../fleet/harness.mjs";
-import { nextBuild, plan } from "./plan.mjs";
+import { rollLine, rollMachines } from "./machines.mjs";
+import { plan } from "./plan.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
@@ -21,8 +22,6 @@ if (!fleet) throw new Error("нужно: <флот> [устройство] [--pl
 const only = process.argv.includes("--plan");
 const prod = process.env.SB2_ENV === "prod";
 const base = fleetEnv.SB2_BASE;
-const ROLL_MS = 10 * 60_000; // предел ожидания, пока машины встанут на новую сборку
-const BACK_MS = 3 * 60_000; // предел ожидания, пока сессии вернутся после подмены Host
 const STEP_MS = 15 * 60_000; // предел одной команды выкладки
 
 const sh = (cmd, cmdArgs, opts = {}) => {
@@ -57,29 +56,9 @@ if (only || !todo.length) {
 const done = [];
 for (const part of todo) {
   if (part === "machines") {
-    const build = nextBuild(catalog.builds);
-    // сессии до подмены Host: после неё каждая должна быть на месте, новых сбоев — 0; в журнал идут только числа
-    const before = (await call("fleet.list")).sessions;
-    node("tools/build/build.mjs", [String(build), "--upload", fleet, device]);
-    await call("builds.deploy", { build });
-    // сборка назначена флоту; машины на связи должны на неё встать
-    const end = Date.now() + ROLL_MS;
-    for (;;) {
-      const late = (await call("fleet.list")).machines.filter((m) => m.online && m.build !== build).map((m) => m.name);
-      if (!late.length) break;
-      if (Date.now() > end) throw new Error(`машины не встали на сборку ${build} за ${ROLL_MS / 60_000} мин: ${late.join(", ")}`);
-      await new Promise((r) => setTimeout(r, 5000));
-    }
-    const was = new Map(before.map((s) => [s.callsign, s.state]));
-    let lost = [], failed = [];
-    for (const until = Date.now() + BACK_MS; ; await new Promise((r) => setTimeout(r, 5000))) {
-      const now = new Map((await call("fleet.list")).sessions.map((s) => [s.callsign, s.state]));
-      lost = [...was.keys()].filter((c) => !now.has(c));
-      failed = [...was.keys()].filter((c) => now.get(c) === "failed" && was.get(c) !== "failed");
-      if (!lost.length || Date.now() > until) break;
-    }
-    done.push(`машины — сборка ${build} (откат ${catalog.stable ?? "нет"}); сессий до ${was.size}, пропало ${lost.length}, новых сбоев ${failed.length}`);
-    if (lost.length || failed.length) throw new Error(`после подмены Host: пропало сессий ${lost.length}, новых сбоев ${failed.length}`);
+    const r = await rollMachines(fleet, device);
+    done.push(rollLine(r));
+    if (r.lost.length || r.failed.length) throw new Error(`после подмены Host: пропало сессий ${r.lost.length}, новых сбоев ${r.failed.length}`);
   } else {
     const back = version(part);
     node("tools/deploy/wrangler.mjs", [part, "deploy", "--var", `DIGEST:${tree[part]}`, ...(prod ? ["--env", "prod"] : [])]);

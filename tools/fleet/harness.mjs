@@ -4,9 +4,13 @@ import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { fleetEnv } from "../dev.mjs";
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const { chromium } = createRequire(path.join(root, "package.json"))("playwright-core");
+
+/** Флот в коробке: его адрес — этот компьютер. Проверка, которая меняет сам флот (несёт на него сборку), идёт только на таком. */
+export const local = () => /^http:\/\/127\.0\.0\.1[:/]/.test(fleetEnv.SB2_BASE ?? "");
 
 /** Метка проверки для имён её сессий, папок и устройств. Случайная: проверки списка стартуют разом, метка из часов у них совпадала. */
 export const newTag = () => crypto.randomBytes(3).toString("hex");
