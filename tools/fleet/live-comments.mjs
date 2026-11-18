@@ -6,7 +6,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dev, fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, newTag } from "./harness.mjs";
+import { fleetCall, launchBrowser, newTag } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const [fleet = "test", device = "cli"] = process.argv.slice(2);
@@ -21,7 +21,7 @@ const word = "проверка-" + Math.random().toString(36).slice(2, 8);
 // сторож ждёт только новое: отметка — сейчас
 fs.writeFileSync(path.join(dir, `v2-${fleet}-comments.at`), String(Date.now()));
 
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));

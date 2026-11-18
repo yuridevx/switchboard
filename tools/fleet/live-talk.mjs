@@ -7,7 +7,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dev, fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, machineTmp, newTag } from "./harness.mjs";
+import { fleetCall, launchBrowser, machineTmp, newTag } from "./harness.mjs";
 import { say as answer, tool, turn } from "./turn.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -33,7 +33,7 @@ const cs = must("session.open", { to: "@" + machine, spec: { name: "talk-" + tag
 made.push(cs);
 await idle(cs);
 
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await launchBrowser();
 const invite = must("invite", { addr: "talk" + tag + me.person });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];
