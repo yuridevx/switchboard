@@ -1,16 +1,17 @@
 // Заголовки к Meta — как у Muse CLI, в его порядке (museclaude: muse 1.4.14). /muse-code/search Meta пускает только с user-agent muse-.
-// Версия Muse — одним запросом к публичному каналу muse-stable; хэша сборки в канале нет, часть «; build …» тогда не пишется — Meta её не требует.
+// Версия Muse — одним запросом к публичному каналу muse-stable того же сервера, что в адресе ключа; хэша сборки в канале нет, часть «; build …» тогда не пишется — Meta её не требует.
 import { randomBytes } from "node:crypto";
 import { arch, platform } from "node:os";
 
-export const CHANNEL_URL = "https://api.meta.ai/muse-code/channels/muse-stable";
+/** Адрес канала версии — на сервере из адреса ключа: https://api.meta.ai/v1 → https://api.meta.ai/muse-code/channels/muse-stable. */
+export const channelUrl = (base: string): string => new URL("/muse-code/channels/muse-stable", base).href;
 /** Свой user-agent лаунчера Muse для этого запроса. */
 const LAUNCHER_UA = "muse-code/launcher-ps-3";
 const RELEASE = /^(\d+\.\d+\.\d+)-R\d+(\.\d+)?$/;
 
 /** Версия Muse CLI из канала: «1.4.14-R7309.1» → «1.4.14». Ответ не тот — отказ словами. */
-export async function museVersion(signal: AbortSignal): Promise<string> {
-  const res = await fetch(CHANNEL_URL, { headers: { "user-agent": LAUNCHER_UA }, signal });
+export async function museVersion(base: string, signal: AbortSignal): Promise<string> {
+  const res = await fetch(channelUrl(base), { headers: { "user-agent": LAUNCHER_UA }, signal });
   if (!res.ok) throw new Error(`канал muse-stable ответил ${res.status}`);
   const j = (await res.json()) as { channel?: string; version?: string };
   const m = j.channel === "muse-stable" ? RELEASE.exec(j.version ?? "") : null;

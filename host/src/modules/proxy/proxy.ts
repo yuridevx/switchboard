@@ -92,7 +92,8 @@ export function make(): Module {
   /** список правил флота, как он записан: для проверки на тексте */
   let listed: Rule[] = [];
   let loading: Promise<ReturnType<typeof compile>> | null = null;
-  let version: Promise<string> | null = null;
+  /** Версия Muse по серверу Meta: сервер — из адреса ключа. */
+  const versions = new Map<string, Promise<string>>();
   /** идущие проверки ключа: id сессии проверки → маршрут */
   const checks = new Map<string, Route>();
   const sockets = new Set<Socket>();
@@ -120,13 +121,15 @@ export function make(): Module {
     return loading;
   }
 
-  /** Версия Muse: один запрос к каналу; не ответил — следующий вызов Meta спросит снова. */
-  function muse(): Promise<string> {
-    version ??= museVersion(AbortSignal.timeout(READ_MS)).catch((e) => {
-      version = null;
+  /** Версия Muse: один запрос к каналу сервера из адреса ключа; не ответил — следующий вызов Meta спросит снова. */
+  function muse(base: string): Promise<string> {
+    const server = new URL(base).origin;
+    const asked = versions.get(server) ?? museVersion(server, AbortSignal.timeout(READ_MS)).catch((e) => {
+      versions.delete(server);
       throw refuse("muse_version", String((e as Error).message ?? e));
     });
-    return version;
+    versions.set(server, asked);
+    return asked;
   }
 
   /** Вызов проверки ключа идёт своим маршрутом; вызов сессии — маршрутом модуля аккаунтов. */
@@ -218,7 +221,7 @@ export function make(): Module {
           const chatgpt = route.protocol === "chatgpt";
           const label = meta ? "Meta" : (route.name ?? "провайдер");
           if (!anth) return say(404, "not_found_error", "not_supported", `${req.method} ${path}: у ${label} только /v1/messages`);
-          const creds = { key: route.key ?? "", base: chatgpt ? route.to.replace(/\/+$/, "") : versioned(route.to), version: meta ? await muse() : "", dialect: meta ? ("meta" as const) : chatgpt ? ("chatgpt" as const) : ("openai" as const), author: `${route.name ?? ""}/${route.model ?? ""}`, label, ...(route.window ? { window: route.window } : {}) };
+          const creds = { key: route.key ?? "", base: chatgpt ? route.to.replace(/\/+$/, "") : versioned(route.to), version: meta ? await muse(route.to) : "", dialect: meta ? ("meta" as const) : chatgpt ? ("chatgpt" as const) : ("openai" as const), author: `${route.name ?? ""}/${route.model ?? ""}`, label, ...(route.window ? { window: route.window } : {}) };
           const refused = await messages(res, anth, creds, ac.signal, (why) => host.log.info("gap", { why: `${sid}: ${why}` }));
           seen(res.statusCode, {}, Date.now() - t0, refused);
           return;
@@ -312,7 +315,6 @@ export function make(): Module {
       // пробы аккаунтов идут через этот же прокси
       host.module<AccountsApi>("host-accounts")?.proxied(`http://127.0.0.1:${port}`);
       saved.set({ port });
-      void muse().catch((e) => host.log.warn("muse_version", { word: "muse_version", why: String((e as { why?: string }).why ?? e) }));
     },
     async stop() {
       server.close();

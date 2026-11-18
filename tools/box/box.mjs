@@ -23,6 +23,7 @@ const FLEET = "box", DEVICE = "cli", MACHINES = ["m1", "m2"], KEY = "box";
 const history = process.env.SB2_BOX_CH ? new URL(process.env.SB2_BOX_CH) : null;
 const WITHOUT = ["mind", "push", "github", "keeper", ...(history ? [] : ["clickhouse"])].join(" ");
 const ACCOUNTS = ["a", "b"];
+const DIALECTS = ["openai", "meta"];
 const UP_MS = 60_000; // предел подъёма одной части
 const STOP_MS = 10_000; // предел штатной остановки Host
 const win = process.platform === "win32";
@@ -150,6 +151,8 @@ async function up() {
   }
   await until("машины на связи", async () => (await call("fleet.list", {}, admin)).machines.filter((m) => m.online).length === MACHINES.length);
   await call("keys.set", { name: KEY, protocol: "anthropic", base: `http://127.0.0.1:${pModel}`, value: "box-key-0000" }, admin);
+  // ключи двух других языков провайдеров: тот же двойник, запрос и поток между языками переводит Host
+  for (const protocol of DIALECTS) await call("keys.set", { name: `${KEY}-${protocol}`, protocol, base: `http://127.0.0.1:${pModel}/v1`, value: "box-key-0000" }, admin);
   // два аккаунта Claude: их адрес — тот же двойник модели, он узнаёт аккаунт по токену без ключа провайдера
   for (const a of ACCOUNTS) await call("keys.set", { name: `${a}@box.test`, protocol: "claude", base: `http://127.0.0.1:${pModel}`, value: `sk-ant-oat01-box-${a}-0000000000000000` }, admin);
   await call("project.set", { project: "box", name: "Коробка", members: ["~owner@fleet.test"] }, admin);
@@ -165,7 +168,7 @@ async function up() {
 
 /** Команда в окружении коробки; код выхода — её. */
 const run = (dev) => new Promise((done) => {
-  const env = { ...process.env, SB2_DEV: dev, SB2_KEY: KEY, SB2_MODEL: MODELS[0].id, SB2_SWITCH: MODELS.map((m) => `${KEY}/${m.id}`).join(" "), SB2_WITHOUT: WITHOUT };
+  const env = { ...process.env, SB2_DEV: dev, SB2_KEY: KEY, SB2_MODEL: MODELS[0].id, SB2_SWITCH: [KEY, ...DIALECTS.map((d) => `${KEY}-${d}`)].map((k, i) => `${k}/${MODELS[i % MODELS.length].id}`).join(" "), SB2_WITHOUT: WITHOUT };
   delete env.SB2_ENV;
   const child = spawn(command[0], command.slice(1), { cwd: process.cwd(), stdio: "inherit", env, shell: win });
   child.on("error", (e) => (console.error(`команда не запустилась: ${e.message}`), done(1)));

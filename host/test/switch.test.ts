@@ -372,3 +372,12 @@ describe("путь OpenAI-протокола", () => {
 
 // T0 — начало часов стенда: названо для читателя эталонов со временем
 void T0;
+
+describe("канал версии Meta", () => {
+  // чьё: код — у ключа с адресом по умолчанию канал тот же, что был константой; дизайн «Проверка всех систем» — адрес выводится из адреса ключа
+  it("адрес канала — на сервере из адреса ключа", async () => {
+    const { channelUrl } = await import("../src/modules/proxy/muse/headers.ts");
+    expect(channelUrl("https://api.meta.ai/v1")).toBe("https://api.meta.ai/muse-code/channels/muse-stable");
+    expect(channelUrl("http://127.0.0.1:4100/v1")).toBe("http://127.0.0.1:4100/muse-code/channels/muse-stable");
+  });
+});
