@@ -96,7 +96,7 @@ jobs:
       matrix:
         shard: ["1/2", "2/2"]
     runs-on: windows-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -121,12 +121,12 @@ jobs:
         env:
           SB2_SHARD: ${{ matrix.shard }}
 
-  # одна обязательная проверка ветки main: зелёная, когда зелёные все части и коробка
+  # одна обязательная проверка ветки main: зелёная, когда зелёные все части и коробка на Linux и на Windows
   check:
     name: проверка
-    needs: [part, box]
+    needs: [part, box, box-win]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - run: test "${{ needs.part.result }}" = "success" -a "${{ needs.box.result }}" = "success"
+      - run: test "${{ needs.part.result }}" = "success" -a "${{ needs.box.result }}" = "success" -a "${{ needs.box-win.result }}" = "success"
