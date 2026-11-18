@@ -2,11 +2,12 @@
 // Машина ставится так, как её ставит человек: keeper install с приглашением — служба ОС этого флота; сборку Host служба берёт из каталога сама.
 // Ставит службу в ОС этого компьютера, поэтому идёт только по SB2_INSTALL=1 (раннер CI) и только на флоте в коробке.
 // На Windows служба работает под текущим пользователем: его пароль — SB2_INSTALL_PASSWORD, службе он уходит строкой stdin.
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fleetEnv } from "../dev.mjs";
+import { killHolders } from "../box/holders.mjs";
 import { fleetCall, local, newTag, root } from "./harness.mjs";
 
 const [fleet = "box", device = "cli"] = process.argv.slice(2);
@@ -71,14 +72,7 @@ await step("скрипт на поставленной машине выполн
 if (installed) {
   const r = await run(["uninstall", "--name", fleet]);
   if (r.code !== 0) console.log(`служба не снята: ${r.out.split("\n").at(-1)}`);
-  const procs = path.join(home, "procs");
-  for (const f of fs.existsSync(procs) ? fs.readdirSync(procs).filter((n) => n.endsWith(".json")) : []) {
-    try {
-      const { pid } = JSON.parse(fs.readFileSync(path.join(procs, f), "utf8"));
-      if (win) spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
-      else process.kill(pid, "SIGKILL");
-    } catch { /* процесс уже вышел */ }
-  }
+  killHolders(home);
 }
 call("revoke", { kid: invite.kid });
 console.log(bad ? `сбоев: ${bad} из ${total}` : `установка службы: ${total} из ${total}`);

@@ -1,6 +1,6 @@
 // Живая проверка серверных функций флота: node tools/fleet/live-server.ts <флот> <устройство> [машина] [машина для переноса]
 // Архив проверяется на своей сессии: проверка открывает её, даёт ей один ход со своим словом и убирает за собой.
-// Сервер MCP (401 без пропуска, список инструментов, вызов), здоровье, точка → архив → поиск → разговор → перенос на другую машину.
+// Сервер MCP (список инструментов, вызов; путь входа клиента — в live-oauth.mjs), здоровье, точка → архив → поиск → разговор → перенос на другую машину.
 import fs from "node:fs";
 import path from "node:path";
 import { createApi, fleetList, httpTransport, keysModels, obsHealth, pointsHistory, pointsList, pointsRaise, pointsSave, sessionOpen, sessionRemove, sessionUpdate, type SessionRow } from "@sb/protocol";
@@ -25,14 +25,8 @@ async function step(label: string, fn: () => Promise<string>) {
     console.log(`✗ ${label} · ${(e as Error).message.split("\n")[0]}`);
   }
 }
-const rpc = async (body: unknown, auth = true) => fetch(base + "/mcp", { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...(auth ? { authorization: "Bearer " + key } : {}) }, body: JSON.stringify(body) });
+const rpc = async (body: unknown) => fetch(base + "/mcp", { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: "Bearer " + key }, body: JSON.stringify(body) });
 
-await step("MCP без пропуска — 401 и адрес сервера входа", async () => {
-  const r = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, false);
-  const h = r.headers.get("www-authenticate") ?? "";
-  if (r.status !== 401 || !h.includes("resource_metadata")) throw new Error(`HTTP ${r.status}, заголовок: ${h}`);
-  return "401";
-});
 await step("MCP: список инструментов", async () => {
   const r = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" });
   const j = (await r.json()) as { result?: { tools: { name: string }[] } };
@@ -45,12 +39,6 @@ await step("MCP: вызов инструмента fleet_list", async () => {
   const j = (await r.json()) as { result?: { content: { text: string }[]; isError?: boolean } };
   if (!j.result || j.result.isError) throw new Error(JSON.stringify(j).slice(0, 200));
   return `ответ ${j.result.content[0]!.text.length} знаков`;
-});
-await step("метаданные сервера входа OAuth", async () => {
-  const r = await fetch(base + "/.well-known/oauth-authorization-server");
-  const j = (await r.json()) as { token_endpoint?: string; authorization_endpoint?: string };
-  if (!j.token_endpoint || !j.authorization_endpoint) throw new Error("нет адресов в метаданных");
-  return j.authorization_endpoint;
 });
 await step("адрес установки с приглашением: страница зовёт манифест с ним, манифест запускает приложение с ним", async () => {
   // приглашение не принимается: шаг читает только разметку и манифест

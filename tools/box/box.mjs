@@ -8,13 +8,14 @@
 // Снаружи коробка читает одно: описание клиента Claude Code по его публичному адресу https — на шаге «вход внешнего клиента».
 // Команда получает: SB2_DEV — папка настроек (адрес флота, пропуск устройства cli), SB2_KEY, SB2_MODEL, SB2_SWITCH — ключ и модели коробки.
 // Сбой подъёма или красная команда — хвосты журналов частей. Папка коробки dist/box/<номер процесса> после зелёной команды убирается.
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildPage } from "../build/page.mjs";
 import * as github from "./github.mjs";
+import { killHolders, killTree } from "./holders.mjs";
 import { MODELS, serve } from "./model.mjs";
 import * as telegram from "./telegram.mjs";
 
@@ -72,15 +73,6 @@ function keep(name, bin, home, gitconfig) {
   const child = start("keeper-" + name, bin, ["run"], { SB_HOME: home, GIT_CONFIG_GLOBAL: gitconfig });
   child.on("exit", (code) => { if (code === 3 && !down) keep(name, bin, home, gitconfig); });
 }
-/** Снять процесс вместе с потомками. */
-function killTree(pid) {
-  try {
-    if (win) execFileSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-    else process.kill(-pid, "SIGKILL");
-  } catch {
-    // процесса уже нет
-  }
-}
 const tails = () => [...new Set(parts.map((p) => p.name)), "model"].filter((name) => fs.existsSync(path.join(state, name + ".log"))).map((name) => `── ${name}\n${fs.readFileSync(path.join(state, name + ".log"), "utf8").split("\n").slice(-12).join("\n")}`).join("\n");
 
 let down = false;
@@ -90,12 +82,7 @@ async function teardown() {
   down = true;
   // сначала службы машин и Worker'ы: живая служба подняла бы снятый Host снова
   for (const { child } of parts) if (child.exitCode === null) killTree(child.pid);
-  for (const m of MACHINES) {
-    const procs = path.join(state, m, "procs");
-    for (const f of fs.existsSync(procs) ? fs.readdirSync(procs).filter((n) => n.endsWith(".json")) : []) {
-      try { killTree(JSON.parse(fs.readFileSync(path.join(procs, f), "utf8")).pid); } catch { /* файл держателя дописывают */ }
-    }
-  }
+  for (const m of MACHINES) killHolders(path.join(state, m));
   for (const { child } of parts) if (child.exitCode === null) killTree(child.pid);
   model?.close();
   githubApi?.close();
