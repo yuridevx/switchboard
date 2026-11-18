@@ -146,6 +146,8 @@ export const analytics: Module = {
         GROUP BY key, model ORDER BY key FORMAT JSON`;
       let text: string;
       try {
+        // на свежем ClickHouse таблицы нет, пока её не завела первая точка: чтение заводит её так же, как запись
+        await ensure(ctx.env, ctx.fetch, TABLE, CREATE);
         text = await ch(ctx.env, ctx.fetch, query, undefined, { fleet: ctx.fleet, machines: `[${machines.map((m) => `'${m}'`).join(",")}]`, from: i.since, to: i.until });
       } catch (e) {
         throw new Refusal("analytics_unavailable", e instanceof Error ? e.message : String(e));
@@ -172,6 +174,7 @@ export const analytics: Module = {
       const started = Date.now();
       let data: Array<{ machine: string; rows: string | number; last: string | number }>;
       try {
+        await ensure(ctx.env, ctx.fetch, TABLE, CREATE);
         const text = await ch(ctx.env, ctx.fetch, `SELECT machine, count() AS rows, toUnixTimestamp64Milli(max(at)) AS last FROM ${TABLE} FINAL WHERE fleet = {fleet:String} GROUP BY machine FORMAT JSON`, undefined, { fleet: ctx.fleet });
         data = (JSON.parse(text) as { data: typeof data }).data;
       } catch (e) {
@@ -235,6 +238,7 @@ export const analytics: Module = {
         WHERE ${where.join(" AND ")} ORDER BY at DESC LIMIT {limit:UInt32} FORMAT JSON`;
       let text: string;
       try {
+        await ensure(ctx.env, ctx.fetch, LOG, CREATE_LOG);
         text = await ch(ctx.env, ctx.fetch, query, undefined, params);
       } catch (e) {
         throw new Refusal("analytics_unavailable", e instanceof Error ? e.message : String(e));
