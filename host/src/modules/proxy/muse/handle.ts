@@ -107,7 +107,9 @@ export async function messages(res: ServerResponse, anth: Json, creds: Creds, si
   const { body, ctx } = meta;
   if (ctx.droppedTools.length) gap(`инструменты без пары у ${creds.label}: ${ctx.droppedTools.join(", ")}`);
   // заголовки клиента Meta — только её диалекту; OpenAI Responses — ключ и вид потока
-  const headers = creds.dialect === "meta" ? responsesHeaders(creds.key, creds.version, ctx.sessionId) : { authorization: `Bearer ${creds.key}`, accept: "text/event-stream", "content-type": "application/json" };
+  const plain = { authorization: `Bearer ${creds.key}`, accept: "text/event-stream", "content-type": "application/json" };
+  // бэкенд подписки ChatGPT читает кэш разговора только с заголовком session_id, равным ключу кэша тела (замер 18 нояб.: без него 0 токенов из 8413, с ним 8192)
+  const headers = creds.dialect === "meta" ? responsesHeaders(creds.key, creds.version, ctx.sessionId) : creds.dialect === "chatgpt" && typeof body.prompt_cache_key === "string" ? { ...plain, session_id: body.prompt_cache_key } : plain;
   const ac = new AbortController();
   const abort = () => ac.abort();
   signal.addEventListener("abort", abort);

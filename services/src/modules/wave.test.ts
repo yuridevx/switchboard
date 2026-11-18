@@ -273,6 +273,104 @@ describe("ключи флота: свойства и сессии", () => {
 
 /* ===== Журнал флота ===== */
 
+/** Эталоны дизайна «ChatGPT в сессиях флота» (docs/designs/v2-codex): аккаунт ChatGPT — ключ, чей вход служба меняет у OpenAI сама. */
+describe("ключи флота: аккаунт ChatGPT", () => {
+  const AUTH = "https://auth.openai.com/oauth/token";
+  const REPO = "https://raw.githubusercontent.com/openai/codex/main/codex-rs/models-manager/models.json";
+  const HOUR = 3_600_000;
+  /** Токен доступа со сроком внутри, как у OpenAI. */
+  const access = (exp: number, tag: string) => `h.${b64u(new TextEncoder().encode(JSON.stringify({ exp: Math.floor(exp / 1000) })))}.${tag}`;
+  const expOf = (ms: number) => Math.floor(ms / 1000) * 1000;
+  /** Сервер входа OpenAI на стенде: отвечает на обмен; запросы обмена — в asked. */
+  const auth = (s: Stand, answer: (refresh: string) => Response) => {
+    s.state.net = (url, init) => (url === AUTH ? answer((JSON.parse(String(init!.body)) as { refresh_token: string }).refresh_token) : new Response("нет", { status: 404 }));
+  };
+  const asked = (s: Stand) => s.seen.net.filter((n) => n.url === AUTH).map((n) => JSON.parse(String(n.init!.body)) as { refresh_token: string; client_id: string; grant_type: string });
+  const value = (s: Stand) => s.ask("keys.value", { name: "gpt" }, "klaptop");
+  /** Аккаунт записан: вход выдан на столько часов вперёд. */
+  async function logged(hours: number) {
+    const s = stand();
+    const exp = expOf(Date.now() + hours * HOUR);
+    auth(s, () => Response.json({ access_token: access(exp, "a1"), refresh_token: "rt-1" }));
+    expect(await s.ask("keys.set", { name: "gpt", protocol: "chatgpt", value: "rt-0" })).toMatchObject({ ok: true });
+    return { s, exp };
+  }
+
+  // эталон 4 — чьё: слово пользователя 18 нояб. — «как с мюзов»; факт: обмен сразу после входа отвечает 200
+  it("4 · вход по refresh-токену: запись ключа меняет его у OpenAI на вход; в списке — хвост токена доступа и адрес бэкенда; OpenAI отказал — ключ не записан", async () => {
+    const { s, exp } = await logged(240);
+    expect(asked(s)).toEqual([{ client_id: "app_EMoamEEZ73f0CkXaXp7hrann", grant_type: "refresh_token", refresh_token: "rt-0", scope: "openid profile email" }]);
+    const list = (await s.ask("keys.list", {}, "kanya1")).result as { keys: KeyRow[] };
+    expect(list.keys).toMatchObject([{ name: "gpt", protocol: "chatgpt", base: "https://chatgpt.com/backend-api/codex", tail: access(exp, "a1").slice(-4) }]);
+    // ни один из токенов входа в список не попадает
+    expect(JSON.stringify(list)).not.toContain("rt-");
+    expect(JSON.stringify(list)).not.toContain(access(exp, "a1"));
+    expect(s.seen.broadcasts.map((b) => (b.frame as { what?: string }).what)).toEqual(["keys"]);
+    auth(s, () => Response.json({ error: { code: "refresh_token_expired", message: "Your refresh token has expired" } }, { status: 401 }));
+    expect(await s.ask("keys.set", { name: "gpt2", protocol: "chatgpt", value: "rt-dead" })).toMatchObject({ ok: false, error: "bad_token", why: expect.stringContaining("refresh_token_expired") });
+    expect(await s.ask("keys.value", { name: "gpt2" }, "klaptop")).toMatchObject({ ok: false, error: "not_found" });
+    // ключ другого вида без входа аккаунтом ChatGPT не становится
+    await s.ask("keys.set", { name: "oai", protocol: "openai", value: "sk-oai", base: "https://api.oai.example/v1" });
+    expect(await s.ask("keys.set", { name: "oai", protocol: "chatgpt" })).toMatchObject({ ok: false, error: "bad_input" });
+  });
+
+  // эталон 1 — чьё: факт опыта 18 нояб. — токен доступа живёт 10 дней
+  it("1 · свежий токен — без похода в OpenAI: машине — токен доступа и час, когда спросить снова (срок минус сутки)", async () => {
+    const { s, exp } = await logged(240);
+    for (let i = 0; i < 2; i++) expect((await value(s)).result).toEqual({ value: access(exp, "a1"), protocol: "chatgpt", base: "https://chatgpt.com/backend-api/codex", until: exp - 24 * HOUR });
+    // обмен был один — при записи ключа
+    expect(asked(s)).toHaveLength(1);
+  });
+
+  // эталон 2 — чьё: слово пользователя 18 нояб. — «своей ротацией»
+  it("2 · до срока меньше суток — одно обновление: новый вход записан, отдан новый токен; машинам о нём не рассылается", async () => {
+    const { s } = await logged(12);
+    const soon = expOf(Date.now() + 12 * HOUR), far = expOf(Date.now() + 240 * HOUR);
+    auth(s, (refresh) => (refresh === "rt-1" ? Response.json({ access_token: access(soon, "a2"), refresh_token: "rt-2" }) : Response.json({ access_token: access(far, "a3"), refresh_token: "rt-3" })));
+    expect((await value(s)).result).toMatchObject({ value: access(soon, "a2"), until: soon - 24 * HOUR });
+    // следующий обмен идёт уже новым refresh-токеном: вход записан
+    expect((await value(s)).result).toMatchObject({ value: access(far, "a3"), until: far - 24 * HOUR });
+    expect((await value(s)).result).toMatchObject({ value: access(far, "a3") });
+    expect(asked(s).map((a) => a.refresh_token)).toEqual(["rt-0", "rt-1", "rt-2"]);
+    // «ключи изменились» ушло один раз — при записи ключа человеком
+    expect(s.seen.broadcasts).toHaveLength(1);
+  });
+
+  // эталон 3 — чьё: устав — «ошибки — словами»; правка архитектора: сбой сети — не смерть входа
+  it("3 · OpenAI отказал в обновлении — bad_token его словами; сервер входа не ответил или упал — upstream; вход в записях прежний", async () => {
+    const { s } = await logged(12);
+    auth(s, () => Response.json({ error: { code: "refresh_token_expired", message: "Your refresh token has expired" } }, { status: 401 }));
+    expect(await value(s)).toMatchObject({ ok: false, error: "bad_token", why: expect.stringMatching(/вход ChatGPT gpt: refresh_token_expired: Your refresh token has expired/) });
+    auth(s, () => new Response("upstream", { status: 503 }));
+    expect(await value(s)).toMatchObject({ ok: false, error: "upstream", why: expect.stringContaining("503") });
+    s.state.net = () => Promise.reject(new Error("connect timeout"));
+    expect(await value(s)).toMatchObject({ ok: false, error: "upstream", why: expect.stringContaining("connect timeout") });
+    // отказ ничего не записал: следующий обмен идёт прежним refresh-токеном
+    const far = expOf(Date.now() + 240 * HOUR);
+    auth(s, () => Response.json({ access_token: access(far, "a2"), refresh_token: "rt-2" }));
+    expect((await value(s)).result).toMatchObject({ value: access(far, "a2") });
+    expect(asked(s).at(-1)!.refresh_token).toBe("rt-1");
+  });
+
+  // эталон 7 — чьё: факт опыта 18 нояб. — бэкенд подписки Worker'у отвечает 403, репо OpenAI — 200 без токена
+  it("7 · каталог — файл каталога Codex в репо OpenAI, без токена: только модели, видимые в списке, с окном", async () => {
+    const { s } = await logged(240);
+    s.state.net = (url) => (url === REPO ? Response.json({ models: [
+      { slug: "gpt-6.2-sol", display_name: "GPT-6.2-Sol", context_window: 500_000, visibility: "list" },
+      { slug: "gpt-6.2-astra", display_name: "gpt-6.2-astra", context_window: 272_000, visibility: "list" },
+      { slug: "codex-auto-review", display_name: "Codex Auto Review", context_window: 272_000, visibility: "hide" },
+    ] }) : new Response("нет", { status: 404 }));
+    expect((await s.ask("keys.models", { name: "gpt" }, "kanya1")).result).toEqual({ models: [
+      { id: "gpt-6.2-sol", name: "GPT-6.2-Sol", window: 500_000, protocol: "chatgpt" }, { id: "gpt-6.2-astra", window: 272_000, protocol: "chatgpt" },
+    ] });
+    const got = s.seen.net.at(-1)!;
+    expect(got.url).toBe(REPO);
+    expect(JSON.stringify(got.init?.headers ?? {})).not.toMatch(/authorization|a1/i);
+    s.state.net = () => new Response("нет", { status: 404 });
+    expect(await s.ask("keys.models", { name: "gpt" }, "kanya1")).toMatchObject({ ok: false, error: "catalog_failed", why: expect.stringContaining("404") });
+  });
+});
+
 describe("журнал флота: чтение вперёд", () => {
   it("after отдаёт только события новее, от старых к новым", async () => {
     const s = stand();

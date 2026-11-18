@@ -1,0 +1,385 @@
+<title>ChatGPT в сессиях флота</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* раскладка: сверху карта потока одного вызова, ниже жизнь токена во времени, факты опытов, договор, эталоны, гейт, порядок */
+:root {
+  --bg: #f4f6f5; --card: #ffffff; --fg: #18201d; --muted: #5f6b66; --line: #d5dbd8; --soft: #e9eeec;
+  --accent: #0f7a5c; --accent-soft: #d7efe6; --oai: #3a5bd9; --oai-soft: #e1e7fb; --warn: #a8620a; --warn-soft: #fbecd2; --code: #eef1ef; --chg: #fff3b0;
+  --display: "Space Grotesk", "Segoe UI", sans-serif; --text: Inter, "Segoe UI", system-ui, sans-serif; --mono: "JetBrains Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121715; --card: #1a211e; --fg: #e6ece9; --muted: #95a39d; --line: #313b37; --soft: #222a27;
+  --accent: #58c4a2; --accent-soft: #1b3a30; --oai: #8ea4ff; --oai-soft: #222b4a; --warn: #f0b05c; --warn-soft: #40301a; --code: #202825; --chg: #4a4318; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121715; --card: #1a211e; --fg: #e6ece9; --muted: #95a39d; --line: #313b37; --soft: #222a27;
+  --accent: #58c4a2; --accent-soft: #1b3a30; --oai: #8ea4ff; --oai-soft: #222b4a; --warn: #f0b05c; --warn-soft: #40301a; --code: #202825; --chg: #4a4318; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 400 15px/1.5 var(--text); padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 34px; }
+h1 { font: 600 30px/1.15 var(--display); margin: 0; text-wrap: balance; }
+.lead { color: var(--muted); max-width: 62ch; margin: 6px 0 0; }
+h2 { font: 600 19px/1.25 var(--display); margin: 0 0 12px; text-wrap: balance; }
+section.read > h2::after { content: " ✓ прочитал"; font: 500 12px var(--text); color: var(--accent); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.scroll { overflow-x: auto; }
+svg { display: block; width: 100%; height: auto; font-family: var(--text); }
+.map svg { min-width: 820px; }
+.time svg { min-width: 700px; }
+.n rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.n.ours rect { fill: var(--accent-soft); stroke: var(--accent); }
+.n.oai rect { fill: var(--oai-soft); stroke: var(--oai); }
+.n.man rect { fill: var(--warn-soft); stroke: var(--warn); }
+.n text { fill: var(--fg); font-size: 15px; font-weight: 600; }
+.n text.sub { fill: var(--muted); font-size: 12px; font-weight: 400; }
+.a path { stroke: var(--muted); stroke-width: 2; fill: none; }
+.a.once path { stroke-dasharray: 5 4; }
+.a text { fill: var(--muted); font-size: 12px; }
+.zone { fill: none; stroke: var(--line); stroke-dasharray: 5 5; }
+.zone-t { fill: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+[data-x] { cursor: pointer; }
+[data-x]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.n[data-x]:hover rect, .n.on rect { stroke: var(--accent); stroke-width: 2.5; }
+.a[data-x]:hover path, .a.on path { stroke: var(--accent); stroke-width: 3; }
+.a[data-x]:hover text, .a.on text { fill: var(--accent); }
+.dim .n:not(.hot), .dim .a:not(.hot), .dim .tk:not(.hot) { opacity: .3; }
+.why { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; min-height: 64px; }
+.why b { font: 600 15px var(--display); }
+.why p { margin: 0; max-width: 70ch; }
+pre { margin: 0; background: var(--code); border-radius: 8px; padding: 10px 12px; font: 400 12.5px/1.5 var(--mono); overflow-x: auto; white-space: pre; }
+.nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.num { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; text-align: left; font: inherit; color: inherit; display: grid; gap: 2px; align-content: start; }
+.num:hover, .num.on { border-color: var(--accent); }
+.num b { font: 600 24px var(--display); font-variant-numeric: tabular-nums; }
+.num span { color: var(--muted); font-size: 13px; }
+.tk rect { stroke: none; }
+.tk.a1 rect { fill: var(--oai); opacity: .55; }
+.tk.a2 rect { fill: var(--oai); opacity: .9; }
+.tk.ov rect { fill: var(--oai); opacity: .25; }
+.tk text { fill: var(--fg); font-size: 12px; }
+.tick { stroke: var(--line); stroke-width: 1; }
+.tick-t { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.mark { stroke: var(--accent); stroke-width: 2; }
+.mark-t { fill: var(--accent); font-size: 12px; font-weight: 600; }
+.lane-t { fill: var(--muted); font-size: 12px; }
+.dot { fill: var(--card); stroke: var(--accent); stroke-width: 2; }
+.et { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 10px; }
+.e { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.e .io { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; }
+.e .io > div { background: var(--soft); border-radius: 8px; padding: 8px; overflow-wrap: anywhere; min-width: 0; }
+.e .io > div.out { background: var(--accent-soft); }
+.e .src { color: var(--muted); font-size: 12px; }
+.e b { font: 600 14px var(--display); }
+.gate { white-space: pre-wrap; font: 400 13px/1.6 var(--mono); overflow-wrap: anywhere; }
+.order { display: grid; gap: 8px; counter-reset: s; }
+.o { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 12px 46px; position: relative; display: grid; gap: 4px; counter-increment: s; min-width: 0; }
+.o::before { content: counter(s); position: absolute; left: 12px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 600 13px var(--display); display: grid; place-items: center; }
+.o b { font: 600 15px var(--display); }
+.o .done { color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
+code { font: 400 13px var(--mono); background: var(--code); border-radius: 4px; padding: 0 4px; }
+.steps { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.step { flex: 1 1 150px; min-width: 0; border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; text-align: left; font: inherit; color: inherit; display: grid; gap: 4px; align-content: start; background: var(--card); }
+.step:hover, .step.on { border-color: var(--accent); }
+.step .who { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.step .what { font-weight: 600; overflow-wrap: anywhere; }
+.arrow { align-self: center; color: var(--muted); font-size: 18px; flex: none; }
+.e pre { font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.e .tag { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.chg { background: var(--chg); border-radius: 3px; }
+.step.chg, .e.chg, .num.chg { background: var(--chg); }
+.n.chg rect { fill: var(--chg); }
+.a.chg text { paint-order: stroke; stroke: var(--chg); stroke-width: 8px; stroke-linejoin: round; fill: var(--fg); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+button { cursor: pointer; }
+</style>
+
+<div class="wrap">
+<header>
+  <h1>ChatGPT в сессиях флота</h1>
+  <p class="lead">Сессия Claude Code работает на подписке ChatGPT: прокси машины переводит её вызовы на язык бэкенда Codex, а вход аккаунта флот держит и обновляет сам.</p>
+</header>
+
+<section id="b-map" data-block>
+  <h2>Путь одного вызова</h2>
+  <div class="card map" data-explain>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 400" role="img" aria-label="Человек один раз входит в ChatGPT через Codex CLI в пустой папке, скрипт переносит вход в ключ флота. Службы держат вход и сами обновляют токен у OpenAI. Host берёт токен доступа у служб, прокси машины переводит вызов claude в Responses и шлёт в бэкенд Codex.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke" stroke="none"/></marker>
+      </defs>
+      <rect class="zone" x="14" y="14" width="300" height="372" rx="10"/><text class="zone-t" x="28" y="34">один раз, компьютер человека</text>
+      <rect class="zone" x="334" y="14" width="300" height="372" rx="10"/><text class="zone-t" x="348" y="34">флот</text>
+      <rect class="zone" x="654" y="14" width="332" height="372" rx="10"/><text class="zone-t" x="668" y="34">OpenAI</text>
+
+      <g class="n man" data-x="human" data-path="in" tabindex="0"><rect x="34" y="56" width="260" height="54" rx="10"/><text x="164" y="80" text-anchor="middle">Человек</text><text class="sub" x="164" y="98" text-anchor="middle">входит в ChatGPT в браузере</text></g>
+      <g class="n" data-x="cli" data-path="in" tabindex="0"><rect x="34" y="166" width="260" height="54" rx="10"/><text x="164" y="190" text-anchor="middle">Codex CLI в пустой папке</text><text class="sub" x="164" y="208" text-anchor="middle">папка удаляется после переноса</text></g>
+      <g class="n ours" data-x="script" data-path="in" tabindex="0"><rect x="34" y="286" width="260" height="54" rx="10"/><text x="164" y="310" text-anchor="middle">key-chatgpt</text><text class="sub" x="164" y="328" text-anchor="middle">переносит вход в ключ флота</text></g>
+
+      <g class="n ours chg" data-chg="arch-keys-node" data-x="keys" data-path="in rot tok" tabindex="0"><rect x="354" y="56" width="260" height="62" rx="10"/><text x="484" y="82" text-anchor="middle">Службы · ключи</text><text class="sub" x="484" y="101" text-anchor="middle">хозяин входа и его обновления</text></g>
+      <g class="n ours" data-x="host" data-path="tok call" tabindex="0"><rect x="354" y="176" width="260" height="62" rx="10"/><text x="484" y="202" text-anchor="middle">Host · прокси машины</text><text class="sub" x="484" y="221" text-anchor="middle">переводчик Anthropic → Responses</text></g>
+      <g class="n" data-x="claude" data-path="call" tabindex="0"><rect x="354" y="296" width="260" height="62" rx="10"/><text x="484" y="322" text-anchor="middle">Сессия claude</text><text class="sub" x="484" y="341" text-anchor="middle">модель gpt-6.2-astra</text></g>
+
+      <g class="n oai" data-x="auth" data-path="in rot" tabindex="0"><rect x="680" y="56" width="280" height="62" rx="10"/><text x="820" y="82" text-anchor="middle">auth.openai.com</text><text class="sub" x="820" y="101" text-anchor="middle">вход и обновление токена</text></g>
+      <g class="n oai" data-x="backend" data-path="call" tabindex="0"><rect x="680" y="176" width="280" height="62" rx="10"/><text x="820" y="202" text-anchor="middle">Бэкенд Codex</text><text class="sub" x="820" y="221" text-anchor="middle">chatgpt.com/backend-api/codex</text></g>
+
+      <g class="a once" data-x="a-login" data-path="in" tabindex="0"><path d="M244 56 L244 46 L860 46 L860 54" marker-end="url(#ah)"/><text x="560" y="40" text-anchor="middle">вход в браузере</text></g>
+      <g class="a once" data-x="a-file" data-path="in" tabindex="0"><path d="M164 110 L164 164" marker-end="url(#ah)"/><text x="172" y="142">codex login</text></g>
+      <g class="a once chg" data-chg="arch-read-arrow" data-x="a-read" data-path="in" tabindex="0"><path d="M164 220 L164 284" marker-end="url(#ah)"/><text x="172" y="256">auth.json</text></g>
+      <g class="a once" data-x="a-set" data-path="in" tabindex="0"><path d="M294 313 L322 313 L322 100 L352 100" marker-end="url(#ah)"/><text x="300" y="380"></text></g>
+      <g class="a" data-x="a-refresh" data-path="in rot" tabindex="0"><path d="M614 100 L678 100" marker-end="url(#ah)" marker-start="url(#ah)"/><text x="646" y="138" text-anchor="middle">раз в 9 дней</text></g>
+      <g class="a" data-x="a-value" data-path="tok" tabindex="0"><path d="M484 174 L484 120" marker-end="url(#ah)"/><text x="492" y="152">keys.value</text></g>
+      <g class="a" data-x="a-claude" data-path="call" tabindex="0"><path d="M484 296 L484 240" marker-end="url(#ah)"/><text x="492" y="272">/v1/messages</text></g>
+      <g class="a" data-x="a-resp" data-path="call" tabindex="0"><path d="M614 207 L678 207" marker-end="url(#ah)"/><text x="646" y="250" text-anchor="middle">/responses</text></g>
+    </svg>
+    </div>
+    <div class="legend"><span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>код флота</span><span><i style="background:var(--oai-soft);border:1px solid var(--oai)"></i>OpenAI</span><span>пунктир — один раз при входе</span></div>
+    <div class="why" aria-live="polite"><b>Как Muse, только вход держит флот.</b><p>Нажмите на любой узел или стрелку.</p></div>
+  </div>
+</section>
+
+<section id="b-time" data-block>
+  <h2>Жизнь входа: один хозяин обновления</h2>
+  <div class="card time" data-explain>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 230" role="img" aria-label="Токен доступа живёт 10 дней. На девятый день машина, которой токен нужен, просит ключ у служб; службы обновляют вход и отдают новый токен на следующие 10 дней. Вторая машина просит позже и получает уже новый токен. Старый токен работает до своего срока.">
+      <line class="tick" x1="120" y1="186" x2="980" y2="186"/>
+      <g><line class="tick" x1="120" y1="180" x2="120" y2="192"/><text class="tick-t" x="120" y="208" text-anchor="middle">0</text>
+        <line class="tick" x1="160" y1="182" x2="160" y2="190"/><line class="tick" x1="200" y1="182" x2="200" y2="190"/><line class="tick" x1="240" y1="182" x2="240" y2="190"/><line class="tick" x1="280" y1="182" x2="280" y2="190"/>
+        <line class="tick" x1="320" y1="180" x2="320" y2="192"/><text class="tick-t" x="320" y="208" text-anchor="middle">5</text>
+        <line class="tick" x1="520" y1="180" x2="520" y2="192"/><text class="tick-t" x="520" y="208" text-anchor="middle">10</text>
+        <line class="tick" x1="720" y1="180" x2="720" y2="192"/><text class="tick-t" x="720" y="208" text-anchor="middle">15</text>
+        <line class="tick" x1="920" y1="180" x2="920" y2="192"/><text class="tick-t" x="920" y="208" text-anchor="middle">20</text>
+        <text class="tick-t" x="980" y="224" text-anchor="end">дни</text></g>
+
+      <text class="lane-t" x="14" y="56">токен 1</text>
+      <g class="tk a1" data-x="t1" data-path="t1" tabindex="0"><rect x="120" y="40" width="400" height="24" rx="5"/><text x="132" y="57">выдан при входе · 10 дней</text></g>
+      <text class="lane-t" x="14" y="104">токен 2</text>
+      <g class="tk a2" data-x="t2" data-path="t2" tabindex="0"><rect x="480" y="88" width="400" height="24" rx="5"/><text x="492" y="105" style="fill:var(--card)">после обновления · 10 дней</text></g>
+      <g class="tk ov" data-x="t-ov" data-path="t1 t2" tabindex="0"><rect x="480" y="40" width="40" height="24" rx="5"/></g>
+
+      <g data-x="until" data-path="t1 t2" tabindex="0"><line class="mark" x1="480" y1="28" x2="480" y2="176"/><text class="mark-t" x="472" y="22" text-anchor="end">until: срок − 1 день</text></g>
+      <text class="lane-t" x="14" y="146">машины</text>
+      <g data-x="m1" data-path="t2" tabindex="0"><circle class="dot" cx="480" cy="142" r="7"/><text class="tick-t" x="490" y="146">m1 просит → обновление</text></g>
+      <g data-x="m2" data-path="t2" tabindex="0"><circle class="dot" cx="560" cy="160" r="7"/><text class="tick-t" x="570" y="164">m2 просит позже → уже новый</text></g>
+    </svg>
+    </div>
+    <div class="why" aria-live="polite"><b>Обновляет тот, кто спросил первым после until.</b><p>Нажмите на полосу, отметку или машину.</p></div>
+  </div>
+</section>
+
+<section id="b-dead" data-block>
+  <h2>Когда вход умер</h2>
+  <div class="card" data-explain>
+    <div class="steps">
+      <button class="step chg" data-chg="f-d1" data-x="d-openai"><span class="who">OpenAI</span><span class="what">отказал обновлению</span></button><span class="arrow">→</span>
+      <button class="step chg" data-chg="f-d2" data-x="d-keys"><span class="who">службы</span><span class="what">отказ bad_token словами OpenAI</span></button><span class="arrow">→</span>
+      <button class="step chg" data-chg="f-d3" data-x="d-host"><span class="who">Host</span><span class="what">сессиям 401, человеку <span class="chg" data-chg="a2-d3">одно</span> обращение «аккаунт»</span></button><span class="arrow">→</span>
+      <button class="step chg" data-chg="f-d4" data-x="d-claude"><span class="who">сессия</span><span class="what">слова отказа через 3 с</span></button><span class="arrow">→</span>
+      <button class="step chg" data-chg="f-d5" data-x="d-human"><span class="who">человек</span><span class="what">key-chatgpt заново — сессии идут дальше</span></button>
+    </div>
+    <div class="why" aria-live="polite"><b>Система ловит, человек входит заново.</b><p>Нажмите на шаг.</p></div>
+  </div>
+</section>
+
+<section id="b-log" data-block>
+  <h2>Журнал</h2>
+  <div class="et" data-explain>
+    <button class="e chg" data-chg="f-l1" data-x="l-key" style="text-align:left;font:inherit;color:inherit"><span class="tag">машина · новая строка</span><pre>key  chatgpt-pro  until 07.12 07:35</pre></button>
+    <button class="e chg" data-chg="f-l2" data-x="l-call" style="text-align:left;font:inherit;color:inherit"><span class="tag">машина · прежняя строка</span><pre>call  site@laptop  chatgpt-pro  gpt-6.2-astra  200  9032 мс</pre></button>
+    <button class="e chg" data-chg="f-l3" data-x="l-dead" style="text-align:left;font:inherit;color:inherit"><span class="tag">машина · прежняя строка</span><pre>account.token  chatgpt-pro  bad_token  refresh_token_expired</pre></button>
+    <div class="why" aria-live="polite" style="grid-column:1/-1"><b>Все три строки пишет машина — они едут в историю флота.</b><p>Нажмите на строку.</p></div>
+  </div>
+</section>
+
+<section id="b-facts" data-block>
+  <h2>Факты опытов 18 нояб.</h2>
+  <div class="nums" data-explain>
+    <button class="num" data-x="f-e2e"><b>2 хода</b><span>claude через переводчик флота: Read и Write, продолжение разговора</span></button>
+    <button class="num" data-x="f-cache"><b>0 → 8192</b><span>токенов из кэша при повторе: только с заголовком session_id</span></button>
+    <button class="num" data-x="f-life"><b>10 дней</b><span>живёт токен доступа ChatGPT</span></button>
+    <button class="num" data-x="f-reuse"><b>200</b><span>старый refresh через 90 с после обновления: гонка машин не убивает вход</span></button>
+    <button class="num" data-x="f-cat"><b>10 моделей</b><span>в каталоге бэкенда, окна 272 К и 500 К</span></button>
+    <button class="num" data-x="f-rules"><b>2 правила</b><span>бэкенда: только поток, каталог — с версией клиента</span></button>
+    <button class="num chg" data-chg="w-worker" data-x="f-worker"><b>200 и 403</b><span>из Worker'а Cloudflare: обновление входа проходит, chatgpt.com закрыт</span></button>
+    <button class="num chg" data-chg="w-repo" data-x="f-repo"><b>10 из 11</b><span>моделей каталога из репо OpenAI отвечают; gpt-5.5 бэкенд отклоняет</span></button>
+    <button class="num chg" data-chg="f-deny" data-x="f-deny"><b>2 против 11</b><span>вызовов claude на отказ 401 и на 529: 3 с против 185 с</span></button>
+    <button class="num chg" data-chg="f-dc" data-x="f-dc"><b>2 из 2</b><span>серверов прода в дата-центре достают до бэкенда ChatGPT</span></button>
+    <div class="why" aria-live="polite" style="grid-column:1/-1"><b>Всё — замеры этой сессии.</b><p>Нажмите на число: команда и ответ.</p></div>
+  </div>
+</section>
+
+<section id="b-contract" data-block>
+  <h2>Договор</h2>
+  <div class="et" data-explain>
+    <button class="e" data-x="c-proto" style="text-align:left;font:inherit;color:inherit"><b>Протокол ключа chatgpt</b><div class="io"><div>claude · anthropic · openai · meta</div><span>→</span><div class="out">+ chatgpt</div></div></button>
+    <button class="e chg" data-chg="a2-cset" data-x="c-set" style="text-align:left;font:inherit;color:inherit"><b>keys.set</b><div class="io"><div>значение — refresh-токен</div><span>→</span><div class="out">обмен у OpenAI; в записях — пара токенов</div></div></button>
+    <button class="e" data-x="c-value" style="text-align:left;font:inherit;color:inherit"><b>keys.value</b><div class="io"><div>имя ключа</div><span>→</span><div class="out">токен доступа + until</div></div></button>
+    <button class="e chg" data-chg="arch-models-card" data-x="c-models" style="text-align:left;font:inherit;color:inherit"><b>keys.models</b><div class="io"><div>имя ключа</div><span>→</span><div class="out"><span class="chg" data-chg="w-models-card">каталог из репо OpenAI</span></div></div></button>
+  </div>
+  <div class="card" style="margin-top:10px" data-explain-out><div class="why" id="contract-why" aria-live="polite"><b>Новых запросов нет.</b><p>Нажмите на карточку: пример.</p></div></div>
+</section>
+
+<section id="b-etalons" data-block>
+  <h2>Эталоны</h2>
+  <div class="et">
+    <div class="e"><b>Свежий токен — без похода в OpenAI</b><div class="io"><div>keys.value, до until 3 дня</div><span>→</span><div class="out">тот же токен, until; вызовов auth 0</div></div><span class="src">чьё: факт — токен живёт 10 дней</span></div>
+    <div class="e"><b>После until — одно обновление</b><div class="io"><div>keys.value, until прошёл</div><span>→</span><div class="out">1 вызов oauth/token, новая пара записана, отдан новый токен</div></div><span class="src">чьё: слово пользователя — «своей ротацией»</span></div>
+    <div class="e"><b>Отказ обновления — словами</b><div class="io"><div>oauth/token: <span class="chg" data-chg="f-e3">OpenAI ответил отказом</span></div><span>→</span><div class="out">отказ bad_token со словами OpenAI, записи прежние</div></div><span class="src">чьё: устав — «ошибка словом»</span></div>
+    <div class="e chg" data-chg="a2-e4"><b>Вход по refresh-токену</b><div class="io"><div>keys.set chatgpt, значение — refresh-токен</div><span>→</span><div class="out">1 вызов oauth/token, в записях пара; OpenAI отказал — отказ bad_token, ключ не записан</div></div><span class="src">чьё: слово пользователя — «как с мюзов»; факт — обновление сразу после входа отвечает 200</span></div>
+    <div class="e"><b>Вызов бэкенда</b><div class="io"><div>маршрут chatgpt, /v1/messages</div><span>→</span><div class="out">POST {база}/responses без /v1, Bearer, session_id = prompt_cache_key</div></div><span class="src">чьё: факт — кэш 0 → 8192 только с session_id</span></div>
+    <div class="e"><b>Host берёт ключ заново после until</b><div class="io"><div>вызов, значение ключа старше until</div><span>→</span><div class="out">keys.value ещё раз<span class="chg" data-chg="a2-e6"> — один на все вызовы, что идут разом</span>, вызов идёт с новым токеном</div></div><span class="src">чьё: факт — токен живёт 10 дней<span class="chg" data-chg="a2-e6-src">; код — один запрос на всех, кто ждёт, как у списка аккаунтов</span></span></div>
+    <div class="e"><b>Каталог</b><div class="io"><div>keys.models chatgpt</div><span>→</span><div class="out"><span class="chg" data-chg="w-models-etalon">models.json из openai/codex без токена; только видимые; окно из context_window</span></div></div><span class="src"><span class="chg" data-chg="w-models-src">чьё: факт — chatgpt.com Worker'у 403, репо — 200; 11 видимых</span></span></div>
+    <div class="e chg" data-chg="f-e8"><b>Умерший вход — 401, а не «перегружено»</b><div class="io"><div>вызов сессии, keys.value отказал bad_token</div><span>→</span><div class="out">сессии 401 со словами отказа; строка account.token; обращение «аккаунт»<span class="chg" data-chg="a2-e8"> — одно; второй вызов — тот же 401 без запроса к службам</span></div></div><span class="src">чьё: факт — на 401 claude делает 2 вызова за 3 с, на 529 — 11 за 185 с<span class="chg" data-chg="a2-e8-src">; код — негодный аккаунт Claude выбывает после первого отказа</span></span></div>
+    <div class="e chg" data-chg="a2-e9"><b>Новый вход — сессии идут дальше</b><div class="io"><div>ключ помнится умершим, пришло «ключи изменились»</div><span>→</span><div class="out">следующий вызов берёт ключ заново и идёт с новым токеном</div></div><span class="src">чьё: код — «ключи изменились» сбрасывает значения ключей в памяти машины</span></div>
+  </div>
+</section>
+
+<section id="b-gate" data-block>
+  <h2>Гейт</h2>
+  <div class="card"><div class="gate"><span class="chg" data-chg="a2-gate">Гейт: дубликаты ответственности 0 → 0 · состояния 0 → 0 · логики 1 → 0 · смысла 1 → 0 · других 0 → 0 · лишние коммуникации 2 → 0 · циклы 0 → 0
+  реестры: 47 строк — ответственность 13 · состояние 4 · логика 5 · понятия 6 · механизмы 6 · коммуникации 8 · зависимости 5</span>
+  обновление входа — один хозяин (ключи служб); Host правила срока не знает, только ждёт until
+  вход живёт в одном месте: папка Codex CLI удаляется после переноса
+  переводчик один на OpenAI, Meta и ChatGPT; у ChatGPT отличаются база и заголовок session_id
+  после обновления машинам не рассылается событие: старый токен работает до своего срока, каждая машина возьмёт новый по своему until
+  <span class="chg" data-chg="arch-gate-names">until — «когда спросить снова», expires у аккаунта Claude и у токена GitHub — «когда значение умрёт»: два смысла, два имени</span>
+  <span class="chg" data-chg="a2-gate-names">аккаунт — ключ флота со входом по подписке, Claude или ChatGPT: одно слово, одна строка account.token, один вид обращения
+  файл Codex CLI знает только скрипт входа; службы знают один чужой договор — обмен токена у OpenAI
+  срок токена лежит в самом токене доступа и отдельно не хранится; «вход умер» машина помнит в памяти до события «ключи изменились»</span>
+Числа: <span class="chg" data-chg="a2-gate-nums">модули 0 · имена договора: запросы 0, кадры 0, поля +1 (until), виды ключа 4 → 5, строки журнала +1 (key), виды обращений 0 · каналы 0 · переводчики 1 → 1 · секреты +1 на аккаунт ChatGPT · настройки 0</span>
+  <span class="chg" data-chg="arch-gate-nums">коммуникации: потоки +3 (вход и перенос — один раз; обновление входа — раз в 9 дней), вызов — прежний путь; </span><span class="chg" data-chg="w-gate-catalog">каталог — службы → репо OpenAI, как у прочих ключей: один запрос, без машин</span>
+  инструменты +1 (key-chatgpt) · ожидаемые ветки сбоев 0 новых (обновление не прошло — отказ словом) · эталоны <span class="chg" data-chg="a2-g-et">+9</span>
+Работа: большая — меняет договор (протокол ключа chatgpt, поле until у keys.value) и хранилище ключей (вход ChatGPT с обновлением)
+<span class="chg" data-chg="a2-gate-done">Сделано:
+  1. Слабая связность и дубликат логики · auth.json разбирали бы и скрипт, и служба ключей, а служба знала бы файл чужой программы · файл читает только скрипт входа;
+     службе идёт одна строка — refresh-токен, она сразу меняет его у OpenAI на пару · выигрыш: мест разбора 2 → 1, чужих файлов в службах 1 → 0,
+     отказов «не тот текст» 1 → 0, негодный вход виден при записи ключа, а не на первом вызове
+  2. Лишние коммуникации · на умерший вход каждый вызов каждой сессии шёл бы в службы и в OpenAI и открывал обращение с пушем человеку ·
+     машина помнит отказ до события «ключи изменились» · выигрыш: запросов и обращений на машину — по числу вызовов → 1
+  3. Лишние коммуникации · после until каждый вызов, идущий в ту же секунду, брал бы ключ сам — столько же обменов одного refresh-токена ·
+     берёт один, остальные ждут его ответа · выигрыш: обменов на машину — по числу вызовов → 1
+  4. Дубликат смысла · «аккаунт» в истории флота значил аккаунт Claude, а строка account.token шла о ключе ChatGPT · смысл один: ключ флота со входом по подписке
+     · выигрыш: видов обращений и имён строк +0; направление то же, что у развилки 1
+</span><span class="chg" data-chg="w-gate-done">  5. Факт не покрыт · обновление и каталог шли бы из Cloudflare, а замеры — с компьютера · опыт из Worker'а поставлен до «делай»: обновление 200, chatgpt.com 403
+     · каталог — из репо OpenAI без токена (развилка 2) · выигрыш: каталогу не нужны ни токен, ни правило свежести, ни версия клиента</span>
+<span class="chg" data-chg="f-g-done">  6. Лишняя устойчивость · умерший вход шёл бы сессии ответом «перегружено» · отказ bad_token прокси отдаёт как 401; человеку — прежнее обращение «аккаунт»
+     · выигрыш: вызовов на отказ 11 → 2, ожидание 185 с → 3 с, видов обращений +0
+  7. Наблюдаемость · строка об обновлении жила бы только в журнале служб, а в историю флота едут журналы машин · строки пишет машина: key при взятии токена, call, account.token
+     · выигрыш: путей журнала +0, вся история входа — в истории флота
+  8. Цикл в запасном варианте каталога · «службы спрашивают машину, машина берёт токен у служб» — путь из служб в себя · вариант снят, в развилке 2 — вариант без цикла
+Риск вне кода: вызовы идут от имени клиента Codex, но не из Codex. Заголовков Codex флот не подделывает. OpenAI такого прямо не разрешает — начинать с отдельного аккаунта.</span>
+Развилки пользователю:
+  1. Несколько аккаунтов ChatGPT с выбором по лимитам, как у Claude (заголовки x-codex-primary-* есть в каждом ответе).
+     Рекомендую: потом — сейчас аккаунт ChatGPT = ключ флота, сессия выбирает его явно.
+     Не скажете иначе — потом.
+<span class="chg" data-chg="w-fork-catalog">  2. Откуда службам брать каталог моделей ChatGPT. Факт: chatgpt.com отвечает Worker'у 403 при любых заголовках, а службы — Worker.
+     Рекомендую: каталог из открытого репо OpenAI — тот же, что встроен в Codex CLI; токен не нужен. 11 видимых моделей,
+     из них gpt-5.5 бэкенд отклоняет при первом вызове словами «not supported when using Codex with a ChatGPT account».
+     <span class="chg" data-chg="f-fork2">Иначе: машины сообщают службам каталог аккаунта — как уже сообщают лимиты Claude. Список точный, но это копия каталога в службах,
+     новый запрос, и до первой сессии на ключе список пуст — первый положит скрипт входа.</span>
+     Не скажете иначе — из репо.</span>
+<span class="chg" data-chg="arch-gate-edit">Не трогал как редакторское: пустая подпись стрелки keys.set; хвост значения у ключа chatgpt в списке ключей</span><span class="chg" data-chg="a2-gate-edit">; слова «аккаунт Claude» в описаниях истории флота</span>
+<span class="chg" data-chg="a2-verdict">Вердикт: делай</span></div></div>
+</section>
+
+<section id="b-order" data-block>
+  <h2>Порядок реализации</h2>
+  <div class="order">
+    <div class="o"><b>Ключ chatgpt в службах</b><span class="done">Готово: протокол в договоре; keys.set, keys.value с обновлением и until, keys.models. Тесты служб +5 (эталоны 1–4 и 7), <code>npm test</code> зелёный.</span></div>
+    <div class="o"><b>Маршрут chatgpt в прокси</b><span class="done">Готово: переводчик шлёт в {база}/responses с session_id; Host берёт ключ заново после until<span class="chg" data-chg="f-o2">; отказ bad_token — сессии 401 и обращение; строка key. Тесты Host <span class="chg" data-chg="a2-o2">+4 (эталоны 5, 6, 8 и 9)</span>.</span></span></div>
+    <div class="o"><b>Перенос входа</b><span class="done">Готово: <code>node tools/fleet/key-chatgpt.ts test cli chatgpt-pro</code> — ключ в keys.list с протоколом chatgpt; временной папки Codex после команды нет (0 папок).</span></div>
+    <div class="o"><b>Живая проверка на тестовом флоте</b><span class="done">Готово: сессия на gpt-6.2-astra — два хода с Read и Write, второй ход читает из кэша больше 0 токенов; <span class="chg" data-chg="w-order-live">каталог ключа в выборе модели — 11 моделей.</span><span class="chg" data-chg="f-o4"> В истории флота — строка key с until и строки call этой сессии (2 и больше).</span></span></div>
+  </div>
+</section>
+</div>
+
+<script>
+// пояснения: клик по узлу, стрелке, полосе, числу или карточке — короткий текст, у вызова — пример; ховер подсвечивает путь
+(() => {
+  const X = {
+    human: ["Человек", "Один раз на аккаунт ChatGPT входит в браузере, как в обычный Codex. Дальше вход держит флот; человек возвращается, только если OpenAI отозвал вход."],
+    cli: ["Codex CLI в пустой папке", "Вход делает сам Codex CLI — родной вход OpenAI. Папка пустая и своя, чтобы вход флота не делил обновления с личным Codex человека: два хозяина одного входа ломали бы друг друга."],
+    script: ["key-chatgpt", "Тот же путь, что у Muse: скрипт запускает вход Codex во временной папке, берёт из auth.json refresh-токен, пишет его ключом флота и удаляет папку. Значение не идёт ни через аргументы, ни в вывод.", "node tools/fleet/key-chatgpt.ts test cli chatgpt-pro\n→ ключ флота chatgpt-pro записан: протокол chatgpt, вход принят", "a2-script-text"],
+    keys: ["Службы · ключи", "Хранит пару токенов аккаунта в записях флота и одна решает, когда обновлять: если до конца токена доступа меньше суток, обновляет при первом запросе keys.value. Отдаёт только токен доступа и until. Каталогу токен не нужен.", "", "arch-keys-text"],
+    host: ["Host · прокси машины", "Тот же прокси, что у Meta и OpenAI-ключей. Для chatgpt меняются две вещи: адрес — база ключа как есть, без /v1, и заголовок session_id, без которого бэкенд не кэширует."],
+    claude: ["Сессия claude", "Обычный Claude Code с моделью из каталога ChatGPT. Всё, что умеет claude, работает: инструменты, продолжение разговора, сжатие."],
+    auth: ["auth.openai.com", "Сервер входа OpenAI. Обновление: refresh-токен меняется на новую пару; старый refresh ещё работает в коротком окне.", "POST https://auth.openai.com/oauth/token\n{ \"client_id\": \"app_EMoamEEZ73f0CkXaXp7hrann\", \"grant_type\": \"refresh_token\",\n  \"refresh_token\": \"…\", \"scope\": \"openid profile email\" }\n← 200 { \"access_token\": \"…\", \"refresh_token\": \"…\", \"id_token\": \"…\" }"],
+    backend: ["Бэкенд Codex", "Тот же адрес, куда ходит Codex CLI. Говорит на OpenAI Responses; лимиты подписки — в заголовках каждого ответа."],
+    "a-login": ["Вход в браузере", "Codex CLI открывает страницу входа OpenAI и ловит ответ на 127.0.0.1. Один раз."],
+    "a-file": ["codex login", "Codex пишет вход в auth.json своей папки.", "CODEX_HOME=<временная папка> codex login"],
+    "a-read": ["auth.json", "Скрипт читает файл и берёт из него одно поле — refresh-токен. Как устроен файл Codex CLI, знает только скрипт: он же запускает вход и знает папку. Токен доступа, id_token и номер аккаунта из файла флоту не нужны — бэкенд принимает один Bearer, а токен доступа службы получат сами.", "", "a2-read-text"],
+    "a-set": ["keys.set", "Запись ключа флота — тот же запрос, что у любого ключа: значение — одна строка, здесь refresh-токен. Службы сразу меняют его у OpenAI на пару: негодный вход виден при записи ключа, а не на первом вызове сессии.", "keys.set { \"name\": \"chatgpt-pro\", \"protocol\": \"chatgpt\",\n  \"base\": \"https://chatgpt.com/backend-api/codex\", \"value\": \"<refresh-токен>\" }\n← {}\n\nOpenAI не принял токен:\n← отказ bad_token: вход ChatGPT chatgpt-pro: refresh_token_expired", "a2-set-text"],
+    "a-refresh": ["Обновление", "Службы меняют refresh на новую пару: первый раз — при записи ключа, дальше — когда до конца токена доступа меньше суток, то есть примерно раз в 9 дней. Отказ — словами OpenAI в ответе keys.value и в журнале.", "", "a2-refresh-text"],
+    "a-value": ["keys.value", "Host берёт токен, когда ключ впервые нужен, и ещё раз после until. Между ними — ни одного запроса.", "keys.value { \"name\": \"chatgpt-pro\" }\n← { \"value\": \"<токен доступа>\", \"protocol\": \"chatgpt\",\n    \"base\": \"https://chatgpt.com/backend-api/codex\", \"until\": 1795641307000 }"],
+    "a-claude": ["Вызов claude", "claude зовёт прокси как Anthropic API; токен подписки ему не нужен — стоит заглушка флота."],
+    "a-resp": ["Вызов бэкенда", "Переводчик собирает запрос Responses: поток, без хранения, зашифрованное рассуждение, ключ кэша.", "POST https://chatgpt.com/backend-api/codex/responses\nauthorization: Bearer <токен доступа>\nsession_id: <ключ кэша>\n{ \"model\": \"gpt-6.2-astra\", \"instructions\": \"<system claude>\", \"input\": [ … ],\n  \"tools\": [ … ], \"store\": false, \"stream\": true, \"prompt_cache_key\": \"<ключ кэша>\",\n  \"include\": [\"reasoning.encrypted_content\"] }"],
+    t1: ["Токен 1", "Выдан при входе. Живёт 10 дней: замер — выдан 17.11 21:34, срок 27.11 21:34."],
+    t2: ["Токен 2", "Выдан обновлением. Снова 10 дней; until переезжает на 9-й день от обновления."],
+    "t-ov": ["Перекрытие", "Последние сутки работают оба токена: замер — старый токен доступа после обновления отвечает 200. Машине, которая ещё держит старый, ничего не грозит."],
+    until: ["until", "Срок токена минус сутки. Его считают только службы и отдают вместе с токеном; Host лишь сравнивает с часами."],
+    m1: ["Первая машина после until", "Её запрос keys.value застаёт старый токен — службы обновляют вход и отдают новый."],
+    m2: ["Вторая машина", "Просит позже и получает уже новый токен без похода в OpenAI. Если обе спросят в одну секунду, обе обновят — замер: повтор старого refresh через 90 с даёт 200, вход жив."],
+    "f-e2e": ["Сквозной путь", "Настоящий claude 2.x через существующий переводчик флота в бэкенд Codex. Первый ход прочитал файл и ответил «7», второй — продолжение разговора — дописал в файл «42». Один ответ «overloaded» claude повторил сам.", "claude -p \"Прочитай note.txt инструментом Read…\" --model gpt-6.2-astra\n← 7\nclaude -p \"Умножь на шесть и допиши…\" --resume <id>\n← 42  (note.txt: «первая строка: семь котов\\n42»)"],
+    "f-cache": ["Кэш", "Три одинаковых вызова по 8413 токенов с одним prompt_cache_key. Без заголовка session_id кэш не читается ни разу; с ним второй и третий вызовы читают 8192.", "только prompt_cache_key:  cached 0 | 0 | 0\n+ session_id:             cached 0 | 8192 | 8192"],
+    "f-life": ["Срок токена", "Из самого токена доступа: выдан и истекает с разницей ровно 10 суток. Codex CLI обновляет его сам; флоту — раз в 9 дней."],
+    "f-reuse": ["Повтор refresh", "Отдельный вход в пустой папке. Обновление → новая пара; старый refresh повторно → 200; новый refresh после этого → 200; старый токен доступа → 200. Через 90 с старый refresh всё ещё 200.", "1: refresh R0 → 200, refresh сменился\n4: старый токен доступа → 200\n2: снова R0 → 200\n3: R1 после этого → 200\nR0 через 90 с → 200"],
+    "f-cat": ["Каталог", "GET /models отдал 12 моделей, 10 видимых: семейства gpt-6.2, 6.1, 6 и 5.6; окна 272 000 и 500 000.", "GET https://chatgpt.com/backend-api/codex/models?client_version=0.170.0\n← { \"models\": [ { \"slug\": \"gpt-6.2-sol\", \"context_window\": 500000, \"visibility\": \"list\" }, … ] }"],
+    "f-rules": ["Правила бэкенда", "Без потока — отказ; каталог без версии клиента — 400. Свои instructions бэкенд принимает: system claude идёт как есть.", "\"stream\": false → 400 {\"detail\":\"Stream must be set to true\"}\nGET /models без client_version → 400"],
+    "c-proto": ["Протокол chatgpt", "Пятый вид ключа. Говорит на Responses, как openai, но с базой без /v1, заголовком session_id и входом с обновлением.", "PROTOCOLS = [\"claude\", \"anthropic\", \"openai\", \"meta\", \"chatgpt\"]"],
+    "c-set": ["keys.set для chatgpt", "Значение — refresh-токен одной строкой, как секрет любого ключа; файлов чужих программ службы не разбирают. Службы меняют его у OpenAI на пару и хранят пару одним значением ключа: обновление — одна запись. Срок берётся из самого токена доступа и отдельно не хранится.", "keys.set { \"name\": \"chatgpt-pro\", \"protocol\": \"chatgpt\", \"value\": \"<refresh-токен>\" }\n← {}", "a2-cset-text"],
+    "c-value": ["keys.value для chatgpt", "Новое поле until — когда спросить снова. У прочих ключей его нет: их значение не стареет.", "← { \"value\": \"<токен доступа>\", \"protocol\": \"chatgpt\", \"until\": 1795641307000 }"],
+    "c-models": ["keys.models для chatgpt", "chatgpt.com не пускает Worker'ы, поэтому каталог службы берут из открытого репо OpenAI — тот же файл встроен в Codex CLI. Токен не нужен. Модель — имя, окно и протокол chatgpt.", "GET https://raw.githubusercontent.com/openai/codex/main/codex-rs/models-manager/models.json\n← { \"models\": [ { \"id\": \"gpt-6.2-astra\", \"window\": 272000, \"protocol\": \"chatgpt\" }, … ] }", "w-models-text"],
+    "d-openai": ["OpenAI отказал обновлению", "Вход отозван, человек вышел из аккаунта или refresh-токен истёк. OpenAI отвечает отказом с причиной."],
+    "d-keys": ["Службы: отказ словами", "Служба ключей ничего не чинит и не запоминает: отвечает на keys.value отказом bad_token со словами OpenAI. Записи прежние. Сеть до OpenAI не ответила — это другой отказ, временный.", "keys.value { \"name\": \"chatgpt-pro\" }\n← отказ bad_token: вход ChatGPT chatgpt-pro: refresh_token_expired"],
+    "d-host": ["Host: 401 и одно обращение", "Прокси отдаёт сессии 401 со словами отказа — не «перегружено». Машина пишет строку в журнал и открывает человеку обращение «аккаунт» — то же, что при негодном токене аккаунта Claude. Отказ машина помнит, пока не придёт «ключи изменились»: следующие вызовы получают тот же 401 сразу — без запроса к службам, без новой строки и без второго обращения.", "", "a2-dhost-text"],
+    "d-claude": ["Сессия видит причину", "Замер: на 401 claude делает 2 вызова и за 3 секунды показывает слова отказа. На «перегружено» он делал бы 11 вызовов три минуты и писал бы «временно, попробуйте позже».", "Failed to authenticate. API Error: 401 bad_token: вход ChatGPT chatgpt-pro отозван — войдите заново"],
+    "d-human": ["Человек входит заново", "Та же команда, что при первом входе. Запись ключа рассылает машинам «ключи изменились» — существующее событие; следующий вызов сессии берёт новый токен.", "node tools/fleet/key-chatgpt.ts prod cli chatgpt-pro"],
+    "l-key": ["Машина взяла токен", "Каждый раз, когда машина берёт токен у служб: при первом вызове на ключе, после until и после перезапуска. По смене until в истории видно, когда вход обновился.", "{ \"msg\": \"key\", \"key\": \"chatgpt-pro\", \"until\": 1796628900000 }"],
+    "l-call": ["Вызов модели", "Эта строка уже пишется на каждый вызов по ключу провайдера: сессия, ключ, модель, статус, время.", "{ \"msg\": \"call\", \"callsign\": \"site@laptop\", \"key\": \"chatgpt-pro\", \"model\": \"gpt-6.2-astra\", \"status\": 200, \"ms\": 9032 }"],
+    "l-dead": ["Вход умер", "Строка уровня «ошибка» — та же, что у аккаунта Claude с негодным токеном: аккаунт — это ключ флота со входом по подписке, Claude или ChatGPT. Одна на машину, пока ключ не записан заново; вместе с ней открывается обращение человеку.","{ \"msg\": \"account.token\", \"level\": \"error\", \"account\": \"chatgpt-pro\", \"word\": \"bad_token\", \"why\": \"вход ChatGPT chatgpt-pro: refresh_token_expired\" }", "a2-ldead-text"],
+    "f-deny": ["Отказ 401 против 529", "Пробный сервер вместо прокси отвечает отказом, считаем вызовы claude. 401 — два вызова, итог через 3 с со словами отказа. 529 — одиннадцать вызовов за 185 с и слова «обычно временно».", "401 → вызовов 2, 3 с:  «Failed to authenticate. API Error: 401 bad_token: …»\n529 → вызовов 11, 185 с: «API Error: 529 … This is a server-side issue, usually temporary»"],
+    "f-dc": ["С серверов прода", "Запрос без токена с двух серверов прода в дата-центре, Linux и Windows. 401 значит: бэкенд ответил и ждёт токен. Из Worker'а Cloudflare на тот же адрес — 403.", "hz-ex44-1:     chatgpt.com/backend-api/codex/models → 401 · auth.openai.com/oauth/token → 405\nhz-ex44-win-1: chatgpt.com/backend-api/codex/models → 401 · auth.openai.com/oauth/token → 405"],
+    "f-worker": ["Из Worker'а Cloudflare", "Пробный Worker на краю Cloudflare (wrangler dev --remote), без выкладки на флот. Обновление входа у auth.openai.com — 200. GET каталога на chatgpt.com — 403, страница блокировки Cloudflare; с заголовками клиента Codex — тоже 403. Вызовы модели идут с машин и не задеты.", "auth.openai.com/oauth/token из Worker'а → 200\nchatgpt.com/backend-api/codex/models из Worker'а → 403\n  + user-agent и originator Codex → 403", "w-worker-text"],
+    "f-repo": ["Каталог из репо", "Файл каталога в openai/codex совпадает со встроенным в Codex CLI: 11 видимых моделей. Сервер для этого аккаунта отдаёт 10: gpt-5.5 в его списке нет, и вызов отклоняется.", "GET raw.githubusercontent.com/openai/codex/main/codex-rs/models-manager/models.json → 200, 11 видимых\nPOST /responses { model: \"gpt-5.5\" } → 400 model_not_found:\n  «The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.»", "w-repo-text"],
+  };
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  for (const box of document.querySelectorAll("[data-explain]")) {
+    const out = box.querySelector(".why") ?? box.parentElement.querySelector("#contract-why");
+    const items = [...box.querySelectorAll("[data-x]")];
+    const show = (el) => {
+      // четвёртое поле — метка правки архитектора: текст пояснения выделяется жёлтым
+      const [title, text, json, chg] = X[el.dataset.x] ?? [el.dataset.x, ""];
+      for (const i of items) i.classList.toggle("on", i === el);
+      out.innerHTML = `<b>${esc(title)}</b><p${chg ? ` class="chg" data-chg="${chg}"` : ""}>${esc(text)}</p>${json ? `<pre>${esc(json)}</pre>` : ""}`;
+    };
+    const svg = box.querySelector("svg");
+    for (const el of items) {
+      el.addEventListener("click", () => show(el));
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); show(el); } });
+      if (!svg) continue;
+      const paths = (el.dataset.path ?? "").split(" ");
+      el.addEventListener("mouseenter", () => { svg.classList.add("dim"); for (const i of items) i.classList.toggle("hot", (i.dataset.path ?? "").split(" ").some((p) => paths.includes(p))); });
+      el.addEventListener("mouseleave", () => { svg.classList.remove("dim"); for (const i of items) i.classList.remove("hot"); });
+    }
+  }
+  window.__explained = X;
+})();
+</script>
+<script>
+// метки «прочитал»: клавиша A (латинская или русская) над блоком
+(() => {
+  const KEY = "v2-codex.read";
+  let read = [];
+  try { read = JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch {}
+  let over = null;
+  const draw = () => { for (const s of document.querySelectorAll("[data-block]")) s.classList.toggle("read", read.includes(s.id)); };
+  for (const s of document.querySelectorAll("[data-block]")) s.addEventListener("mouseenter", () => (over = s));
+  document.addEventListener("keydown", (e) => {
+    if (!(e.code === "KeyA" || e.key === "a" || e.key === "A" || e.key === "ф" || e.key === "Ф") || e.ctrlKey || e.metaKey || e.altKey || !over) return;
+    read = read.includes(over.id) ? read.filter((x) => x !== over.id) : [...read, over.id];
+    try { localStorage.setItem(KEY, JSON.stringify(read)); } catch {}
+    draw();
+  });
+  draw();
+})();
+</script>
