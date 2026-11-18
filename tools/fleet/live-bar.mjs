@@ -24,13 +24,17 @@ try {
   await first.goto(fleetEnv.SB2_BASE + "/#invite=" + encodeURIComponent(invite.invite));
   await first.locator("nav").first().waitFor({ state: "attached", timeout: 40_000 });
   await first.waitForTimeout(3000);
-  const seen = await Promise.all(routes.map(async (r) => {
+  // разделы открываются по шесть вкладок: всем сразу на одном компьютере тесно — вкладка не успевала загрузиться за предел перехода
+  const seen = [];
+  for (let i = 0; i < routes.length; i += 6) seen.push(...await Promise.all(routes.slice(i, i + 6).map(async (r) => {
     const page = await ctx.newPage();
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(fleetEnv.SB2_BASE + "/#" + r);
     await page.waitForTimeout(3500);
-    return { r, bar: await page.locator(".banner.bad").allInnerTexts() };
-  }));
+    const bar = await page.locator(".banner.bad").allInnerTexts();
+    await page.close();
+    return { r, bar };
+  })));
   for (const { r, bar } of seen) {
     lines += bar.length;
     console.log(`${bar.length ? "✗" : "✓"} ${r} · строк полосы ${bar.length}${bar.length ? " · " + bar.join(" | ").slice(0, 400) : ""}`);

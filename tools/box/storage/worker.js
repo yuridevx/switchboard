@@ -1,4 +1,5 @@
-// Вход хранилища по подписанным ссылкам для флота в коробке. Бакет настоящий — локальный R2, тот же, что у служб: одно имя бакета, одна папка данных.
+// Вход хранилища по подписанным ссылкам для флота в коробке. Бакет настоящий — локальный R2, тот же, что у служб: вход и службы идут в одном процессе.
+// Вход стоит первым: запрос по подписанной ссылке к бакету принимает сам, любой другой отдаёт службам как есть.
 // Не хватает коробке только этого входа: на флоте файлы, архив и сборки идут по ссылке мимо наших серверов прямо в R2.
 // Понимает то, чем пользуются наши части: PUT, GET (диапазон, имя вложения) и HEAD по адресу /<бакет>/<ключ> с подписью SigV4 в запросе.
 // Подпись сверяется по-настоящему: ссылка подписывается заново теми же ключами и тем же временем — подписи должны совпасть.
@@ -22,11 +23,11 @@ async function unsigned(request, env) {
 
 export default {
   async fetch(request, env) {
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     const url = new URL(request.url);
     const [, bucket, ...rest] = url.pathname.split("/");
     const key = rest.map(decodeURIComponent).join("/");
-    if (bucket !== env.FILES_BUCKET || !key) return refuse(404, "NoSuchBucket", `бакета ${bucket} нет`);
+    // не ссылка в бакет — запрос службам
+    if (bucket !== env.FILES_BUCKET || !key || !url.searchParams.has("X-Amz-Signature")) return env.SERVICES.fetch(request);
     const bad = await unsigned(request, env);
     if (bad) return refuse(403, "SignatureDoesNotMatch", bad);
     if (request.method === "PUT") {

@@ -98,7 +98,7 @@ let model;
 async function up() {
   buildPage(root);
   say("страница собрана");
-  const [pModel, pPlatform, pServices, pStorage, iPlatform, iServices, iStorage] = await Promise.all([1, 2, 3, 4, 5, 6, 7].map(freePort));
+  const [pModel, pPlatform, pServices, iPlatform, iServices] = await Promise.all([1, 2, 3, 4, 5].map(freePort));
   model = await serve(pModel, (line) => fs.appendFileSync(path.join(state, "model.log"), line + "\n"));
   const base = `http://127.0.0.1:${pServices}`, platform = `http://127.0.0.1:${pPlatform}`;
 
@@ -108,22 +108,25 @@ async function up() {
   const keeperReady = new Promise((done, fail) => built.on("exit", (code) => (code === 0 ? done() : fail(new Error(`keeper не собрался: go build вышел с кодом ${code}`)))));
 
   // свой реестр wrangler: службы находят платформу этой коробки, а не соседней
-  const wrangler = (part, port, inspector, vars, config = path.join(root, part, "wrangler.jsonc")) => start(part, process.execPath, [
-    path.join(root, "node_modules/wrangler/bin/wrangler.js"), "dev", "-c", config, "--port", String(port), "--ip", "127.0.0.1",
+  const wrangler = (name, port, inspector, vars, configs) => start(name, process.execPath, [
+    path.join(root, "node_modules/wrangler/bin/wrangler.js"), "dev", ...configs.flatMap((c) => ["-c", c]), "--port", String(port), "--ip", "127.0.0.1",
     "--inspector-port", String(inspector), "--persist-to", path.join(state, "data"), "--show-interactive-dev-session=false", ...vars.flatMap((v) => ["--var", v]),
   ], { WRANGLER_REGISTRY_PATH: path.join(state, "registry"), WRANGLER_SEND_METRICS: "false", CI: "1" });
-  // хранилище: бакет — локальный R2 служб; вход по подписанным ссылкам — свой Worker на том же бакете (то же имя, та же папка данных)
-  const storage = `http://127.0.0.1:${pStorage}`;
-  const keys = ["R2_ACCESS_KEY_ID:box", "R2_SECRET_ACCESS_KEY:box-secret-0000"];
-  const bucket = /"bucket_name":\s*"([^"]+)"/.exec(fs.readFileSync(path.join(root, "services/wrangler.jsonc"), "utf8"))[1];
-  fs.writeFileSync(path.join(state, "storage.jsonc"), JSON.stringify({ name: "sb2-box-storage", main: path.join(root, "tools/box/storage/worker.js"), compatibility_date: "2026-08-01", r2_buckets: [{ binding: "FILES", bucket_name: bucket }], vars: { FILES_BUCKET: bucket } }));
-  wrangler("platform", pPlatform, iPlatform, ["BOOT:box", "DIGEST:box"]);
-  const ch = history ? [`CH_URL:${history.origin}`, `CH_USER:${decodeURIComponent(history.username) || "default"}`, `CH_PASSWORD:${decodeURIComponent(history.password)}`] : [];
+  wrangler("platform", pPlatform, iPlatform, ["BOOT:box", "DIGEST:box"], [path.join(root, "platform/wrangler.jsonc")]);
   if (history) await until(`ClickHouse по адресу ${history.origin}`, async () => (await fetch(history.origin + "/ping", { signal: AbortSignal.timeout(3000) })).ok);
-  wrangler("services", pServices, iServices, ["DIGEST:box", `R2_ENDPOINT:${storage}`, ...keys, ...ch]);
-  wrangler("storage", pStorage, iStorage, keys, path.join(state, "storage.jsonc"));
+  // Службы и вход хранилища по подписанным ссылкам — один процесс: бакет у них общий, локальный R2 (двум процессам на одной базе бакета тесно:
+  // «database is locked»). Первым стоит вход (tools/box/storage): подписанную ссылку принимает сам, всё остальное отдаёт службам привязкой.
+  // Настройки из --var до второго Worker'а не доходят, поэтому у служб — производная настройка: та же, что в репо, с адресами коробки.
+  const product = JSON.parse(fs.readFileSync(path.join(root, "services/wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, ""));
+  const { env: _prod, ...local } = product;
+  const bucket = product.r2_buckets[0].bucket_name;
+  const secret = { R2_ACCESS_KEY_ID: "box", R2_SECRET_ACCESS_KEY: "box-secret-0000" };
+  const ch = history ? { CH_URL: history.origin, CH_USER: decodeURIComponent(history.username) || "default", CH_PASSWORD: decodeURIComponent(history.password) } : {};
+  fs.writeFileSync(path.join(state, "services.jsonc"), JSON.stringify({ ...local, main: path.join(root, "services", product.main), assets: { ...product.assets, directory: path.join(root, "web/dist") }, vars: { ...product.vars, DIGEST: "box", R2_ENDPOINT: base, ...secret, ...ch } }));
+  fs.writeFileSync(path.join(state, "storage.jsonc"), JSON.stringify({ name: "sb2-box-storage", main: path.join(root, "tools/box/storage/worker.js"), compatibility_date: product.compatibility_date, r2_buckets: [{ binding: "FILES", bucket_name: bucket }], services: [{ binding: "SERVICES", service: product.name }], vars: { FILES_BUCKET: bucket, ...secret } }));
+  wrangler("services", pServices, iServices, [], [path.join(state, "storage.jsonc"), path.join(state, "services.jsonc")]);
   const healthy = (url) => until(url, async () => (await (await fetch(url, { signal: AbortSignal.timeout(3000) })).json()).ok);
-  await Promise.all([healthy(platform + "/health"), healthy(base + "/health"), until(storage, async () => (await fetch(storage + "/", { signal: AbortSignal.timeout(3000) })).status === 404)]);
+  await Promise.all([healthy(platform + "/health"), healthy(base + "/health")]);
   await healthy(base + "/health/platform");
   say("платформа и службы отвечают");
 
