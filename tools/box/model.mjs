@@ -1,6 +1,8 @@
 // Поддельная модель коробки: сервер с API сообщений Anthropic. Не понимает просьб — исполняет сценарий хода (tools/fleet/turn.mjs):
 // на каждый запрос — один шаг сценария: вызов инструмента с названными полями или ответ текстом. Сценария нет — отвечает «ок».
 // Состояния нет: сценарий — в последнем сообщении человека с ним, сделанные шаги — ответы модели после него в том же разговоре.
+// Языков три: Anthropic (/v1/messages), OpenAI Responses (/v1/responses) и Meta — тот же Responses и канал версии Muse. Сценарий хода один:
+// запрос чужого языка приводится к виду Anthropic, ответ — обратно, как его ждёт перевод Host.
 // Тот же сервер играет Claude по аккаунту: запрос с токеном в Authorization без x-api-key — так его шлёт Host. Тогда каталог — модели Claude,
 // у ответа — заголовки недельного лимита и срок кэша, а отказ заказывает сам токен аккаунта (см. refusal).
 import http from "node:http";
@@ -110,6 +112,35 @@ function reply(res, body, account) {
   res.end();
 }
 
+/** Запрос OpenAI Responses → вид Anthropic: сообщения, вызовы инструментов и их итоги — по одному на элемент input. */
+function fromResponses(body) {
+  const said = (c) => (typeof c === "string" ? c : (c ?? []).map((p) => p.text ?? "").join("\n"));
+  const messages = (body.input ?? []).flatMap((it) =>
+    it.type === "message" && (it.role === "user" || it.role === "assistant") ? [{ role: it.role, content: [{ type: "text", text: said(it.content) }] }]
+    : it.type === "function_call" ? [{ role: "assistant", content: [{ type: "tool_use", id: it.call_id, name: it.name, input: JSON.parse(it.arguments || "{}") }] }]
+    : it.type === "function_call_output" ? [{ role: "user", content: [{ type: "tool_result", tool_use_id: it.call_id, content: said(it.output) }] }]
+    : []);
+  return { model: body.model, messages, tools: (body.tools ?? []).filter((t) => t.type === "function").map((t) => ({ name: t.name })) };
+}
+
+/** Ответ потоком OpenAI Responses: один элемент — сообщение или вызов инструмента. */
+function replyResponses(res, body) {
+  const b = answer(fromResponses(body)).content[0];
+  const id = "resp_box_" + Date.now().toString(36);
+  const size = Math.ceil(JSON.stringify(body.input ?? []).length / 4);
+  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "x-request-id": "req_box_" + Date.now().toString(36) });
+  const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
+  ev("response.created", { response: { id, model: body.model, status: "in_progress" } });
+  const item = b.type === "text" ? { type: "message", role: "assistant", content: [{ type: "output_text", text: b.text }] } : { type: "function_call", call_id: b.id, name: b.name, arguments: JSON.stringify(b.input) };
+  ev("response.output_item.added", { output_index: 0, item: b.type === "text" ? { ...item, content: [] } : { ...item, arguments: "" } });
+  if (b.type === "text") ev("response.output_text.delta", { output_index: 0, delta: b.text });
+  else ev("response.function_call_arguments.delta", { output_index: 0, delta: item.arguments });
+  ev("response.output_item.done", { output_index: 0, item });
+  ev("response.completed", { response: { id, model: body.model, status: "completed", output: [item], usage: { input_tokens: size, output_tokens: 5, total_tokens: size + 5 } } });
+  res.end();
+  return b;
+}
+
 /** Сервер модели на http://127.0.0.1:<порт>. log — строка на запрос: что спросили и что ответила. */
 export function serve(port, log = () => {}) {
   const server = http.createServer((req, res) => {
@@ -125,6 +156,12 @@ export function serve(port, log = () => {}) {
         return void res.writeHead(no.status, { ...no.headers, "content-type": "application/json", "request-id": "req_box_" + Date.now().toString(36) }).end(JSON.stringify({ type: "error", error: { type: no.type, message: no.message } }));
       }
       if (req.method === "GET" && url.pathname === "/v1/models") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: account ? CLAUDE_MODELS : MODELS, has_more: false }));
+      // канал версии Muse: его спрашивает Host перед вызовом ключа Meta — у сервера из адреса ключа
+      if (req.method === "GET" && url.pathname === "/muse-code/channels/muse-stable") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ channel: "muse-stable", version: "1.4.14-R1.0" }));
+      if (req.method === "POST" && url.pathname === "/v1/responses") {
+        const b = replyResponses(res, body);
+        return void log(`${body.model} · язык Responses · элементов ${body.input?.length} → ${b.type === "text" ? b.text.slice(0, 60) : `${b.name} ${JSON.stringify(b.input).slice(0, 80)}`}`);
+      }
       if (req.method === "POST" && url.pathname === "/v1/messages") {
         const a = answer(body).content[0];
         log(`${body.model} · сообщений ${body.messages?.length} · инструментов ${body.tools?.length ?? 0} → ${a.type === "text" ? a.text.slice(0, 60) : `${a.name} ${JSON.stringify(a.input).slice(0, 80)}`}`);
