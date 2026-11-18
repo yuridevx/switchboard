@@ -68,6 +68,8 @@ const LIST = [
   // человека в Telegram играет двойник коробки; бот — общий для флота, а человек проверки не должен быть на связи страницей — идёт до всех
   ...(process.env.SB2_TG_HUMAN ? [["переписка с человеком", "live-rooms.mjs", [fleet, device, machine], {}, false, ALONE]] : []),
   // подменяет Host на всех машинах флота — идёт до всех; только на флоте в коробке: на живой флот сборку доводит CI
+  // ставит службу в ОС компьютера: только на раннере (SB2_INSTALL=1); новая машина флота не должна попасть под выкладку — идёт одна
+  ...(local() && process.env.SB2_INSTALL === "1" ? [["установка службы машины", "live-install.mjs", [fleet, device], {}, false, ALONE]] : []),
   ...(local() ? [["выкладка сборки", "live-roll.mjs", [fleet, device, machine, second], {}, false, ALONE]] : []),
   // заводит и убирает негодный аккаунт Claude флота: при нём чужой ход на Claude получил бы лишний переход — идёт до всех
   ["аккаунты: негодный токен", "live-accounts.ts", [fleet, device, machine], { SB2_PART: "token" }, false, ALONE, ["claude"]],

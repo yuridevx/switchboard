@@ -83,18 +83,24 @@ jobs:
           key: deps-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
       - run: npm ci
         if: steps.deps.outputs.cache-hit != 'true'
+      # проверка «установка службы машины» ставит службу пользователя: ей нужен systemd пользователя раннера
+      - run: |
+          sudo loginctl enable-linger "$USER"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
       - run: node tools/box/box.mjs node tools/fleet/live.mjs box cli m1 m2
         env:
           SB2_BOX_CH: http://default:box@127.0.0.1:8123
           SB2_SHARD: ${{ matrix.shard }}
+          SB2_INSTALL: 1
 
   # тот же список на Windows: пути, процессы, оболочки. Контейнеров Linux на раннере Windows нет — шаги с историей флота там не идут
+  # Идёт после слияния, на push в main: с подготовкой раннера Windows доля занимает 3,5–5 минут и слияние не держит (путь до слияния — не дольше 5 минут).
   box-win:
     name: коробка · windows ${{ matrix.shard }}
+    if: github.event_name == 'push'
     strategy:
       fail-fast: false
       matrix:
-        # три доли: с подготовкой раннера Windows каждая укладывается в 5 минут
         shard: ["1/3", "2/3", "3/3"]
     runs-on: windows-latest
     timeout-minutes: 8
@@ -118,16 +124,24 @@ jobs:
         if: steps.deps.outputs.cache-hit != 'true'
       # браузер проверок на Windows — свой chrome-headless-shell из Playwright (см. launchBrowser)
       - run: npx playwright-core install chromium-headless-shell
+      # проверка «установка службы машины» ставит службу под пользователем раннера: ему нужен известный пароль — на один прогон
+      - shell: pwsh
+        run: |
+          $word = "Sb2-" + [guid]::NewGuid().ToString("N").Substring(0, 20) + "!"
+          Set-LocalUser -Name $env:USERNAME -Password (ConvertTo-SecureString $word -AsPlainText -Force)
+          "::add-mask::$word"
+          "SB2_INSTALL_PASSWORD=$word" >> $env:GITHUB_ENV
       - run: node tools/box/box.mjs node tools/fleet/live.mjs box cli m1 m2
         env:
           SB2_SHARD: ${{ matrix.shard }}
+          SB2_INSTALL: 1
 
-  # одна обязательная проверка ветки main: зелёная, когда зелёные все части и коробка на Linux и на Windows
+  # одна обязательная проверка ветки main: зелёная, когда зелёные все части и коробка
   check:
     name: проверка
-    needs: [part, box, box-win]
+    needs: [part, box]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - run: test "${{ needs.part.result }}" = "success" -a "${{ needs.box.result }}" = "success" -a "${{ needs.box-win.result }}" = "success"
+      - run: test "${{ needs.part.result }}" = "success" -a "${{ needs.box.result }}" = "success"
