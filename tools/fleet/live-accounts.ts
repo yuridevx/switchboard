@@ -124,6 +124,8 @@ if (real.length > 1 && tame(real[0]!, (await api.call(keysList, {})).keys)) awai
   try {
     // лимит кончится, когда в разговоре будет два ответа модели: после вызова команды, до ответа на её итог
     await api.call(keysSet, { name: full, protocol: CLAUDE, base, value: `sk-ant-oat01-${tag}-full-after-2` });
+    // машина перечитала токены: её ответ на список аккаунтов ждёт чтения. Без этого ход успевал уйти на другой аккаунт до отказа
+    await api.call(accountList, { to: "@" + machine });
     await api.call(message, { to: cs, text: turn(tool("Bash", { command: "echo 77" }), say("число: {итог 1}")) });
     const row = await until(`${cs} закончила ход`, async () => { const r = await rowOf(cs); return r?.state === "failed" ? Promise.reject(new Error(`${cs}: сбой — ${r.error}`)) : r?.state === "idle" && (r.last ?? 0) > (first.last ?? 0) ? r : undefined; }, 120_000);
     if (!String(row.result).includes("77")) throw new Error("итог хода: " + String(row.result).slice(0, 120));
