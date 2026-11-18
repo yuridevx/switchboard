@@ -59,14 +59,14 @@ export const rowMark = (s: SessionRow, me: string): "ask" | "new" | null => (s.a
 /** Строка сессии в списке: лампа, заголовок, позывной и чем занята, время. Пара — одной строкой: «ведущий ▸ ведомый»; дочерняя — с отступом под родителем. */
 export type RowParts = { call: boolean; doing: boolean; when: boolean };
 export const ROW_PARTS: RowParts = { call: true, doing: true, when: true };
-export function SessionLine({ s, selected, onPick, sub, depth = 0, wing, why, parts = ROW_PARTS }: { s: SessionRow; selected?: boolean; onPick: () => void; sub?: ReactNode; /** глубина под родителем */ depth?: number; /** ведомый пары: стоит в строке ведущего */ wing?: SessionRow; /** почему сессия в «Моих» */ why?: string; /** что показывать в строке — «Вид списка» */ parts?: RowParts }) {
+export function SessionLine({ s, selected, onPick, sub, depth = 0, wing, lamps, why, parts = ROW_PARTS }: { s: SessionRow; selected?: boolean; onPick: () => void; sub?: ReactNode; /** глубина под родителем */ depth?: number; /** ведомый пары: стоит в строке ведущего */ wing?: SessionRow; /** строка свёрнута: лампы спрятанных под ней сессий */ lamps?: ReactNode; /** почему сессия в «Моих» */ why?: string; /** что показывать в строке — «Вид списка» */ parts?: RowParts }) {
   const me = useFleet((f) => f.you?.person ?? "");
   const offline = useFleet((f) => f.machines[machineOfCall(s.callsign)]?.online === false);
   const mark = rowMark(s, me) ?? (wing ? rowMark(wing, me) : null);
   const labels = useLabels();
   const label = labels.of(s.callsign);
   return (
-    <div className={`row${selected ? " sel" : ""}${mark === "new" ? " unread" : ""}`} role="button" tabIndex={0} data-call={s.callsign} title={why || undefined} style={depth ? { paddingLeft: 14 + Math.min(depth, 4) * 18 } : undefined} onClick={onPick} onKeyDown={(e) => e.key === "Enter" && onPick()}>
+    <div className={`row${selected ? " sel" : ""}${mark === "new" ? " unread" : ""}`} role="button" tabIndex={0} data-call={s.callsign} title={why || undefined} style={depth ? { paddingLeft: 18 + Math.min(depth, 4) * 18 } : undefined} onClick={onPick} onKeyDown={(e) => e.key === "Enter" && onPick()}>
       <Lamp state={s.state} offline={offline} />
       <div style={{ minWidth: 0 }}>
         <div className="t trunc">
@@ -75,7 +75,7 @@ export function SessionLine({ s, selected, onPick, sub, depth = 0, wing, why, pa
         </div>
         {(parts.call || parts.doing || offline) && <div className="sub trunc">{parts.call && <span className="mono">{s.callsign}</span>}{parts.call && (wing ? "" : treeWord(s))}{parts.call && ownerWord(s, me)}{offline ? " · нет связи" : !parts.doing ? "" : sub ?? (s.doing ? ` · ${s.doing}` : s.state === "failed" ? ` · ${s.error ?? "сбой"}` : "")}{s.archiveError && !offline ? " · точка не сохранилась" : ""}</div>}
       </div>
-      <span className="when">{mark === "ask" ? <span className="qmark" role="img" aria-label="ждёт ответа">?</span> : mark === "new" ? <span className="newdot" role="img" aria-label="есть новое" /> : null}{parts.when ? <span className="ago">{ago(s.last ?? s.since)}</span> : null}</span>
+      <span className="when">{lamps}{mark === "ask" ? <span className="qmark" role="img" aria-label="ждёт ответа">?</span> : mark === "new" ? <span className="newdot" role="img" aria-label="есть новое" /> : null}{parts.when ? <span className="ago">{ago(s.last ?? s.since)}</span> : null}</span>
     </div>
   );
 }

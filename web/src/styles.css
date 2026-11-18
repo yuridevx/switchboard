@@ -45,9 +45,9 @@ body { overflow: hidden; }
 .pane-edge:hover::after, .pane-edge:focus-visible::after, .panes.pulling .pane-edge::after { background: var(--st-busy); }
 .pane-edge:focus-visible { outline: none; }
 .panes.pulling { cursor: col-resize; user-select: none; }
-/* список «Работы»: низкие заголовки групп и строки потеснее */
+/* список «Работы»: низкие заголовки групп и строки потеснее; слева у строки — место шеврону родителя */
 .pane.list .grp { padding: 8px 12px 2px; font-size: 11.5px; letter-spacing: 0.02em; min-height: 26px; }
-.pane.list .dragbox .row { padding: 6px 12px; column-gap: 8px; }
+.pane.list .dragbox .row { padding: 6px 12px 6px 18px; column-gap: 8px; }
 .pane-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); min-height: 54px; flex-wrap: wrap; }
 .pane-head h1 { font-size: 17px; font-weight: 600; margin: 0; flex: 1; min-width: 0; }
 .scroll { flex: 1; min-height: 0; overflow-y: auto; }

@@ -1,5 +1,5 @@
 // Живая проверка страницы на настоящем флоте: node tools/fleet/live-page.mjs <флот> <устройство с пропуском> <позывной сессии> [папка снимков]
-// Принимает приглашение в браузере, открывает сессию, пишет ей и ждёт ответа; печатает исход шагов и ошибки страницы.
+// Принимает приглашение в браузере, открывает сессию, пишет ей и ждёт ответа, сворачивает её дочернюю в списке; печатает исход шагов и ошибки страницы.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -29,6 +29,10 @@ const cwd = machineTmp(fleet, device, machine) + "/sb2-live-steps";
 const opened = call("session.open", { to: "@" + machine, spec: { name, cwd, key: SEAT, model: MODEL }, mkdir: true });
 const callsign = opened.ok ? opened.result.callsign : "";
 if (!opened.ok) console.log(`сессия не открылась: ${opened.error} ${opened.why ?? ""}`);
+// дочерняя сессия той же: без сообщений, модель не зовётся — в списке она стоит под родителем
+const kid = callsign ? call("session.open", { to: "@" + machine, spec: { name: name + "k", cwd, key: SEAT, model: MODEL, parent: callsign }, mkdir: true }) : null;
+const kidCall = kid?.ok ? kid.result.callsign : "";
+if (kid && !kid.ok) console.log(`дочерняя сессия не открылась: ${kid.error} ${kid.why ?? ""}`);
 
 const steps = [];
 const step = async (label, fn) => {
@@ -68,14 +72,27 @@ if (callsign) {
     await page.waitForFunction((word) => [...document.querySelectorAll("p, li, span, div")].filter((e) => e.children.length === 0 && e.textContent.includes(word) && !e.textContent.includes("Ответь текстом")).length > 0, name, { timeout: 90_000 });
   });
   await page.screenshot({ path: path.join(out, "3-answered.png") });
+  await step("родитель сворачивает дочернюю в свою строку; после перезагрузки страницы она свёрнута", async () => {
+    if (!kidCall) throw new Error("дочерней сессии нет");
+    const list = page.locator('section[aria-label="Работа"]');
+    const row = list.locator(`.row[data-call="${kidCall}"]`);
+    await row.waitFor({ timeout: 20_000 });
+    await list.getByRole("button", { name: "Свернуть дочерние: " + callsign }).click();
+    if (await row.count()) throw new Error("дочерняя строка осталась в списке");
+    await page.reload();
+    await list.getByRole("button", { name: "Показать дочерние: " + callsign }).waitFor({ timeout: 20_000 });
+    if (await row.count()) throw new Error("после перезагрузки дочерняя раскрыта");
+  });
+  await page.screenshot({ path: path.join(out, "4-folded.png") });
 }
 await step("экран «Наблюдение» показывает запросы", async () => {
   await page.goto(env.SB2_BASE + "/#/observe");
   await page.getByText("message").first().waitFor({ timeout: 20_000 });
 });
-await page.screenshot({ path: path.join(out, "4-observe.png") });
+await page.screenshot({ path: path.join(out, "5-observe.png") });
 await browser.close();
 call("revoke", { kid: invite.kid });
+if (kidCall) call("session.remove", { to: kidCall });
 if (callsign) call("session.remove", { to: callsign });
 
 for (const s of steps) console.log(s);

@@ -590,6 +590,22 @@ describe("экраны в отрисовке", () => {
     // чужая сессия подписана владельцем
     expect(screen.getAllByText("anya@example.com").length).toBeGreaterThan(0);
   });
+  // чьё: слово пользователя — «скрывать и раскрывать вложенные сессии»
+  it("«Работа»: шеврон родителя прячет дочерних в его строку; свёрнутое помнит устройство; открытая спрятанная сессия стоит в строке родителя", async () => {
+    page(<Work />, "/work/header-shots@laptop");
+    const list = () => within(screen.getByLabelText("Работа"));
+    await waitFor(() => expect(list().getByText("Стили шапки на 390")).toBeTruthy());
+    const parent = () => document.querySelector('.row[data-call="site@laptop"]')!;
+    expect(parent().classList.contains("sel")).toBe(false);
+    fireEvent.click(list().getByRole("button", { name: "Свернуть дочерние: site@laptop" }));
+    for (const hidden of ["Стили шапки на 390", "Снимки шапки до и после", "Сравнение снимков по пикселям"]) expect(list().queryByText(hidden)).toBeNull();
+    expect(getLocal<string[]>("work.closed", [])).toEqual(["site@laptop"]);
+    expect([...parent().querySelectorAll(".when .lamps .lamp")].map((l) => l.className).sort()).toEqual(["lamp busy", "lamp waiting"]);
+    expect(parent().classList.contains("sel")).toBe(true);
+    fireEvent.click(list().getByRole("button", { name: "Показать дочерние: site@laptop" }));
+    expect(list().getByText("Стили шапки на 390")).toBeTruthy();
+    expect(getLocal<string[]>("work.closed", [])).toEqual([]);
+  });
   it("удаление сессии архива: кнопка ждёт ввода имени", () => {
     const onDelete = vi.fn();
     page(<DeleteTyped name="site" body="6 точек будут удалены." onDelete={onDelete} />);
