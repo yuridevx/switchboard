@@ -9,7 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, newTag } from "./harness.mjs";
+import { chromium, fleetCall, machineTmp, newTag } from "./harness.mjs";
+import { say, tool, turn as script } from "./turn.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
@@ -23,8 +24,8 @@ const base = fleetEnv.SB2_BASE;
 
 const tag = newTag();
 const name = "files" + tag;
-// папка сессии — от домашней: путь годится и Windows, и Linux, какой бы ни была машина
-const cwd = `~/sb2-live-files-${tag}`;
+// папка сессии — полным путём машины: его называют шаги сценария хода
+const cwd = `${machineTmp(fleet, device, machine)}/sb2-live-files-${tag}`;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sb2-live-files-"));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sha = (file) => new Promise((done, fail) => {
@@ -143,7 +144,7 @@ try {
   await step("страница кладёт 5 МиБ в хранилище и читает обратно — хэш сходится; файл встал в папку сессии", async () => {
     const file = randomFile(path.join(tmp, "five.bin"), 5);
     const hash = await sha(file);
-    const up = await uploadFromPage(file, "Файл не читай. Ответь одним словом: принято.");
+    const up = await uploadFromPage(file, script(say("принято")));
     if (up.file.hash !== hash || up.file.size !== 5 * 1024 * 1024) throw new Error(`в сообщении не тот файл: ${JSON.stringify(up.file)}`);
     if (String(up.text).includes("Загружены файлы")) throw new Error("лента получила строку уведомления, а не разобранное");
     await idle();
@@ -156,7 +157,7 @@ try {
     const word = "слово-" + crypto.randomBytes(4).toString("hex");
     const file = path.join(tmp, "secret.txt");
     fs.writeFileSync(file, word + "\n");
-    await uploadFromPage(file, "Прочитай загруженный файл и ответь его содержимым, без других слов.");
+    await uploadFromPage(file, script(tool("Read", { file_path: `${cwd}/uploads/secret.txt` }), say("в файле: {итог 1}")));
     await idle();
     const texts = blocksOf(history().filter((e) => e.type === "assistant")).filter((b) => b.type === "text").map((b) => b.text);
     if (!texts.at(-1)?.includes(word)) throw new Error(`в ответе нет содержимого файла: ${String(texts.at(-1)).slice(0, 120)}`);
@@ -165,7 +166,11 @@ try {
 
   let sent;
   await step("сессия отправляет файл инструментом: в хранилище он целиком, в её разговоре содержимого нет", async () => {
-    await turn(`Выполни одну команду: node -e "const c=require('crypto'),f=require('fs');f.mkdirSync('out',{recursive:true});f.writeFileSync('out/data.txt',c.randomBytes(150000).toString('hex'))". Файл не читай. Потом отправь мне out/data.txt инструментом file_send (to — твой позывной ${callsign}) с подписью «Данные» и ответь одним словом: отправлено.`);
+    await turn(script(
+      tool("Bash", { command: `node -e "const c=require('crypto'),f=require('fs');f.mkdirSync('out',{recursive:true});f.writeFileSync('out/data.txt',c.randomBytes(150000).toString('hex'))"` }),
+      tool("mcp__fleet__file_send", { to: callsign, path: "out/data.txt", title: "Данные" }),
+      say("отправлено"),
+    ));
     const events = history();
     // путь сессия называет и от своей папки, и полным; вызов, потерянный на обрыве связи машины, она повторяет — считаем вызовы
     const mine = (i) => String(i.path).replaceAll("\\", "/").endsWith("out/data.txt");
@@ -185,13 +190,13 @@ try {
   });
 
   await step("сессия поднимает сайт из 3 файлов: открывается по адресу, стили и скрипт по относительным путям, пропуск страницы ему не виден", async () => {
-    await turn([
-      "Создай папку out/site с тремя файлами точно такого содержимого и ничего больше в ней не создавай.",
-      `out/site/index.html:\n<!doctype html><meta charset="utf-8"><title>ждёт</title><link rel="stylesheet" href="site.css"><h1>Отчёт ${tag}</h1><script src="js/site.js"></script>`,
-      "out/site/site.css:\nh1 { color: rgb(1, 2, 3); }",
-      `out/site/js/site.js:\ndocument.title = "loaded-${tag}";`,
-      `Потом подними папку out/site сайтом инструментом site_publish (to — твой позывной ${callsign}) с подписью «Отчёт» и ответь одним словом: поднято.`,
-    ].join("\n\n"));
+    await turn(script(
+      tool("Write", { file_path: `${cwd}/out/site/index.html`, content: `<!doctype html><meta charset="utf-8"><title>ждёт</title><link rel="stylesheet" href="site.css"><h1>Отчёт ${tag}</h1><script src="js/site.js"></script>` }),
+      tool("Write", { file_path: `${cwd}/out/site/site.css`, content: "h1 { color: rgb(1, 2, 3); }" }),
+      tool("Write", { file_path: `${cwd}/out/site/js/site.js`, content: `document.title = "loaded-${tag}";` }),
+      tool("mcp__fleet__site_publish", { to: callsign, dir: "out/site", title: "Отчёт" }),
+      say("поднято"),
+    ));
     const site = answerOf(history(), "site_publish", (i) => String(i.dir).replace(/\\/g, "/").replace(/\/$/, "").endsWith("out/site"));
     if (!/\/s\/[0-9a-f]{32}\/$/.test(site.url) || site.files !== 3 || "sent" in site) throw new Error(`ответ сайта не тот: ${JSON.stringify(site)}`);
     const tab = await browser.newPage();
@@ -220,7 +225,7 @@ try {
     await page.setViewportSize({ width: 390, height: 844 });
     const file = randomFile(path.join(tmp, "big.bin"), BIG_MB);
     const hash = await sha(file);
-    const up = await uploadFromPage(file, `Файл не читай. Отправь мне обратно uploads/big.bin инструментом file_send (to — твой позывной ${callsign}) с подписью «Обратно» и ответь одним словом: отправлено.`, 1_200_000);
+    const up = await uploadFromPage(file, script(tool("mcp__fleet__file_send", { to: callsign, path: "uploads/big.bin", title: "Обратно" }), say("отправлено")), 1_200_000);
     if (up.file.hash !== hash) throw new Error("в сообщении не тот хэш");
     await idle();
     const back = answerOf(history(), "file_send", (i) => String(i.path).replace(/\\/g, "/").endsWith("uploads/big.bin"));

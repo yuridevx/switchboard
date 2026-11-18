@@ -37,5 +37,6 @@
     }
   }
   // Секреты (wrangler secret put): R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, VAPID_PRIVATE, CH_URL, CH_USER, CH_PASSWORD.
+  // R2_ENDPOINT — другой вход хранилища по подписанным ссылкам; на флоте не задаётся: вход — R2 учётной записи.
   // Бот Telegram — у каждого флота свой: его токен админ записывает запросом reach.bot, в секретах Worker'а его нет.
 }

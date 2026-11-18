@@ -18,6 +18,8 @@ export interface Env {
   ASSETS?: Fetcher;
   FILES_BUCKET: string;
   R2_ACCOUNT_ID?: string;
+  /** вход хранилища по подписанным ссылкам; не задан — вход R2 учётной записи R2_ACCOUNT_ID */
+  R2_ENDPOINT?: string;
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
   /** отпечаток кода и страницы, из которых выложен Worker: ставит выкладка */

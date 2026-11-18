@@ -8,9 +8,11 @@ const HEADS_AT_ONCE = 50;
 
 /** query — параметры ответа хранилища, которые подписываются вместе со ссылкой: имя скачиваемого файла. */
 export async function link(env: Env, method: "PUT" | "GET", key: string, query: Record<string, string> = {}): Promise<string> {
-  if (!env.R2_ACCOUNT_ID || !env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY) throw new Refusal("no_links", "ключи R2 не заданы: ссылки не подписать");
+  if (!(env.R2_ENDPOINT || env.R2_ACCOUNT_ID) || !env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY) throw new Refusal("no_links", "ключи R2 не заданы: ссылки не подписать");
   const aws = new AwsClient({ accessKeyId: env.R2_ACCESS_KEY_ID, secretAccessKey: env.R2_SECRET_ACCESS_KEY, service: "s3", region: "auto" });
-  const url = new URL(`https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.FILES_BUCKET}/${key.split("/").map(encodeURIComponent).join("/")}`);
+  // вход хранилища по ссылкам: R2 своей учётной записи; R2_ENDPOINT — другой вход того же вида к тому же бакету
+  const door = (env.R2_ENDPOINT ?? `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`).replace(/\/+$/, "");
+  const url = new URL(`${door}/${env.FILES_BUCKET}/${key.split("/").map(encodeURIComponent).join("/")}`);
   url.searchParams.set("X-Amz-Expires", String(HOUR));
   for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
   const signed = await aws.sign(new Request(url, { method }), { aws: { signQuery: true } });
