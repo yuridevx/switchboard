@@ -4,7 +4,8 @@
 // Что поднимается: платформа и службы (wrangler dev на этом компьютере, свои порты и своя папка данных), страница из web/dist,
 // хранилище — локальный R2 служб и вход в него по подписанным ссылкам (tools/box/storage),
 // машины m1 и m2: сборка Host уходит в каталог флота шагом «машины» выкладки, ставит и держит Host служба машины из этой же сборки;
-// claude — настоящий, из пакета SDK; поддельная модель — ключ провайдера «box».
+// claude — настоящий, из пакета SDK; поддельная модель — ключ провайдера «box». У машин включён порт обращений служб компьютера.
+// Снаружи коробка читает одно: описание клиента Claude Code по его публичному адресу https — на шаге «вход внешнего клиента».
 // Команда получает: SB2_DEV — папка настроек (адрес флота, пропуск устройства cli), SB2_KEY, SB2_MODEL, SB2_SWITCH — ключ и модели коробки.
 // Сбой подъёма или красная команда — хвосты журналов частей. Папка коробки dist/box/<номер процесса> после зелёной команды убирается.
 import { execFileSync, spawn } from "node:child_process";
@@ -168,6 +169,9 @@ async function up() {
     fs.mkdirSync(home, { recursive: true });
     fs.writeFileSync(path.join(home, "machine.key"), (await call("redeem", { invite: (await call("invite", { addr: "@" + m }, admin)).invite })).key + "\n");
     fs.writeFileSync(path.join(home, "keeper.json"), JSON.stringify({ base, machine: m, node: process.execPath }));
+    // настройка Host: порт обращений служб компьютера включён (0 — любой свободный; настоящий называет incident.list)
+    fs.mkdirSync(path.join(home, "host", "data"), { recursive: true });
+    fs.writeFileSync(path.join(home, "host", "data", "host.json"), JSON.stringify({ "host-incidents": { port: 0 } }));
     // у каждой машины свой файл службы: обновляя себя, она подменяет именно его
     const bin = path.join(home, win ? "keeper.exe" : "keeper");
     fs.copyFileSync(path.join(root, "dist/builds", String(build), win ? "keeper-windows-amd64.exe" : "keeper-linux-amd64"), bin);
