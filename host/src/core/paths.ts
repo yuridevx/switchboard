@@ -1,4 +1,5 @@
 // Папки глазами клиента и папка Claude этого Host.
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
@@ -12,6 +13,10 @@ export function clientPath(path: string, home = homedir()): string | null {
   if (path.startsWith("~/")) return join(home, path.slice(2));
   return isAbsolute(path) ? path : null;
 }
+
+/** Настоящее имя папки на диске: так её называет ОС и так же claude, когда кладёт разговор. Короткое имя Windows (RUNNER~1) и ссылка
+ *  на папку дали бы другую папку разговоров — история сессии с диска была бы пуста. */
+export const realDir = (dir: string): string => realpathSync.native(dir);
 
 /** Обратное к clientPath: папка внутри домашней — от «~» через «/», остальное как есть. На Windows регистр и вид косой черты не важны. */
 export function tildePath(path: string, home = homedir()): string {

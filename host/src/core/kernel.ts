@@ -13,7 +13,7 @@ import type { Ctx, DecideOpts, HostApi, Module, OpenOpts, PermissionResult, Quer
 import { Holders, type HolderApi, type HoldFile } from "./holders.ts";
 import { hostLogger } from "./journal.ts";
 import { meter } from "./meter.ts";
-import { clientPath } from "./paths.ts";
+import { clientPath, realDir } from "./paths.ts";
 import { fleetPrompt } from "./prompt.ts";
 import { Session, quiet, type Parts } from "./session.ts";
 import { MODES } from "./flags.ts";
@@ -492,7 +492,7 @@ export class Kernel {
     const dir = clientPath(cwd, homedir());
     if (!dir) throw new Refusal("bad_dir", `папка ${JSON.stringify(cwd)} не от ~ и не полная`);
     if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new Refusal("bad_dir", `папки ${cwd} нет на ${this.machine}`);
-    return dir;
+    return realDir(dir);
   }
 
   async open(given: Spec, o: OpenOpts): Promise<Session> {
