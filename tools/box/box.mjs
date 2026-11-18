@@ -110,7 +110,8 @@ async function up() {
   // свой реестр wrangler: службы находят платформу этой коробки, а не соседней
   const wrangler = (name, port, inspector, vars, configs) => start(name, process.execPath, [
     path.join(root, "node_modules/wrangler/bin/wrangler.js"), "dev", ...configs.flatMap((c) => ["-c", c]), "--port", String(port), "--ip", "127.0.0.1",
-    "--inspector-port", String(inspector), "--persist-to", path.join(state, "data"), "--show-interactive-dev-session=false", ...vars.flatMap((v) => ["--var", v]),
+    // папка данных — своя у каждого процесса: общего хранилища у платформы и служб нет, а на общей папке их старты сталкивались («database is locked»)
+    "--inspector-port", String(inspector), "--persist-to", path.join(state, "data", name), "--show-interactive-dev-session=false", ...vars.flatMap((v) => ["--var", v]),
   ], { WRANGLER_REGISTRY_PATH: path.join(state, "registry"), WRANGLER_SEND_METRICS: "false", CI: "1" });
   wrangler("platform", pPlatform, iPlatform, ["BOOT:box", "DIGEST:box"], [path.join(root, "platform/wrangler.jsonc")]);
   if (history) await until(`ClickHouse по адресу ${history.origin}`, async () => (await fetch(history.origin + "/ping", { signal: AbortSignal.timeout(3000) })).ok);
