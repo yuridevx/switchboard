@@ -337,14 +337,14 @@ describe("ключи флота: аккаунт ChatGPT", () => {
   });
 
   // эталон 3 — чьё: устав — «ошибки — словами»; правка архитектора: сбой сети — не смерть входа
-  it("3 · OpenAI отказал в обновлении — bad_token его словами; сервер входа не ответил или упал — auth_unreachable; вход в записях прежний", async () => {
+  it("3 · OpenAI отказал в обновлении — bad_token его словами; сервер входа не ответил или упал — upstream; вход в записях прежний", async () => {
     const { s } = await logged(12);
     auth(s, () => Response.json({ error: { code: "refresh_token_expired", message: "Your refresh token has expired" } }, { status: 401 }));
     expect(await value(s)).toMatchObject({ ok: false, error: "bad_token", why: expect.stringMatching(/вход ChatGPT gpt: refresh_token_expired: Your refresh token has expired/) });
     auth(s, () => new Response("upstream", { status: 503 }));
-    expect(await value(s)).toMatchObject({ ok: false, error: "auth_unreachable", why: expect.stringContaining("503") });
+    expect(await value(s)).toMatchObject({ ok: false, error: "upstream", why: expect.stringContaining("503") });
     s.state.net = () => Promise.reject(new Error("connect timeout"));
-    expect(await value(s)).toMatchObject({ ok: false, error: "auth_unreachable", why: expect.stringContaining("connect timeout") });
+    expect(await value(s)).toMatchObject({ ok: false, error: "upstream", why: expect.stringContaining("connect timeout") });
     // отказ ничего не записал: следующий обмен идёт прежним refresh-токеном
     const far = expOf(Date.now() + 240 * HOUR);
     auth(s, () => Response.json({ access_token: access(far, "a2"), refresh_token: "rt-2" }));

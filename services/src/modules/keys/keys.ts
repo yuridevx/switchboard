@@ -54,7 +54,7 @@ function expiryOf(access: string): number | undefined {
   }
 }
 
-/** Обмен refresh-токена на новый вход. OpenAI отказал — bad_token его словами: вход умер. Сеть, срок и сбой сервера входа — auth_unreachable: вход цел. */
+/** Обмен refresh-токена на новый вход. OpenAI отказал — bad_token его словами: вход умер. Сеть, срок и сбой сервера входа — upstream: вход цел. */
 async function exchange(ctx: Ctx, name: string, refresh: string): Promise<Login> {
   let res: Response;
   try {
@@ -63,10 +63,10 @@ async function exchange(ctx: Ctx, name: string, refresh: string): Promise<Login>
       body: JSON.stringify({ client_id: OPENAI_CLIENT, grant_type: "refresh_token", refresh_token: refresh, scope: "openid profile email" }),
     });
   } catch (e) {
-    throw new Refusal("auth_unreachable", `вход ChatGPT ${name}: сервер входа OpenAI не ответил — ${e instanceof Error ? e.message : String(e)}`);
+    throw new Refusal("upstream", `вход ChatGPT ${name}: сервер входа OpenAI не ответил — ${e instanceof Error ? e.message : String(e)}`);
   }
   const text = await res.text();
-  if (res.status >= 500 || res.status === 429) throw new Refusal("auth_unreachable", `вход ChatGPT ${name}: сервер входа OpenAI ответил ${res.status}`);
+  if (res.status >= 500 || res.status === 429) throw new Refusal("upstream", `вход ChatGPT ${name}: сервер входа OpenAI ответил ${res.status}`);
   let j: { access_token?: string; refresh_token?: string; error?: string | { code?: string; message?: string }; error_description?: string } = {};
   try {
     j = JSON.parse(text);
