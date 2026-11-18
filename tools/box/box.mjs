@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { buildPage } from "../build/page.mjs";
 import * as github from "./github.mjs";
 import { MODELS, serve } from "./model.mjs";
+import * as telegram from "./telegram.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const command = process.argv.slice(2);
@@ -97,13 +98,14 @@ async function teardown() {
   for (const { child } of parts) if (child.exitCode === null) killTree(child.pid);
   model?.close();
   githubApi?.close();
+  telegramApi?.close();
 }
 
-let model, githubApi;
+let model, githubApi, telegramApi, human;
 async function up() {
   buildPage(root);
   say("страница собрана");
-  const [pModel, pPlatform, pServices, iPlatform, iServices, pGithub] = await Promise.all([1, 2, 3, 4, 5, 6].map(freePort));
+  const [pModel, pPlatform, pServices, iPlatform, iServices, pGithub, pTelegram] = await Promise.all([1, 2, 3, 4, 5, 6, 7].map(freePort));
   model = await serve(pModel, (line) => fs.appendFileSync(path.join(state, "model.log"), line + "\n"));
   const base = `http://127.0.0.1:${pServices}`, platform = `http://127.0.0.1:${pPlatform}`;
 
@@ -123,7 +125,7 @@ async function up() {
   const bucket = product.r2_buckets[0].bucket_name;
   const secret = { R2_ACCESS_KEY_ID: "box", R2_SECRET_ACCESS_KEY: "box-secret-0000" };
   const ch = history ? { CH_URL: history.origin, CH_USER: decodeURIComponent(history.username) || "default", CH_PASSWORD: decodeURIComponent(history.password) } : {};
-  fs.writeFileSync(path.join(state, "services.jsonc"), JSON.stringify({ ...local, main: path.join(root, "services", product.main), assets: { ...product.assets, directory: path.join(root, "web/dist") }, vars: { ...product.vars, DIGEST: "box", R2_ENDPOINT: base, GITHUB_API: `http://127.0.0.1:${pGithub}`, ...secret, ...ch } }));
+  fs.writeFileSync(path.join(state, "services.jsonc"), JSON.stringify({ ...local, main: path.join(root, "services", product.main), assets: { ...product.assets, directory: path.join(root, "web/dist") }, vars: { ...product.vars, DIGEST: "box", R2_ENDPOINT: base, GITHUB_API: `http://127.0.0.1:${pGithub}`, TELEGRAM_API: `http://127.0.0.1:${pTelegram}`, ...secret, ...ch } }));
   fs.writeFileSync(path.join(state, "storage.jsonc"), JSON.stringify({ name: "sb2-box-storage", main: path.join(root, "tools/box/storage/worker.js"), compatibility_date: product.compatibility_date, r2_buckets: [{ binding: "FILES", bucket_name: bucket }], services: [{ binding: "SERVICES", service: product.name }], vars: { FILES_BUCKET: bucket, ...secret } }));
   wrangler("services", pServices, iServices, [], [path.join(state, "storage.jsonc"), path.join(state, "services.jsonc")]);
   const healthy = (url) => until(url, async () => (await (await fetch(url, { signal: AbortSignal.timeout(3000) })).json()).ok);
@@ -146,6 +148,10 @@ async function up() {
   fs.mkdirSync(dev, { recursive: true });
   fs.writeFileSync(path.join(dev, "v2-fleet.env"), `SB2_BASE=${base}\nSB2_PLATFORM=${platform}\nSB2_BOOT=box\n`);
   fs.writeFileSync(path.join(dev, `v2-${FLEET}-${DEVICE}.pass`), admin + "\n");
+  // Telegram: двойник играет бота и человека (tools/box/telegram.mjs); бот флота ставит вебхук на адрес коробки
+  telegramApi = await telegram.serve(pTelegram, (line) => fs.appendFileSync(path.join(state, "telegram.log"), line + "\n"));
+  await call("reach.bot", { token: telegram.TOKEN }, admin);
+  human = `http://127.0.0.1:${pTelegram}`;
   // GitHub: токены приложения выдаёт двойник, репозиторий кусочков — настоящий git на диске коробки (tools/box/github.mjs)
   githubApi = await github.serve(pGithub, (line) => fs.appendFileSync(path.join(state, "github.log"), line + "\n"));
   const gitconfig = github.seed(state);
@@ -182,7 +188,7 @@ async function up() {
 
 /** Команда в окружении коробки; код выхода — её. */
 const run = (dev) => new Promise((done) => {
-  const env = { ...process.env, SB2_DEV: dev, SB2_KEY: KEY, SB2_MODEL: MODELS[0].id, SB2_SWITCH: [KEY, ...DIALECTS.map((d) => `${KEY}-${d}`)].map((k, i) => `${k}/${MODELS[i % MODELS.length].id}`).join(" "), SB2_WITHOUT: WITHOUT };
+  const env = { ...process.env, SB2_DEV: dev, SB2_KEY: KEY, SB2_MODEL: MODELS[0].id, SB2_SWITCH: [KEY, ...DIALECTS.map((d) => `${KEY}-${d}`)].map((k, i) => `${k}/${MODELS[i % MODELS.length].id}`).join(" "), SB2_WITHOUT: WITHOUT, SB2_TG_HUMAN: human };
   delete env.SB2_ENV;
   const child = spawn(command[0], command.slice(1), { cwd: process.cwd(), stdio: "inherit", env, shell: win });
   child.on("error", (e) => (console.error(`команда не запустилась: ${e.message}`), done(1)));

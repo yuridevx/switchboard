@@ -24,6 +24,8 @@ export interface Env {
   R2_SECRET_ACCESS_KEY?: string;
   /** адрес API GitHub; не задан — https://api.github.com */
   GITHUB_API?: string;
+  /** адрес API бота Telegram; не задан — https://api.telegram.org */
+  TELEGRAM_API?: string;
   /** отпечаток кода и страницы, из которых выложен Worker: ставит выкладка */
   DIGEST?: string;
   /** закрытый ключ VAPID — JWK строкой */

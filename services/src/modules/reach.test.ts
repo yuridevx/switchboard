@@ -325,3 +325,18 @@ describe("связь с людьми: Telegram", () => {
     expect(await devices(s, "kanya1")).toHaveLength(0);
   });
 });
+
+describe("адрес Telegram", () => {
+  // чьё: код — без настройки бот зовётся на api.telegram.org; настройка — дизайн «Проверка всех систем»
+  it("адрес API бота — настройка: не задана — api.telegram.org; задана — вызовы идут на неё", async () => {
+    const answer = () => Response.json({ ok: true, result: { username: "fleet_bot" } });
+    const own = stand();
+    own.state.net = answer;
+    await own.ask("reach.bot", { token: "1:secret" });
+    expect(own.seen.net[0]!.url).toBe("https://api.telegram.org/bot1:secret/getMe");
+    const other = stand(undefined, { env: { TELEGRAM_API: "http://127.0.0.1:4300/" } });
+    other.state.net = answer;
+    await other.ask("reach.bot", { token: "1:secret" });
+    expect(other.seen.net.map((c) => c.url)).toEqual(["http://127.0.0.1:4300/bot1:secret/getMe", "http://127.0.0.1:4300/bot1:secret/setWebhook"]);
+  });
+});
