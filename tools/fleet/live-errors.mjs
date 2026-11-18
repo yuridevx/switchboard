@@ -5,15 +5,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, newTag, putFile, root } from "./harness.mjs";
+import { chromium, fleetCall, machineTmp, newTag, putFile, root } from "./harness.mjs";
+import { say, tool, turn as script } from "./turn.mjs";
 
 const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
 const out = outArg ?? path.join(root, "dist", "live");
 fs.mkdirSync(out, { recursive: true });
 const { call, must } = fleetCall(fleet, device);
 const tag = newTag();
-// папка пробных сессий — от домашней папки машины: годится любой ОС и чужой машине; SB2_CWD — своя
-const cwd = process.env.SB2_CWD ?? "~/sb2-live-errors";
+// папка пробных сессий — полным путём машины: его называют шаги сценария хода; SB2_CWD — своя
+const cwd = process.env.SB2_CWD ?? `${machineTmp(fleet, device, machine)}/sb2-live-errors`;
 const REFUSED = "вызов модели отклонён (4";
 
 let bad = 0, total = 0;
@@ -68,7 +69,7 @@ await step("провайдер отклонил вызов: причина ег�
   // файл сообщения встаёт в uploads/ папки сессии; негодный PDF провайдер отклоняет, когда сессия его читает
   // заголовок PDF настоящий, тело — нет: сессия отдаёт файл провайдеру документом, и тот его отклоняет
   const pdf = await putFile(fleet, device, "broken.pdf", Buffer.from("%PDF-1.7\n%âãÏÓ\nэто не PDF " + tag + "\n%%EOF\n"));
-  await turn(cs, { text: "Что в этом файле? Прочитай uploads/broken.pdf инструментом Read и ответь одним словом.", files: [pdf] });
+  await turn(cs, { text: script(tool("Read", { file_path: `${cwd}/uploads/broken.pdf` }), say("прочитано")), files: [pdf] });
   const refused = await until("строка отказа в ленте", () => logsOf(cs).find((e) => e.msg === "call" && String(e.why ?? "").startsWith(REFUSED)), 60_000);
   // причина — не один статус: за двоеточием стоят слова провайдера
   const said = String(refused.why).split("): ")[1] ?? "";
@@ -96,7 +97,7 @@ await step("ход остановлен — строкой error в ленте, 
 await step("история отдаёт строку на месте: за сообщением человека, перед итогом хода", async () => {
   const h = history(cs);
   const at = h.findIndex((e) => e.type === "log" && e.why === line);
-  const asked = h.findIndex((e) => e.type === "user" && JSON.stringify(e.message ?? {}).includes("Что в этом файле"));
+  const asked = h.findIndex((e) => e.type === "user" && JSON.stringify(e.message ?? {}).includes("Ответь текстом: прочитано"));
   if (at < 0 || asked < 0 || at < asked) throw new Error(`строка на месте ${at}, сообщение человека на месте ${asked}`);
   return `сообщение — ${asked}, строка — ${at} из ${h.length}`;
 });

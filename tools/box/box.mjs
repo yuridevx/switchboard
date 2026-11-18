@@ -21,7 +21,8 @@ const FLEET = "box", DEVICE = "cli", MACHINES = ["m1", "m2"], KEY = "box";
 // история флота — настоящий ClickHouse: коробка его не запускает, а получает адрес в SB2_BOX_CH (http://пользователь:пароль@хост:порт);
 // на раннере это служба работы, у себя — `docker run -p 127.0.0.1:18123:8123 -e CLICKHOUSE_PASSWORD=box clickhouse/clickhouse-server`
 const history = process.env.SB2_BOX_CH ? new URL(process.env.SB2_BOX_CH) : null;
-const WITHOUT = ["mind", "claude", "push", "github", "keeper", ...(history ? [] : ["clickhouse"])].join(" ");
+const WITHOUT = ["mind", "push", "github", "keeper", ...(history ? [] : ["clickhouse"])].join(" ");
+const ACCOUNTS = ["a", "b"];
 const UP_MS = 60_000; // предел подъёма одной части
 const STOP_MS = 10_000; // предел штатной остановки Host
 const win = process.platform === "win32";
@@ -138,6 +139,8 @@ async function up() {
   }
   await until("машины на связи", async () => (await call("fleet.list", {}, admin)).machines.filter((m) => m.online).length === MACHINES.length);
   await call("keys.set", { name: KEY, protocol: "anthropic", base: `http://127.0.0.1:${pModel}`, value: "box-key-0000" }, admin);
+  // два аккаунта Claude: их адрес — тот же двойник модели, он узнаёт аккаунт по токену без ключа провайдера
+  for (const a of ACCOUNTS) await call("keys.set", { name: `${a}@box.test`, protocol: "claude", base: `http://127.0.0.1:${pModel}`, value: `sk-ant-oat01-box-${a}-0000000000000000` }, admin);
   await call("project.set", { project: "box", name: "Коробка", members: ["~owner@fleet.test"] }, admin);
   say(`флот ${FLEET}: машины ${MACHINES.join(", ")}, ключ ${KEY}, модели ${MODELS.map((m) => m.id).join(", ")}`);
 

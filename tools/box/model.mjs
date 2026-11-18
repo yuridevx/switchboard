@@ -1,12 +1,45 @@
 // Поддельная модель коробки: сервер с API сообщений Anthropic. Не понимает просьб — исполняет сценарий хода (tools/fleet/turn.mjs):
 // на каждый запрос — один шаг сценария: вызов инструмента с названными полями или ответ текстом. Сценария нет — отвечает «ок».
 // Состояния нет: сценарий — в последнем сообщении человека с ним, сделанные шаги — ответы модели после него в том же разговоре.
+// Тот же сервер играет Claude по аккаунту: запрос с токеном в Authorization без x-api-key — так его шлёт Host. Тогда каталог — модели Claude,
+// у ответа — заголовки недельного лимита и срок кэша, а отказ заказывает сам токен аккаунта (см. refusal).
 import http from "node:http";
 import { parse } from "../fleet/turn.mjs";
 
 /** Каталог ключа коробки: две модели с окном — проверкам смены модели и кольца контекста. */
 export const MODELS = [{ id: "box-1", display_name: "Box 1", max_input_tokens: 200_000 }, { id: "box-2", display_name: "Box 2", max_input_tokens: 200_000 }];
+/** Каталог Claude: по модели на семейство, с окном. */
+export const CLAUDE_MODELS = [
+  { id: "claude-haiku-5-5", display_name: "Claude Haiku 5.5", max_input_tokens: 200_000 },
+  { id: "claude-sonnet-5-5", display_name: "Claude Sonnet 5.5", max_input_tokens: 500_000 },
+  { id: "claude-opus-5-5", display_name: "Claude Opus 5.5", max_input_tokens: 1_000_000 },
+];
 const SEARCH = "ToolSearch";
+const U = "anthropic-ratelimit-unified";
+const HOUR = 3_600_000;
+
+/** Токен аккаунта Claude из запроса; запрос по ключу провайдера (с x-api-key) — не аккаунт. */
+const accountOf = (req) => (req.headers["x-api-key"] ? null : /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? null);
+/** Заголовки окна недели, как их шлёт Claude: сколько потрачено и когда сброс. */
+const week = (used, rejected) => ({
+  [`${U}-status`]: rejected ? "rejected" : "allowed", [`${U}-7d-utilization`]: String(used), [`${U}-7d-reset`]: String(Math.floor((Date.now() + 100 * HOUR) / 1000)),
+  ...(rejected ? { [`${U}-representative-claim`]: "seven_day", [`${U}-7d-status`]: "rejected", [`${U}-reset`]: String(Math.floor((Date.now() + 100 * HOUR) / 1000)) } : {}),
+});
+/** Отказ Claude аккаунту вместо ответа модели. Заказ — в самом токене аккаунта, состояния у двойника нет:
+ *    …not-a-token    — 401: токен не принят;
+ *    …full-after-N   — 429 «лимит недели», когда в разговоре уже есть N ответов модели: лимит кончился посреди хода.
+ *  И без заказа, как сам Claude: документ PDF без таблицы ссылок (startxref) — 400 со словами. */
+function refusal(token, body) {
+  if (token.includes("not-a-token")) return { status: 401, headers: {}, type: "authentication_error", message: "OAuth token is not valid" };
+  if (documents(body?.messages ?? []).some((d) => d.source?.media_type === "application/pdf" && !Buffer.from(String(d.source.data ?? ""), "base64").includes("startxref"))) return { status: 400, headers: {}, type: "invalid_request_error", message: "Could not process PDF: the document is not a valid PDF file" };
+  const after = /full-after-(\d+)/.exec(token);
+  if (after && (body?.messages ?? []).filter((m) => m.role === "assistant").length >= Number(after[1])) return { status: 429, headers: week(1, true), type: "rate_limit_error", message: "This request would exceed your account's rate limit" };
+  return null;
+}
+/** Блоки-документы запроса: в сообщениях и в итогах инструментов. */
+const documents = (v) => (Array.isArray(v) ? v.flatMap(documents) : v && typeof v === "object" ? (v.type === "document" ? [v] : documents(v.content)) : []);
+/** Просит ли запрос часовой кэш: Claude называет срок записи кэша по просьбе. */
+const hourCache = (body) => JSON.stringify([body.system ?? "", body.tools ?? "", body.messages ?? ""]).includes('"ttl":"1h"');
 
 const blocks = (m) => (Array.isArray(m.content) ? m.content : [{ type: "text", text: String(m.content ?? "") }]);
 const textOf = (m) => blocks(m).filter((b) => b.type === "text").map((b) => b.text).join("\n");
@@ -49,12 +82,15 @@ export function answer(body) {
   return text(said);
 }
 
-function reply(res, body) {
+function reply(res, body, account) {
   const a = answer(body);
   // расход — по размеру запроса: кольцу контекста страницы нужен процент окна
-  const usage = { input_tokens: Math.ceil(JSON.stringify(body.messages ?? []).length / 4), output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+  const size = Math.ceil(JSON.stringify(body.messages ?? []).length / 4);
+  const usage = { input_tokens: size, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+  // аккаунту Claude называет, на какой срок записал кэш: час — если час просили
+  if (account) Object.assign(usage, { cache_creation_input_tokens: size, cache_creation: hourCache(body) ? { ephemeral_1h_input_tokens: size, ephemeral_5m_input_tokens: 0 } : { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: size } });
   const message = { id: "msg_box_" + Date.now().toString(36), type: "message", role: "assistant", model: body.model, content: a.content, stop_reason: a.stop, stop_sequence: null, usage };
-  const head = { "request-id": "req_box_" + Date.now().toString(36) };
+  const head = { "request-id": "req_box_" + Date.now().toString(36), ...(account ? week(0.2) : {}) };
   if (!body.stream) return void res.writeHead(200, { ...head, "content-type": "application/json" }).end(JSON.stringify(message));
   res.writeHead(200, { ...head, "content-type": "text/event-stream", "cache-control": "no-cache" });
   const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
@@ -81,12 +117,18 @@ export function serve(port, log = () => {}) {
     req.on("data", (d) => (raw += d));
     req.on("end", () => {
       const url = new URL(req.url, "http://box");
-      if (req.method === "GET" && url.pathname === "/v1/models") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: MODELS }));
+      const account = accountOf(req);
+      const body = req.method === "POST" && raw ? JSON.parse(raw) : null;
+      const no = account ? refusal(account, body) : null;
+      if (no) {
+        log(`аккаунт …${account.slice(-16)} → отказ ${no.status} ${no.type}`);
+        return void res.writeHead(no.status, { ...no.headers, "content-type": "application/json", "request-id": "req_box_" + Date.now().toString(36) }).end(JSON.stringify({ type: "error", error: { type: no.type, message: no.message } }));
+      }
+      if (req.method === "GET" && url.pathname === "/v1/models") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: account ? CLAUDE_MODELS : MODELS, has_more: false }));
       if (req.method === "POST" && url.pathname === "/v1/messages") {
-        const body = JSON.parse(raw);
         const a = answer(body).content[0];
         log(`${body.model} · сообщений ${body.messages?.length} · инструментов ${body.tools?.length ?? 0} → ${a.type === "text" ? a.text.slice(0, 60) : `${a.name} ${JSON.stringify(a.input).slice(0, 80)}`}`);
-        return reply(res, body);
+        return reply(res, body, account);
       }
       log(`нет такого: ${req.method} ${url.pathname}`);
       res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ type: "error", error: { type: "not_found_error", message: `${req.method} ${url.pathname}` } }));
