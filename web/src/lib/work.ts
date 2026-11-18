@@ -72,7 +72,7 @@ export function dropTarget(rects: Array<{ id: string; group: string; top: number
 }
 
 /** Строка дерева списка: сессия, её глубина под родителем и ведомый, если она ведёт пару. */
-export type TreeRow = { s: SessionRow; depth: number; wing?: SessionRow };
+export type TreeRow = { s: SessionRow; depth: number; wing?: SessionRow; /** под строкой есть дочерние: её можно свернуть */ kids?: true; /** строка свёрнута: потомки, которых она прячет */ folded?: SessionRow[] };
 
 /** Кто дал сессии задачу: родитель из документа или сессия, которая её открыла. */
 export const parentOf = (p: Picture, s: SessionRow): string | undefined => {
@@ -80,8 +80,9 @@ export const parentOf = (p: Picture, s: SessionRow): string | undefined => {
   return up && up !== s.callsign ? up : undefined;
 };
 
-/** Дерево списка: ведомый своей строкой не стоит — он виден в строке ведущего; дочерние идут под родителем с отступом. nested false — без отступов, пары всё равно одной строкой. */
-export function treeOf(p: Picture, rows: SessionRow[], nested = true): TreeRow[] {
+/** Дерево списка: ведомый своей строкой не стоит — он виден в строке ведущего; дочерние идут под родителем с отступом. nested false — без отступов, пары всё равно одной строкой.
+ * closed — свёрнутые строки: их потомки в список не идут, а лежат у строки в folded. */
+export function treeOf(p: Picture, rows: SessionRow[], nested = true, closed: string[] = []): TreeRow[] {
   const here = new Set(rows.map((s) => s.callsign));
   const hidden = (s: SessionRow) => !!s.lead && here.has(s.lead);
   const up = (s: SessionRow) => {
@@ -90,18 +91,28 @@ export function treeOf(p: Picture, rows: SessionRow[], nested = true): TreeRow[]
   };
   const out: TreeRow[] = [];
   const seen = new Set<string>();
-  const put = (s: SessionRow, depth: number) => {
+  const put = (s: SessionRow, depth: number, into?: SessionRow[]) => {
     if (seen.has(s.callsign)) return;
     seen.add(s.callsign);
+    const kids = nested ? rows.filter((c) => !hidden(c) && up(c) === s.callsign && !seen.has(c.callsign)) : [];
+    // под свёрнутой строкой: потомок в список не идёт, его держит свёрнутый предок
+    if (into) return void (into.push(s), kids.forEach((c) => put(c, depth, into)));
     const wing = s.spec.wing ? p.sessions[s.spec.wing] : undefined;
-    out.push({ s, depth, ...(wing ? { wing } : {}) });
-    if (nested) for (const c of rows) if (!hidden(c) && up(c) === s.callsign) put(c, depth + 1);
+    const folded = kids.length && closed.includes(s.callsign) ? [] : undefined;
+    out.push({ s, depth, ...(wing ? { wing } : {}), ...(kids.length ? { kids: true as const } : {}), ...(folded ? { folded } : {}) });
+    for (const c of kids) put(c, depth + 1, folded);
   };
   for (const s of rows) if (!hidden(s) && !(nested && up(s))) put(s, 0);
   // круг «кто кого открыл» не теряет строк
   for (const s of rows) if (!hidden(s)) put(s, 0);
   return out;
 }
+
+/** Что светится у свёрнутого — проекта или родителя: сессии, которые ждут человека, упали или работают. */
+export const litOf = (rows: SessionRow[]): SessionRow[] => rows.filter((s) => s.state === "waiting" || s.state === "failed" || s.state === "busy").slice(0, 8);
+
+/** Строка списка, в которой стоит сессия: её собственная; у ведомого — строка ведущего; у спрятанной под свёрнутым родителем — строка этого родителя. */
+export const holderOf = (tree: TreeRow[], callsign: string): string | undefined => tree.find((r) => r.s.callsign === callsign || r.wing?.callsign === callsign || r.folded?.some((s) => s.callsign === callsign))?.s.callsign;
 
 /** Почему сессия в «Моих»: открыл я, открыла моя сессия или я её закрепил. Чужая и не закреплённая — пусто. */
 export function whyMine(p: Picture, s: SessionRow, pins: string[]): string {

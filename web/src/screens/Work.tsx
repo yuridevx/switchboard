@@ -15,7 +15,7 @@ import { Sortable } from "../lib/Sortable.tsx";
 import { getLocal, useLocal } from "../lib/local.ts";
 import { clampSplit, useSplit } from "../lib/Split.tsx";
 import { ago } from "../lib/time.ts";
-import { BUILTIN, type Filter, groupsByMachine, groupsOf, NO_PROJECT, projectOf, reorder, rowsOf, STATE_GROUPS, treeOf, whyMine } from "../lib/work.ts";
+import { BUILTIN, type Filter, groupsByMachine, groupsOf, holderOf, litOf, NO_PROJECT, projectOf, reorder, rowsOf, STATE_GROUPS, treeOf, whyMine } from "../lib/work.ts";
 import { Conversation, pairKey, type Side } from "../session/Conversation.tsx";
 import { isMine, machineOfCall, useFleet } from "../store/fleet.ts";
 
@@ -117,9 +117,12 @@ export function Work() {
   const rows = useMemo(() => rowsOf(picture, filter, pins, order), [picture.sessions, picture.you, filter, pins.join(), order.join()]);
   const names = Object.fromEntries((people.data?.projects ?? []).map((p) => [p.id, p.name]));
   const groups = useMemo(() => (groupBy === "machine" ? groupsByMachine(rows, machineName) : groupsOf(picture, rows, projectOrder, names)), [rows, projectOrder.join(), people.data, groupBy]); // eslint-disable-line react-hooks/exhaustive-deps
-  // строки группы деревом: пара — одной строкой, дочерние — под родителем
-  const trees = useMemo(() => new Map(groups.map((g) => [g.project, treeOf(picture, g.rows, nested)])), [groups, nested]); // eslint-disable-line react-hooks/exhaustive-deps
-  const flat = groups.flatMap((g) => (closed.includes(g.project) ? [] : trees.get(g.project)!.map((r) => r.s.callsign)));
+  // строки группы деревом: пара — одной строкой, дочерние — под родителем; свёрнутый родитель держит своих потомков в своей строке
+  const trees = useMemo(() => new Map(groups.map((g) => [g.project, treeOf(picture, g.rows, nested, closed)])), [groups, nested, closed.join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = groups.flatMap((g) => (closed.includes(g.project) ? [] : trees.get(g.project)!));
+  const flat = shown.map((r) => r.s.callsign);
+  // строка, в которой стоит открытая сессия: своя, строка ведущего или строка свёрнутого родителя
+  const held = callsign ? holderOf(shown, callsign) : undefined;
   // пара открывается той стороной, которую человек смотрел последней
   const open = (c: string) => {
     const wing = picture.sessions[c]?.spec.wing;
@@ -138,16 +141,15 @@ export function Work() {
     if (pick) go(`/work/${pick}`, { replace: true });
   }, [picture.rev, wide, callsign, view]); // eslint-disable-line react-hooks/exhaustive-deps
   const move = (d: number) => {
-    // открытый ведомый стоит в строке своего ведущего
-    const at = callsign ? flat.indexOf(picture.sessions[callsign]?.lead && !flat.includes(callsign) ? picture.sessions[callsign]!.lead! : callsign) : -1;
+    const at = held ? flat.indexOf(held) : -1;
     const next = flat[Math.max(0, Math.min(flat.length - 1, at + d))];
     if (next) open(next);
   };
   useHotkeys([["j", () => move(1)], ["k", () => move(-1)]]);
   // открытая сессия видна в списке: прокрутка к её строке
   useEffect(() => {
-    if (callsign) box.current?.querySelector(`[data-call="${CSS.escape(callsign)}"]`)?.scrollIntoView?.({ block: "nearest" });
-  }, [callsign]);
+    if (held) box.current?.querySelector(`[data-call="${CSS.escape(held)}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [held]);
 
   const drag = useRowDrag({
     box,
@@ -160,11 +162,14 @@ export function Work() {
     },
   });
   const pin = (c: string) => prefs.save("pins", pins.includes(c) ? pins.filter((p) => p !== c) : [...pins, c]);
-  const toggle = (project: string) => setClosed(closed.includes(project) ? closed.filter((x) => x !== project) : [...closed, project]);
+  // свёрнутое — одним списком: проект, машина или сессия-родитель
+  const toggle = (id: string) => setClosed(closed.includes(id) ? closed.filter((x) => x !== id) : [...closed, id]);
   const [orderProjects, setOrderProjects] = useState(false);
   const projectIds = groups.map((g) => g.project).filter((p) => p !== NO_PROJECT);
   const admin = !!picture.you?.admin;
   const offline = (s: SessionRow) => picture.machines[machineOfCall(s.callsign)]?.online === false;
+  // свёрнутое — проект или родитель — показывает лампами, что в нём работает и ждёт человека
+  const lamps = (hidden: SessionRow[]) => { const lit = litOf(hidden); return lit.length ? <span className="lamps">{lit.map((s) => <Lamp key={s.callsign} state={s.state} offline={offline(s)} />)}</span> : null; };
 
   return (
     <div ref={split.box} className={`panes${callsign ? " has-detail" : " solo"}${split.pulling ? " pulling" : ""}`} style={split.style}>
@@ -225,8 +230,7 @@ export function Work() {
                     <button type="button" className="grp-name" aria-expanded={!shut} onClick={() => toggle(g.project)}>
                       {shut ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}<span className="trunc">{g.name}</span>
                     </button>
-                    {/* свёрнутый проект показывает лампами, что в нём ждёт человека */}
-                    {shut && <span className="lamps">{g.rows.filter((s) => s.state === "waiting" || s.state === "failed" || s.state === "busy").slice(0, 8).map((s) => <Lamp key={s.callsign} state={s.state} offline={offline(s)} />)}</span>}
+                    {shut && lamps(g.rows)}
                     <span className="grp-acts">
                       <Tooltip label={groupBy === "machine" ? "Новая сессия на машине" : "Новая сессия в проекте"}><ActionIcon size="xs" variant="subtle" aria-label={`Новая сессия: ${g.name}`} onClick={() => go(newPath(groupBy === "machine" ? { machine: g.project.slice(1) } : real ? { project: g.project } : null))}><IconPlus size={13} /></ActionIcon></Tooltip>
                       {real && (
@@ -245,12 +249,18 @@ export function Work() {
                       )}
                     </span>
                   </div>
-                  {!shut && trees.get(g.project)!.map(({ s, depth, wing }) => {
+                  {!shut && trees.get(g.project)!.map(({ s, depth, wing, kids, folded }) => {
                     const pinned = pins.includes(s.callsign);
                     const mine = isMine(picture, s);
                     return (
                       <div key={s.callsign} className={`rowwrap${drag.dragging === s.callsign ? " dragging" : ""}`} data-drag-id={s.callsign} data-drag-group={g.project} onPointerDown={groupBy === "project" ? drag.onPointerDown(s.callsign) : undefined}>
-                        <SessionLine s={s} depth={depth} wing={wing} parts={parts} why={whyMine(picture, s, pins)} selected={s.callsign === callsign || (!!wing && wing.callsign === callsign)} onPick={() => open(s.callsign)} sub={<>
+                        {/* у родителя — шеврон: дочерние сворачиваются в его строку */}
+                        {kids && (
+                          <button type="button" className="kidsbtn" style={{ left: Math.min(depth, 4) * 18 }} aria-expanded={!folded} aria-label={`${folded ? "Показать" : "Свернуть"} дочерние: ${s.callsign}`} onClick={() => toggle(s.callsign)}>
+                            {folded ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
+                          </button>
+                        )}
+                        <SessionLine s={s} depth={depth} wing={wing} lamps={folded && lamps(folded)} parts={parts} why={whyMine(picture, s, pins)} selected={s.callsign === held} onPick={() => open(s.callsign)} sub={<>
                           {askLine(s) ? <> · {askLine(s)}</> : s.state === "failed" ? <> · {s.error ?? "сбой"}</> : null}
                           {!mine && <> <span className="chip">{personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</span></>}
                           {s.incident && <> <span className="chip warn">обращение: {s.incident.kind}</span></>}

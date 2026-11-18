@@ -3,7 +3,7 @@ import type { Ask, MachineRow, SessionRow } from "@sb/protocol";
 import { describe, expect, it } from "vitest";
 import { fold } from "../chat/fold.ts";
 import { rowMark } from "../common.tsx";
-import { groupsByMachine, matches, treeOf, whyMine } from "../lib/work.ts";
+import { groupsByMachine, holderOf, litOf, matches, treeOf, whyMine } from "../lib/work.ts";
 import { tabInto } from "../shell/NewSession.tsx";
 import type { Picture } from "../store/fleet.ts";
 import { askOutcome, seenWord } from "../chat/answers.ts";
@@ -44,6 +44,43 @@ describe("«Работа»: дерево и пара", () => {
   it("круг «кто кого открыл» не теряет строк", () => {
     const loop = [row("a@laptop", { by: "b@laptop" }), row("b@laptop", { by: "a@laptop" })];
     expect(treeOf(picture(loop), loop).map((r) => r.s.callsign).sort()).toEqual(["a@laptop", "b@laptop"]);
+  });
+  // сессия с помощниками: site открыла shots и css, shots — diff
+  const site = [
+    row("site@laptop", { state: "busy" }),
+    row("shots@laptop", { by: "site@laptop", state: "waiting" }),
+    row("diff@laptop", { by: "shots@laptop" }),
+    row("css@laptop", { by: "site@laptop", state: "busy" }),
+  ];
+  const calls = (list: SessionRow[] = []) => list.map((s) => s.callsign);
+  const shape = (closed: string[], nested = true) => treeOf(picture(site), site, nested, closed).map((r) => [r.s.callsign, r.depth, !!r.kids, r.folded && calls(r.folded)]);
+  // чьё: слово пользователя — «скрывать и раскрывать вложенные сессии»
+  it("свёрнутый родитель прячет всех потомков в свою строку и светит теми, кто работает и ждёт", () => {
+    expect(shape(["site@laptop"])).toEqual([["site@laptop", 0, true, ["shots@laptop", "diff@laptop", "css@laptop"]]]);
+    const [parent] = treeOf(picture(site), site, true, ["site@laptop"]);
+    expect(litOf(parent!.folded!).map((s) => [s.callsign, s.state])).toEqual([["shots@laptop", "waiting"], ["css@laptop", "busy"]]);
+  });
+  // чьё: слово пользователя — «скрывать и раскрывать вложенные сессии»
+  it("раскрытый родитель: потомки стоят под ним, шеврон есть только у тех, у кого есть дочерние", () => {
+    expect(shape([])).toEqual([["site@laptop", 0, true, undefined], ["shots@laptop", 1, true, undefined], ["diff@laptop", 2, false, undefined], ["css@laptop", 1, false, undefined]]);
+  });
+  // чьё: код — у свёрнутого проекта светятся только те, кто работает, ждёт или упал
+  it("свёрнута середина дерева: спрятан только её потомок; свободный потомок не светится", () => {
+    expect(shape(["shots@laptop"])).toEqual([["site@laptop", 0, true, undefined], ["shots@laptop", 1, true, ["diff@laptop"]], ["css@laptop", 1, false, undefined]]);
+    expect(litOf([site[2]!])).toEqual([]);
+  });
+  // чьё: код — так же ведомый стоит в строке своего ведущего
+  it("строка открытой сессии: своя; у ведомого — строка ведущего; у спрятанной — строка свёрнутого родителя", () => {
+    const folded = treeOf(picture(site), site, true, ["site@laptop"]);
+    expect(holderOf(folded, "diff@laptop")).toBe("site@laptop");
+    expect(holderOf(folded, "site@laptop")).toBe("site@laptop");
+    const pair = treeOf(picture(rows), rows);
+    expect(holderOf(pair, "wing@laptop")).toBe("lead@laptop");
+    expect(holderOf(pair, "nobody@laptop")).toBeUndefined();
+  });
+  // чьё: код — без дерева все сессии стоят своими строками
+  it("дерево выключено: свёрнутый родитель никого не прячет, шевронов нет", () => {
+    expect(shape(["site@laptop"], false)).toEqual([["site@laptop", 0, false, undefined], ["shots@laptop", 0, false, undefined], ["diff@laptop", 0, false, undefined], ["css@laptop", 0, false, undefined]]);
   });
   it("«почему моё»: открыл я, открыла моя сессия, закрепил; чужая без закрепления — пусто", () => {
     const p = picture([...rows, row("alien@server", { by: "pult~anya@example.com" })]);
