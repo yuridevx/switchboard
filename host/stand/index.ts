@@ -1,5 +1,5 @@
 // Стенд Host: настоящее ядро на поддельных SDK, связи, службах, держателях и часах. Хранилище и журнал — во временной папке.
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fail, isReply, newId, ok, type Frame, type Link, type LinkState, type LogLine, type Reply, type Transport } from "@sb/protocol";
@@ -146,7 +146,8 @@ export type Stand = {
 };
 
 export async function stand(o: StandOptions = {}): Promise<Stand> {
-  const home = o.home ?? mkdtempSync(join(tmpdir(), "sb2-host-"));
+  // папка стенда — под настоящим именем, как её назовёт ядро: временная папка Windows бывает названа коротким именем (RUNNER~1)
+  const home = o.home ?? realpathSync.native(mkdtempSync(join(tmpdir(), "sb2-host-")));
   const dir = join(home, "work");
   mkdirSync(dir, { recursive: true });
   const machine = o.machine ?? "laptop";
