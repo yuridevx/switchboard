@@ -115,7 +115,7 @@ button { cursor: pointer; }
       <g class="n" data-x="cli" data-path="in" tabindex="0"><rect x="34" y="166" width="260" height="54" rx="10"/><text x="164" y="190" text-anchor="middle">Codex CLI в пустой папке</text><text class="sub" x="164" y="208" text-anchor="middle">папка удаляется после переноса</text></g>
       <g class="n ours" data-x="script" data-path="in" tabindex="0"><rect x="34" y="286" width="260" height="54" rx="10"/><text x="164" y="310" text-anchor="middle">key-chatgpt</text><text class="sub" x="164" y="328" text-anchor="middle">переносит вход в ключ флота</text></g>
 
-      <g class="n ours chg" data-chg="arch-keys-node" data-x="keys" data-path="in rot tok" tabindex="0"><rect x="354" y="56" width="260" height="62" rx="10"/><text x="484" y="82" text-anchor="middle">Службы · ключи</text><text class="sub" x="484" y="101" text-anchor="middle">хозяин входа и его обновления</text></g>
+      <g class="n ours" data-x="keys" data-path="in rot tok" tabindex="0"><rect x="354" y="56" width="260" height="62" rx="10"/><text x="484" y="82" text-anchor="middle">Службы · ключи</text><text class="sub" x="484" y="101" text-anchor="middle">хозяин входа и его обновления</text></g>
       <g class="n ours" data-x="host" data-path="tok call" tabindex="0"><rect x="354" y="176" width="260" height="62" rx="10"/><text x="484" y="202" text-anchor="middle">Host · прокси машины</text><text class="sub" x="484" y="221" text-anchor="middle">переводчик Anthropic → Responses</text></g>
       <g class="n" data-x="claude" data-path="call" tabindex="0"><rect x="354" y="296" width="260" height="62" rx="10"/><text x="484" y="322" text-anchor="middle">Сессия claude</text><text class="sub" x="484" y="341" text-anchor="middle">модель gpt-6.2-astra</text></g>
 
@@ -124,7 +124,7 @@ button { cursor: pointer; }
 
       <g class="a once" data-x="a-login" data-path="in" tabindex="0"><path d="M244 56 L244 46 L860 46 L860 54" marker-end="url(#ah)"/><text x="560" y="40" text-anchor="middle">вход в браузере</text></g>
       <g class="a once" data-x="a-file" data-path="in" tabindex="0"><path d="M164 110 L164 164" marker-end="url(#ah)"/><text x="172" y="142">codex login</text></g>
-      <g class="a once chg" data-chg="arch-read-arrow" data-x="a-read" data-path="in" tabindex="0"><path d="M164 220 L164 284" marker-end="url(#ah)"/><text x="172" y="256">auth.json</text></g>
+      <g class="a once" data-x="a-read" data-path="in" tabindex="0"><path d="M164 220 L164 284" marker-end="url(#ah)"/><text x="172" y="256">auth.json</text></g>
       <g class="a once" data-x="a-set" data-path="in" tabindex="0"><path d="M294 313 L322 313 L322 100 L352 100" marker-end="url(#ah)"/><text x="300" y="380"></text></g>
       <g class="a" data-x="a-refresh" data-path="in rot" tabindex="0"><path d="M614 100 L678 100" marker-end="url(#ah)" marker-start="url(#ah)"/><text x="646" y="138" text-anchor="middle">раз в 9 дней</text></g>
       <g class="a" data-x="a-value" data-path="tok" tabindex="0"><path d="M484 174 L484 120" marker-end="url(#ah)"/><text x="492" y="152">keys.value</text></g>
@@ -171,11 +171,11 @@ button { cursor: pointer; }
   <h2>Когда вход умер</h2>
   <div class="card" data-explain>
     <div class="steps">
-      <button class="step chg" data-chg="f-d1" data-x="d-openai"><span class="who">OpenAI</span><span class="what">отказал обновлению</span></button><span class="arrow">→</span>
-      <button class="step chg" data-chg="f-d2" data-x="d-keys"><span class="who">службы</span><span class="what">отказ bad_token словами OpenAI</span></button><span class="arrow">→</span>
-      <button class="step chg" data-chg="f-d3" data-x="d-host"><span class="who">Host</span><span class="what">сессиям 401, человеку <span class="chg" data-chg="a2-d3">одно</span> обращение «аккаунт»</span></button><span class="arrow">→</span>
-      <button class="step chg" data-chg="f-d4" data-x="d-claude"><span class="who">сессия</span><span class="what">слова отказа через 3 с</span></button><span class="arrow">→</span>
-      <button class="step chg" data-chg="f-d5" data-x="d-human"><span class="who">человек</span><span class="what">key-chatgpt заново — сессии идут дальше</span></button>
+      <button class="step" data-x="d-openai"><span class="who">OpenAI</span><span class="what">отказал обновлению</span></button><span class="arrow">→</span>
+      <button class="step" data-x="d-keys"><span class="who">службы</span><span class="what">отказ bad_token словами OpenAI</span></button><span class="arrow">→</span>
+      <button class="step" data-x="d-host"><span class="who">Host</span><span class="what">сессиям 401, человеку <span>одно</span> обращение «аккаунт»</span></button><span class="arrow">→</span>
+      <button class="step" data-x="d-claude"><span class="who">сессия</span><span class="what">слова отказа через 3 с</span></button><span class="arrow">→</span>
+      <button class="step" data-x="d-human"><span class="who">человек</span><span class="what">key-chatgpt заново — сессии идут дальше</span></button>
     </div>
     <div class="why" aria-live="polite"><b>Система ловит, человек входит заново.</b><p>Нажмите на шаг.</p></div>
   </div>
@@ -184,9 +184,9 @@ button { cursor: pointer; }
 <section id="b-log" data-block>
   <h2>Журнал</h2>
   <div class="et" data-explain>
-    <button class="e chg" data-chg="f-l1" data-x="l-key" style="text-align:left;font:inherit;color:inherit"><span class="tag">машина · новая строка</span><pre>key  chatgpt-pro  until 07.12 07:35</pre></button>
-    <button class="e chg" data-chg="f-l2" data-x="l-call" style="text-align:left;font:inherit;color:inherit"><span class="tag">машина · прежняя строка</span><pre>call  site@laptop  chatgpt-pro  gpt-6.2-astra  200  9032 мс</pre></button>
-    <button class="e chg" data-chg="f-l3" data-x="l-dead" style="text-align:left;font:inherit;color:inherit"><span class="tag">машина · прежняя строка</span><pre>account.token  chatgpt-pro  bad_token  refresh_token_expired</pre></button>
+    <button class="e" data-x="l-key" style="text-align:left;font:inherit;color:inherit"><span class="tag">машина · новая строка</span><pre>key  chatgpt-pro  until 07.12 07:35</pre></button>
+    <button class="e" data-x="l-call" style="text-align:left;font:inherit;color:inherit"><span class="tag">машина · прежняя строка</span><pre>call  site@laptop  chatgpt-pro  gpt-6.2-astra  200  9032 мс</pre></button>
+    <button class="e" data-x="l-dead" style="text-align:left;font:inherit;color:inherit"><span class="tag">машина · прежняя строка</span><pre>account.token  chatgpt-pro  bad_token  refresh_token_expired</pre></button>
     <div class="why" aria-live="polite" style="grid-column:1/-1"><b>Все три строки пишет машина — они едут в историю флота.</b><p>Нажмите на строку.</p></div>
   </div>
 </section>
@@ -200,10 +200,10 @@ button { cursor: pointer; }
     <button class="num" data-x="f-reuse"><b>200</b><span>старый refresh через 90 с после обновления: гонка машин не убивает вход</span></button>
     <button class="num" data-x="f-cat"><b>10 моделей</b><span>в каталоге бэкенда, окна 272 К и 500 К</span></button>
     <button class="num" data-x="f-rules"><b>2 правила</b><span>бэкенда: только поток, каталог — с версией клиента</span></button>
-    <button class="num chg" data-chg="w-worker" data-x="f-worker"><b>200 и 403</b><span>из Worker'а Cloudflare: обновление входа проходит, chatgpt.com закрыт</span></button>
-    <button class="num chg" data-chg="w-repo" data-x="f-repo"><b>10 из 11</b><span>моделей каталога из репо OpenAI отвечают; gpt-5.5 бэкенд отклоняет</span></button>
-    <button class="num chg" data-chg="f-deny" data-x="f-deny"><b>2 против 11</b><span>вызовов claude на отказ 401 и на 529: 3 с против 185 с</span></button>
-    <button class="num chg" data-chg="f-dc" data-x="f-dc"><b>2 из 2</b><span>серверов прода в дата-центре достают до бэкенда ChatGPT</span></button>
+    <button class="num" data-x="f-worker"><b>200 и 403</b><span>из Worker'а Cloudflare: обновление входа проходит, chatgpt.com закрыт</span></button>
+    <button class="num" data-x="f-repo"><b>10 из 11</b><span>моделей каталога из репо OpenAI отвечают; gpt-5.5 бэкенд отклоняет</span></button>
+    <button class="num" data-x="f-deny"><b>2 против 11</b><span>вызовов claude на отказ 401 и на 529: 3 с против 185 с</span></button>
+    <button class="num" data-x="f-dc"><b>2 из 2</b><span>серверов прода в дата-центре достают до бэкенда ChatGPT</span></button>
     <div class="why" aria-live="polite" style="grid-column:1/-1"><b>Всё — замеры этой сессии.</b><p>Нажмите на число: команда и ответ.</p></div>
   </div>
 </section>
@@ -212,9 +212,9 @@ button { cursor: pointer; }
   <h2>Договор</h2>
   <div class="et" data-explain>
     <button class="e" data-x="c-proto" style="text-align:left;font:inherit;color:inherit"><b>Протокол ключа chatgpt</b><div class="io"><div>claude · anthropic · openai · meta</div><span>→</span><div class="out">+ chatgpt</div></div></button>
-    <button class="e chg" data-chg="a2-cset" data-x="c-set" style="text-align:left;font:inherit;color:inherit"><b>keys.set</b><div class="io"><div>значение — refresh-токен</div><span>→</span><div class="out">обмен у OpenAI; в записях — пара токенов</div></div></button>
+    <button class="e" data-x="c-set" style="text-align:left;font:inherit;color:inherit"><b>keys.set</b><div class="io"><div>значение — refresh-токен</div><span>→</span><div class="out">обмен у OpenAI; в записях — пара токенов</div></div></button>
     <button class="e" data-x="c-value" style="text-align:left;font:inherit;color:inherit"><b>keys.value</b><div class="io"><div>имя ключа</div><span>→</span><div class="out">токен доступа + until</div></div></button>
-    <button class="e chg" data-chg="arch-models-card" data-x="c-models" style="text-align:left;font:inherit;color:inherit"><b>keys.models</b><div class="io"><div>имя ключа</div><span>→</span><div class="out"><span class="chg" data-chg="w-models-card">каталог из репо OpenAI</span></div></div></button>
+    <button class="e" data-x="c-models" style="text-align:left;font:inherit;color:inherit"><b>keys.models</b><div class="io"><div>имя ключа</div><span>→</span><div class="out"><span>каталог из репо OpenAI</span></div></div></button>
   </div>
   <div class="card" style="margin-top:10px" data-explain-out><div class="why" id="contract-why" aria-live="polite"><b>Новых запросов нет.</b><p>Нажмите на карточку: пример.</p></div></div>
 </section>
@@ -224,33 +224,33 @@ button { cursor: pointer; }
   <div class="et">
     <div class="e"><b>Свежий токен — без похода в OpenAI</b><div class="io"><div>keys.value, до until 3 дня</div><span>→</span><div class="out">тот же токен, until; вызовов auth 0</div></div><span class="src">чьё: факт — токен живёт 10 дней</span></div>
     <div class="e"><b>После until — одно обновление</b><div class="io"><div>keys.value, until прошёл</div><span>→</span><div class="out">1 вызов oauth/token, новая пара записана, отдан новый токен</div></div><span class="src">чьё: слово пользователя — «своей ротацией»</span></div>
-    <div class="e"><b>Отказ обновления — словами</b><div class="io"><div>oauth/token: <span class="chg" data-chg="f-e3">OpenAI ответил отказом</span></div><span>→</span><div class="out">отказ bad_token со словами OpenAI, записи прежние</div></div><span class="src">чьё: устав — «ошибка словом»</span></div>
-    <div class="e chg" data-chg="a2-e4"><b>Вход по refresh-токену</b><div class="io"><div>keys.set chatgpt, значение — refresh-токен</div><span>→</span><div class="out">1 вызов oauth/token, в записях пара; OpenAI отказал — отказ bad_token, ключ не записан</div></div><span class="src">чьё: слово пользователя — «как с мюзов»; факт — обновление сразу после входа отвечает 200</span></div>
+    <div class="e"><b>Отказ обновления — словами</b><div class="io"><div>oauth/token: <span>OpenAI ответил отказом</span></div><span>→</span><div class="out">отказ bad_token со словами OpenAI, записи прежние</div></div><span class="src">чьё: устав — «ошибка словом»</span></div>
+    <div class="e"><b>Вход по refresh-токену</b><div class="io"><div>keys.set chatgpt, значение — refresh-токен</div><span>→</span><div class="out">1 вызов oauth/token, в записях пара; OpenAI отказал — отказ bad_token, ключ не записан</div></div><span class="src">чьё: слово пользователя — «как с мюзов»; факт — обновление сразу после входа отвечает 200</span></div>
     <div class="e"><b>Вызов бэкенда</b><div class="io"><div>маршрут chatgpt, /v1/messages</div><span>→</span><div class="out">POST {база}/responses без /v1, Bearer, session_id = prompt_cache_key</div></div><span class="src">чьё: факт — кэш 0 → 8192 только с session_id</span></div>
-    <div class="e"><b>Host берёт ключ заново после until</b><div class="io"><div>вызов, значение ключа старше until</div><span>→</span><div class="out">keys.value ещё раз<span class="chg" data-chg="a2-e6"> — один на все вызовы, что идут разом</span>, вызов идёт с новым токеном</div></div><span class="src">чьё: факт — токен живёт 10 дней<span class="chg" data-chg="a2-e6-src">; код — один запрос на всех, кто ждёт, как у списка аккаунтов</span></span></div>
-    <div class="e"><b>Каталог</b><div class="io"><div>keys.models chatgpt</div><span>→</span><div class="out"><span class="chg" data-chg="w-models-etalon">models.json из openai/codex без токена; только видимые; окно из context_window</span></div></div><span class="src"><span class="chg" data-chg="w-models-src">чьё: факт — chatgpt.com Worker'у 403, репо — 200; 11 видимых</span></span></div>
-    <div class="e chg" data-chg="f-e8"><b>Умерший вход — 401, а не «перегружено»</b><div class="io"><div>вызов сессии, keys.value отказал bad_token</div><span>→</span><div class="out">сессии 401 со словами отказа; строка account.token; обращение «аккаунт»<span class="chg" data-chg="a2-e8"> — одно; второй вызов — тот же 401 без запроса к службам</span></div></div><span class="src">чьё: факт — на 401 claude делает 2 вызова за 3 с, на 529 — 11 за 185 с<span class="chg" data-chg="a2-e8-src">; код — негодный аккаунт Claude выбывает после первого отказа</span></span></div>
-    <div class="e chg" data-chg="a2-e9"><b>Новый вход — сессии идут дальше</b><div class="io"><div>ключ помнится умершим, пришло «ключи изменились»</div><span>→</span><div class="out">следующий вызов берёт ключ заново и идёт с новым токеном</div></div><span class="src">чьё: код — «ключи изменились» сбрасывает значения ключей в памяти машины</span></div>
+    <div class="e"><b>Host берёт ключ заново после until</b><div class="io"><div>вызов, значение ключа старше until</div><span>→</span><div class="out">keys.value ещё раз<span> — один на все вызовы, что идут разом</span>, вызов идёт с новым токеном</div></div><span class="src">чьё: факт — токен живёт 10 дней<span>; код — один запрос на всех, кто ждёт, как у списка аккаунтов</span></span></div>
+    <div class="e"><b>Каталог</b><div class="io"><div>keys.models chatgpt</div><span>→</span><div class="out"><span>models.json из openai/codex без токена; только видимые; окно из context_window</span></div></div><span class="src"><span>чьё: факт — chatgpt.com Worker'у 403, репо — 200; 11 видимых</span></span></div>
+    <div class="e"><b>Умерший вход — 401, а не «перегружено»</b><div class="io"><div>вызов сессии, keys.value отказал bad_token</div><span>→</span><div class="out">сессии 401 со словами отказа; строка account.token; обращение «аккаунт»<span> — одно; второй вызов — тот же 401 без запроса к службам</span></div></div><span class="src">чьё: факт — на 401 claude делает 2 вызова за 3 с, на 529 — 11 за 185 с<span>; код — негодный аккаунт Claude выбывает после первого отказа</span></span></div>
+    <div class="e"><b>Новый вход — сессии идут дальше</b><div class="io"><div>ключ помнится умершим, пришло «ключи изменились»</div><span>→</span><div class="out">следующий вызов берёт ключ заново и идёт с новым токеном</div></div><span class="src">чьё: код — «ключи изменились» сбрасывает значения ключей в памяти машины</span></div>
   </div>
 </section>
 
 <section id="b-gate" data-block>
   <h2>Гейт</h2>
-  <div class="card"><div class="gate"><span class="chg" data-chg="a2-gate">Гейт: дубликаты ответственности 0 → 0 · состояния 0 → 0 · логики 1 → 0 · смысла 1 → 0 · других 0 → 0 · лишние коммуникации 2 → 0 · циклы 0 → 0
+  <div class="card"><div class="gate"><span>Гейт: дубликаты ответственности 0 → 0 · состояния 0 → 0 · логики 1 → 0 · смысла 1 → 0 · других 0 → 0 · лишние коммуникации 2 → 0 · циклы 0 → 0
   реестры: 47 строк — ответственность 13 · состояние 4 · логика 5 · понятия 6 · механизмы 6 · коммуникации 8 · зависимости 5</span>
   обновление входа — один хозяин (ключи служб); Host правила срока не знает, только ждёт until
   вход живёт в одном месте: папка Codex CLI удаляется после переноса
   переводчик один на OpenAI, Meta и ChatGPT; у ChatGPT отличаются база и заголовок session_id
   после обновления машинам не рассылается событие: старый токен работает до своего срока, каждая машина возьмёт новый по своему until
-  <span class="chg" data-chg="arch-gate-names">until — «когда спросить снова», expires у аккаунта Claude и у токена GitHub — «когда значение умрёт»: два смысла, два имени</span>
-  <span class="chg" data-chg="a2-gate-names">аккаунт — ключ флота со входом по подписке, Claude или ChatGPT: одно слово, одна строка account.token, один вид обращения
+  <span>until — «когда спросить снова», expires у аккаунта Claude и у токена GitHub — «когда значение умрёт»: два смысла, два имени</span>
+  <span>аккаунт — ключ флота со входом по подписке, Claude или ChatGPT: одно слово, одна строка account.token, один вид обращения
   файл Codex CLI знает только скрипт входа; службы знают один чужой договор — обмен токена у OpenAI
   срок токена лежит в самом токене доступа и отдельно не хранится; «вход умер» машина помнит в памяти до события «ключи изменились»</span>
-Числа: <span class="chg" data-chg="a2-gate-nums">модули 0 · имена договора: запросы 0, кадры 0, поля +1 (until), виды ключа 4 → 5, строки журнала +1 (key), виды обращений 0 · каналы 0 · переводчики 1 → 1 · секреты +1 на аккаунт ChatGPT · настройки 0</span>
-  <span class="chg" data-chg="arch-gate-nums">коммуникации: потоки +3 (вход и перенос — один раз; обновление входа — раз в 9 дней), вызов — прежний путь; </span><span class="chg" data-chg="w-gate-catalog">каталог — службы → репо OpenAI, как у прочих ключей: один запрос, без машин</span>
-  инструменты +1 (key-chatgpt) · ожидаемые ветки сбоев 0 новых (обновление не прошло — отказ словом) · эталоны <span class="chg" data-chg="a2-g-et">+9</span>
+Числа: <span>модули 0 · имена договора: запросы 0, кадры 0, поля +1 (until), виды ключа 4 → 5, строки журнала +1 (key), виды обращений 0 · каналы 0 · переводчики 1 → 1 · секреты +1 на аккаунт ChatGPT · настройки 0</span>
+  <span>коммуникации: потоки +3 (вход и перенос — один раз; обновление входа — раз в 9 дней), вызов — прежний путь; </span><span>каталог — службы → репо OpenAI, как у прочих ключей: один запрос, без машин</span>
+  инструменты +1 (key-chatgpt) · ожидаемые ветки сбоев 0 новых (обновление не прошло — отказ словом) · эталоны <span>+9</span>
 Работа: большая — меняет договор (протокол ключа chatgpt, поле until у keys.value) и хранилище ключей (вход ChatGPT с обновлением)
-<span class="chg" data-chg="a2-gate-done">Сделано:
+<span>Сделано:
   1. Слабая связность и дубликат логики · auth.json разбирали бы и скрипт, и служба ключей, а служба знала бы файл чужой программы · файл читает только скрипт входа;
      службе идёт одна строка — refresh-токен, она сразу меняет его у OpenAI на пару · выигрыш: мест разбора 2 → 1, чужих файлов в службах 1 → 0,
      отказов «не тот текст» 1 → 0, негодный вход виден при записи ключа, а не на первом вызове
@@ -260,9 +260,9 @@ button { cursor: pointer; }
      берёт один, остальные ждут его ответа · выигрыш: обменов на машину — по числу вызовов → 1
   4. Дубликат смысла · «аккаунт» в истории флота значил аккаунт Claude, а строка account.token шла о ключе ChatGPT · смысл один: ключ флота со входом по подписке
      · выигрыш: видов обращений и имён строк +0; направление то же, что у развилки 1
-</span><span class="chg" data-chg="w-gate-done">  5. Факт не покрыт · обновление и каталог шли бы из Cloudflare, а замеры — с компьютера · опыт из Worker'а поставлен до «делай»: обновление 200, chatgpt.com 403
+</span><span>  5. Факт не покрыт · обновление и каталог шли бы из Cloudflare, а замеры — с компьютера · опыт из Worker'а поставлен до «делай»: обновление 200, chatgpt.com 403
      · каталог — из репо OpenAI без токена (развилка 2) · выигрыш: каталогу не нужны ни токен, ни правило свежести, ни версия клиента</span>
-<span class="chg" data-chg="f-g-done">  6. Лишняя устойчивость · умерший вход шёл бы сессии ответом «перегружено» · отказ bad_token прокси отдаёт как 401; человеку — прежнее обращение «аккаунт»
+<span>  6. Лишняя устойчивость · умерший вход шёл бы сессии ответом «перегружено» · отказ bad_token прокси отдаёт как 401; человеку — прежнее обращение «аккаунт»
      · выигрыш: вызовов на отказ 11 → 2, ожидание 185 с → 3 с, видов обращений +0
   7. Наблюдаемость · строка об обновлении жила бы только в журнале служб, а в историю флота едут журналы машин · строки пишет машина: key при взятии токена, call, account.token
      · выигрыш: путей журнала +0, вся история входа — в истории флота
@@ -272,23 +272,24 @@ button { cursor: pointer; }
   1. Несколько аккаунтов ChatGPT с выбором по лимитам, как у Claude (заголовки x-codex-primary-* есть в каждом ответе).
      Рекомендую: потом — сейчас аккаунт ChatGPT = ключ флота, сессия выбирает его явно.
      Не скажете иначе — потом.
-<span class="chg" data-chg="w-fork-catalog">  2. Откуда службам брать каталог моделей ChatGPT. Факт: chatgpt.com отвечает Worker'у 403 при любых заголовках, а службы — Worker.
+<span>  2. Откуда службам брать каталог моделей ChatGPT. Факт: chatgpt.com отвечает Worker'у 403 при любых заголовках, а службы — Worker.
      Рекомендую: каталог из открытого репо OpenAI — тот же, что встроен в Codex CLI; токен не нужен. 11 видимых моделей,
      из них gpt-5.5 бэкенд отклоняет при первом вызове словами «not supported when using Codex with a ChatGPT account».
-     <span class="chg" data-chg="f-fork2">Иначе: машины сообщают службам каталог аккаунта — как уже сообщают лимиты Claude. Список точный, но это копия каталога в службах,
+     <span>Иначе: машины сообщают службам каталог аккаунта — как уже сообщают лимиты Claude. Список точный, но это копия каталога в службах,
      новый запрос, и до первой сессии на ключе список пуст — первый положит скрипт входа.</span>
      Не скажете иначе — из репо.</span>
-<span class="chg" data-chg="arch-gate-edit">Не трогал как редакторское: пустая подпись стрелки keys.set; хвост значения у ключа chatgpt в списке ключей</span><span class="chg" data-chg="a2-gate-edit">; слова «аккаунт Claude» в описаниях истории флота</span>
-<span class="chg" data-chg="a2-verdict">Вердикт: делай</span></div></div>
+<span>Не трогал как редакторское: пустая подпись стрелки keys.set; хвост значения у ключа chatgpt в списке ключей</span><span>; слова «аккаунт Claude» в описаниях истории флота</span>
+<span>Вердикт: делай — сделано 18 нояб., на тестовом флоте со сборки 45</span></div></div>
 </section>
 
 <section id="b-order" data-block>
   <h2>Порядок реализации</h2>
   <div class="order">
-    <div class="o"><b>Ключ chatgpt в службах</b><span class="done">Готово: протокол в договоре; keys.set, keys.value с обновлением и until, keys.models. Тесты служб +5 (эталоны 1–4 и 7), <code>npm test</code> зелёный.</span></div>
-    <div class="o"><b>Маршрут chatgpt в прокси</b><span class="done">Готово: переводчик шлёт в {база}/responses с session_id; Host берёт ключ заново после until<span class="chg" data-chg="f-o2">; отказ bad_token — сессии 401 и обращение; строка key. Тесты Host <span class="chg" data-chg="a2-o2">+4 (эталоны 5, 6, 8 и 9)</span>.</span></span></div>
-    <div class="o"><b>Перенос входа</b><span class="done">Готово: <code>node tools/fleet/key-chatgpt.ts test cli chatgpt-pro</code> — ключ в keys.list с протоколом chatgpt; временной папки Codex после команды нет (0 папок).</span></div>
-    <div class="o"><b>Живая проверка на тестовом флоте</b><span class="done">Готово: сессия на gpt-6.2-astra — два хода с Read и Write, второй ход читает из кэша больше 0 токенов; <span class="chg" data-chg="w-order-live">каталог ключа в выборе модели — 11 моделей.</span><span class="chg" data-chg="f-o4"> В истории флота — строка key с until и строки call этой сессии (2 и больше).</span></span></div>
+    <div class="o"><b>Ключ chatgpt в службах</b><span class="done">Готово: вид ключа в договоре; keys.set с обменом, keys.value с обновлением и until, keys.models. Тесты служб 144 → 149 (эталоны 1–4 и 7). Сделано.</span></div>
+    <div class="o"><b>Маршрут chatgpt в прокси</b><span class="done">Готово: переводчик шлёт в {база}/responses с session_id; Host берёт ключ заново после until; отказ bad_token — сессии 401 и одно обращение; строка key. Тесты Host 272 → 276 (эталоны 5, 6, 8 и 9). Сделано.</span></div>
+    <div class="o"><b>Перенос входа</b><span class="done">Готово: <code>node tools/fleet/key-chatgpt.ts test cli chatgpt-pro</code> — ключ в keys.list с протоколом chatgpt; временных папок после команды 0. Сделано.</span></div>
+    <div class="o"><b>Живая проверка на тестовом флоте</b><span class="done">Готово: сессия на gpt-6.2-astra — 7 шагов из 7: каталог 11 моделей, два хода с Write и Read, второй ход читает из кэша 13 312 из 14 963 токенов. В истории флота — 6 строк key с until и 23 строки call на ключе, все 200. Смена модели на лету Claude → ChatGPT → ChatGPT → Claude и посреди хода — 5 шагов из 5. Сделано.</span></div>
+    <div class="o"><b>Находка живой проверки: перезапуск после хода</b><span class="done">Готово: смена посреди хода на модель с пределом окна оставляла строку сессии с итогом прошлого хода — перезапуск закрывал процесс раньше, чем тот называл сессию свободной. Перезапуск ждёт состояния до 30 с. Тесты Host 276 → 277; шаг смены посреди хода 4 из 5 → 5 из 5. Сделано.</span></div>
   </div>
 </section>
 </div>
@@ -350,7 +351,7 @@ button { cursor: pointer; }
       // четвёртое поле — метка правки архитектора: текст пояснения выделяется жёлтым
       const [title, text, json, chg] = X[el.dataset.x] ?? [el.dataset.x, ""];
       for (const i of items) i.classList.toggle("on", i === el);
-      out.innerHTML = `<b>${esc(title)}</b><p${chg ? ` class="chg" data-chg="${chg}"` : ""}>${esc(text)}</p>${json ? `<pre>${esc(json)}</pre>` : ""}`;
+      out.innerHTML = `<b>${esc(title)}</b><p${chg ? `` : ""}>${esc(text)}</p>${json ? `<pre>${esc(json)}</pre>` : ""}`;
     };
     const svg = box.querySelector("svg");
     for (const el of items) {
