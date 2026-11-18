@@ -7,7 +7,7 @@
 // claude — настоящий, из пакета SDK; поддельная модель — ключ провайдера «box».
 // Команда получает: SB2_DEV — папка настроек (адрес флота, пропуск устройства cli), SB2_KEY, SB2_MODEL, SB2_SWITCH — ключ и модели коробки.
 // Сбой подъёма или красная команда — хвосты журналов частей. Папка коробки dist/box/<номер процесса> после зелёной команды убирается.
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -144,8 +144,9 @@ async function up() {
   fs.writeFileSync(path.join(dev, "v2-fleet.env"), `SB2_BASE=${base}\nSB2_PLATFORM=${platform}\nSB2_BOOT=box\n`);
   fs.writeFileSync(path.join(dev, `v2-${FLEET}-${DEVICE}.pass`), admin + "\n");
   // сборка идёт в каталог флота тем же шагом, которым её доводит выкладка; машины ставит и держит служба машины из этой сборки
-  const rolled = spawnSync(process.execPath, [path.join(root, "tools/deploy/machines.mjs"), FLEET, DEVICE], { cwd: root, stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, SB2_DEV: dev } });
-  if (rolled.status !== 0) throw new Error(`сборка не дошла до каталога флота: код ${rolled.status}`);
+  // шаг идёт рядом, коробку не останавливая: её двойник модели и соединения со службами живут в этом же процессе
+  const rolled = await new Promise((done) => spawn(process.execPath, [path.join(root, "tools/deploy/machines.mjs"), FLEET, DEVICE], { cwd: root, stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, SB2_DEV: dev } }).on("exit", done));
+  if (rolled !== 0) throw new Error(`сборка не дошла до каталога флота: код ${rolled}`);
   const build = (await call("builds.list", {}, admin)).stable;
   say(`сборка ${build} в каталоге флота`);
   for (const m of MACHINES) {
