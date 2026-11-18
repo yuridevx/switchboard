@@ -52,6 +52,17 @@ await step("метаданные сервера входа OAuth", async () => {
   if (!j.token_endpoint || !j.authorization_endpoint) throw new Error("нет адресов в метаданных");
   return j.authorization_endpoint;
 });
+await step("адрес установки с приглашением: страница зовёт манифест с ним, манифест запускает приложение с ним", async () => {
+  // приглашение не принимается: шаг читает только разметку и манифест
+  const asked = encodeURIComponent(`${fleet}:kshow${newTag()}:${"s".repeat(20)}`);
+  const page = await (await fetch(`${base}/i?invite=${asked}`)).text();
+  const link = /<link[^>]*manifest[^>]*>/.exec(page)?.[0] ?? "";
+  if (!link.includes("/manifest.webmanifest?invite=" + asked)) throw new Error("ссылка на манифест в разметке: " + (link || "нет"));
+  const plain = (await (await fetch(base + "/manifest.webmanifest")).json()) as { start_url?: string };
+  const m = (await (await fetch(base + "/manifest.webmanifest?invite=" + asked)).json()) as { start_url?: string; name?: string };
+  if (m.start_url !== "/i?invite=" + asked || plain.start_url === m.start_url) throw new Error(`start_url: ${m.start_url}, без приглашения: ${plain.start_url}`);
+  return `${m.name}: запуск с приглашением, без него — ${plain.start_url}`;
+});
 await step("картина флота для модели", async () => {
   const r = await api.call(fleetList, {});
   return `машин ${r.machines.length}, сессий ${r.sessions.length}`;

@@ -58,6 +58,8 @@ const LIST = [
   ["смена модели", "live-switch.mjs", [fleet, device, machine, ...pairs], {}, false, QUIET],
   ["сценарии", "live-steps.ts", [fleet, device, machine], { SB2_PART: "one" }, false, QUIET],
   ["связь сессий и карточки входящего", "live-comms.ts", [fleet, device, machine], { SB2_PART: "talk" }, false, QUIET],
+  // описание клиента флот читает по публичному адресу https — клиент настоящий: Claude Code
+  ["вход внешнего клиента", "live-oauth.mjs", [fleet, device], {}, false, QUIET],
   // вторая машина: её Host перезапускает подмена — всё, что трогает вторую машину, идёт с ней в одной очереди
   ["сценарии: вторая машина", "live-steps.ts", [fleet, device, machine, second], { SB2_PART: "far" }, false, NOISY],
   ["подмена Host посреди хода", "live-comms.ts", [fleet, device, second], { SB2_PART: "swap" }, false, NOISY, ["keeper"]],
