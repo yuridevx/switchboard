@@ -1,4 +1,4 @@
-// Живая проверка флота — один список: node tools/fleet/live.mjs <флот> <устройство> [машина] [вторая машина] [сессия]
+// Живая проверка флота — один список: node tools/fleet/live.mjs <флот> <устройство> [машина] [вторая машина]
 // Список целиком гонит CI после выкладки main. Сессия у себя запускает одну свою проверку — её файл напрямую.
 // Новая функция добавляет свою проверку строкой в LIST — и та идёт на каждом слиянии.
 // Проверки идут одновременно, у каждой свои пробные сессии. Дорожек три:
@@ -7,8 +7,8 @@
 //   одна   — меняет общее для флота (аккаунты Claude): идёт первой, одна, до остальных.
 // Модель сессий проверок — SB2_KEY и SB2_MODEL; пары «ключ/модель» для смены модели — SB2_SWITCH через пробел.
 // SB2_ENV=prod — прод: идут только проверки с пометкой «годна проду» — свои пробные сессии, чужие не трогают, машины не перезапускают.
-// Сессия не названа — берётся первая свободная на машине. Выход 0 — всё прошло («ждёт выкладки» сбоем не считается).
-import { spawn, spawnSync } from "node:child_process";
+// Выход 0 — всё прошло («ждёт выкладки» сбоем не считается).
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +16,7 @@ import { lacks } from "./harness.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
-const [fleet = "test", device = "cli", machine = "devbox", second = "wsl", named] = process.argv.slice(2);
+const [fleet = "test", device = "cli", machine = "devbox", second = "wsl"] = process.argv.slice(2);
 const prod = process.env.SB2_ENV === "prod";
 const LIMIT_MS = 4 * 60_000; // предел одной проверки
 
@@ -31,21 +31,13 @@ const run = (file, args, env = {}) => new Promise((done) => {
   child.on("close", (status) => (clearTimeout(timer), done({ status, stdout, stderr, ms: Date.now() - t0 })));
 });
 
-let session = named;
-if (!session) {
-  const r = spawnSync(process.execPath, [path.join(here, "call.ts"), fleet, device, "fleet.list", JSON.stringify({ machine })], { cwd: root, encoding: "utf8", timeout: 60_000 });
-  try {
-    // источник для подъёма копии — на том же ключе, что пробные сессии проверок: чужой ключ с вышедшим пределом её не поднимет
-    session = JSON.parse(r.stdout).result.sessions.find((s) => s.state === "idle" && (!process.env.SB2_KEY || s.key === process.env.SB2_KEY))?.callsign;
-  } catch {}
-}
 const pairs = (process.env.SB2_SWITCH ?? "").split(" ").filter(Boolean);
 
 const QUIET = "тихая", NOISY = "шумная", ALONE = "одна";
 // название · файл · аргументы · окружение · годна проду · дорожка · чего ей нужно от флота (см. lacks): нет у флота — проверка не идёт
 const LIST = [
   ["запросы", "smoke.ts", [fleet, device], {}, true, QUIET],
-  ["серверные функции", "live-server.ts", session && second ? [fleet, device, session, second] : [fleet, device], {}, false, QUIET],
+  ["серверные функции", "live-server.ts", [fleet, device, machine, second], {}, false, QUIET],
   ["страница в браузере", "live-page.mjs", [fleet, device, machine], {}, true, QUIET],
   ["разделы страницы", "live-bar.mjs", [fleet, device, machine], {}, true, QUIET],
   ["оповещение о сбое", "live-alert.mjs", [fleet, device, "headless"], {}, false, QUIET, ["push"]],

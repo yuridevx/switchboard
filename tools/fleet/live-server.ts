@@ -1,13 +1,16 @@
-// Живая проверка серверных функций флота: node tools/fleet/live-server.ts <флот> <устройство> <сессия-источник> <машина для переноса>
+// Живая проверка серверных функций флота: node tools/fleet/live-server.ts <флот> <устройство> [машина] [машина для переноса]
+// Архив проверяется на своей сессии: проверка открывает её, даёт ей один ход со своим словом и убирает за собой.
 // Сервер MCP (401 без пропуска, список инструментов, вызов), здоровье, точка → архив → поиск → разговор → перенос на другую машину.
 import fs from "node:fs";
 import path from "node:path";
-import { createApi, fleetList, httpTransport, obsHealth, pointsHistory, pointsList, pointsRaise, pointsSave, sessionRemove, sessionUpdate } from "@sb/protocol";
+import { createApi, fleetList, httpTransport, keysModels, obsHealth, pointsHistory, pointsList, pointsRaise, pointsSave, sessionOpen, sessionRemove, sessionUpdate, type SessionRow } from "@sb/protocol";
 import { dev, fleetEnv } from "../dev.mjs";
+import { lacks, machineTmp, newTag } from "./harness.mjs";
+import { say, turn } from "./turn.mjs";
 
 const dir = dev;
 const env = fleetEnv;
-const [fleet = "test", device = "cli", source = "", target = ""] = process.argv.slice(2);
+const [fleet = "test", device = "cli", machine = "devbox", target = ""] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
 const base = env.SB2_BASE!;
 const api = createApi(httpTransport({ base, key }));
@@ -55,8 +58,23 @@ await step("картина флота для модели", async () => {
 });
 await step("сводка здоровья", async () => JSON.stringify(await api.call(obsHealth, {})).slice(0, 160));
 
-if (source && target) {
+// архив: блоки разговора идут в хранилище по подписанным ссылкам
+if (!lacks("r2")) {
+  const tag = newTag();
+  const word = "сервер" + tag;
+  const SEAT = process.env.SB2_KEY ?? "muse";
+  let source = "";
   let sid = "";
+  await step("своя сессия ответила своим словом", async () => {
+    const model = process.env.SB2_MODEL ?? (await api.call(keysModels, { name: SEAT })).models[0]!.id;
+    source = (await api.call(sessionOpen, { to: "@" + machine, spec: { name: "srv-" + tag, cwd: `${machineTmp(fleet, device, machine)}/sb2-server-${tag}`, key: SEAT, model }, mkdir: true, prompt: turn(say(word)) })).callsign;
+    for (const end = Date.now() + 120_000; ; await new Promise((r) => setTimeout(r, 1500))) {
+      const row = ((await api.call(fleetList, { machine, full: true })).sessions as SessionRow[]).find((s) => s.callsign === source);
+      if (row?.state === "failed") throw new Error("сессия failed: " + row.error);
+      if (row?.state === "idle" && row.result) return source;
+      if (Date.now() > end) throw new Error("сессия не ответила за 120 с");
+    }
+  });
   await step("архив включён у сессии", async () => (await api.call(sessionUpdate, { to: source, patch: { backup: true } }), "backup: true"));
   await step("точка сохранена", async () => {
     const r = await api.call(pointsSave, { to: source, label: "живая проверка" });
@@ -70,7 +88,7 @@ if (source && target) {
     return `sid ${sid.slice(0, 8)}, точек ${s.points}`;
   });
   await step("поиск по слову находит сессию", async () => {
-    const r = await api.call(pointsList, { q: "note.txt" });
+    const r = await api.call(pointsList, { q: word });
     if (!r.sessions.some((x) => x.sid === sid)) throw new Error("не найдена; нашлось: " + r.sessions.length);
     return `найдено ${r.sessions.length}; строка: ${r.sessions.find((x) => x.sid === sid)?.hit?.slice(0, 60)}`;
   });
@@ -79,12 +97,13 @@ if (source && target) {
     if (!r.events.length) throw new Error("событий нет");
     return `событий ${r.events.length}`;
   });
-  await step("копия поднята на другой машине", async () => {
-    const r = await api.call(pointsRaise, { to: "@" + target, sid, name: "raised" + Date.now().toString(36).slice(-4), cwd: target === "wsl" ? "/tmp/sb2-raised" : undefined });
+  if (target) await step("копия поднята на другой машине", async () => {
+    const r = await api.call(pointsRaise, { to: "@" + target, sid, name: "raised" + tag, cwd: `${machineTmp(fleet, device, target)}/sb2-raised-${tag}` });
     // копия своя, проверочная: убрать за собой
     if (r.callsign) await api.call(sessionRemove, { to: r.callsign }).catch(() => {});
     return String(r.callsign);
   });
+  if (source) await api.call(sessionRemove, { to: source }).catch(() => {});
 }
 console.log(bad ? `сбоев: ${bad}` : "серверные функции отвечают");
 process.exit(bad ? 1 : 0);
