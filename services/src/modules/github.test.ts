@@ -72,3 +72,17 @@ describe("GitHub: недоступен", () => {
     expect(failed.result).toBeUndefined();
   });
 });
+
+describe("адрес API GitHub", () => {
+  // чьё: код — без настройки запросы идут на api.github.com; настройка — дизайн «Проверка всех систем»
+  it("адрес API — настройка: не задана — api.github.com; задана — запросы идут на неё", async () => {
+    const own = stand();
+    await github(own);
+    await own.ask("github.setup", { code: "code123" });
+    expect(new URL(own.seen.net.at(-1)!.url).origin).toBe("https://api.github.com");
+    const other = stand(undefined, { env: { GITHUB_API: "http://127.0.0.1:4200/" } });
+    await github(other);
+    await other.ask("github.setup", { code: "code123" });
+    expect(other.seen.net.at(-1)!.url).toBe("http://127.0.0.1:4200/app-manifests/code123/conversions");
+  });
+});

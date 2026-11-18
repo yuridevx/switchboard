@@ -49,6 +49,7 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
       bad++;
       // причина — в журнале действия браузера: чего ждал клик и что его не пустило; повторы одной строки сведены
       const why = [...new Set(String(e.message).split("\n").slice(2).map((l) => l.replace(/^\s*(\d+ × )?-?\s*/, "")).filter((l) => l && !/^retrying|^waiting \d+ms|^attempting|^scrolling|^done scrolling/.test(l)))].slice(0, 5).join(" → ");
+      await page.screenshot({ path: path.join(out, `fail-${w}-${total}.png`) }).catch(() => {});
       // где страница стояла в момент сбоя: адрес и заголовок экрана
       const where = await page.evaluate(() => `${location.hash} · «${document.querySelector("h1")?.textContent ?? ""}»`).catch(() => "страница не ответила");
       console.log(`✗ ${w} · ${label} · ${String(e.message).split("\n")[0]}${why ? " · " + why.slice(0, 500) : ""} · адрес ${where}`);
@@ -130,7 +131,8 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
     await page.getByLabel("Размышлять перед ответом").waitFor();
     // кусочки машины берут из репозитория на GitHub
     if (!lacks("github")) {
-      await page.getByText("reviewer", { exact: true }).click();
+      // форма сама отмечает кусочки соседней сессии той же папки: отмеченный не трогаем — нажатие сняло бы его
+      if (!(await page.getByLabel("reviewer", { exact: true }).isChecked())) await page.getByText("reviewer", { exact: true }).click();
       await page.locator('[aria-label="Что ставят кусочки"]').getByText("claude-opus-5-5").waitFor({ timeout: 8000 });
     }
     await shot("new-flat");
