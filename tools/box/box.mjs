@@ -13,6 +13,7 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildPage } from "../build/page.mjs";
+import * as github from "./github.mjs";
 import { MODELS, serve } from "./model.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -22,7 +23,7 @@ const FLEET = "box", DEVICE = "cli", MACHINES = ["m1", "m2"], KEY = "box";
 // история флота — настоящий ClickHouse: коробка его не запускает, а получает адрес в SB2_BOX_CH (http://пользователь:пароль@хост:порт);
 // на раннере это служба работы, у себя — `docker run -p 127.0.0.1:18123:8123 -e CLICKHOUSE_PASSWORD=box clickhouse/clickhouse-server`
 const history = process.env.SB2_BOX_CH ? new URL(process.env.SB2_BOX_CH) : null;
-const WITHOUT = ["mind", "push", "github", ...(history ? [] : ["clickhouse"])].join(" ");
+const WITHOUT = ["mind", "push", ...(history ? [] : ["clickhouse"])].join(" ");
 const ACCOUNTS = ["a", "b"];
 const DIALECTS = ["openai", "meta"];
 const UP_MS = 60_000; // предел подъёма одной части
@@ -64,9 +65,10 @@ function start(name, file, args, env, stdin = "ignore") {
   return child;
 }
 /** Служба машины на переднем плане. После обновления себя она выходит с кодом 3: в системе её поднимает ОС, здесь — коробка. */
-function keep(name, bin, home) {
-  const child = start("keeper-" + name, bin, ["run"], { SB_HOME: home });
-  child.on("exit", (code) => { if (code === 3 && !down) keep(name, bin, home); });
+function keep(name, bin, home, gitconfig) {
+  // общий файл настроек git машины — коробки: в нём подмена адреса GitHub на репозиторий с диска
+  const child = start("keeper-" + name, bin, ["run"], { SB_HOME: home, GIT_CONFIG_GLOBAL: gitconfig });
+  child.on("exit", (code) => { if (code === 3 && !down) keep(name, bin, home, gitconfig); });
 }
 /** Снять процесс вместе с потомками. */
 function killTree(pid) {
@@ -94,13 +96,14 @@ async function teardown() {
   }
   for (const { child } of parts) if (child.exitCode === null) killTree(child.pid);
   model?.close();
+  githubApi?.close();
 }
 
-let model;
+let model, githubApi;
 async function up() {
   buildPage(root);
   say("страница собрана");
-  const [pModel, pPlatform, pServices, iPlatform, iServices] = await Promise.all([1, 2, 3, 4, 5].map(freePort));
+  const [pModel, pPlatform, pServices, iPlatform, iServices, pGithub] = await Promise.all([1, 2, 3, 4, 5, 6].map(freePort));
   model = await serve(pModel, (line) => fs.appendFileSync(path.join(state, "model.log"), line + "\n"));
   const base = `http://127.0.0.1:${pServices}`, platform = `http://127.0.0.1:${pPlatform}`;
 
@@ -120,7 +123,7 @@ async function up() {
   const bucket = product.r2_buckets[0].bucket_name;
   const secret = { R2_ACCESS_KEY_ID: "box", R2_SECRET_ACCESS_KEY: "box-secret-0000" };
   const ch = history ? { CH_URL: history.origin, CH_USER: decodeURIComponent(history.username) || "default", CH_PASSWORD: decodeURIComponent(history.password) } : {};
-  fs.writeFileSync(path.join(state, "services.jsonc"), JSON.stringify({ ...local, main: path.join(root, "services", product.main), assets: { ...product.assets, directory: path.join(root, "web/dist") }, vars: { ...product.vars, DIGEST: "box", R2_ENDPOINT: base, ...secret, ...ch } }));
+  fs.writeFileSync(path.join(state, "services.jsonc"), JSON.stringify({ ...local, main: path.join(root, "services", product.main), assets: { ...product.assets, directory: path.join(root, "web/dist") }, vars: { ...product.vars, DIGEST: "box", R2_ENDPOINT: base, GITHUB_API: `http://127.0.0.1:${pGithub}`, ...secret, ...ch } }));
   fs.writeFileSync(path.join(state, "storage.jsonc"), JSON.stringify({ name: "sb2-box-storage", main: path.join(root, "tools/box/storage/worker.js"), compatibility_date: product.compatibility_date, r2_buckets: [{ binding: "FILES", bucket_name: bucket }], services: [{ binding: "SERVICES", service: product.name }], vars: { FILES_BUCKET: bucket, ...secret } }));
   wrangler("services", pServices, iServices, [], [path.join(state, "storage.jsonc"), path.join(state, "services.jsonc")]);
   const healthy = (url) => until(url, async () => (await (await fetch(url, { signal: AbortSignal.timeout(3000) })).json()).ok);
@@ -143,6 +146,11 @@ async function up() {
   fs.mkdirSync(dev, { recursive: true });
   fs.writeFileSync(path.join(dev, "v2-fleet.env"), `SB2_BASE=${base}\nSB2_PLATFORM=${platform}\nSB2_BOOT=box\n`);
   fs.writeFileSync(path.join(dev, `v2-${FLEET}-${DEVICE}.pass`), admin + "\n");
+  // GitHub: токены приложения выдаёт двойник, репозиторий кусочков — настоящий git на диске коробки (tools/box/github.mjs)
+  githubApi = await github.serve(pGithub, (line) => fs.appendFileSync(path.join(state, "github.log"), line + "\n"));
+  const gitconfig = github.seed(state);
+  await call("github.setup", { code: "box" }, admin);
+  await call("prefs.set", { scope: "fleet", name: "profiles.repos", value: [github.REPO] }, admin);
   // сборка идёт в каталог флота тем же шагом, которым её доводит выкладка; машины ставит и держит служба машины из этой сборки
   // шаг идёт рядом, коробку не останавливая: её двойник модели и соединения со службами живут в этом же процессе
   const rolled = await new Promise((done) => spawn(process.execPath, [path.join(root, "tools/deploy/machines.mjs"), FLEET, DEVICE], { cwd: root, stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, SB2_DEV: dev } }).on("exit", done));
@@ -158,7 +166,7 @@ async function up() {
     const bin = path.join(home, win ? "keeper.exe" : "keeper");
     fs.copyFileSync(path.join(root, "dist/builds", String(build), win ? "keeper-windows-amd64.exe" : "keeper-linux-amd64"), bin);
     if (!win) fs.chmodSync(bin, 0o755);
-    keep(m, bin, home);
+    keep(m, bin, home, gitconfig);
   }
   await until("машины на связи", async () => (await call("fleet.list", {}, admin)).machines.filter((m) => m.online && m.build === build).length === MACHINES.length, MACHINES_MS);
   await call("keys.set", { name: KEY, protocol: "anthropic", base: `http://127.0.0.1:${pModel}`, value: "box-key-0000" }, admin);
