@@ -1,6 +1,7 @@
 // Эталоны службы файлов (дизайн «Файлы сессии», 1–4): номер эталона — номер теста.
 import { describe, expect, it } from "vitest";
 import { stand } from "../../test/stand.ts";
+import { link } from "../r2.ts";
 
 const A = "a".repeat(64), B = "b".repeat(64), C = "c".repeat(64);
 const SITE = "3f9a1c7e5b2d4f608a1c3e5f7b9d0c2e";
@@ -8,6 +9,22 @@ const SANDBOX = "sandbox allow-scripts allow-forms allow-popups";
 
 /** Содержимое в хранилище флота — так, как его кладёт загрузка по ссылке. */
 const stored = (s: ReturnType<typeof stand>, hash: string, body: string) => s.env.FILES.put(`files/${s.fleet}/${hash}`, body);
+
+describe("вход хранилища по ссылкам", () => {
+  // чьё: код — без настройки ссылка ведёт на вход R2 учётной записи; настройка — дизайн «Проверка всех систем»
+  it("адрес входа — настройка: не задана — вход R2 учётной записи; задана — ссылка ведёт на неё, бакет, ключ и подпись на месте", async () => {
+    const s = stand();
+    const own = new URL(await link(s.env, "PUT", "files/f/a b"));
+    expect(own.origin).toBe("https://acc.r2.cloudflarestorage.com");
+    const other = new URL(await link({ ...s.env, R2_ENDPOINT: "http://127.0.0.1:4100/" }, "PUT", "files/f/a b"));
+    expect(other.origin).toBe("http://127.0.0.1:4100");
+    expect(other.pathname).toBe(own.pathname);
+    expect(other.pathname).toBe("/sb2-files/files/f/a%20b");
+    expect(other.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
+    // подпись покрывает адрес входа: у другого входа она другая
+    expect(other.searchParams.get("X-Amz-Signature")).not.toBe(own.searchParams.get("X-Amz-Signature"));
+  });
+});
 
 describe("файлы", () => {
   it("эталон 1 · загрузка: хэша в хранилище нет — ссылка на загрузку; есть — ссылки нет", async () => {

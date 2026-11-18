@@ -2,6 +2,7 @@
 //   node tools/box/box.mjs <команда…>   поднять, выполнить команду, снять; код выхода — её
 //   node tools/box/box.mjs              поднять и держать: печатает адрес страницы со входом; Ctrl+C — снять
 // Что поднимается: платформа и службы (wrangler dev на этом компьютере, свои порты и своя папка данных), страница из web/dist,
+// хранилище — локальный R2 служб и вход в него по подписанным ссылкам (tools/box/storage),
 // Host на каждой машине (m1, m2) с настоящим claude из пакета SDK и держателем keeper, поддельная модель — ключ провайдера «box».
 // Команда получает: SB2_DEV — папка настроек (адрес флота, пропуск устройства cli), SB2_KEY, SB2_MODEL, SB2_SWITCH — ключ и модели коробки.
 // Сбой подъёма или красная команда — хвосты журналов частей. Папка коробки dist/box/<номер процесса> после зелёной команды убирается.
@@ -17,7 +18,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const command = process.argv.slice(2);
 const FLEET = "box", DEVICE = "cli", MACHINES = ["m1", "m2"], KEY = "box";
 // чего в коробке нет: проверки и шаги, которым это нужно, на ней не идут (tools/fleet/harness.mjs, lacks)
-const WITHOUT = "mind claude clickhouse r2 push github keeper";
+const WITHOUT = "mind claude clickhouse push github keeper";
 const UP_MS = 60_000; // предел подъёма одной части
 const STOP_MS = 10_000; // предел штатной остановки Host
 const win = process.platform === "win32";
@@ -86,7 +87,7 @@ let model;
 async function up() {
   buildPage(root);
   say("страница собрана");
-  const [pModel, pPlatform, pServices, iPlatform, iServices] = await Promise.all([1, 2, 3, 4, 5].map(freePort));
+  const [pModel, pPlatform, pServices, pStorage, iPlatform, iServices, iStorage] = await Promise.all([1, 2, 3, 4, 5, 6, 7].map(freePort));
   model = await serve(pModel, (line) => fs.appendFileSync(path.join(state, "model.log"), line + "\n"));
   const base = `http://127.0.0.1:${pServices}`, platform = `http://127.0.0.1:${pPlatform}`;
 
@@ -96,14 +97,20 @@ async function up() {
   const keeperReady = new Promise((done, fail) => built.on("exit", (code) => (code === 0 ? done() : fail(new Error(`keeper не собрался: go build вышел с кодом ${code}`)))));
 
   // свой реестр wrangler: службы находят платформу этой коробки, а не соседней
-  const wrangler = (part, port, inspector, vars) => start(part, process.execPath, [
-    path.join(root, "node_modules/wrangler/bin/wrangler.js"), "dev", "-c", path.join(root, part, "wrangler.jsonc"), "--port", String(port), "--ip", "127.0.0.1",
+  const wrangler = (part, port, inspector, vars, config = path.join(root, part, "wrangler.jsonc")) => start(part, process.execPath, [
+    path.join(root, "node_modules/wrangler/bin/wrangler.js"), "dev", "-c", config, "--port", String(port), "--ip", "127.0.0.1",
     "--inspector-port", String(inspector), "--persist-to", path.join(state, "data"), "--show-interactive-dev-session=false", ...vars.flatMap((v) => ["--var", v]),
   ], { WRANGLER_REGISTRY_PATH: path.join(state, "registry"), WRANGLER_SEND_METRICS: "false", CI: "1" });
+  // хранилище: бакет — локальный R2 служб; вход по подписанным ссылкам — свой Worker на том же бакете (то же имя, та же папка данных)
+  const storage = `http://127.0.0.1:${pStorage}`;
+  const keys = ["R2_ACCESS_KEY_ID:box", "R2_SECRET_ACCESS_KEY:box-secret-0000"];
+  const bucket = /"bucket_name":\s*"([^"]+)"/.exec(fs.readFileSync(path.join(root, "services/wrangler.jsonc"), "utf8"))[1];
+  fs.writeFileSync(path.join(state, "storage.jsonc"), JSON.stringify({ name: "sb2-box-storage", main: path.join(root, "tools/box/storage/worker.js"), compatibility_date: "2026-08-01", r2_buckets: [{ binding: "FILES", bucket_name: bucket }], vars: { FILES_BUCKET: bucket } }));
   wrangler("platform", pPlatform, iPlatform, ["BOOT:box", "DIGEST:box"]);
-  wrangler("services", pServices, iServices, ["DIGEST:box"]);
+  wrangler("services", pServices, iServices, ["DIGEST:box", `R2_ENDPOINT:${storage}`, ...keys]);
+  wrangler("storage", pStorage, iStorage, keys, path.join(state, "storage.jsonc"));
   const healthy = (url) => until(url, async () => (await (await fetch(url, { signal: AbortSignal.timeout(3000) })).json()).ok);
-  await Promise.all([healthy(platform + "/health"), healthy(base + "/health")]);
+  await Promise.all([healthy(platform + "/health"), healthy(base + "/health"), until(storage, async () => (await fetch(storage + "/", { signal: AbortSignal.timeout(3000) })).status === 404)]);
   await healthy(base + "/health/platform");
   say("платформа и службы отвечают");
 
