@@ -187,6 +187,28 @@ describe("смена на лету", () => {
     expect([o.model, o.env.CLAUDE_CODE_OAUTH_TOKEN, o.env.ANTHROPIC_API_KEY]).toEqual(["grok-4.5", "fleet", undefined]);
   });
 
+  // чьё: факт живой проверки 18 нояб. на wsl — итог хода приходит раньше состояния «свободна»; после смены посреди хода на модель с пределом окна
+  // строка сессии осталась с итогом прошлого хода: процесс закрыли сразу после итога, и конец хода не записался
+  it("перезапуск после хода ждёт, пока процесс назовёт сессию свободной: конец хода записан до перезапуска", async () => {
+    await fleet();
+    const { s } = await st!.open("site", { key: "claude", model: FABLE });
+    await busy(s);
+    const proc = st!.proc(CS);
+    const queries = st!.sdk.queries.length;
+    const was = s.rec.last;
+    st!.clock.advance(60_000);
+    const done = s.restart();
+    // модель ответила, итог хода пришёл — состояние «свободна» процесс ещё не назвал
+    proc.send(said(FABLE));
+    proc.send({ type: "result", subtype: "success", result: "ок", session_id: "s" });
+    await tick();
+    expect([st!.sdk.queries.length, s.state, s.rec.last]).toEqual([queries, "busy", was]);
+    proc.send({ type: "system", subtype: "session_state_changed", state: "idle", session_id: "s" });
+    await done;
+    expect(s.rec.last).toBe(st!.clock.now());
+    expect([st!.sdk.queries.length, s.restarts]).toEqual([queries + 1, 1]);
+  });
+
   // эталоны 8 и 23 — чьё: факт опыта 17 нояб. — точный предел окна задаётся только при запуске; правка слепого архитектора — правило в обе стороны
   it("8 · модели нужен точный предел окна или у ключа своё окружение: смена сразу, после хода — перезапуск с новым окружением; 23 · обратно — перезапуск снимает их", async () => {
     await fleet();

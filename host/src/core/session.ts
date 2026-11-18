@@ -436,14 +436,28 @@ export class Session {
     await this.launch("resume");
   }
 
+  /** Дождаться, пока сессия перестанет быть занятой: true — дождались, false — предел. */
+  private calm(ms: number): Promise<boolean> {
+    const free = new Promise<boolean>((resolve) => {
+      const check = () => (isBusy(this.state) ? this.changed.push(check) : resolve(true));
+      check();
+    });
+    return within(this.k.clock, free, ms, () => false);
+  }
+
   /** Перезапуск процесса после хода: новый документ или новый SDK вступают в силу. */
   async restart(): Promise<void> {
     const run = this.run;
     if (!run) return this.state === "starting" ? undefined : this.start();
     this.restarts++;
-    if (isBusy(this.state) && !(await this.turn(RESTART_MS))) {
-      this.k.log.warn("restart_late", { callsign: this.callsign, why: `ход не кончился за ${RESTART_MS / 3_600_000} ч — перезапуск отменён` });
-      return;
+    if (isBusy(this.state)) {
+      if (!(await this.turn(RESTART_MS))) {
+        this.k.log.warn("restart_late", { callsign: this.callsign, why: `ход не кончился за ${RESTART_MS / 3_600_000} ч — перезапуск отменён` });
+        return;
+      }
+      // итог хода процесс шлёт раньше состояния «свободна», а конец хода записывается по состоянию: строка сессии, непрочитанное, зов человека.
+      // Процесс, закрытый сразу после итога, состояния уже не назовёт — ждём его; не назвал за предел — перезапуск идёт как есть
+      await this.calm(STEP_MS);
     }
     if (this.run !== run || run.closing) return;
     this.k.log.info("restart", { callsign: this.callsign });
