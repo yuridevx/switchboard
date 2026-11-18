@@ -52,6 +52,14 @@ jobs:
     name: коробка
     runs-on: ubuntu-latest
     timeout-minutes: 6
+    # история флота — настоящий ClickHouse: его поднимает раннер службой работы, коробка получает адрес и контейнеров не запускает
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:latest
+        env:
+          CLICKHOUSE_PASSWORD: box
+        ports:
+          - 8123:8123
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -71,6 +79,8 @@ jobs:
       - run: npm ci
         if: steps.deps.outputs.cache-hit != 'true'
       - run: node tools/box/box.mjs node tools/fleet/live.mjs box cli m1 m2
+        env:
+          SB2_BOX_CH: http://default:box@127.0.0.1:8123
 
   # одна обязательная проверка ветки main: зелёная, когда зелёные все части и коробка
   check:

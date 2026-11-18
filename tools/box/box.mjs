@@ -18,7 +18,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const command = process.argv.slice(2);
 const FLEET = "box", DEVICE = "cli", MACHINES = ["m1", "m2"], KEY = "box";
 // чего в коробке нет: проверки и шаги, которым это нужно, на ней не идут (tools/fleet/harness.mjs, lacks)
-const WITHOUT = "mind claude clickhouse push github keeper";
+// история флота — настоящий ClickHouse: коробка его не запускает, а получает адрес в SB2_BOX_CH (http://пользователь:пароль@хост:порт);
+// на раннере это служба работы, у себя — `docker run -p 127.0.0.1:18123:8123 -e CLICKHOUSE_PASSWORD=box clickhouse/clickhouse-server`
+const history = process.env.SB2_BOX_CH ? new URL(process.env.SB2_BOX_CH) : null;
+const WITHOUT = ["mind", "claude", "push", "github", "keeper", ...(history ? [] : ["clickhouse"])].join(" ");
 const UP_MS = 60_000; // предел подъёма одной части
 const STOP_MS = 10_000; // предел штатной остановки Host
 const win = process.platform === "win32";
@@ -107,7 +110,9 @@ async function up() {
   const bucket = /"bucket_name":\s*"([^"]+)"/.exec(fs.readFileSync(path.join(root, "services/wrangler.jsonc"), "utf8"))[1];
   fs.writeFileSync(path.join(state, "storage.jsonc"), JSON.stringify({ name: "sb2-box-storage", main: path.join(root, "tools/box/storage/worker.js"), compatibility_date: "2026-08-01", r2_buckets: [{ binding: "FILES", bucket_name: bucket }], vars: { FILES_BUCKET: bucket } }));
   wrangler("platform", pPlatform, iPlatform, ["BOOT:box", "DIGEST:box"]);
-  wrangler("services", pServices, iServices, ["DIGEST:box", `R2_ENDPOINT:${storage}`, ...keys]);
+  const ch = history ? [`CH_URL:${history.origin}`, `CH_USER:${decodeURIComponent(history.username) || "default"}`, `CH_PASSWORD:${decodeURIComponent(history.password)}`] : [];
+  if (history) await until(`ClickHouse по адресу ${history.origin}`, async () => (await fetch(history.origin + "/ping", { signal: AbortSignal.timeout(3000) })).ok);
+  wrangler("services", pServices, iServices, ["DIGEST:box", `R2_ENDPOINT:${storage}`, ...keys, ...ch]);
   wrangler("storage", pStorage, iStorage, keys, path.join(state, "storage.jsonc"));
   const healthy = (url) => until(url, async () => (await (await fetch(url, { signal: AbortSignal.timeout(3000) })).json()).ok);
   await Promise.all([healthy(platform + "/health"), healthy(base + "/health"), until(storage, async () => (await fetch(storage + "/", { signal: AbortSignal.timeout(3000) })).status === 404)]);
