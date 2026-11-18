@@ -25,9 +25,9 @@ export const newTag = () => crypto.randomBytes(3).toString("hex");
  *  Шаг или проверка, которым это нужно, на таком флоте не идут. */
 export const lacks = (what) => (process.env.SB2_WITHOUT ?? "").split(" ").includes(what);
 
-/** Временная папка машины глазами самой машины: проверка идёт с любого компьютера, в том числе с раннера CI. */
+/** Временная папка машины глазами самой машины, под настоящим именем (на Windows os.tmpdir() бывает коротким именем — RUNNER~1): проверка идёт с любого компьютера, в том числе с раннера CI. */
 export function machineTmp(fleet, device, machine) {
-  const run = fleetCall(fleet, device).must("shell.run", { to: "@" + machine, shell: "node", script: 'import os from "node:os";process.stdout.write(os.tmpdir())', wait: 30 });
+  const run = fleetCall(fleet, device).must("shell.run", { to: "@" + machine, shell: "node", script: 'import fs from "node:fs";import os from "node:os";process.stdout.write(fs.realpathSync.native(os.tmpdir()))', wait: 30 });
   return String(run.out).trim().replaceAll("\\", "/");
 }
 

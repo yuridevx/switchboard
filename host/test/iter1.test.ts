@@ -1,5 +1,5 @@
 // Эталоны первой итерации: функции старой системы, которых не хватало в Host v2.
-import { existsSync, mkdirSync, mkdtempSync, appendFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, appendFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,6 +48,16 @@ async function server(answer: () => { status?: number; body?: Buffer | string } 
 const events = (s: Stand) => s.link.of("session.events").flatMap((f) => f.events as any[]);
 
 describe("ядро: открытие и документ", () => {
+  // чьё: факт — коробка на раннере Windows: папка сессии под коротким именем (RUNNER~1) — история с диска пуста, 17 шагов из 89
+  it("папка сессии — под настоящим именем: сессия, открытая по ссылке на папку, работает в самой папке", async () => {
+    st = await stand();
+    const real = join(st.dir, "real"), link = join(st.dir, "link");
+    mkdirSync(real);
+    symlinkSync(real, link, "junction");
+    expect((await st.request("session.open", { to: "@laptop", spec: { name: "linked", cwd: link } })).ok).toBe(true);
+    expect(st.kernel.sessions.get("linked@laptop")!.rec.cwd).toBe(realpathSync.native(real));
+  });
+
   it("number — первый свободный номер; mkdir создаёт папку; resume продолжает разговор по id; fork без resume — отказ", async () => {
     st = await stand();
     const to = "@laptop";

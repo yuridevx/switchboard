@@ -7,7 +7,7 @@ import { gzipSync } from "node:zlib";
 import { sha256, storePut } from "../files/contract.ts";
 import { machineOf, pointsGet, pointsPut, pointsSave, Refusal, sessionName, sessionRemove, sessionStart, type Spec } from "@sb/protocol";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
-import { clientPath, claudeDir, tildePath } from "../../core/paths.ts";
+import { clientPath, claudeDir, realDir, tildePath } from "../../core/paths.ts";
 import { download, writeFiles } from "./files.ts";
 import { bring, BUNDLE, folderOf, snapshot, type Summary } from "./git.ts";
 
@@ -276,7 +276,7 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
     const files = await download(got.files);
     if (mode === "point" && git && (check.folder === "empty" || check.folder === "same")) await bring(dir, git, check.folder, files.get(BUNDLE));
     mkdirSync(dir, { recursive: true });
-    const target = projectDir(dir);
+    const target = projectDir(realDir(dir));
     setAside(sid, target);
     writeFiles(target, files, [BUNDLE]);
     // откат: та же сессия запускается с файлами точки

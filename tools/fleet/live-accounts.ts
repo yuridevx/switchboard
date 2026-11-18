@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { accountList, CallError, CLAUDE, createApi, fleetList, httpTransport, keysList, keysModels, keysRemove, keysSet, logQuery, machineJournal, message, sessionHistory, sessionOpen, sessionRemove, type SessionRow } from "@sb/protocol";
 import { dev, fleetEnv } from "../dev.mjs";
-import { machineTmp, newTag } from "./harness.mjs";
+import { machineTmp, newTag, lacks } from "./harness.mjs";
 import { say, tool, turn } from "./turn.mjs";
 
 const dir = dev;
@@ -93,6 +93,8 @@ await stepRest("каждый вызов и решение — строка жу�
   const ok = calls.filter((l) => l.status === 200 && l.account && l.req);
   if (!ok.length) throw new Error("строк call со статусом 200, аккаунтом и номером запроса нет: " + JSON.stringify(calls.slice(0, 2)));
   if (!(await journal("route", first)).some((l) => Array.isArray(l.candidates))) throw new Error("строки route с кандидатами нет");
+  // истории флота у флота нет (коробка без контейнера ClickHouse) — шаг кончается журналом машины
+  if (lacks("clickhouse")) return `call на машине ${calls.length}`;
   const stored = await until("строки call сессии в ClickHouse", async () => { const r = await api.call(logQuery, { msg: "call", session: first, limit: 50 }); return r.lines.length >= ok.length ? r.lines : undefined; }, 180_000);
   return `call на машине ${calls.length}, в ClickHouse ${stored.length}`;
 });
