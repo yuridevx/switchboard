@@ -32,9 +32,16 @@ fs.mkdirSync(state, { recursive: true });
 const t0 = Date.now();
 const say = (what) => console.log(`${((Date.now() - t0) / 1000).toFixed(1).padStart(5)} с · ${what}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// порт части — случайный из 20000–29999 и проверенный: ниже диапазона, из которого ОС раздаёт временные порты.
+// Порт, взятый у ОС (listen 0), до старта части успевал занять соседний процесс — сам из того же диапазона.
+const taken = new Set();
 const freePort = () => new Promise((done) => {
+  const port = 20000 + Math.floor(Math.random() * 10000);
+  if (taken.has(port)) return void done(freePort());
+  taken.add(port);
   const s = net.createServer();
-  s.listen(0, "127.0.0.1", () => { const { port } = s.address(); s.close(() => done(port)); });
+  s.once("error", () => done(freePort()));
+  s.listen(port, "127.0.0.1", () => s.close(() => done(port)));
 });
 async function until(what, fn, ms = UP_MS) {
   const end = Date.now() + ms;
