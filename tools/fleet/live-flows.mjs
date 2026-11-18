@@ -1,4 +1,4 @@
-// Живая проверка флоу без окон: node tools/fleet/live-flows.mjs [флот] [устройство] [папка снимков]
+// Живая проверка флоу без окон: node tools/fleet/live-flows.mjs [флот] [устройство] [машина] [папка снимков]
 // В настоящем Chrome на 1440 и 390: шаги открываются страницами с адресом, «Назад» браузера возвращает на экран, окон поверх экрана нет.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -6,21 +6,23 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dev, fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, lacks, newTag } from "./harness.mjs";
+import { chromium, fleetCall, lacks, machineTmp, newTag } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const [fleet = "test", device = "cli", outArg] = process.argv.slice(2);
+const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
 const out = outArg ?? path.join(root, "dist", "flows");
 fs.mkdirSync(out, { recursive: true });
 const dir = dev;
 const env = fleetEnv;
-const { call } = fleetCall(fleet, device);
+const { call, must } = fleetCall(fleet, device);
 const me = call("whoami", {}).result;
-const session = call("fleet.list", {}).result.sessions[0]?.callsign;
 
 // части проверки: people — галочка проекта: смена состава проекта рвёт соединения всех страниц человека, поэтому идёт одна; rest — остальное
 const PART = process.env.SB2_PART ?? "";
 const skip = async () => {};
+// шаги с открытым разговором идут на своей сессии: чужая может уйти посреди шага
+const SEAT = process.env.SB2_KEY ?? "muse";
+const session = PART === "people" ? undefined : must("session.open", { to: "@" + machine, spec: { name: "flow-" + newTag(), cwd: `${machineTmp(fleet, device, machine)}/sb2-flows`, key: SEAT, model: process.env.SB2_MODEL ?? must("keys.models", { name: SEAT }).models[0].id }, mkdir: true }).callsign;
 
 const browser = await chromium.launch({ channel: "chrome" });
 let bad = 0, total = 0;
@@ -97,7 +99,8 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
     await page.getByRole("button", { name: "Выдать приглашение" }).click();
     await at(/do=link/); await shot("invite-link");
     await page.getByRole("button", { name: "Готово" }).click();
-    await page.waitForFunction(() => !document.querySelector("[data-step]"));
+    // «Готово» закрывает страницу шага возвратом по истории: шаг кончен, когда и адрес от него очищен — иначе возврат догонит следующий переход
+    await page.waitForFunction(() => !/do=/.test(location.hash) && !document.querySelector("[data-step]"));
   });
   if (session) {
     await stepRest("удалить сессию — страница подтверждения, отмена", async () => {
@@ -113,7 +116,7 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
       await page.getByRole("button", { name: "Инспектор" }).click();
       await at(/do=info/); await shot("info");
       await page.goBack();
-      await page.waitForFunction(() => !document.querySelector("[data-step]"));
+      await page.waitForFunction(() => !/do=/.test(location.hash) && !document.querySelector("[data-step]"));
     });
   }
   if (w < 861) await stepRest("ещё — страница", async () => {
@@ -165,6 +168,7 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
   await page.close();
 }
 await browser.close();
+if (session) call("session.remove", { to: session });
 if (errors.length) console.log("ошибки страницы:\n" + [...new Set(errors)].join("\n"));
 console.log(bad || errors.length ? `сбоев: ${bad} из ${total}` : `флоу: ${total} из ${total}`);
 process.exit(bad || errors.length ? 1 : 0);

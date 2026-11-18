@@ -69,7 +69,9 @@ jobs:
           MACHINES: ${{ vars.SB2_PROD_MACHINES }}
         run: node tools/fleet/live.mjs $FLEET ci $MACHINES
       - name: метка fleet/${{ inputs.fleet || 'test' }}
-        run: git push origin HEAD:refs/heads/fleet/$FLEET
+        # метка — указатель на выложенный коммит: ставится как есть. Раннер берёт один последний коммит, и обычный push
+        # прежней метки у себя не находит — отказывает «fetch first»
+        run: git push --force origin HEAD:refs/heads/fleet/$FLEET
       # после метки: красный список теста — находка об окружении или о стыке с ним, выкладку и метку он не держит
       - name: окружение — живой список на тестовом флоте
         if: inputs.fleet != 'prod'
