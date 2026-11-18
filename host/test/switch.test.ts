@@ -65,10 +65,10 @@ async function fleet(answer: (hit: Hit) => Reply = () => ({}), o: { home?: strin
     mkdirSync(join(home, "store"), { recursive: true });
     writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: { accounts: { [A]: { ok: true, keep: false, limits: {} } } } }));
   }
-  st = await stand({ home, ...(o.holders ? { holders: o.holders } : {}), modules: [accounts(), proxy(), incidents()], config: { "host-accounts": { api: url } }, start: false });
+  st = await stand({ home, ...(o.holders ? { holders: o.holders } : {}), modules: [accounts(), proxy(), incidents()], start: false });
   const KEYS: Record<string, Record<string, unknown>> = { orca: { protocol: "anthropic" }, oai: { protocol: "openai" }, enved: { protocol: "anthropic", env: { PROVIDER_REGION: "eu" } } };
   st.services.handlers["keys.list"] = () => ({ keys: [{ name: A, protocol: "claude", at: 1, tail: "tail" }, ...Object.entries(KEYS).map(([name, k]) => ({ name, at: 1, tail: "tail", base: url, ...k }))] });
-  st.services.handlers["keys.value"] = (f: any) => (KEYS[f.name] ? { value: `sk-${f.name}`, base: url, ...KEYS[f.name] } : { value: `tok-${f.name}`, protocol: "claude" });
+  st.services.handlers["keys.value"] = (f: any) => (KEYS[f.name] ? { value: `sk-${f.name}`, base: url, ...KEYS[f.name] } : { value: `tok-${f.name}`, protocol: "claude", base: url });
   st.services.handlers["keys.models"] = (f: any) => ({ models: CATALOGS[f.name] ?? [] });
   st.services.handlers["prefs.get"] = () => ({ values: { "proxy.rules": [] } });
   await st.kernel.start();

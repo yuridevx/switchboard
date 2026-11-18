@@ -106,6 +106,20 @@ const catalogNet = (s: Stand, lists: Record<string, () => Response>) => {
 describe("ключи флота: каталог моделей", () => {
   const models = async (s: Stand, name: string, as = "kanya1") => s.ask("keys.models", { name }, as);
 
+  // чьё: дизайн «Проверка всех систем» — адрес Claude — поле аккаунта, как адрес любого ключа флота; без адреса — нынешнее поведение (чьё: код)
+  it("адрес Claude — поле аккаунта: каталог спрашивается по нему и машине он отдаётся вместе с токеном; не назван — api.anthropic.com", async () => {
+    const s = stand();
+    await s.ask("keys.set", { name: "a@example.com", protocol: "claude", value: "sk-ant-oat01-a" });
+    s.state.net = () => Response.json({ data: [{ id: "claude-haiku-5-5", max_input_tokens: 200_000 }] });
+    await models(s, "claude");
+    expect(new URL(s.seen.net.at(-1)!.url).origin).toBe("https://api.anthropic.com");
+    expect(((await s.ask("keys.value", { name: "a@example.com" }, "klaptop")).result as { base?: string }).base).toBeUndefined();
+    await s.ask("keys.set", { name: "a@example.com", protocol: "claude", value: "sk-ant-oat01-a", base: "http://127.0.0.1:4100" });
+    await models(s, "claude");
+    expect(new URL(s.seen.net.at(-1)!.url).origin).toBe("http://127.0.0.1:4100");
+    expect((await s.ask("keys.value", { name: "a@example.com" }, "klaptop")).result).toMatchObject({ value: "sk-ant-oat01-a", base: "http://127.0.0.1:4100" });
+  });
+
   // эталон: «Каталог Claude по токену аккаунта» — чьё: слово пользователя 15 нояб. — «все доступные в API модели»; факт опыта (15 моделей по токену подписки)
   it("каталог Claude — токеном аккаунта: все модели API с семейством и окном; непринятый токен — следующим аккаунтом", async () => {
     const s = stand();

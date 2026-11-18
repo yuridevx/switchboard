@@ -83,6 +83,8 @@ export function make(): Module {
   let round: unknown;
   /** токены аккаунтов Claude и значения ключей провайдеров — только в памяти */
   const tokens = new Map<string, string>();
+  /** Адрес Claude аккаунта — поле base его ключа флота, как адрес любого ключа; не назван — ANTHROPIC. Живёт вместе с токеном. */
+  const bases = new Map<string, string>();
   const values = new Map<string, string>();
   /** до какого часа годно значение ключа: называет служба ключей, когда значение стареет (токен доступа аккаунта ChatGPT) */
   const untils = new Map<string, number>();
@@ -147,8 +149,12 @@ export function make(): Module {
       try {
         const { keys } = await within(host.call(keysList, {}), READ_MS, `список ключей флота: службы не ответили за ${READ_MS / 1000} с`);
         const rows = keys.filter((k) => k.protocol === CLAUDE);
-        await Promise.all(rows.filter((k) => !tokens.has(k.name)).map(async (k) => tokens.set(k.name, (await within(host.call(keysValue, { name: k.name }), READ_MS, `токен ${k.name}: службы не ответили`)).value)));
-        for (const n of [...tokens.keys()]) if (!rows.some((k) => k.name === n)) tokens.delete(n);
+        await Promise.all(rows.filter((k) => !tokens.has(k.name)).map(async (k) => {
+          const v = await within(host.call(keysValue, { name: k.name }), READ_MS, `токен ${k.name}: службы не ответили`);
+          tokens.set(k.name, v.value);
+          if (v.base) bases.set(k.name, v.base);
+        }));
+        for (const n of [...tokens.keys()]) if (!rows.some((k) => k.name === n)) (tokens.delete(n), bases.delete(n));
         write((all) => {
           for (const k of rows) {
             const was = all[k.name];
@@ -370,8 +376,7 @@ export function make(): Module {
   /** Вызов уходит этим аккаунтом: он в полёте, пока не назван done. */
   const go = (callsign: string, account: string): Route => {
     flying.set(account, (flying.get(account) ?? 0) + 1);
-    // адрес Claude — из настройки модуля: на стенде на его месте подделка
-    return { callsign, to: host.config<{ api?: string }>().api ?? ANTHROPIC, protocol: CLAUDE, account, token: tokens.get(account)! };
+    return { callsign, to: bases.get(account) ?? ANTHROPIC, protocol: CLAUDE, account, token: tokens.get(account)! };
   };
 
   /** Проба окон аккаунта: разовый claude с ответом в одно слово через прокси машины, без инструментов и своих настроек. Одновременно на аккаунт — одна.
@@ -671,6 +676,7 @@ export function make(): Module {
         untils.clear();
         dead.clear();
         tokens.clear();
+        bases.clear();
         void load().then(() => (revive(), plan()), (e) => host.log.warn("accounts", { why: `аккаунты Claude не перечитаны: ${say(e)}` }));
       },
     },

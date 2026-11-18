@@ -34,6 +34,8 @@ const run = (file, args, env = {}) => new Promise((done) => {
 const pairs = (process.env.SB2_SWITCH ?? "").split(" ").filter(Boolean);
 
 const QUIET = "тихая", NOISY = "шумная", ALONE = "одна";
+// доля списка: SB2_SHARD=номер/всего. Работа CI делит список между коробками — каждая на своём раннере, проверкам не тесно
+const [shard, shards] = (process.env.SB2_SHARD ?? "1/1").split("/").map(Number);
 // название · файл · аргументы · окружение · годна проду · дорожка · чего ей нужно от флота (см. lacks): нет у флота — проверка не идёт
 const LIST = [
   ["запросы", "smoke.ts", [fleet, device], {}, true, QUIET],
@@ -63,7 +65,7 @@ const LIST = [
   ["флоу: галочка проекта", "live-flows.mjs", [fleet, device], { SB2_PART: "people" }, false, ALONE],
   // заводит и убирает негодный аккаунт Claude флота: при нём чужой ход на Claude получил бы лишний переход — идёт до всех
   ["аккаунты: негодный токен", "live-accounts.ts", [fleet, device, machine], { SB2_PART: "token" }, false, ALONE, ["claude"]],
-].filter((c) => (!prod || c[4]) && !(c[6] ?? []).some(lacks));
+].filter((c) => (!prod || c[4]) && !(c[6] ?? []).some(lacks)).filter((_, i) => i % shards === shard - 1);
 
 const t00 = Date.now();
 const rows = [];

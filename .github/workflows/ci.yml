@@ -49,7 +49,12 @@ jobs:
 
   # флот в коробке: весь Switchboard на раннере — платформа и службы, страница, две машины с Host и claude, поддельная модель; на нём идёт живой список
   box:
-    name: коробка
+    name: коробка ${{ matrix.shard }}
+    # список делится на доли: каждая доля — на своей коробке и своём раннере, проверкам с браузерами не тесно
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/2", "2/2"]
     runs-on: ubuntu-latest
     timeout-minutes: 6
     # история флота — настоящий ClickHouse: его поднимает раннер службой работы, коробка получает адрес и контейнеров не запускает
@@ -81,6 +86,7 @@ jobs:
       - run: node tools/box/box.mjs node tools/fleet/live.mjs box cli m1 m2
         env:
           SB2_BOX_CH: http://default:box@127.0.0.1:8123
+          SB2_SHARD: ${{ matrix.shard }}
 
   # одна обязательная проверка ветки main: зелёная, когда зелёные все части и коробка
   check:

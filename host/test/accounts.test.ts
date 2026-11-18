@@ -92,11 +92,11 @@ async function fleet(all: Record<string, Preset>, answer: (hit: Hit, n: number) 
     mkdirSync(join(home, "store"), { recursive: true });
     writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: { accounts: book(all) } }));
   }
-  st = await stand({ home, modules: [...(o.extra ?? []), accounts(), proxy(), incidents()], config: { "host-accounts": { api: api.url } } });
+  st = await stand({ home, modules: [...(o.extra ?? []), accounts(), proxy(), incidents()] });
   /** limits — окна аккаунта, которые знает флот (служба ключей) */
   const names: { list: string[]; limits: Record<string, Array<{ name: string; used: number; resets?: number; at: number }>> } = { list: Object.keys(all), limits: {} };
   st.services.handlers["keys.list"] = () => ({ keys: [...names.list.map((n) => ({ name: n, protocol: "claude", at: 1, tail: "tail", keep: all[n]?.keep ?? false, ...(names.limits[n] ? { limits: names.limits[n] } : {}) })), { name: "orca", protocol: "anthropic", base: api.url, at: 1, tail: "orca" }] });
-  st.services.handlers["keys.value"] = (f: any) => (f.name === "orca" ? { value: "sk-orca", protocol: "anthropic", base: api.url } : { value: `tok-${f.name}`, protocol: "claude" });
+  st.services.handlers["keys.value"] = (f: any) => (f.name === "orca" ? { value: "sk-orca", protocol: "anthropic", base: api.url } : { value: `tok-${f.name}`, protocol: "claude", base: api.url });
   st.services.handlers["keys.models"] = (f: any) => ({ models: f.name === "claude" ? CATALOG : ORCA });
   st.services.handlers["prefs.get"] = () => ({ values: { "proxy.rules": [] } });
   return { ...api, names };

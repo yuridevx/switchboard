@@ -4,9 +4,10 @@
 // «/model слова» сообщением; модель провайдера из каталога (часть provider — только руками). Свой негодный аккаунт сценарий заводит и убирает сам.
 import fs from "node:fs";
 import path from "node:path";
-import { accountList, CallError, CLAUDE, createApi, fleetList, httpTransport, keysList, keysModels, keysRemove, keysSet, logQuery, machineJournal, message, sessionOpen, sessionRemove, type SessionRow } from "@sb/protocol";
+import { accountList, CallError, CLAUDE, createApi, fleetList, httpTransport, keysList, keysModels, keysRemove, keysSet, logQuery, machineJournal, message, sessionHistory, sessionOpen, sessionRemove, type SessionRow } from "@sb/protocol";
 import { dev, fleetEnv } from "../dev.mjs";
 import { machineTmp, newTag } from "./harness.mjs";
+import { say, tool, turn } from "./turn.mjs";
 
 const dir = dev;
 const env = fleetEnv;
@@ -109,6 +110,37 @@ await stepToken("токен аккаунта не годен: вызов ушё�
   return tried ? `401 на ${BOGUS} → ${row.account}; причина: ${out?.why}` : `машина выбрала ${row.account} сразу: негодный не пробовался (его счёт ниже)`;
 });
 await api.call(keysRemove, { name: BOGUS }).catch(() => {});
+
+// Отказ по заказу умеет только двойник Claude (флот в коробке): заказ — сам токен аккаунта. Настоящему аккаунту токен не меняем:
+// шаг идёт, только когда адрес аккаунта — этот компьютер.
+const tame = (name: string, keys: Array<{ name: string; base?: string }>) => /^http:\/\/127\.0\.0\.1[:/]/.test(keys.find((k) => k.name === name)?.base ?? "");
+if (real.length > 1 && tame(real[0]!, (await api.call(keysList, {})).keys)) await stepToken("лимит недели кончился посреди хода: ход дошёл на другом аккаунте, сессия отказа не видит", async () => {
+  const cs = await open("lim", { key: CLAUDE, model: cheap });
+  const first = await answered(cs);
+  const full = first.account!;
+  const keys = (await api.call(keysList, {})).keys;
+  if (!tame(full, keys)) throw new Error(`аккаунт ${full} — не двойник: токен не трогаю`);
+  const base = keys.find((k) => k.name === full)!.base!;
+  try {
+    // лимит кончится, когда в разговоре будет два ответа модели: после вызова команды, до ответа на её итог
+    await api.call(keysSet, { name: full, protocol: CLAUDE, base, value: `sk-ant-oat01-${tag}-full-after-2` });
+    await api.call(message, { to: cs, text: turn(tool("Bash", { command: "echo 77" }), say("число: {итог 1}")) });
+    const row = await until(`${cs} закончила ход`, async () => { const r = await rowOf(cs); return r?.state === "failed" ? Promise.reject(new Error(`${cs}: сбой — ${r.error}`)) : r?.state === "idle" && (r.last ?? 0) > (first.last ?? 0) ? r : undefined; }, 120_000);
+    if (!String(row.result).includes("77")) throw new Error("итог хода: " + String(row.result).slice(0, 120));
+    if (row.account === full || !real.includes(row.account ?? "")) throw new Error(`ход кончился на аккаунте ${row.account}, лимит был у ${full}`);
+    const calls = await journal("call", cs);
+    if (!calls.some((l) => l.account === full && l.status === 429)) throw new Error("строки вызова с отказом 429 у аккаунта с лимитом нет: " + JSON.stringify(calls.map((l) => [l.account, l.status])));
+    // человеку отказ виден строкой журнала в ленте; в разговоре модели — в репликах — его нет
+    const said = JSON.stringify((await api.call(sessionHistory, { to: cs, limit: 50 })).events.filter((e) => e.type === "assistant" || e.type === "user"));
+    const leak = /rate.limit|exceed your account/i.exec(said);
+    if (leak) throw new Error("отказ лимита дошёл до разговора сессии: " + said.slice(Math.max(0, leak.index - 80), leak.index + 80));
+    return `${full}: 429 посреди хода → ${row.account}; итог: ${String(row.result).slice(0, 40)}`;
+  } finally {
+    // аккаунту двойника — свежий токен без заказа, и лимиты спрошены заново
+    await api.call(keysSet, { name: full, protocol: CLAUDE, base, value: `sk-ant-oat01-${tag}-0000000000000000` });
+    await api.call(accountList, { to: "@" + machine, fresh: true }).catch(() => {});
+  }
+});
 
 await stepRest("«/model слова» сообщением ставит модель, в разговор команда не уходит; несколько подходящих — отказ; у каждого семейства Claude модель ответа совпала с каталогом", async () => {
   const many = await api.call(message, { to: first, text: "/model claude" }).then(() => "ok", (e) => (e as CallError).word);

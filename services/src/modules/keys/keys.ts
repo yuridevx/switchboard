@@ -272,7 +272,7 @@ export const keys: Module = {
       if (!accounts.length) throw new Refusal("no_account", "аккаунтов Claude у флота нет");
       let why = "";
       for (const a of accounts) {
-        const r = await catalog(ctx, ANTHROPIC, { authorization: `Bearer ${a.value}`, "anthropic-beta": "oauth-2025-04-20" }, CLAUDE);
+        const r = await catalog(ctx, a.base ?? ANTHROPIC, { authorization: `Bearer ${a.value}`, "anthropic-beta": "oauth-2025-04-20" }, CLAUDE);
         if (!("status" in r)) return r;
         why = `${a.name}: ${r.why}`;
         // токен не принят — спросить следующим аккаунтом; остальное — отказ самого Claude
