@@ -61,6 +61,8 @@ const PROBE_MS = READ_MS - 2_000;
 const PROBE = "проба";
 /** Вид обращения в «Инциденты»: токен аккаунта не принят. */
 const ACCOUNT_INCIDENT = "account";
+/** Настройки ключа провайдера из ответа службы ключей. */
+type KeyConfig = { protocol: string; base?: string; env?: Record<string, string>; settings?: Record<string, unknown>; cache?: number };
 /** Вид обращения в «Инциденты»: ответила не та модель. */
 const MODEL_INCIDENT = "model";
 /** Имя модели у записи, которую процесс написал сам (ошибка API, прерывание): модель её не давала. */
@@ -82,6 +84,12 @@ export function make(): Module {
   /** токены аккаунтов Claude и значения ключей провайдеров — только в памяти */
   const tokens = new Map<string, string>();
   const values = new Map<string, string>();
+  /** до какого часа годно значение ключа: называет служба ключей, когда значение стареет (токен доступа аккаунта ChatGPT) */
+  const untils = new Map<string, number>();
+  /** ключи с умершим входом: отказ помнится до «ключи изменились» — один запрос к службам, одна строка журнала, одно обращение */
+  const dead = new Map<string, Refusal>();
+  /** идущее взятие ключа: один запрос на всех, кто ждёт */
+  const taking = new Map<string, Promise<KeyConfig>>();
   /** вызовов в полёте по аккаунту */
   const flying = new Map<string, number>();
   /** «полон»: при скольких вызовах в полёте Claude отказал аккаунту */
@@ -239,14 +247,37 @@ export function make(): Module {
     };
   }
 
-  /** Свежий ключ провайдера: значение — в память, настройки — ответом. */
-  async function takeKey(name: string): Promise<{ protocol: string; base?: string; env?: Record<string, string>; settings?: Record<string, unknown>; cache?: number }> {
+  /** Свежий ключ провайдера: значение — в память, настройки — ответом. Вызовы, что идут разом, ждут один запрос; умерший вход служб не спрашивает. */
+  function takeKey(name: string): Promise<KeyConfig> {
+    const gone = dead.get(name);
+    if (gone) return Promise.reject(gone);
+    let taken = taking.get(name);
+    if (!taken) taking.set(name, (taken = readKey(name).finally(() => taking.delete(name))));
+    return taken;
+  }
+
+  async function readKey(name: string): Promise<KeyConfig> {
     try {
-      const { value, keep: _keep, ...config } = await within(host.call(keysValue, { name }), READ_MS, `ключ флота ${name}: службы не ответили за ${READ_MS / 1000} с`);
+      const { value, keep: _keep, until, ...config } = await within(host.call(keysValue, { name }), READ_MS, `ключ флота ${name}: службы не ответили за ${READ_MS / 1000} с`);
       values.set(name, value);
+      if (until === undefined) untils.delete(name);
+      else {
+        untils.set(name, until);
+        // по смене until в истории флота видно, когда вход обновился
+        host.log.info("key", { key: name, until });
+      }
       return config;
     } catch (e) {
       const r = e as Refusal;
+      if (r.word === "bad_token") {
+        // вход аккаунта умер: аккаунт — ключ флота со входом по подписке; то же обращение, что у аккаунта Claude с негодным токеном
+        const why = `${r.why ?? `${name}: вход не принят`} — войдите в аккаунт заново и запишите ключ во «Флоте»`;
+        const refusal = new Refusal("bad_token", why);
+        dead.set(name, refusal);
+        host.log.error("account.token", { account: name, word: "bad_token", why });
+        void host.call(incidentRaise, { to: `@${host.machine}`, kind: ACCOUNT_INCIDENT, key: name, text: why }).catch((x: unknown) => host.log.warn("incident", { account: name, why: `обращение «аккаунт» не открыто: ${say(x)}` }));
+        throw refusal;
+      }
       throw r.word === "not_found" || r.word === "no_key" ? new Refusal("no_key", `${name}: такого ключа флота нет`) : new Refusal(r.word ?? "module_failed", `ключ флота ${name}: ${r.why ?? say(e)}`);
     }
   }
@@ -428,7 +459,9 @@ export function make(): Module {
         // на пути Claude модели Claude идут как есть — ими работают помощники сессии; чужое имя (вызов, начатый до смены) — на модель документа
         return { ...claudeRoute(s, new Set(skip)), ...(asked && !asked.startsWith(CLAUDE_NAME) ? { model: wireModel(pair.model) } : {}) };
       }
-      if (!values.has(pair.key)) await takeKey(pair.key);
+      const until = untils.get(pair.key);
+      // значения нет, его срок вышел или вход умер (тогда отказ — сразу, из памяти)
+      if (!values.has(pair.key) || dead.has(pair.key) || (until !== undefined && now() >= until)) await takeKey(pair.key);
       // стороннему провайдеру любой вызов сессии уходит на модель документа
       return { callsign: s.callsign, to: pair.base ?? ANTHROPIC, protocol: pair.protocol, key: values.get(pair.key)!, name: pair.key, model: wireModel(pair.model), ...(pair.window ? { window: pair.window } : {}) };
     },
@@ -635,6 +668,8 @@ export function make(): Module {
         if (what !== "keys") return;
         // ключи флота сменили: значения забыты, аккаунты перечитаны; ждавшие сессии продолжают на новом аккаунте
         values.clear();
+        untils.clear();
+        dead.clear();
         tokens.clear();
         void load().then(() => (revive(), plan()), (e) => host.log.warn("accounts", { why: `аккаунты Claude не перечитаны: ${say(e)}` }));
       },

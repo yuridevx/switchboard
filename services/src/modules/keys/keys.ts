@@ -1,4 +1,5 @@
-// Ключи флота — провайдеры моделей: аккаунты Claude (годовой токен) и ключи API провайдеров. Значение получает только машина.
+// Ключи флота — провайдеры моделей: аккаунты Claude (годовой токен), аккаунты ChatGPT (вход, который служба обновляет сама) и ключи API провайдеров.
+// Значение получает только машина.
 // Каталог моделей служба спрашивает у провайдера на каждый запрос и копии не держит.
 import { CLAUDE, Refusal, type Model, type Protocol } from "@sb/protocol";
 import type { Ctx, Env, Module } from "../../env.ts";
@@ -27,6 +28,76 @@ const TOKEN_MS = 365 * 24 * 3_600_000;
 const ANTHROPIC = "https://api.anthropic.com";
 /** Срок ответа провайдера о каталоге. */
 const CATALOG_MS = 15_000;
+
+/** Аккаунт ChatGPT: сервер входа OpenAI и его клиент Codex; бэкенд подписки. Каталог моделей — файл каталога Codex в открытом репо OpenAI:
+ *  бэкенд подписки запросам из Worker'а закрыт (замер 18 нояб.: 403), репо отвечает без токена. */
+const CHATGPT = "chatgpt";
+const OPENAI_TOKEN = "https://auth.openai.com/oauth/token";
+const OPENAI_CLIENT = "app_EMoamEEZ73f0CkXaXp7hrann";
+const CHATGPT_BASE = "https://chatgpt.com/backend-api/codex";
+const CHATGPT_CATALOG = "https://raw.githubusercontent.com/openai/codex/main/codex-rs/models-manager/models.json";
+/** Срок обмена токена: короче, чем машина ждёт ответ служб. */
+const EXCHANGE_MS = 8_000;
+/** Токен доступа меняется за сутки до своего срока: вызов, начатый на прежнем, успевает кончиться. */
+const AHEAD_MS = 24 * 3_600_000;
+
+/** Вход аккаунта ChatGPT — значение его ключа: токен доступа для вызовов и refresh-токен для обмена. */
+type Login = { access: string; refresh: string };
+const loginOf = (s: Stored): Login => JSON.parse(s.value) as Login;
+/** Срок токена доступа — из него самого, мс. */
+function expiryOf(access: string): number | undefined {
+  try {
+    const exp = (JSON.parse(atob(access.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as { exp?: unknown }).exp;
+    return typeof exp === "number" ? exp * 1000 : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Обмен refresh-токена на новый вход. OpenAI отказал — bad_token его словами: вход умер. Сеть, срок и сбой сервера входа — auth_unreachable: вход цел. */
+async function exchange(ctx: Ctx, name: string, refresh: string): Promise<Login> {
+  let res: Response;
+  try {
+    res = await ctx.fetch(OPENAI_TOKEN, {
+      method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(EXCHANGE_MS),
+      body: JSON.stringify({ client_id: OPENAI_CLIENT, grant_type: "refresh_token", refresh_token: refresh, scope: "openid profile email" }),
+    });
+  } catch (e) {
+    throw new Refusal("auth_unreachable", `вход ChatGPT ${name}: сервер входа OpenAI не ответил — ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const text = await res.text();
+  if (res.status >= 500 || res.status === 429) throw new Refusal("auth_unreachable", `вход ChatGPT ${name}: сервер входа OpenAI ответил ${res.status}`);
+  let j: { access_token?: string; refresh_token?: string; error?: string | { code?: string; message?: string }; error_description?: string } = {};
+  try {
+    j = JSON.parse(text);
+  } catch {
+    // ответ не JSON — причина ниже по статусу
+  }
+  if (!res.ok || !j.access_token || expiryOf(j.access_token) === undefined) {
+    const said = typeof j.error === "string" ? [j.error, j.error_description] : [j.error?.code, j.error?.message];
+    throw new Refusal("bad_token", `вход ChatGPT ${name}: ${said.filter(Boolean).join(": ") || `OpenAI ответил ${res.status}`}`);
+  }
+  return { access: j.access_token, refresh: j.refresh_token ?? refresh };
+}
+
+type Codex = { slug?: string; display_name?: string; context_window?: number; visibility?: string };
+/** Каталог аккаунта ChatGPT: модели, которые Codex показывает в списке. */
+async function chatgptCatalog(ctx: Ctx, name: string): Promise<{ models: Model[] }> {
+  let res: Response;
+  try {
+    res = await ctx.fetch(CHATGPT_CATALOG, { signal: AbortSignal.timeout(CATALOG_MS) });
+  } catch (e) {
+    throw new Refusal("catalog_failed", `каталог ${name}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (!res.ok) throw new Refusal("catalog_failed", `каталог ${name}: репо OpenAI ответило ${res.status}`);
+  const list = ((await res.json().catch(() => null)) as { models?: Codex[] } | null)?.models;
+  if (!Array.isArray(list)) throw new Refusal("catalog_failed", `каталог ${name}: в файле репо OpenAI нет списка моделей`);
+  return {
+    models: list.filter((m) => typeof m.slug === "string" && m.slug && m.visibility === "list").map((m) => ({
+      id: m.slug!, ...(m.display_name && m.display_name !== m.slug ? { name: m.display_name } : {}), ...(m.context_window ? { window: m.context_window } : {}), protocol: CHATGPT,
+    })),
+  };
+}
 
 const optsOf = (s: Stored): Opts => (s.opts ? (JSON.parse(s.opts) as Opts) : {});
 /** Свойства ключа наружу: адрес, настройки и окружение сессии; у аккаунта Claude — флаг запаса. */
@@ -104,7 +175,7 @@ export const keys: Module = {
         keys: rows.map((s) => {
           const since = optsOf(s).since;
           return {
-            name: s.name, protocol: s.provider, at: s.at, tail: s.value.slice(-4), ...extras(s),
+            name: s.name, protocol: s.provider, at: s.at, tail: (s.provider === CHATGPT ? loginOf(s).access : s.value).slice(-4), ...extras(s),
             ...(s.provider === CLAUDE && since ? { expires: since + TOKEN_MS } : {}), sessions: on.get(s.name)?.length ?? 0,
             ...(s.provider === CLAUDE && limitsOf(s.name).length ? { limits: limitsOf(s.name) } : {}),
           };
@@ -119,6 +190,10 @@ export const keys: Module = {
       const was = await d.first<Stored>(`${SELECT} WHERE keys.name = ?`, i.name);
       // без значения правятся свойства уже записанного ключа
       if (i.value === undefined && !was) throw new Refusal("not_found", `ключа ${i.name} нет: первому сохранению нужно значение`);
+      // ключ другого вида аккаунтом ChatGPT без входа не становится: в его записи лежал бы не вход
+      if (i.protocol === CHATGPT && i.value === undefined && was!.provider !== CHATGPT) throw new Refusal("bad_input", `${i.name}: аккаунту ChatGPT нужен refresh-токен входа`);
+      // аккаунт ChatGPT: значение — refresh-токен входа; обмен сразу — негодный вход виден при записи, ключ не записан
+      const login = i.protocol === CHATGPT && i.value !== undefined ? await exchange(ctx, i.name, i.value) : undefined;
       const before = was ? optsOf(was) : {};
       const now = Date.now();
       const opts: Opts = {
@@ -130,7 +205,7 @@ export const keys: Module = {
         ...(i.protocol === CLAUDE ? { keep: i.keep ?? before.keep ?? true, since: i.value !== undefined ? now : before.since } : {}),
       };
       await d.batch([
-        ["INSERT OR REPLACE INTO keys (name, provider, value, base, at) VALUES (?, ?, ?, ?, ?)", i.name, i.protocol, i.value ?? was!.value, i.base ?? was?.base ?? null, now],
+        ["INSERT OR REPLACE INTO keys (name, provider, value, base, at) VALUES (?, ?, ?, ?, ?)", i.name, i.protocol, login ? JSON.stringify(login) : (i.value ?? was!.value), i.base ?? was?.base ?? (i.protocol === CHATGPT ? CHATGPT_BASE : null), now],
         Object.keys(opts).length ? ["INSERT OR REPLACE INTO keyopts (name, opts) VALUES (?, ?)", i.name, JSON.stringify(opts)] : ["DELETE FROM keyopts WHERE name = ?", i.name],
       ]);
       await told(ctx);
@@ -167,8 +242,18 @@ export const keys: Module = {
     },
 
     async "keys.value"(i: { name: string }, ctx) {
-      const s = await db(ctx.env, ctx.fleet).first<Stored>(`${SELECT} WHERE keys.name = ?`, i.name);
+      const d = db(ctx.env, ctx.fleet);
+      const s = await d.first<Stored>(`${SELECT} WHERE keys.name = ?`, i.name);
       if (!s) throw new Refusal("not_found", `ключа ${i.name} нет`);
+      if (s.provider === CHATGPT) {
+        let login = loginOf(s);
+        // машинам «ключи изменились» не рассылается: прежний токен работает до своего срока, каждая машина придёт по своему until
+        if (Date.now() >= (expiryOf(login.access) ?? 0) - AHEAD_MS) {
+          login = await exchange(ctx, s.name, login.refresh);
+          await d.run("UPDATE keys SET value = ? WHERE name = ?", JSON.stringify(login), s.name);
+        }
+        return { value: login.access, protocol: s.provider, until: expiryOf(login.access)! - AHEAD_MS, ...extras(s) };
+      }
       return { value: s.value, protocol: s.provider, ...extras(s) };
     },
 
@@ -178,6 +263,7 @@ export const keys: Module = {
       if (i.name !== CLAUDE) {
         const s = await d.first<Stored>(`${SELECT} WHERE keys.name = ?`, i.name);
         if (!s || s.provider === CLAUDE) throw new Refusal("no_key", s ? `${i.name} — аккаунт Claude: его модели — в каталоге ${CLAUDE}` : `ключа ${i.name} нет`);
+        if (s.provider === CHATGPT) return chatgptCatalog(ctx, i.name);
         const r = await catalog(ctx, s.base ?? ANTHROPIC, { "x-api-key": s.value, authorization: `Bearer ${s.value}` }, s.provider as Protocol);
         if ("status" in r) throw new Refusal("catalog_failed", `каталог ${i.name}: ${r.why}`);
         return r;

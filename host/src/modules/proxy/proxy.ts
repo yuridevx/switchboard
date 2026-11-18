@@ -31,8 +31,8 @@ const MESSAGES = /^\/v1\/messages(\/count_tokens)?(\?|$)/;
 const CHECK_PROMPT = "Ответь одним словом: ok";
 
 /** Перевод протокола нужен провайдеру Meta: у него Responses API, а не Messages. */
-/** Протоколы, которые прокси переводит в OpenAI Responses: Meta — тот же перевод со своим диалектом. */
-const TRANSLATED = new Set(["openai", "meta"]);
+/** Протоколы, которые прокси переводит в OpenAI Responses: Meta и ChatGPT — тот же перевод со своим диалектом. */
+const TRANSLATED = new Set(["openai", "meta", "chatgpt"]);
 /** Адрес провайдера с версией API: назван с ней — как есть, без неё — /v1. */
 const versioned = (to: string) => { const root = to.replace(/\/+$/, ""); return /\/v\d+$/.test(root) ? root : `${root}/v1`; };
 
@@ -171,8 +171,10 @@ export function make(): Module {
       } catch (e) {
         const { word, why } = e as { word: string; why?: string };
         host.log.warn("proxy", { word, why: `${sid || "без id сессии"}: ${why ?? word}` });
-        // чужому процессу маршрута нет; годных аккаунтов нет — отказ лимита, сессия ждёт сброса; прочее — временно: claude повторит
+        // чужому процессу маршрута нет; годных аккаунтов нет — отказ лимита, сессия ждёт сброса; вход ключа умер — 401: claude сразу показывает причину
+        // (замер 18 нояб.: на 401 — 2 вызова за 3 с, на 529 — 11 за 185 с); прочее — временно: claude повторит
         if (word === "unknown_session") say(403, "permission_error", word, why);
+        else if (word === "bad_token") say(401, "authentication_error", word, why);
         else if (word === "no_account") say(429, "rate_limit_error", word, why);
         else say(529, "overloaded_error", word, why);
         return null;
@@ -213,9 +215,10 @@ export function make(): Module {
         if (route.key && anth && path.startsWith("/v1/messages/count_tokens")) return countTokens(res, anth, { key: "", base: "", version: "", dialect: "openai", author: "", label: route.name ?? "" });
         if (TRANSLATED.has(route.protocol)) {
           const meta = route.protocol === "meta";
+          const chatgpt = route.protocol === "chatgpt";
           const label = meta ? "Meta" : (route.name ?? "провайдер");
           if (!anth) return say(404, "not_found_error", "not_supported", `${req.method} ${path}: у ${label} только /v1/messages`);
-          const creds = { key: route.key ?? "", base: versioned(route.to), version: meta ? await muse() : "", dialect: meta ? ("meta" as const) : ("openai" as const), author: `${route.name ?? ""}/${route.model ?? ""}`, label, ...(route.window ? { window: route.window } : {}) };
+          const creds = { key: route.key ?? "", base: chatgpt ? route.to.replace(/\/+$/, "") : versioned(route.to), version: meta ? await muse() : "", dialect: meta ? ("meta" as const) : chatgpt ? ("chatgpt" as const) : ("openai" as const), author: `${route.name ?? ""}/${route.model ?? ""}`, label, ...(route.window ? { window: route.window } : {}) };
           const refused = await messages(res, anth, creds, ac.signal, (why) => host.log.info("gap", { why: `${sid}: ${why}` }));
           seen(res.statusCode, {}, Date.now() - t0, refused);
           return;

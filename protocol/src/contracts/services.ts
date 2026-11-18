@@ -187,8 +187,9 @@ export const prefsSet = request("prefs.set", {
 /** Имя провайдера «аккаунты Claude флота» в документе сессии (key) и в keys.models. Ключ флота так назвать нельзя. */
 export const CLAUDE = "claude";
 /** Виды API провайдера: claude — аккаунт Claude (имя — почта, значение — годовой токен claude setup-token); anthropic — Messages API по адресу base;
- *  openai — OpenAI Responses API по адресу base: запрос и поток переводит прокси машины; meta — тот же перевод с заголовками и поиском Meta. */
-export const PROTOCOLS = ["claude", "anthropic", "openai", "meta"] as const;
+ *  openai — OpenAI Responses API по адресу base: запрос и поток переводит прокси машины; meta — тот же перевод с заголовками и поиском Meta;
+ *  chatgpt — аккаунт ChatGPT: тот же перевод в бэкенд подписки, значение — refresh-токен входа, служба ключей меняет его на токен доступа и обновляет сама. */
+export const PROTOCOLS = ["claude", "anthropic", "openai", "meta", "chatgpt"] as const;
 export const Protocol = z.enum(PROTOCOLS);
 export type Protocol = z.infer<typeof Protocol>;
 /** Дополнения ключа провайдера: settings — настройки сессии на этом ключе; env — окружение сессии;
@@ -220,7 +221,7 @@ export const keysList = request("keys.list", {
 /** value не задан — правятся только свойства уже записанного ключа. */
 export const keysSet = request("keys.set", {
   owner: "keys", target: "service", admin: true,
-  tool: "Записать ключ флота: name — имя (у аккаунта Claude — почта), protocol — вид API (claude — аккаунт Claude, value — токен claude setup-token; anthropic — Messages API; openai — OpenAI Responses API; meta — Meta), value — значение ключа, base — адрес API провайдера, cache — сколько минут живёт кэш разговора у провайдера, keep — беречь запас недели аккаунта под Fable.", example: {"name":"router","protocol":"anthropic","base":"https://api.example.com"},
+  tool: "Записать ключ флота: name — имя (у аккаунта Claude — почта), protocol — вид API (claude — аккаунт Claude, value — токен claude setup-token; anthropic — Messages API; openai — OpenAI Responses API; meta — Meta; chatgpt — аккаунт ChatGPT, value — refresh-токен входа), value — значение ключа, base — адрес API провайдера, cache — сколько минут живёт кэш разговора у провайдера, keep — беречь запас недели аккаунта под Fable.", example: {"name":"router","protocol":"anthropic","base":"https://api.example.com"},
   input: z.object({ name: z.string(), protocol: Protocol, value: z.string().optional(), base: z.string().optional(), keep: z.boolean().optional(), ...KeyOpts }), output: Done,
 });
 /** Модель каталога провайдера, как её отдал сам провайдер: id — точное имя для документа сессии; family — семейство (группа в списке); window — окно контекста, токены;
@@ -252,10 +253,10 @@ export const keysRemove = request("keys.remove", {
   owner: "keys", target: "service", admin: true,
   input: z.object({ name: z.string(), probe: z.boolean().optional() }), output: z.object({ sessions: z.array(z.string()).optional() }).loose(),
 });
-/** Значение ключа — только машине. */
+/** Значение ключа — только машине. until — когда спросить значение снова, мс: есть у ключа, чьё значение стареет (токен доступа аккаунта ChatGPT). */
 export const keysValue = request("keys.value", {
   owner: "keys", target: "service", machineOnly: true,
-  input: z.object({ name: z.string() }), output: z.object({ value: z.string(), protocol: z.string(), base: z.string().optional(), keep: z.boolean().optional(), ...KeyOpts }),
+  input: z.object({ name: z.string() }), output: z.object({ value: z.string(), protocol: z.string(), base: z.string().optional(), keep: z.boolean().optional(), until: z.number().optional(), ...KeyOpts }),
 });
 
 /* ===== GitHub (github) ===== */
