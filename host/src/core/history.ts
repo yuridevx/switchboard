@@ -17,10 +17,16 @@ function relink(entries: Entry[]): Entry[] {
   });
 }
 
-/** getSessionMessages по всему разговору. Файла ещё нет — пустой разговор. */
+/** Есть ли у разговора записи: по нему решают, продолжать его или начинать, и читать ли его. Сведений о сессии SDK не даёт и разговору
+ *  без заголовка и реплики человека — начатому задачей другой сессии: тогда решают сами записи. Файла нет — нет ни сведений, ни записей. */
+export async function hasConversation(fn: Record<string, Fn>, id: string, options: Record<string, unknown> = {}): Promise<boolean> {
+  return !!(await fn.getSessionInfo!(id, options)) || ((await fn.getSessionMessages!(id, options)) as unknown[]).length > 0;
+}
+
+/** getSessionMessages по всему разговору. Записей ещё нет — пустой разговор. */
 export async function wholeConversation(fn: Record<string, Fn>, id: string, options: Record<string, unknown>): Promise<unknown> {
   const { dir } = options;
-  if (!(await fn.getSessionInfo!(id, { dir }))) return [];
+  if (!(await hasConversation(fn, id, { dir }))) return [];
   const entries: Entry[] = [];
   const copy: SessionStore = {
     append: async (_key, batch) => void entries.push(...batch),

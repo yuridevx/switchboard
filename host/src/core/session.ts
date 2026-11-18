@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import type { SessionRow, SessionState } from "@sb/protocol";
 import { within } from "./clock.ts";
 import type { InputOpts, Module, QueryPart, SessionApi } from "./contract.ts";
-import { wholeConversation } from "./history.ts";
+import { hasConversation, wholeConversation } from "./history.ts";
 import type { Exit, Hold } from "./holders.ts";
 import type { Kernel } from "./kernel.ts";
 import type { CoreRecord } from "./store.ts";
@@ -191,12 +191,12 @@ export class Session {
 
   // ───────────────────────── запуск ─────────────────────────
 
-  /** Как начать разговор: resume — только если файл уже есть; до первого хода его нет, тогда тот же id заново или снова копия. */
+  /** Как начать разговор: resume — только если у разговора уже есть записи; до первого хода их нет, тогда тот же id заново или снова копия. */
   private async plan(kind: Launch): Promise<{ start: Launch; options: Record<string, unknown> }> {
     const { sessionId: id, fork } = this.rec;
     if (kind === "spawn") return { start: kind, options: { sessionId: id, ...(this.rec.title ? { title: this.rec.title } : {}) } };
     if (kind === "fork") return { start: kind, options: { resume: fork, forkSession: true, sessionId: id } };
-    if (kind === "attach" || (await within(this.k.clock, this.k.sdk.functions.getSessionInfo!(id), STEP_MS, () => undefined))) return { start: kind, options: { resume: id, ...(kind !== "attach" && this.rec.upto ? { resumeSessionAt: this.rec.upto } : {}) } };
+    if (kind === "attach" || (await within(this.k.clock, hasConversation(this.k.sdk.functions, id), STEP_MS, () => false))) return { start: kind, options: { resume: id, ...(kind !== "attach" && this.rec.upto ? { resumeSessionAt: this.rec.upto } : {}) } };
     return this.plan(fork ? "fork" : "spawn");
   }
 

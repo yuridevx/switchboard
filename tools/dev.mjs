@@ -1,9 +1,10 @@
 // Настройки разработки вне репо (~/.switchboard-dev): один разбор для всех скриптов v2.
+// SB2_DEV — другая папка настроек той же формы: её ставит флот в коробке (tools/box/box.mjs).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export const dev = path.join(os.homedir(), ".switchboard-dev");
+export const dev = process.env.SB2_DEV ?? path.join(os.homedir(), ".switchboard-dev");
 /** Файл вида КЛЮЧ=значение; строки с # и без = пропускаются; файла нет — пусто. */
 export const readEnv = (file) => (fs.existsSync(file) ? Object.fromEntries(fs.readFileSync(file, "utf8").split("\n").filter((l) => l.includes("=") && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()])) : {});
 /** Адреса и секреты тестового флота v2. */

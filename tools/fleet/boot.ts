@@ -1,12 +1,11 @@
 // Завести флот и получить первый пропуск админа: node tools/fleet/boot.ts <флот> <~почта> [имя устройства]
 // Секрет BOOT, адрес платформы (SB2_PLATFORM) и адрес флота (SB2_BASE) — из ~/.switchboard-dev/v2-fleet.env; пропуск пишется в ~/.switchboard-dev/v2-<флот>-<устройство>.pass.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { isReply, parseFrame } from "@sb/protocol";
-import { fleetEnv } from "../dev.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
 
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const [fleet, person, device = "cli"] = process.argv.slice(2);
 if (!fleet || !person) throw new Error("нужно: <флот> <~почта> [устройство]");

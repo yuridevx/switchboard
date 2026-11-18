@@ -3,19 +3,20 @@
 // Первая пара — с чем открыть; каждая следующая — смена и ход. Ход печатает число и называет число прошлого хода: так видно, что разговор переехал.
 // В конце — смена посреди хода и итог: переходов без отказа, перезапусков процесса, строк журнала о смене.
 // SB2_ENV=prod — прод; KEEP=1 — сессию не убирать.
-import { fleetCall, machineTmp } from "./harness.mjs";
+import { fleetCall, machineTmp, newTag } from "./harness.mjs";
+import { say, tool, turn as script } from "./turn.mjs";
 
 const [fleet = "test", device = "cli", machine = "devbox", ...pairs] = process.argv.slice(2);
 if (pairs.length < 2) throw new Error("нужно: <флот> <устройство> <машина> <key/model> <key/model> …");
 const { call, must } = fleetCall(fleet, device);
-const tag = Date.now().toString(36).slice(-4);
+const tag = newTag();
 const cs = `switch-${tag}@${machine}`;
 const cwd = process.env.SB2_CWD ?? `${machineTmp(fleet, device, machine)}/sb2-switch-${tag}`;
 const doc = (s) => { const i = s.indexOf("/"); return { key: s.slice(0, i), model: s.slice(i + 1) }; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const row = () => must("fleet.list", { machine, full: true }).sessions.find((s) => s.callsign === cs);
 const short = (v, n = 160) => String(typeof v === "string" ? v : JSON.stringify(v)).slice(0, n);
-const task = (n) => `Выполни в Bash команду \`echo ${n * 11}\` и ответь одной строкой: «число: M, прошлое число: K» (K — число из прошлого хода; не было — «нет»).`;
+const task = (n) => script(tool("Bash", { command: `echo ${n * 11}` }), say("число: {итог 1}, прошлое число: {прошлый итог}"));
 const journal = (since) => must("machine.journal", { to: "@" + machine, session: cs, since, limit: 400 }).lines;
 let bad = 0, total = 0;
 const step = (ok, label, said) => { total++; if (!ok) bad++; console.log(`${ok ? "✓" : "✗"} ${label} · ${said}`); };
@@ -61,7 +62,7 @@ for (let i = 1; i < pairs.length; i++) {
 {
   const target = pairs.find((p) => p !== pairs.at(-1));
   const t = Date.now();
-  call("message", { to: cs, text: "Выполни в Bash ровно эту команду: `node -e \"setTimeout(()=>console.log(4242),30000)\"`. Потом ответь одной строкой: «число: …»." });
+  call("message", { to: cs, text: script(tool("Bash", { command: 'node -e "setTimeout(()=>console.log(4242),30000)"' }), say("число: {итог 1}")) });
   await sleep(8000);
   const u = call("session.update", { to: cs, patch: doc(target) });
   const r = await turn(t, "4242");

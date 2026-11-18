@@ -1,12 +1,11 @@
 // Живая проверка серверных функций флота: node tools/fleet/live-server.ts <флот> <устройство> <сессия-источник> <машина для переноса>
 // Сервер MCP (401 без пропуска, список инструментов, вызов), здоровье, точка → архив → поиск → разговор → перенос на другую машину.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createApi, fleetList, httpTransport, obsHealth, pointsHistory, pointsList, pointsRaise, pointsSave, sessionRemove, sessionUpdate } from "@sb/protocol";
-import { fleetEnv } from "../dev.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
 
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const [fleet = "test", device = "cli", source = "", target = ""] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();

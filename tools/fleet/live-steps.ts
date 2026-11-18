@@ -3,16 +3,16 @@
 // с сохранением сессий, очереди аккаунтов. Сессии открываются на ключе флота muse и убираются за собой. Шаг, которому нужна более новая сборка
 // на машине, помечается «ждёт выкладки» и сбоем не считается.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { fleetEnv } from "../dev.mjs";
-import { machineTmp } from "./harness.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
+import { lacks, machineTmp, newTag } from "./harness.mjs";
+import { say, tool, turn as script } from "./turn.mjs";
 import {
   answer, CallError, createApi, fleetList, hostRestart, httpTransport, incidentList, incidentRaise, keeperState, machineMetrics, obsHealth, pointsDelete, pointsList, prefsGet, prefsSet, profileList, profileSync,
   sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellInfo, shellRun, keysModels, type SessionRow,
 } from "@sb/protocol";
 
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const [fleet = "test", device = "cli", machine = "devbox", second = ""] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
@@ -59,7 +59,7 @@ async function open(name: string, m: string, extra: Record<string, unknown> = {}
   made.push(r.callsign);
   return r.callsign;
 }
-const tag = Date.now().toString(36).slice(-4);
+const tag = newTag();
 // части проверки: one — шаги на своей машине; far — шаги, которым нужна вторая машина (идут в одной очереди с перезапуском её Host)
 const PART = process.env.SB2_PART ?? "";
 const skip = async () => {};
@@ -80,7 +80,7 @@ for (const m of [machine, second].filter(Boolean)) {
 let asker = "";
 let askTo: string | undefined;
 await stepOne("вопрос сессии: разрешение в строке, ответ человека, ход продолжается", async () => {
-  asker = await open("ask-" + tag, machine, { mode: "ask" }, `Создай файл ask-${tag}.txt со словом ok и больше ничего не делай.`);
+  asker = await open("ask-" + tag, machine, { mode: "ask" }, script(tool("Write", { file_path: `${tmp(machine)}/ask-${tag}.txt`, content: "ok" }), say("записан")));
   const row = await until("вопрос в строке сессии", async () => {
     const r = await rowOf(asker);
     return r?.ask ? r : r?.state === "failed" ? Promise.reject(new Error("сессия failed: " + r.error)) : undefined;
@@ -153,7 +153,7 @@ await stepOne("пара: ведомый открыт вместе с ведущ�
 await stepOne("обращение: вид из настроек флота открывает сессию; обращение видно в списке", async () => {
   const kinds = ((await api.call(prefsGet, { scope: "fleet", prefix: "incidents.kinds" })).values["incidents.kinds"] ?? {}) as Record<string, unknown>;
   const kind = "live-" + tag;
-  await api.call(prefsSet, { scope: "fleet", name: "incidents.kinds", value: { ...kinds, [kind]: { cwd: tmp(machine), ...DOC, prompt: "Это проверка: ответь одним словом «принято»." } } });
+  await api.call(prefsSet, { scope: "fleet", name: "incidents.kinds", value: { ...kinds, [kind]: { cwd: tmp(machine), ...DOC, prompt: script(say("принято")) } } });
   try {
     await sleep(3000); // Host перечитывает настройку по кадру «изменилось»
     const r = await api.call(incidentRaise, { to: "@" + machine, kind, key: "k1", text: "живая проверка обращения " + tag });
@@ -170,9 +170,10 @@ await stepOne("обращение: вид из настроек флота от�
 
 /* Точка после остановки и поиск по переписке */
 let archived: { sid: string; word: string } | undefined;
-await stepOne("точка после остановки: остановленная сессия сохранена в архив, сбоя точки в строке нет", async () => {
+// точка и поиск: блоки разговора идут в хранилище по подписанным ссылкам
+if (!lacks("r2")) await stepOne("точка после остановки: остановленная сессия сохранена в архив, сбоя точки в строке нет", async () => {
   const word = "маяк" + tag;
-  const cs = await open("point-" + tag, machine, { backup: true }, `Ответь одним словом: ${word}`);
+  const cs = await open("point-" + tag, machine, { backup: true }, script(say(word)));
   await until("ход закончен", async () => {
     const r = await rowOf(cs);
     return r?.state === "failed" ? Promise.reject(new Error("сессия failed: " + r.error)) : r?.state === "idle" && !!r.last;
@@ -185,7 +186,7 @@ await stepOne("точка после остановки: остановленн�
   archived = { sid: s.sid, word };
   return `точек ${s.points}`;
 });
-await stepOne("поиск по слову называет запись разговора и точку, с которой она в архиве", async () => {
+if (!lacks("r2")) await stepOne("поиск по слову называет запись разговора и точку, с которой она в архиве", async () => {
   if (!archived) throw new Error("сохранённой сессии нет");
   const { sid, word } = archived;
   const r = await until("сессия найдена поиском", async () => (await api.call(pointsList, { q: word })).sessions.find((x) => x.sid === sid), 30_000);
@@ -206,7 +207,8 @@ await stepOne("числа Host: машина отвечает на запрос,
 });
 
 /* Кусочки: правка пришла с другой машины — работающая сессия перечитывает скилы */
-if (second) {
+// репозиторий кусочков машины берут с GitHub
+if (second && !lacks("github")) {
   await stepFar("кусочки обновились на другой машине — работающая сессия видит новый скил", async () => {
     const far = (await api.call(profileList, { to: "@" + second })).repos?.find((r) => r.state === "ok" && r.dir);
     const piece = (await api.call(profileList, { to: "@" + machine })).pieces.find((p) => p.ok && far && p.repo === far.repo && (p.has?.skill ?? 0) > 0);

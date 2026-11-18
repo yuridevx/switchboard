@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall } from "./harness.mjs";
+import { chromium, fleetCall, newTag } from "./harness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
@@ -21,7 +21,7 @@ fs.mkdirSync(out, { recursive: true });
 const { call, must } = fleetCall(fleet, device);
 const base = fleetEnv.SB2_BASE;
 
-const tag = Date.now().toString(36).slice(-5);
+const tag = newTag();
 const name = "files" + tag;
 // папка сессии — от домашней: путь годится и Windows, и Linux, какой бы ни была машина
 const cwd = `~/sb2-live-files-${tag}`;

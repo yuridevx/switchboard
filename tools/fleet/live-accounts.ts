@@ -3,19 +3,18 @@
 // Шаги: каталог Claude; ход без входа и час кэша; строки журнала вызова — на машине и в ClickHouse; негодный токен — переход без обрыва хода;
 // «/model слова» сообщением; модель провайдера из каталога (часть provider — только руками). Свой негодный аккаунт сценарий заводит и убирает сам.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { accountList, CallError, CLAUDE, createApi, fleetList, httpTransport, keysList, keysModels, keysRemove, keysSet, logQuery, machineJournal, message, sessionOpen, sessionRemove, type SessionRow } from "@sb/protocol";
-import { fleetEnv } from "../dev.mjs";
-import { machineTmp } from "./harness.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
+import { machineTmp, newTag } from "./harness.mjs";
 
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const [fleet = "test", device = "cli", machine = "devbox"] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
 const wire = httpTransport({ base: env.SB2_BASE!, key });
 const api = createApi({ ...wire, call: async (f) => { for (let i = 0; ; i++) { const r = await wire.call(f); if (r.ok || r.error !== "offline" || i >= 4) return r; await new Promise((x) => setTimeout(x, 3000)); } } });
-const tag = Date.now().toString(36).slice(-4);
+const tag = newTag();
 const cwd = `${machineTmp(fleet, device, machine)}/sb2-accounts-${tag}`;
 /** Свой негодный аккаунт сценария: токен не настоящий. */
 const BOGUS = `bogus-${tag}@example.com`;

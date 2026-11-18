@@ -292,3 +292,20 @@ describe("разговоры папки", () => {
     expect(await st.request("machine.conversations", { to: "@laptop", cwd: st.dir + "/нет" }, PULT)).toMatchObject({ ok: false, error: "bad_dir" });
   });
 });
+
+describe("разговор без сведений", () => {
+  // чьё: факт — у разговора без заголовка, начатого задачей другой сессии, getSessionInfo отвечает пусто, а записи в файле есть (опыт на флоте в коробке 18 нояб.)
+  it("сведений о сессии SDK не дал, записи есть: история читается, остановленная сессия продолжает тот же разговор", async () => {
+    st = await stand({ modules: [chat()] });
+    const { s } = await st.open("site");
+    const said = [{ type: "user", uuid: "h1", message: { content: "<fleet from=\"lead@laptop\" kind=\"task\">сделай</fleet>" } }, { type: "assistant", uuid: "a1", message: { content: [{ type: "text", text: "принято" }] } }];
+    const calls = st.sdk.fnCalls;
+    (st.sdk as any).functions = new Proxy({}, { get: (_t, name: string) => async (...args: unknown[]) => (calls.push({ name, args }), name === "getSessionInfo" ? undefined : name === "getSessionMessages" ? said : {}) });
+    const h = (await st.request("session.history", { to: CS }, PULT)).result as { events: any[] };
+    expect(h.events.map((e) => e.uuid)).toEqual(["h1", "a1"]);
+    expect(await st.request("session.stop", { to: CS }, PULT)).toMatchObject({ ok: true });
+    expect(await st.request("session.start", { to: CS }, PULT)).toMatchObject({ ok: true });
+    await until(() => s.state === "idle", 5000, "старт");
+    expect((st.sdk.last(CS)!.options as any).resume).toBe(s.rec.sessionId);
+  });
+});

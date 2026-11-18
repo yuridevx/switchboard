@@ -4,13 +4,16 @@
 // подмена Host посреди хода — итог дошёл, задача не пришла дважды; справка прочитана; правила пережили сжатие.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { CallError, createApi, fleetList, hostRestart, httpTransport, keeperState, keysModels, logQuery, message, peopleList, sessionCall, sessionHistory, sessionOpen, sessionRemove, type Peer, type SessionRow } from "@sb/protocol";
-import { fleetEnv } from "../dev.mjs";
-import { machineTmp } from "./harness.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
+import { lacks, machineTmp, newTag } from "./harness.mjs";
+import { say, tool, turn as script } from "./turn.mjs";
 
-const dir = path.join(os.homedir(), ".switchboard-dev");
+/** Просьба родителю: один вызов message сервера fleet с задачей дочери. */
+const give = (to: string, task: string) => script(tool("mcp__fleet__message", { to, text: task }), say("задача отдана"));
+
+const dir = dev;
 const env = fleetEnv;
 const [fleet = "test", device = "cli", machine = "devbox"] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
@@ -18,7 +21,7 @@ const wire = httpTransport({ base: env.SB2_BASE!, key });
 const api = createApi({ ...wire, call: async (f) => { for (let i = 0; ; i++) { const r = await wire.call(f); if (r.ok || r.error !== "offline" || i >= 4) return r; await new Promise((x) => setTimeout(x, 3000)); } } });
 const SEAT = process.env.SB2_KEY ?? "muse";
 const DOC = { key: SEAT, model: process.env.SB2_MODEL ?? (await api.call(keysModels, { name: SEAT })).models[0]!.id };
-const tag = Date.now().toString(36).slice(-4);
+const tag = newTag();
 const cwd = `${machineTmp(fleet, device, machine)}/sb2-comms-${tag}`;
 
 let bad = 0, total = 0;
@@ -116,7 +119,7 @@ await step("родитель даёт задачу дочери — итог е�
   child = (await api.call(sessionOpen, { to: "@" + machine, spec: { name: "cm-kid-" + tag, cwd, ...DOC, parent } as never })).callsign;
   made.push(child);
   await Promise.all([idle(parent), idle(child)]);
-  await turn(parent, `Вызови инструмент message сервера fleet один раз: to — ${child}, text — «Ответь одним словом: принято». После вызова ничего больше не делай и ничего не пиши другим сессиям.`);
+  await turn(parent, give(child, script(say("принято"))));
   const tasks = await until("задача у дочери", async () => { const t = await incoming(child, parent, "task"); return t.length ? t : undefined; });
   const results = await until("итог у родителя", async () => { const r = await incoming(parent, child, "result"); return r.length ? r : undefined; });
   return `задач у дочери ${tasks.length}, итог: ${results[0]!.slice(0, 60)}`;
@@ -127,14 +130,15 @@ await stepTalk("история через сервер инструментов:
   const text = (await mcp("tools/call", { name: "session_history", arguments: { to: child, limit: 50 } })).content[0].text as string;
   for (const word of ['"signature"', '"usage"', '"modelUsage"', '"session_id"']) if (text.includes(word)) throw new Error(`в ответе модели осталось ${word}`);
   if (!text.includes('"uuid"')) throw new Error("номера события нет");
-  const line = await until("строка журнала", async () => (await api.call(logQuery, { msg: "tool", session: parent, limit: 20 })).lines.find((l) => JSON.stringify(l).includes('"tool":"message"') || JSON.stringify(l).includes("message")), 60_000);
+  // история флота лежит в ClickHouse
+  const line = lacks("clickhouse") ? "без ClickHouse не читается" : await until("строка журнала", async () => (await api.call(logQuery, { msg: "tool", session: parent, limit: 20 })).lines.find((l) => JSON.stringify(l).includes('"tool":"message"') || JSON.stringify(l).includes("message")), 60_000);
   return `знаков: странице ${raw.length}, модели ${text.length} (${(raw.length / text.length).toFixed(1)}×); строка: ${JSON.stringify(line).slice(0, 110)}`;
 });
 
 await stepTalk("дочь с фоновой командой отвечает дважды — оба итога у родителя", async () => {
   await idle(parent);
   const before = (await incoming(parent, child, "result")).length;
-  await turn(parent, `Вызови инструмент message сервера fleet один раз: to — ${child}, text — «Запусти инструментом Bash команду sleep 25 && echo fon-gotov с параметром run_in_background: true. Сразу после запуска ответь одним словом: запустила. Когда придёт уведомление о конце фоновой команды, ответь: фон кончился.». После вызова ничего больше не делай и ничего не пиши другим сессиям.`);
+  await turn(parent, give(child, script(tool("Bash", { command: "sleep 25 && echo fon-gotov", run_in_background: true }), say("запустила"), say("фон кончился", "придёт уведомление о конце фоновой команды"))));
   const got = await until("два итога дочери", async () => { const r = await incoming(parent, child, "result"); return r.length >= before + 2 ? r.slice(before) : undefined; }, 240_000);
   return got.map((t) => t.replace(/\s+/g, " ").slice(0, 40)).join(" ‖ ");
 });
@@ -144,7 +148,7 @@ if (!process.env.NO_SWAP) await stepSwap("подмена Host посреди х�
   await Promise.all([idle(parent), idle(child)]);
   const before = (await incoming(parent, child, "result")).length;
   const tasks = (await incoming(child, parent, "task")).length;
-  await api.call(message, { to: parent, text: `Вызови инструмент message сервера fleet один раз: to — ${child}, text — «Выполни инструментом Bash одну команду, не в фоне: node -e \"setTimeout(()=>console.log(1),40000)\" — она идёт 40 секунд. Когда она закончится, ответь: подмена пережита». После вызова ничего больше не делай.` });
+  await api.call(message, { to: parent, text: give(child, script(tool("Bash", { command: 'node -e "setTimeout(()=>console.log(1),40000)"' }), say("подмена пережита"))) });
   await until("дочь занята", async () => (await rowOf(child))?.state === "busy", 120_000);
   // подмена — когда команда уже идёт: строка «чем занят ход» называет её
   await until("команда идёт", async () => /setTimeout|node/.test((await rowOf(child))?.doing ?? ""), 120_000);
@@ -161,13 +165,14 @@ if (!process.env.NO_SWAP) await stepSwap("подмена Host посреди х�
 
 await stepTalk("справка прочитана: сессия по просьбе читает страницу практик и называет инструмент", async () => {
   await idle(child);
-  await turn(child, "Прочитай ресурс fleet://guide/practices сервера fleet инструментом чтения ресурсов MCP и назови одной строкой имя инструмента, которым сессия убирает сама себя.");
+  await turn(child, script(tool("ReadMcpResourceTool", { server: "fleet", uri: "fleet://guide/practices" }), say("страница практик: {итог 1}")));
   const a = await lastAnswer(child);
   if (!a.includes("session_remove")) throw new Error("ответ: " + a.slice(0, 120));
   return a.replace(/\s+/g, " ").slice(0, 80);
 });
 
-await stepTalk("правила пережили сжатие: сессия называет свой позывной и инструмент ответа соседу", async () => {
+// свой позывной и правила сессия знает из слов Host: назвать их может только модель, которая понимает прочитанное
+if (!lacks("mind")) await stepTalk("правила пережили сжатие: сессия называет свой позывной и инструмент ответа соседу", async () => {
   await api.call(sessionCall, { to: child, method: "compact" });
   await sleep(5000);
   await idle(child);

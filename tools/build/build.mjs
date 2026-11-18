@@ -4,12 +4,11 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { digest, hostBundle } from "./digest.mjs";
-import { fleetEnv } from "../dev.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(path.join(root, "package.json"));
@@ -50,7 +49,7 @@ for (const f of files) console.log(`${f.name} Â· ${(f.size / 1024).toFixed(0)} Ð
 const up = process.argv.indexOf("--upload");
 if (up > 0) {
   const fleet = process.argv[up + 1], device = process.argv[up + 2] ?? "cli";
-  const dir = path.join(os.homedir(), ".switchboard-dev");
+  const dir = dev;
   const env = fleetEnv;
   const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
   let commit;

@@ -2,13 +2,13 @@
 // Одна сессия на ключе флота: три хода правят файл; откат «разговор и файлы» дважды подряд, затем «только разговор», показ, очистка;
 // пара: ведущая читает историю ведомого, сжимает и откатывает его инструментами и получает вести; разговоры папки.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { CallError, createApi, fleetList, httpTransport, machineConversations, message, sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellRun, answer, type SessionRow, keysModels } from "@sb/protocol";
-import { fleetEnv } from "../dev.mjs";
-import { machineTmp } from "./harness.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
+import { machineTmp, newTag } from "./harness.mjs";
+import { say, tool, turn as script } from "./turn.mjs";
 
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const [fleet = "test", device = "cli", machine = "devbox"] = process.argv.slice(2);
 const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
@@ -17,7 +17,7 @@ const api = createApi({ ...wire, call: async (f) => { for (let i = 0; ; i++) { c
 const SEAT = process.env.SB2_KEY ?? "muse";
 /** Модель тестовых сессий — SB2_MODEL или первая из каталога провайдера. */
 const DOC = { key: SEAT, model: process.env.SB2_MODEL ?? (await api.call(keysModels, { name: SEAT })).models[0]!.id };
-const tag = Date.now().toString(36).slice(-4);
+const tag = newTag();
 const cwd = `${machineTmp(fleet, device, machine)}/sb2-rewind-${tag}`;
 
 let bad = 0, total = 0;
@@ -71,9 +71,10 @@ await stepRewind("сессия на ключе флота: три хода пр�
   cs = (await api.call(sessionOpen, { to: "@" + machine, spec: { name: "rw-" + tag, cwd, ...DOC } as never, mkdir: true })).callsign;
   made.push(cs);
   await idle(cs);
-  u1 = await turn(cs, "Создай инструментом Write файл note.txt ровно с одной строкой: один. Больше ничего не делай.");
-  u2 = await turn(cs, "Перезапиши инструментом Write файл note.txt ровно с двумя строками: один и два. Больше ничего не делай.");
-  u3 = await turn(cs, "Перезапиши инструментом Write файл note.txt ровно с тремя строками: один, два и три. Больше ничего не делай.");
+  const write = (content: string, word: string) => turn(cs, script(tool("Write", { file_path: `${cwd}/note.txt`, content }), say("записано: " + word)));
+  u1 = await write("один\n", "одна строка");
+  u2 = await write("один\nдва\n", "две строки");
+  u3 = await write("один\nдва\nтри\n", "три строки");
   const text = await file("note.txt");
   if (!/три/.test(text)) throw new Error("файл после трёх ходов: " + JSON.stringify(text));
   return `людских сообщений ${(await humans(cs)).length}, файл: ${text.replace(/\s+/g, " ")}`;
@@ -121,15 +122,16 @@ await stepRewind("обрезка переживает остановку и за
 });
 
 await stepRewind("сессия после отката помнит оставшееся и не помнит ушедшее", async () => {
-  await turn(cs, "Ответь одним словом без инструментов: сколько строк ты записал в note.txt последним своим действием в этом разговоре — одну, две или три?");
+  // в разговоре после отката остался один вызов Write из трёх: модель считает их по тому разговору, который получила
+  await turn(cs, script(say("вызовов Write в разговоре: {вызовов Write}")));
   const last = (await said(cs)).filter((e) => e.type === "assistant").at(-1);
   const text = JSON.stringify(last?.message?.content ?? "").toLowerCase();
-  if (!/одн|1/.test(text) || /тр[иё]|две|два/.test(text)) throw new Error("ответ: " + text.slice(0, 160));
-  return "ответ: одну";
+  if (!/разговоре: 1(?!\d)/.test(text)) throw new Error("ответ: " + text.slice(0, 160));
+  return "вызовов Write в разговоре: 1";
 });
 
 await stepRewind("откат «только разговор»: файл на диске прежний", async () => {
-  const u = await turn(cs, "Перезапиши инструментом Write файл note.txt ровно с одной строкой: четыре. Больше ничего не делай.");
+  const u = await turn(cs, script(tool("Write", { file_path: `${cwd}/note.txt`, content: "четыре\n" }), say("записано: четыре")));
   if (!/четыре/.test(await file("note.txt"))) throw new Error("ход не записал файл");
   const r = await api.call(sessionRewind, { to: cs, upto: u });
   await idle(cs);
@@ -167,9 +169,9 @@ await stepPair("пара: ведущая сжимает и откатывает 
   made.push(lead);
   await idle(lead);
   await idle(wing);
-  await turn(lead, `Дай ведомому ${wing} инструментом message задачу: «Ответь одним словом: готов». Дождись его итога и ответь мне одним словом: принято.`);
+  await turn(lead, script(tool("mcp__fleet__message", { to: wing, text: script(say("готов")) }), say("жду итога"), say("принято", "придёт итог ведомого")));
   await idle(wing);
-  await turn(lead, `Сделай по порядку и ничего больше: 1) инструментом session_history прочитай разговор ${wing}; 2) инструментом session_call с method compact сожми ${wing}; 3) инструментом session_rewind без upto очисти разговор ${wing}. В конце ответь, сколько сообщений было в истории ведомого.`);
+  await turn(lead, script(tool("mcp__fleet__session_history", { to: wing }), tool("mcp__fleet__session_call", { to: wing, method: "compact" }), tool("mcp__fleet__session_rewind", { to: wing }), say("ведомый прочитан, сжат и очищен")));
   await sleep(5000);
   const from = (await said(lead)).filter((e) => (e as { peer?: { from: string; kind: string } }).peer?.from === wing).map((e) => (e as { peer?: { kind: string } }).peer!.kind);
   if (!from.includes("result")) throw new Error("итога ведомого видом result у ведущей нет: " + from.join(", "));
@@ -183,7 +185,7 @@ const news = async () => (await said(lead)).map((e) => (e as { peer?: { from: st
 
 await stepPair("пара: ведомого очистил человек — ведущей пришла весть; сжатие ведомого вести не даёт", async () => {
   // почти пустой разговор Claude не сжимает: сначала ведомый набирает разговор
-  for (let i = 1; i <= 2; i++) await turn(wing, `Напиши связный текст на 300 слов о том, как устроен велосипед, часть ${i}. Инструменты не используй.`);
+  for (let i = 1; i <= 2; i++) await turn(wing, script(say(`часть ${i}: ` + "велосипед едет, пока крутятся колёса, цепь тянет звезду, а руль держит путь; ".repeat(25))));
   const before = (await news()).length;
   await api.call(sessionCall, { to: wing, method: "compact" });
   await sleep(8000);
@@ -201,7 +203,7 @@ await stepPair("пара: ведомый ждёт разрешения чело�
   await idle(wing);
   const before = (await news()).filter((t) => t.includes("Ждёт ответа человека")).length;
   // задачу даёт человек: вопрос идёт человеку, а не ведущей
-  await api.call(message, { to: wing, text: "Создай файл ask-" + tag + ".txt со словом ok. Ничего больше." });
+  await api.call(message, { to: wing, text: script(tool("Write", { file_path: `${cwd}/ask-${tag}.txt`, content: "ok" }), say("записан")) });
   const row = await until("вопрос у ведомого", async () => { const r = await rowOf(wing); return r?.ask ? r : undefined; }, 120_000);
   await until("весть «ждёт ответа человека» у ведущей", async () => (await news()).filter((t) => t.includes("Ждёт ответа человека")).length > before, 60_000);
   await api.call(answer, { to: wing, ask: row.ask!.id, answer: { action: "allow" } });

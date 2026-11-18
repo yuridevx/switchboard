@@ -5,13 +5,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, putFile, root } from "./harness.mjs";
+import { chromium, fleetCall, newTag, putFile, root } from "./harness.mjs";
 
 const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
 const out = outArg ?? path.join(root, "dist", "live");
 fs.mkdirSync(out, { recursive: true });
 const { call, must } = fleetCall(fleet, device);
-const tag = Date.now().toString(36).slice(-4);
+const tag = newTag();
 // папка пробных сессий — от домашней папки машины: годится любой ОС и чужой машине; SB2_CWD — своя
 const cwd = process.env.SB2_CWD ?? "~/sb2-live-errors";
 const REFUSED = "вызов модели отклонён (4";

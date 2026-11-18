@@ -8,9 +8,9 @@ import { createApi, httpTransport, pointsGet } from "@sb/protocol";
 import { download, writeFiles } from "../../host/src/modules/points/files.ts";
 import { bring, BUNDLE, folderOf, type Summary } from "../../host/src/modules/points/git.ts";
 import { projectDir } from "../../host/src/modules/points/points.ts";
-import { fleetEnv } from "../dev.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
 
-const secrets = path.join(os.homedir(), ".switchboard-dev");
+const secrets = dev;
 const env = fleetEnv;
 const [fleet, device, sid, where, point] = process.argv.slice(2);
 if (!fleet || !device || !sid || !where) throw new Error("нужно: <флот> <устройство> <сессия архива> <папка> [точка]");

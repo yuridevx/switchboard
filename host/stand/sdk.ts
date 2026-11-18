@@ -154,8 +154,6 @@ export class FakeSdk {
   readonly version: string;
   readonly queries: FakeQuery[] = [];
   readonly fnCalls: Array<{ name: string; args: unknown[] }> = [];
-  /** разговоры без файла: claude ещё не прошёл первый ход */
-  readonly noFile = new Set<string>();
   readonly cliCalls: Array<{ args: string[]; env: Record<string, string | undefined>; input?: string }> = [];
   /** путь к claude, как его находит Host */
   bin = "/opt/sdk/claude";
@@ -173,7 +171,6 @@ export class FakeSdk {
   functions = new Proxy({} as Record<string, (...a: unknown[]) => Promise<unknown>>, {
     get: (_t, name: string) => async (...args: unknown[]) => {
       this.fnCalls.push({ name, args });
-      if (name === "getSessionInfo" && this.noFile.has(args[0] as string)) return undefined;
       return name === "getSessionMessages" ? [] : {};
     },
   });

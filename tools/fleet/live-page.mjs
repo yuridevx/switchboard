@@ -2,12 +2,12 @@
 // Принимает приглашение в браузере, открывает сессию, пишет ей и ждёт ответа; печатает исход шагов и ошибки страницы.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, machineTmp } from "./harness.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
+import { chromium, fleetCall, machineTmp, newTag } from "./harness.mjs";
+import { say, turn } from "./turn.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 // третьим аргументом — машина, на которой сценарий открывает свою сессию; ключ флота — SB2_KEY (по умолчанию muse)
@@ -15,14 +15,14 @@ const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.arg
 const SEAT = process.env.SB2_KEY ?? "muse";
 const out = outArg ?? path.join(root, "dist", "live");
 fs.mkdirSync(out, { recursive: true });
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const { call } = fleetCall(fleet, device);
 
 const me = call("whoami", {}).result;
 // модель сессии сценария — SB2_MODEL или первая из каталога провайдера
 const MODEL = process.env.SB2_MODEL ?? call("keys.models", { name: SEAT }).result.models[0].id;
-const name = "live" + Date.now().toString(36).slice(-5);
+const name = "live" + newTag();
 const invite = call("invite", { addr: name + me.person }).result;
 // своя сессия на ключе флота: ответ модели не зависит от чужой сессии и её ключа
 const cwd = machineTmp(fleet, device, machine) + "/sb2-live-steps";
@@ -53,7 +53,7 @@ await step("приглашение принято, картина пришла",
 });
 await page.screenshot({ path: path.join(out, "1-home.png") });
 if (callsign) {
-  const text = "Ответь одним словом: " + name;
+  const text = turn(say(name));
   await step("сессия открыта из «Работы»", async () => {
     await page.goto(env.SB2_BASE + "/#/work/" + callsign);
     await page.getByPlaceholder(/Сообщение/).waitFor({ timeout: 20_000 });
@@ -63,9 +63,9 @@ if (callsign) {
     const box = page.getByPlaceholder(/Сообщение/);
     await box.fill(text);
     await box.press("Enter");
-    await page.getByText(text).first().waitFor({ timeout: 15_000 });
+    await page.getByText("Ответь текстом: " + name).first().waitFor({ timeout: 15_000 });
     // ответ модели повторяет слово проверки: оно должно появиться в ленте вне своего сообщения
-    await page.waitForFunction((word) => [...document.querySelectorAll("p, li, span, div")].filter((e) => e.children.length === 0 && e.textContent.includes(word) && !e.textContent.includes("Ответь одним словом")).length > 0, name, { timeout: 90_000 });
+    await page.waitForFunction((word) => [...document.querySelectorAll("p, li, span, div")].filter((e) => e.children.length === 0 && e.textContent.includes(word) && !e.textContent.includes("Ответь текстом")).length > 0, name, { timeout: 90_000 });
   });
   await page.screenshot({ path: path.join(out, "3-answered.png") });
 }

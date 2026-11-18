@@ -2,12 +2,11 @@
 // Ждёт в журнале флота пачку (событие comments — кнопка «Передать Claude» на странице), печатает её и выходит.
 // Что уже прочитано, помнит в ~/.switchboard-dev/v2-<флот>-comments.at: следующий запуск ждёт только новое.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { httpTransport, newId } from "@sb/protocol";
-import { fleetEnv } from "../dev.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
 
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const [fleet, device, hours = "6"] = process.argv.slice(2);
 if (!fleet || !device) throw new Error("нужно: <флот> <устройство> [часов]");

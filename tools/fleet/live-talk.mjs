@@ -3,23 +3,23 @@
 // «Идут сейчас» со временем от начала работы после перезагрузки, перетаскивание границы списка, разговоры папки в «Новой сессии».
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, machineTmp } from "./harness.mjs";
+import { dev, fleetEnv } from "../dev.mjs";
+import { chromium, fleetCall, machineTmp, newTag } from "./harness.mjs";
+import { say as answer, tool, turn } from "./turn.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
 const out = outArg ?? path.join(root, "dist", "talk");
 fs.mkdirSync(out, { recursive: true });
-const dir = path.join(os.homedir(), ".switchboard-dev");
+const dir = dev;
 const env = fleetEnv;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const { call, must } = fleetCall(fleet, device);
 const me = must("whoami", {});
-const tag = Date.now().toString(36).slice(-4);
+const tag = newTag();
 const cwd = `${machineTmp(fleet, device, machine)}/sb2-talk-${tag}`;
 const made = [];
 const state = (cs) => must("fleet.list", { machine }).sessions.find((s) => s.callsign === cs)?.state;
@@ -79,12 +79,12 @@ try {
 
   await stepTurn("Enter во время хода ставит сообщение в очередь: пометка «в очереди» и «Отменить», слов «после хода» нет", async () => {
     // ход на полминуты: команда, которая ничего не делает
-    await box.fill("Выполни инструментом Bash одну команду: node -e \"setTimeout(()=>{},30000)\" — и после неё ответь одним словом: готово.");
+    await box.fill(turn(tool("Bash", { command: 'node -e "setTimeout(()=>{},30000)"' }), answer("готово")));
     await box.press("Enter");
     for (const end = Date.now() + 60_000; state(cs) !== "busy"; await sleep(1000)) if (Date.now() > end) throw new Error(`${cs} не начала ход`);
     for (const name of ["Отправить следующим", "Отправить сейчас", "Прервать ход"]) await page.getByRole("button", { name, exact: true }).waitFor({ timeout: 8000 });
     if (await page.getByLabel("Когда взять сообщение").count()) throw new Error("меню срочности осталось");
-    await box.fill("Ответь одним словом: очередь");
+    await box.fill(turn(answer("очередь")));
     await box.press("Enter");
     const note = page.locator(".me-note").filter({ hasText: "в очереди" }).last();
     await note.waitFor({ timeout: 15_000 });
@@ -95,7 +95,7 @@ try {
 
   await stepTurn("молния прерывает ход: в ленте «прервано», сообщение взято сразу", async () => {
     const t0 = Date.now();
-    await box.fill("Ответь одним словом: стоп");
+    await box.fill(turn(answer("стоп")));
     await page.getByRole("button", { name: "Отправить сейчас", exact: true }).click();
     await page.getByText(/^прервано/).last().waitFor({ timeout: 20_000 });
     const ms = Date.now() - t0;
@@ -108,8 +108,8 @@ try {
   });
 
   await stepTurn("ход со страницы: сессия записала файл", async () => {
-    await say("Создай инструментом Write файл page.txt ровно с одной строкой: первый. Больше ничего не делай.");
-    await say("Перезапиши инструментом Write файл page.txt ровно с одной строкой: второй. Больше ничего не делай.");
+    await say(turn(tool("Write", { file_path: `${cwd}/page.txt`, content: "первый\n" }), answer("записан первый")));
+    await say(turn(tool("Write", { file_path: `${cwd}/page.txt`, content: "второй\n" }), answer("записан второй")));
     const text = fileOn("page.txt");
     if (!/второй/.test(text)) throw new Error("файл: " + JSON.stringify(text));
     return "файл: " + text;
@@ -129,7 +129,8 @@ try {
     if (page.url() !== url) throw new Error(`адрес сменился: ${page.url()}`);
     const text = await box.inputValue();
     if (!/второй/.test(text)) throw new Error("в поле ввода: " + JSON.stringify(text.slice(0, 60)));
-    if (await page.locator(".feed-in .me").getByText("ровно с одной строкой: второй").count()) throw new Error("откаченное сообщение осталось в ленте");
+    // после отката страница перечитывает разговор: ушедшее сообщение уходит из ленты, когда перечитка легла
+    await page.locator(".feed-in .me").getByText("записан второй").first().waitFor({ state: "detached", timeout: 8000 }).catch(() => { throw new Error("откаченное сообщение осталось в ленте"); });
     await idle(cs);
     const file = fileOn("page.txt");
     if (!/первый/.test(file) || /второй/.test(file)) throw new Error("файл на диске: " + JSON.stringify(file));
@@ -142,11 +143,11 @@ try {
     await page.reload();
     await box.waitFor({ timeout: 15_000 });
     await page.getByText(/Откат к «.+»/).first().waitFor({ timeout: 15_000 });
-    if (await page.locator(".feed-in .me").getByText("ровно с одной строкой: второй").count()) throw new Error("откаченное сообщение вернулось");
+    await page.locator(".feed-in .me").getByText("записан второй").first().waitFor({ state: "detached", timeout: 8000 }).catch(() => { throw new Error("откаченное сообщение вернулось"); });
   });
 
   await stepLive("вопрос сессии — карточкой ленты; ответ остаётся карточкой с выбранным вариантом", async () => {
-    await box.fill("Задай мне один вопрос инструментом AskUserQuestion: «Какой цвет?» с вариантами «Красный» и «Синий». После ответа напиши одним словом выбранный цвет.");
+    await box.fill(turn(tool("AskUserQuestion", { questions: [{ question: "Какой цвет?", header: "Цвет", multiSelect: false, options: [{ label: "Красный", description: "красный цвет" }, { label: "Синий", description: "синий цвет" }] }] }), answer("выбрано: {итог 1}")));
     await box.press("Enter");
     const card = page.locator(".feed-in .askcard[data-open]");
     await card.first().waitFor({ timeout: 90_000 });
@@ -164,7 +165,7 @@ try {
   });
 
   await stepLive("«Идут сейчас»: фоновая команда строкой; время — от начала работы и после перезагрузки страницы", async () => {
-    await box.fill(machine === "wsl" ? "Запусти инструментом Bash в фоне (run_in_background: true) команду: sleep 90. Сразу ответь одним словом: запущено." : "Запусти инструментом Bash в фоне (run_in_background: true) команду: sleep 90. Сразу ответь одним словом: запущено.");
+    await box.fill(turn(tool("Bash", { command: "sleep 90", run_in_background: true }), answer("запущено")));
     await box.press("Enter");
     const runs = page.getByRole("group", { name: "Идут сейчас" });
     await runs.locator(".run-row").first().waitFor({ timeout: 90_000 });
@@ -202,7 +203,8 @@ try {
   await stepScreen("очистка страницей подтверждения: в ленте «Разговор очищен», адрес тот же", async () => {
     const url = page.url();
     await opts.getByRole("button", { name: "Очистить" }).click();
-    await page.getByRole("button", { name: "Очистить", exact: true }).click();
+    // подтверждает кнопка страницы шага: у значка под полем то же имя, и до появления страницы шага нажатие досталось бы ему
+    await page.locator("[data-step]").getByRole("button", { name: "Очистить", exact: true }).click();
     await page.getByText("Разговор очищен").first().waitFor({ timeout: 40_000 });
     if (page.url().replace(/\?do=.*$/, "") !== url) throw new Error("адрес сменился: " + page.url());
     await shot("cleared");
@@ -234,7 +236,7 @@ try {
       await idle(cs);
       // файл вне папки сессии: Claude называет причину вопроса и правило с этой папкой (отдельного поля пути SDK для Write не даёт — факт прогона 10 нояб.)
       const outside = "../sb2-talk-" + tag + "-out.txt";
-      await box.fill(`Создай инструментом Write файл ${cwd}-out.txt (это рядом с рабочей папкой, вне её) со словом ok. Ничего больше.`);
+      await box.fill(turn(tool("Write", { file_path: `${cwd}-out.txt`, content: "ok" }), answer("записан")));
       await box.press("Enter");
       const card = page.locator(".feed-in .askcard[data-open]");
       await card.first().waitFor({ timeout: 90_000 });
