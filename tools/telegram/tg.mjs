@@ -1,7 +1,7 @@
-// Общие приёмы живых проверок Telegram: клиент тестового аккаунта, запрос флоту, файл настроек проверки.
+// Клиент Telegram живых проверок: тестовый аккаунт, чтение его чатов, файл настроек проверки.
+// Шаг, ожидание, запрос флоту и уборка — у обвязки проверок (tools/fleet/harness.mjs).
 // Аккаунты пишут только @BotFather, боту тестового флота и тестовой группе; чужие чаты не читаются.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 
@@ -30,51 +30,18 @@ export async function account(n) {
   return c;
 }
 
-/** Запрос флоту пропуском из файла. */
-export async function call(type, fields = {}, { fleet = "test", device = "cli" } = {}) {
-  const key = fs.readFileSync(path.join(dev, `v2-${fleet}-${device}.pass`), "utf8").trim();
-  const id = "tg" + Math.random().toString(36).slice(2, 10);
-  const res = await fetch(fleetEnv.SB2_BASE + "/call", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + key }, body: JSON.stringify({ ...fields, type, id }), signal: AbortSignal.timeout(130_000) });
-  return res.json();
+/** Сообщение чата, подходящее под условие и новее отметки after, — одним чтением; нет такого — undefined.
+ *  Ждёт его проверка: t.wait("…", () => newer(c, peer, test, { after })). */
+export async function newer(c, peer, test, { after = 0, replyTo } = {}) {
+  const list = await c.getMessages(peer, { limit: 15, ...(replyTo ? { replyTo } : {}) });
+  return list.find((m) => m.id > after && test(m));
 }
 
-export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Номер последнего сообщения чата: отметка «после этого». */
+export const lastId = async (c, peer) => (await c.getMessages(peer, { limit: 1 }))[0]?.id ?? 0;
 
-/** Ждать сообщение в чате, подходящее под условие; новее отметки. */
-export async function waitMessage(c, peer, test, { after = 0, ms = 30_000, replyTo } = {}) {
-  const until = Date.now() + ms;
-  while (Date.now() < until) {
-    const list = await c.getMessages(peer, { limit: 15, ...(replyTo ? { replyTo } : {}) });
-    const hit = list.find((m) => m.id > after && test(m));
-    if (hit) return hit;
-    await sleep(1500);
-  }
-  return null;
-}
-
-export function reporter() {
-  const lines = [];
-  let bad = 0;
-  return {
-    async step(label, fn) {
-      const t0 = Date.now();
-      try {
-        const note = await fn();
-        lines.push(`✓ ${label}${note ? " · " + note : ""} · ${Date.now() - t0} мс`);
-        console.log(lines.at(-1));
-        return true;
-      } catch (e) {
-        bad++;
-        lines.push(`✗ ${label} · ${String(e.message).split("\n")[0]}`);
-        console.log(lines.at(-1));
-        return false;
-      }
-    },
-    get bad() {
-      return bad;
-    },
-    get total() {
-      return lines.length;
-    },
-  };
+/** Реакции на сообщение — одним чтением, строкой значков. */
+export async function reactions(c, peer, id) {
+  const [m] = await c.getMessages(peer, { ids: [id] });
+  return m?.reactions?.results?.map((x) => x.reaction?.emoticon).join("") ?? "";
 }
