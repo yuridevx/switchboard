@@ -92,7 +92,10 @@ export async function partFailed(env: Env, fleet: string, w: Outside, e: { what:
 }
 
 // сверка картины идёт по сроку часов: ни запросов людей, ни чисел машин ей не нужно
-on(WATCH, async (env, fleet, _input, w) => void (await watchFleet(env, fleet, w)));
+on(WATCH, async (env, fleet, _input, w) => {
+  await watchFleet(env, fleet, w);
+  await db(env, fleet).run("INSERT INTO alerts (kind, at) VALUES ('watch', ?1) ON CONFLICT (kind) DO UPDATE SET at = ?1", w.now);
+});
 
 /** Строка запроса: пишет вход после ответа. Заодно убирает строки старше недели. Отказ — повод проверить долю отказов. */
 export async function note(env: Env, fleet: string, r: ObsRow, w?: Outside): Promise<void> {
@@ -194,6 +197,7 @@ export const obs: Module = {
       for (const r of rows) (by.get(r.type) ?? by.set(r.type, []).get(r.type)!).push(r.ms);
       const failed = rows.filter((r) => !r.ok).length;
       const seen = sessions.filter((s) => sees(machineOf(s.callsign) ?? ""));
+      const watched = (await db(ctx.env, ctx.fleet).first<{ at: number }>("SELECT at FROM alerts WHERE kind = 'watch'"))?.at;
       const failures = (got[1] as unknown as { id: string; at: number; what: string; who: string; machine: string | null; text: string | null }[])
         .filter((f) => !f.machine || sees(f.machine))
         .map((f): LedgerEvent => ({ id: f.id, at: f.at, what: f.what, who: f.who, ...(f.machine ? { machine: f.machine } : {}), ...(f.text ? { text: f.text } : {}) }));
@@ -208,6 +212,7 @@ export const obs: Module = {
         failures,
         reports: (got[2] as unknown as { at: number; part: string; level: string; msg: string; who: string }[]).filter((r) => ctx.who.admin || personOf(r.who) === ctx.who.person || sees(machineOf(r.who) ?? "")),
         hosts: (got[3] as unknown as { machine: string; data: string }[]).filter((h) => sees(h.machine)).map((h) => ({ ...(JSON.parse(h.data) as HostMetrics), machine: h.machine })),
+        ...(watched ? { watched } : {}),
       };
     },
 

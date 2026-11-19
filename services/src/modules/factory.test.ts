@@ -1,9 +1,9 @@
 // Эталоны «Фабрики», шаг 2: тикет сессии — создан, отдан её машине, сдан вердиктом; кто может дать вердикт; очередь, возврат, срок.
 import { describe, expect, it } from "vitest";
-import { fail, type Frame, ok, type SessionRow, type Ticket, type TimerRow } from "@sb/protocol";
+import { fail, type Frame, ok, type SessionRow, type Ticket } from "@sb/protocol";
 import type { Outside } from "../env.ts";
 import { type Stand, stand } from "../../test/stand.ts";
-import { fire } from "./clock/clock.ts";
+import { fire, list } from "./clock/clock.ts";
 
 const session = (callsign: string, project = "site"): SessionRow => ({ callsign, state: "idle", spec: { name: callsign.split("@")[0]!, cwd: "~", project }, by: "~yuri@example.com", since: 1 });
 
@@ -19,7 +19,7 @@ function fleet(): Stand {
 }
 const gives = (s: Stand) => s.seen.delivered.filter((f) => f.type === "work.give");
 const one = async (s: Stand, id: string, as = "kyura1") => ((await s.ask("ticket.list", { ticket: id }, as)).result as { tickets: Ticket[] }).tickets[0]!;
-const terms = async (s: Stand) => ((await s.ask("clock.list", { prefix: "factory/" })).result as { timers: TimerRow[] }).timers;
+const terms = (s: Stand) => list(s.env, s.fleet, "factory/");
 const outside = (s: Stand): Outside => ({ platform: s.platform, fetch: s.deps.fetch!, log: { info() {}, warn() {}, error() {}, with() { return this; } } as never });
 /** Запрос от имени сессии: пропуск её машины и позывной. */
 const as = (s: Stand, callsign: string, type: string, fields: Record<string, unknown>) => s.ask(type, fields, callsign.endsWith("@laptop") ? "klaptop" : "kyura1", callsign.endsWith("@laptop") ? callsign : undefined);

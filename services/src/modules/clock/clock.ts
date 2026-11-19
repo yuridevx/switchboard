@@ -1,6 +1,6 @@
 // Часы: время флота. Правило — «когда» и «что позвать»; правил много, а будильник у объекта записей один: он стоит на ближайшем сроке.
 // Что делать по сроку, решает хозяин вида правила; часы только зовут. Пропущенное не догоняется: после простоя правило срабатывает один раз.
-import { CALL_MS, errFields, Refusal, type TimerRow, within } from "@sb/protocol";
+import { CALL_MS, errFields, Refusal, within } from "@sb/protocol";
 import { Cron } from "croner";
 import { log, outbound, type Env, type Module, type Outside } from "../../env.ts";
 import { type Db, onAlarm, type Op, records } from "../../records.ts";
@@ -116,15 +116,14 @@ export async function fire(env: Env, fleet: string, w: Outside, now = Date.now()
 // срок будильника объекта: платформа и сеть — настоящие, запроса здесь нет
 onAlarm(NAME, async (env, fleet, local) => void (await fire(env, fleet, { platform: env.PLATFORM, fetch: outbound, log: log.with({ module: NAME, fleet }) }, Date.now(), local(SCHEMA))));
 
+/** Правило времени глазами соседа: имя, вид и ближайший срок. */
+export type TimerRow = { id: string; kind: string; at: number; every?: number; cron?: string; tz?: string };
 const row = (s: Stored): TimerRow => ({ id: s.id, kind: s.kind, at: s.at, ...(s.every ? { every: s.every } : {}), ...(s.cron ? { cron: s.cron } : {}), ...(s.tz ? { tz: s.tz } : {}) });
 
-export const clock: Module = {
-  name: NAME,
-  handlers: {
-    async "clock.list"(i: { prefix?: string }, ctx) {
-      const p = i.prefix ?? "";
-      const rows = await db(ctx.env, ctx.fleet).all<Stored>("SELECT * FROM timers WHERE substr(id, 1, length(?1)) = ?1 ORDER BY at", p);
-      return { timers: rows.map(row) };
-    },
-  },
-};
+/** Правила, чьё имя начинается с prefix, ближайшие первыми. */
+export async function list(env: Env, fleet: string, prefix = ""): Promise<TimerRow[]> {
+  return (await db(env, fleet).all<Stored>("SELECT * FROM timers WHERE substr(id, 1, length(?1)) = ?1 ORDER BY at", prefix)).map(row);
+}
+
+/** Своих запросов у часов нет: правила ставят соседи, расписание проекта отдаёт его определение. */
+export const clock: Module = { name: NAME, handlers: {} };

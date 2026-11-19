@@ -1,32 +1,35 @@
 // Живая проверка часов флота: node tools/fleet/live-clock.mjs <флот> <устройство>
-// Сверка картины (машина без связи, сессия со сбоем) стоит правилом часов obs.watch: его заводит первое число любой машины.
-// Проверка читает срок правила, молчит до его прихода и читает снова: срок ушёл вперёд — будильник сработал сам, без запросов.
+// Сверка картины (машина без связи, сессия со сбоем) стоит правилом часов флота: его заводит первое число любой машины.
+// Когда сверка шла последний раз, говорит сводка здоровья. Проверка читает этот момент, молчит дольше срока правила и читает снова:
+// момент ушёл вперёд — будильник сработал сам, без запросов.
 import { setTimeout as sleep } from "node:timers/promises";
 import { fleetCall } from "./harness.mjs";
 
 const [fleet = "test", device = "cli"] = process.argv.slice(2);
 const { call } = fleetCall(fleet, device);
-const watch = () => {
-  const r = call("clock.list", { prefix: "obs." });
-  if (!r.ok) throw new Error(`clock.list: ${r.error} ${r.why ?? ""}`);
-  return r.result.timers.find((t) => t.id === "obs.watch");
+/** Срок правила сверки картины: раз в минуту. */
+const EVERY_MS = 60_000;
+const watched = () => {
+  const r = call("obs.health", {});
+  if (!r.ok) throw new Error(`obs.health: ${r.error} ${r.why ?? ""}`);
+  return r.result.watched;
 };
 
 const steps = [];
 const say = (ok, label, note = "") => steps.push(`${ok ? "✓" : "✗"} ${label}${note ? ` · ${note}` : ""}`);
 try {
-  // машины шлют числа раз в минуту: правило появляется не позже чем через минуту после выкладки
-  let was = watch();
-  for (let i = 0; i < 14 && !was; i++) {
+  // машины шлют числа раз в минуту: правило появляется не позже чем через минуту после выкладки, первая сверка — ещё через минуту
+  let was = watched();
+  for (let i = 0; i < 26 && !was; i++) {
     await sleep(5000);
-    was = watch();
+    was = watched();
   }
-  say(!!was, "правило сверки картины стоит на часах флота", was ? `каждые ${was.every / 1000} с` : "правила obs.watch нет: ни одна машина не прислала чисел");
+  say(!!was, "сверка картины идёт по часам флота", was ? `последняя — ${Math.round((Date.now() - was) / 1000)} с назад` : "сверки не было: ни одна машина не прислала чисел");
   if (was) {
-    // до срока и ещё пять секунд — ни одного запроса этой проверки
-    await sleep(Math.max(0, was.at - Date.now()) + 5000);
-    const now = watch();
-    say(!!now && now.at > was.at, "срок пришёл без запроса: правило сработало и встало на следующий срок", now ? `срок ушёл вперёд на ${Math.round((now.at - was.at) / 1000)} с` : "правило пропало");
+    // до следующего срока и ещё пять секунд — ни одного запроса этой проверки
+    await sleep(Math.max(0, was + EVERY_MS - Date.now()) + 5000);
+    const now = watched();
+    say(now > was, "срок пришёл без запроса: сверка прошла снова", `момент сверки ушёл вперёд на ${Math.round((now - was) / 1000)} с`);
   }
 } catch (e) {
   say(false, "проверка оборвалась", String(e.message).split("\n")[0]);

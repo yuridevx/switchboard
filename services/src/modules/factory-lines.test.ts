@@ -1,9 +1,10 @@
-// Эталоны «Фабрики», шаг 3: определение проекта из git, посты, конвейер с шагами пяти видов, два потолка, обязательный срок, пауза.
+// Эталоны «Фабрики»: определение проекта из git, посты, конвейер с шагами пяти видов, два потолка, обязательный срок, пауза;
+// правила входа по времени с проверкой-скриптом и отложенный тикет.
 import { describe, expect, it } from "vitest";
-import { type FactoryState, type Frame, ok, type Ticket } from "@sb/protocol";
-import type { Outside } from "../env.ts";
+import { fail, type FactoryState, type Frame, ok, type Ticket } from "@sb/protocol";
+import type { Env, Outside } from "../env.ts";
 import { type Stand, stand } from "../../test/stand.ts";
-import { fire } from "./clock/clock.ts";
+import { drop, fire, list } from "./clock/clock.ts";
 
 /** Ключ приложения GitHub в PEM. */
 async function pem(): Promise<string> {
@@ -35,8 +36,8 @@ const DEF = {
 };
 
 /** Флот с проектом «site», приложением GitHub и репозиторием ролей team/roles; file — что сейчас лежит в factory.json и на каком коммите. */
-async function fleet(file: { text: string; sha: string }): Promise<Stand> {
-  const s = stand();
+async function fleet(file: { text: string; sha: string }, env?: Partial<Env>): Promise<Stand> {
+  const s = stand(undefined, env ? { env } : {});
   s.state.fleetAnswer = (f) =>
     f.type === "people.list" ? ok(f.id!, { people: [], projects: [{ id: "site", name: "Сайт", members: ["~yuri@example.com", "~anya@example.com"] }] }) : ok(f.id!, { called: f.type });
   const key = await pem();
@@ -53,12 +54,12 @@ async function fleet(file: { text: string; sha: string }): Promise<Stand> {
   await s.ask("prefs.set", { scope: "fleet", name: "profiles.repos", value: ["team/roles"] });
   return s;
 }
-const applied = async (def: unknown = DEF) => {
+const applied = async (def: unknown = DEF, env?: Partial<Env>) => {
   const file = { text: JSON.stringify(def), sha: "c1" };
-  const s = await fleet(file);
+  const s = await fleet(file, env);
   const r = await s.ask("factory.apply", { project: "site", repo: "team/roles" });
   expect(r).toMatchObject({ ok: true });
-  return { s, file, result: r.result as { commit: string; posts: number; lines: number; opened: string[]; failed: unknown[] } };
+  return { s, file, result: r.result as { commit: string; posts: number; lines: number; rules: number; opened: string[]; failed: unknown[] } };
 };
 const sent = (s: Stand, type: string) => s.seen.delivered.filter((f) => f.type === type);
 const gives = (s: Stand) => sent(s, "work.give");
@@ -144,7 +145,7 @@ describe("фабрика: конвейер", () => {
     // эталон 14 — чьё: факт (справка флота «работа принята — убери дочь»; у PoE2 разовые сессии убирали себя сами)
     expect(sent(s, "session.remove").map((f) => [f.to, f.after_turn])).toEqual([["site-1-s4@laptop", true]]);
     expect((await one(s, id)).notes!.map((n) => [n.by, n.verdict])).toEqual([["dev-fight@laptop", "done"], ["pult~yuri@example.com", "done"], ["dev-fight@laptop", "done"], ["site-1-s4@laptop", "done"], ["pult~yuri@example.com", "done"]]);
-    expect(((await s.ask("clock.list", { prefix: "factory/" })).result as { timers: unknown[] }).timers).toEqual([]);
+    expect(await list(s.env, s.fleet, "factory/site/")).toEqual([]);
   });
 
   // эталон 4 — чьё: факт (устав Феникса «вторая правка одного места уходит в дизайн»; у Stripe два круга исправления)
@@ -244,7 +245,7 @@ describe("фабрика: конвейер", () => {
     expect(await fire(s.env, s.fleet, outside(s), untilWait + 1)).toBe(1);
     expect(await one(s, wait)).toMatchObject({ state: "stop", why: "срок вышел" });
     expect(gives(s)).toHaveLength(n);
-    expect(((await s.ask("clock.list", { prefix: "factory/" })).result as { timers: unknown[] }).timers).toEqual([]);
+    expect(await list(s.env, s.fleet, "factory/site/")).toEqual([]);
   });
 
   it("тикет посту: документ поста идёт машине, пост берёт тикеты по одному; исполнителя нет — отказ; под метку нет поста — отказ", async () => {
@@ -253,14 +254,167 @@ describe("фабрика: конвейер", () => {
     const b = await make(s, "cto", "Вопрос владельца");
     expect(gives(s).map((g) => [g.ticket, g.name, (g.spec as { cwd?: string } | undefined)?.cwd])).toEqual([[a, "cto", "~/work/post"]]);
     expect((await one(s, b)).state).toBe("ready");
+    // заметка к тикету в очереди доходит до сессии вместе с шагом
+    await s.ask("ticket.set", { ticket: b, note: "сначала спроси владельца про сроки" });
     await as(s, "cto@laptop", "ticket.set", { ticket: a, verdict: "done" });
     expect(gives(s).map((g) => g.ticket)).toEqual([a, b]);
+    expect(String(gives(s).at(-1)!.text)).toContain("Последняя заметка к тикету: сначала спроси владельца про сроки");
     expect(await s.ask("ticket.new", { project: "site", to: "nowhere", title: "Некому" })).toMatchObject({ ok: false, error: "no_dest" });
     expect(await s.ask("ticket.new", { project: "site", to: "design", tag: "magic", title: "Нет поста под метку" })).toMatchObject({ ok: false, error: "no_dest" });
     // бэклог → назначить конвейеру: срок у конвейера свой
     const c = ((await s.ask("ticket.new", { project: "site", title: "Когда-нибудь" })).result as { id: string }).id;
     expect(await s.ask("ticket.set", { ticket: c, to: "solo" })).toMatchObject({ ok: true, result: { state: "ready" } });
     expect(gives(s).at(-1)).toMatchObject({ ticket: c, name: "site-3-s1" });
+    await close(s);
+  });
+});
+
+/* ===== Правила входа по времени ===== */
+
+const CH = { CH_URL: "https://ch.test:8443/" };
+/** Строки истории «rule», которые записали службы: исход, машина проверки и данные срабатывания. */
+const ruleLines = (s: Stand): Record<string, unknown>[] =>
+  s.seen.net
+    .filter((n) => n.url.startsWith(CH.CH_URL) && String(n.init?.body ?? "").includes('"msg":"rule"'))
+    .map((n) => {
+      const row = JSON.parse(String(n.init!.body)) as { kind: string; machine: string; data: string };
+      return { outcome: row.kind, machine: row.machine, ...(JSON.parse(row.data) as Record<string, unknown>) };
+    });
+/** Правило «каждые 10 минут» с проверкой-скриптом на машине laptop; находка — тикет посту cto. */
+const COUNTERS = { name: "counters", every: "10m", to: "cto", key: "counters", text: "Разбери находку счётчиков.", check: { at: "@laptop", run: "node checks/counters.mjs", for: "60s" } };
+const RETRO = { name: "retro", cron: "0 9 * * 1", tz: "Europe/Kyiv", to: "cto", title: "Недельная ретроспектива" };
+/** Машина отвечает на запуск проверки: код выхода и вывод; остальное — как у стенда. */
+function checks(s: Stand, code: number, out = ""): void {
+  s.state.answer = (f) => (f.id ? ok(f.id, f.type === "shell.run" ? { run: "r1", state: code ? "failed" : "done", code, out, started: 1, ms: 840 } : { got: f.type }) : null);
+}
+/** Сработать по всем срокам часов флота до момента at. */
+const tick = (s: Stand, at: number) => fire(s.env, s.fleet, outside(s), at);
+const tickets = async (s: Stand) => ((await s.ask("ticket.list", { project: "site" })).result as { tickets: Ticket[] }).tickets;
+const dues = async (s: Stand) => ((await s.ask("factory.get", { project: "site" })).result as { factory: FactoryState }).factory.next;
+/** Сработать по ближайшему сроку правила. */
+async function ring(s: Stand, rule: string): Promise<number> {
+  const at = (await dues(s))[rule]!;
+  expect(await tick(s, at)).toBe(1);
+  return at;
+}
+
+describe("фабрика: правила входа", () => {
+  // эталон 7 — чьё: факт (пустой тик сессии-сторожа стоил 180 456 входных токенов)
+  it("7 · тихая проверка не будит: правило «каждые 10 минут», проверка шесть раз вернула код 0 — тикетов 0, работы сессиям 0, строк истории 6", async () => {
+    const { s, result } = await applied({ ...DEF, on: [COUNTERS] }, CH);
+    expect(result.rules).toBe(1);
+    checks(s, 0);
+    const opened = sent(s, "session.open").length;
+    expect((await dues(s)).counters! - Date.now()).toBeGreaterThan(9.9 * 60_000);
+    for (let i = 0; i < 6; i++) await ring(s, "counters");
+    expect(sent(s, "shell.run").map((f) => [f.to, f.from, f.shell, f.script, f.timeout])).toEqual(Array(6).fill(["@laptop", ".factory", "bash", "node checks/counters.mjs", 60]));
+    expect(await tickets(s)).toEqual([]);
+    expect(gives(s)).toHaveLength(0);
+    expect(sent(s, "session.open")).toHaveLength(opened);
+    expect(ruleLines(s)).toEqual(Array(6).fill({ outcome: "quiet", machine: "laptop", project: "site", rule: "counters", source: "time", code: 0, ms: 840 }));
+    // пауза: правило не срабатывает — проверки нет, строка «пропущено»
+    await s.ask("factory.pause", { project: "site", on: true });
+    await ring(s, "counters");
+    expect(sent(s, "shell.run")).toHaveLength(6);
+    expect(ruleLines(s).at(-1)).toMatchObject({ outcome: "paused", rule: "counters" });
+    await drop(s.env, s.fleet, { prefix: "factory/site/" });
+  });
+
+  // эталон 6 — чьё: факт (политика наложения у Paperclip и gh-aw: повторное событие не заводит вторую работу)
+  it("6 · повтор не плодит тикеты: находка — тикет посту; три следующие с тем же ключом — тикет 1, заметок 3; закрыт — находка заводит новый", async () => {
+    const { s } = await applied({ ...DEF, on: [COUNTERS] }, CH);
+    checks(s, 1, "потерь за час: 4");
+    await ring(s, "counters");
+    const [first] = await tickets(s);
+    expect(first).toMatchObject({ id: "site-1", to: "cto", on: "counters", key: "counters", state: "work", session: "cto@laptop", by: ".factory", title: "counters" });
+    expect(first!.text).toBe("Разбери находку счётчиков.\n\nпроверка «node checks/counters.mjs» не прошла: код 1\nпотерь за час: 4");
+    // имя правила идёт машине вместе с шагом: текст находки для сессии — данные, а не команды
+    expect(gives(s)).toMatchObject([{ to: "@laptop", name: "cto", ticket: "site-1", on: "counters", key: "counters" }]);
+    for (let i = 0; i < 3; i++) await ring(s, "counters");
+    expect(await tickets(s)).toHaveLength(1);
+    const notes = (await one(s, "site-1")).notes!;
+    expect(notes.map((n) => [n.by, n.verdict, n.text.includes("потерь за час: 4")])).toEqual(Array(3).fill([".factory", undefined, true]));
+    expect(gives(s)).toHaveLength(1);
+    expect(ruleLines(s).map((l) => [l.outcome, l.ticket, l.code])).toEqual([["ticket", "site-1", 1], ["note", "site-1", 1], ["note", "site-1", 1], ["note", "site-1", 1]]);
+    // пост закрыл тикет — следующая находка заводит новый
+    await as(s, "cto@laptop", "ticket.set", { ticket: "site-1", verdict: "done", note: "утечка закрыта" });
+    await ring(s, "counters");
+    expect((await tickets(s)).map((t) => [t.id, t.state])).toEqual([["site-2", "work"], ["site-1", "done"]]);
+    await close(s);
+    await drop(s.env, s.fleet, { prefix: "factory/site/" });
+  });
+
+  it("правило по расписанию без проверки заводит тикет каждый срок; машина проверки не ответила — не находка; снятое правило уходит с часов, прежнее идёт как шло", async () => {
+    const { s, file } = await applied({ ...DEF, on: [COUNTERS, RETRO] }, CH);
+    const clock = async () => (await list(s.env, s.fleet, "factory/site/on/")).map((t) => [t.id, t.every ?? t.cron, t.tz]).sort();
+    expect(await clock()).toEqual([["factory/site/on/counters", 600_000, undefined], ["factory/site/on/retro", "0 9 * * 1", "Europe/Kyiv"]]);
+    // машина проверки не на связи: проверки не было — тикета нет, в истории причина
+    s.state.answer = (f) => (f.type === "shell.run" ? fail(f.id!, "offline", "машина laptop не на связи") : f.id ? ok(f.id, { got: f.type }) : null);
+    await ring(s, "counters");
+    expect(await tickets(s)).toEqual([]);
+    expect(ruleLines(s)).toMatchObject([{ outcome: "failed", rule: "counters", machine: "laptop" }]);
+    // расписание: понедельник, 09:00 по Киеву — тикет посту с названием из правила; срок правила «каждые 10 минут» тоже пришёл — тихо
+    checks(s, 0);
+    const monday = (await dues(s)).retro!;
+    expect(new Date(monday).getUTCDay()).toBe(1);
+    expect(await tick(s, monday)).toBe(2);
+    expect(await tickets(s)).toMatchObject([{ id: "site-1", to: "cto", on: "retro", key: "retro", title: "Недельная ретроспектива", state: "work" }]);
+    expect(ruleLines(s).filter((l) => l.rule === "retro")).toMatchObject([{ outcome: "ticket", ticket: "site-1", source: "time", machine: "" }]);
+    // новый коммит: расписание ретроспективы снято, правило счётчиков прежнее — его срок не сдвинут
+    const counters = (await dues(s)).counters!;
+    file.text = JSON.stringify({ ...DEF, on: [COUNTERS] });
+    file.sha = "c2";
+    expect(await s.ask("factory.apply", { project: "site", repo: "team/roles" })).toMatchObject({ ok: true, result: { commit: "c2", rules: 1 } });
+    expect(await dues(s)).toEqual({ counters });
+    // срок правила изменён — правило стоит заново, от «сейчас»
+    file.text = JSON.stringify({ ...DEF, on: [{ ...COUNTERS, every: "5m" }] });
+    file.sha = "c3";
+    await s.ask("factory.apply", { project: "site", repo: "team/roles" });
+    expect(await clock()).toEqual([["factory/site/on/counters", 300_000, undefined]]);
+    expect((await dues(s)).counters!).toBeLessThan(counters);
+    await close(s);
+    await drop(s.env, s.fleet, { prefix: "factory/site/" });
+  });
+
+  it("битое правило входа не применяется: срок не один, негодное расписание, исполнителя нет, машины нет, предел проверки больше запроса, имя дважды", async () => {
+    const { s, file } = await applied();
+    file.text = JSON.stringify({
+      ...DEF,
+      on: [
+        { name: "a", every: "10m", cron: "0 9 * * 1", to: "cto" },
+        { name: "b", cron: "каждый день", to: "cto" },
+        { name: "c", every: "10m", to: "nowhere" },
+        { name: "d", every: "10m", to: "cto", check: { at: "@nowhere", run: "node check.mjs", for: "5m" } },
+        { name: "d", every: "10m", tz: "Europe/Kyiv", to: "solo" },
+        { name: "e", to: "cto" },
+      ],
+    });
+    file.sha = "c2";
+    const r = await s.ask("factory.apply", { project: "site", repo: "team/roles" });
+    expect(r).toMatchObject({ ok: false, error: "bad_factory" });
+    for (const part of [
+      "on[0]: у правила один срок", "on[1].cron: расписание «каждый день»", "on[2].to: исполнителя nowhere нет", "on[3].check.at: машины nowhere нет",
+      "on[3].check.for: предел проверки правила — не больше 90s", "on[4].name: правило d уже есть", "on[4].tz: часовой пояс бывает у cron", "on[5]: у правила один срок",
+    ]) expect(r.why).toContain(part);
+    expect(await list(s.env, s.fleet, "factory/site/on/")).toEqual([]);
+    expect(((await s.ask("factory.get", { project: "site" })).result as { factory: FactoryState }).factory).toMatchObject({ commit: "c1", next: {} });
+  });
+
+  it("отложенный тикет: до своего момента стоит в очереди и места не берёт; момент пришёл — ушёл в работу; без исполнителя отложить нельзя", async () => {
+    const { s } = await applied();
+    const later = await make(s, "solo", "Проверить выкладку через 20 минут", { in: "20m" });
+    const t = await one(s, later);
+    expect(t.state).toBe("ready");
+    expect(t.start! - Date.now()).toBeGreaterThan(19 * 60_000);
+    expect(gives(s)).toHaveLength(0);
+    // тикет без отсрочки отложенного не ждёт
+    const now = await make(s, "solo", "Срочное");
+    expect(gives(s).map((g) => g.ticket)).toEqual([now]);
+    expect(await tick(s, t.start! - 1)).toBe(0);
+    expect(await tick(s, t.start!)).toBe(1);
+    expect(gives(s).map((g) => g.ticket)).toEqual([now, later]);
+    expect(await one(s, later)).toMatchObject({ state: "work" });
+    expect(await s.ask("ticket.new", { project: "site", title: "Некому", in: "20m" })).toMatchObject({ ok: false, error: "bad_input" });
     await close(s);
   });
 });

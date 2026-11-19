@@ -5,7 +5,7 @@
 // Записей о шагах модуль не держит: что шаг у сессии и что вердикт дан, записано в тикете. В памяти — только ввод, который дан,
 // пока ход его не взял и не кончился; после перезапуска Host восстанавливать нечего.
 import { randomUUID } from "node:crypto";
-import { FACTORY, Refusal, shellRun, type Spec, termMs, TICKET_SET_TOOL, ticketList, ticketSet } from "@sb/protocol";
+import { checkOutcome, checkRun, FACTORY, Refusal, shellRun, type Spec, TICKET_SET_TOOL, ticketList, ticketSet } from "@sb/protocol";
 import type { Ctx, HostApi, Module } from "../../core/contract.ts";
 import { envelope } from "../chat/contract.ts";
 
@@ -15,8 +15,6 @@ const FROM = FACTORY;
 const SET_TOOL = TICKET_SET_TOOL;
 /** Предел хука проверки шага у Claude Code, секунды: сама проверка ограничена сроком из определения, он не больше предела запуска скрипта машины. */
 const CHECK_HOOK_S = 6 * 3600;
-/** Сколько знаков вывода проверки уходит сессии и в заметку тикета: хвост, где причина. */
-const CHECK_OUT = 4000;
 /** Шаг на руках у сессии: set — вердикт по нему в этом ходе уже ушёл. */
 type Step = { ticket: string; step?: string; set?: boolean };
 
@@ -87,13 +85,11 @@ export function make(): Module {
                     return (e as Refusal).word === "no_ticket" ? {} : deny(`Шаг не принят: не удалось узнать проверку шага — ${(e as Error).message}. Сдай ещё раз.`);
                   }
                   if (!check) return {};
-                  const sec = termMs(check.for) / 1000;
-                  const r = await host.call(shellRun, { to: "@" + host.machine, shell: process.platform === "win32" ? "powershell" : "bash", script: check.run, cwd: s.info.cwd, timeout: sec, wait: sec + 10 });
-                  const good = r.state === "done" && r.code === 0;
-                  host.log.info("work", { callsign: s.callsign, kind: "checked", why: `тикет ${id}: проверка «${check.run}» — ${good ? "код 0" : r.state === "failed" ? `код ${r.code}` : r.state}` });
-                  if (good) return {};
-                  const out = (r.out ?? "").slice(-CHECK_OUT);
-                  const note = `проверка «${check.run}» не прошла: ${r.state === "failed" ? `код ${r.code}` : r.state === "timeout" ? `не уложилась в ${check.for}` : r.state}${out ? "\n" + out : ""}`;
+                  // как запустить проверку и что считать её исходом — одно на шаг и на правило входа: помощники договора
+                  const o = checkOutcome(check, await host.call(shellRun, checkRun(check, "@" + host.machine, s.info.cwd)));
+                  host.log.info("work", { callsign: s.callsign, kind: "checked", why: `тикет ${id}: ${o.good ? `проверка «${check.run}» прошла` : o.text.split("\n")[0]}` });
+                  if (o.good) return {};
+                  const note = o.text;
                   // возврат записывает машина: шаг остаётся у этой сессии, второй возврат ставит тикет в «стоп»
                   const set = await host.call(ticketSet, { ticket: id, verdict: "back", note }).catch((e: unknown) => {
                     host.log.warn("work", { callsign: s.callsign, kind: "checked", word: (e as Refusal).word ?? "offline", why: `тикет ${id}: возврат проверки не записан — ${(e as Error).message}` });

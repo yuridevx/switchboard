@@ -1,10 +1,9 @@
 // Эталоны часов флота: правила времени лежат в записях, будильник у объекта один, срок приходит без запроса.
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { type TimerRow } from "@sb/protocol";
 import type { Outside } from "../env.ts";
 import { type Stand, stand } from "../../test/stand.ts";
-import { drop, ensure, fire, next, on, set } from "./clock/clock.ts";
+import { drop, ensure, fire, list, next, on, set } from "./clock/clock.ts";
 
 /** Что сработало: по флоту — имена правил в порядке вызова. */
 const rang = new Map<string, string[]>();
@@ -17,7 +16,7 @@ const errors: string[] = [];
 const outside = (s: Stand): Outside => ({ platform: s.platform, fetch: s.deps.fetch!, log: { info() {}, warn() {}, error: (msg: string) => void errors.push(msg), with() { return this; } } as never });
 const object = (s: Stand) => s.env.RECORDS.get(s.env.RECORDS.idFromName(`${s.fleet}/clock`));
 const alarmOf = (s: Stand) => runInDurableObject(object(s), (_o, state) => state.storage.getAlarm());
-const timers = async (s: Stand, prefix?: string) => ((await s.ask("clock.list", prefix ? { prefix } : {})).result as { timers: TimerRow[] }).timers;
+const timers = (s: Stand, prefix?: string) => list(s.env, s.fleet, prefix);
 
 describe("часы флота", () => {
   // эталон 8 — чьё: факт (таймеры в разговорах сессий пересоздавали 57 раз в трёх проектах за неделю: они жили, пока жив процесс)
