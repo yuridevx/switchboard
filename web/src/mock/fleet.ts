@@ -6,6 +6,7 @@ import {
 } from "@sb/protocol";
 import { iter2Handlers } from "./iter2.ts";
 import { iter4Handlers } from "./iter4.ts";
+import { factoryHandlers } from "./factory.ts";
 import { screenHandlers } from "./screens.ts";
 import { done, type Ev, got, liveSteps, peer, reply, researchTurn, say, shortTurn, siteTurn, text, uid, use } from "./convo.ts";
 import { BLOBS, goneTurn, showTurn } from "./show.ts";
@@ -821,6 +822,8 @@ export function createMock(o: MockOptions = {}) {
   Object.assign(H, iter2Handlers(screenCtx, { ...H }));
   // наблюдение первого класса и находки архива в формах службы — поверх: iter4.ts
   Object.assign(H, iter4Handlers(screenCtx, { ...H }));
+  // «Фабрика»: определение проекта, тикеты и движок шагов — factory.ts
+  Object.assign(H, factoryHandlers(screenCtx));
 
   const SPANS: Record<string, string[]> ={ session: ["services", "platform", "host"], machine: ["services", "platform", "host"], fleet: ["services", "platform"] };
   const call = async (f: Frame): Promise<Reply> => {

@@ -88,7 +88,7 @@ export function More() {
   const lamp = LAMP[picture.link] ?? "failed";
   return (
     <RoutePage title="Ещё">
-      {NAV.slice(2).map(([to, word, I]) => <NavLink key={to} to={to} className="row morerow"><I size={20} stroke={1.6} /><span>{word}</span></NavLink>)}
+      {NAV.filter(([to]) => to !== "/work" && to !== "/archive").map(([to, word, I]) => <NavLink key={to} to={to} className="row morerow"><I size={20} stroke={1.6} /><span>{word}</span></NavLink>)}
       <NavLink to="/find" className="row morerow"><IconSearch size={20} stroke={1.6} /><span>Найти</span></NavLink>
       <button type="button" className="row morerow" onClick={() => setColorScheme(colorScheme === "dark" ? "light" : "dark")}>{colorScheme === "dark" ? <IconSun size={20} stroke={1.6} /> : <IconMoon size={20} stroke={1.6} />}<span>{colorScheme === "dark" ? "Светлая тема" : "Тёмная тема"}</span></button>
       <div className="row morerow" style={{ cursor: "default" }}><span className={`lamp ${lamp}`} style={{ marginTop: 0, justifySelf: "center" }} /><span>{personWord(picture.you?.person ?? "")} · {linkWord(picture.link)}</span></div>

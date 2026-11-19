@@ -78,10 +78,10 @@ function Open({ onClose, title, name = "step", wide, children }: Props) {
   return <>{routed && <Url name={name} onClose={onClose} />}{host ? createPortal(body, host) : body}</>;
 }
 
-/** Страница раздела со своим адресом (#/new, #/find…): тот же вид, «Назад» — по истории, без истории — на главный экран. */
-export function RoutePage({ title, wide, children }: { title: ReactNode; wide?: boolean; children: ReactNode }) {
+/** Страница раздела со своим адресом (#/new, #/find…): тот же вид, «Назад» — по истории, без истории — на главный экран или на свой раздел (home). */
+export function RoutePage({ title, wide, home, children }: { title: ReactNode; wide?: boolean; home?: string; children: ReactNode }) {
   const go = useNavigate();
-  const back = () => ((history.state as { idx?: number } | null)?.idx ? go(-1) : go("/"));
+  const back = () => ((history.state as { idx?: number } | null)?.idx ? go(-1) : go(home ?? "/"));
   return (
     <section className="steppage">
       <header className="pane-head">
