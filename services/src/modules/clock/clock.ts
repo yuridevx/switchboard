@@ -18,8 +18,8 @@ export type When = { at: number } | { every: number } | { cron: string; tz?: str
 export type Timer = { id: string; kind: string; input?: unknown } & When;
 type Stored = { id: string; at: number; every: number | null; cron: string | null; tz: string | null; kind: string; input: string | null };
 
-/** Срок пришёл: работа хозяина вида. id — имя сработавшего правила. */
-export type Fire = (env: Env, fleet: string, input: unknown, w: Outside & { id: string }) => Promise<void>;
+/** Срок пришёл: работа хозяина вида. id — имя сработавшего правила, now — момент срабатывания. */
+export type Fire = (env: Env, fleet: string, input: unknown, w: Outside & { id: string; now: number }) => Promise<void>;
 const KINDS = new Map<string, Fire>();
 /** Вид правила объявляет его хозяин при загрузке; у вида один хозяин. */
 export function on(kind: string, run: Fire): void {
@@ -102,7 +102,7 @@ export async function fire(env: Env, fleet: string, w: Outside, now = Date.now()
       const run = KINDS.get(t.kind);
       if (!run) return w.log.error("часы: у вида правила нет хозяина в этой сборке", fields);
       try {
-        await within(run(env, fleet, t.input ? JSON.parse(t.input) : undefined, { ...w, id: t.id }), CALL_MS, `правило ${t.id} не уложилось в предел`);
+        await within(run(env, fleet, t.input ? JSON.parse(t.input) : undefined, { ...w, id: t.id, now }), CALL_MS, `правило ${t.id} не уложилось в предел`);
         w.log.info("часы: срок", fields);
       } catch (e) {
         w.log.error("часы: работа по сроку упала", { ...fields, ...errFields(e) });

@@ -9,5 +9,6 @@ import { make as points } from "./points/points.ts";
 import { make as profiles } from "./profiles/profiles.ts";
 import { make as proxy } from "./proxy/proxy.ts";
 import { make as shell } from "./shell/shell.ts";
+import { make as work } from "./work/work.ts";
 
-export const modules = (): Module[] => [chat(), files(), accounts(), profiles(), points(), proxy(), shell(), incidents(), machine()];
+export const modules = (): Module[] => [chat(), files(), accounts(), profiles(), points(), proxy(), shell(), incidents(), work(), machine()];

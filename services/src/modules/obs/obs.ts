@@ -45,10 +45,9 @@ const WINDOW_MS = 5 * 60_000;
 /** Одна причина — одно оповещение за этот промежуток. */
 const GAP_MS = 30 * 60_000;
 
-export type Watch = Outside;
 
 /** Позвать админов (или названных в настройке) о сбое. Та же причина в пределах получаса — молчит. */
-async function alert(env: Env, fleet: string, w: Watch, kind: string, title: string, text: string, prefs?: AlertPrefs | null): Promise<number> {
+async function alert(env: Env, fleet: string, w: Outside, kind: string, title: string, text: string, prefs?: AlertPrefs | null): Promise<number> {
   const p = prefs === undefined ? await fleetPref<AlertPrefs>(env, fleet, "obs.alerts") : prefs;
   if (p?.off) return 0;
   const now = Date.now();
@@ -62,7 +61,7 @@ async function alert(env: Env, fleet: string, w: Watch, kind: string, title: str
 
 /** Сверка картины флота: машина без связи дольше порога и сессия со сбоем — оповещение. Причина — этот уход машины и этот сбой сессии:
  *  пока они те же, второго оповещения нет. */
-export async function watchFleet(env: Env, fleet: string, w: Watch): Promise<number> {
+export async function watchFleet(env: Env, fleet: string, w: Outside): Promise<number> {
   const p = await fleetPref<AlertPrefs>(env, fleet, "obs.alerts");
   if (p?.off) return 0;
   const now = Date.now();
@@ -83,7 +82,7 @@ export async function watchFleet(env: Env, fleet: string, w: Watch): Promise<num
 }
 
 /** Сбой части (Host, Keeper, аналитика): запомнить для сводки здоровья и позвать админов. */
-export async function partFailed(env: Env, fleet: string, w: Watch, e: { what: string; who: string; machine?: string; text?: string }): Promise<void> {
+export async function partFailed(env: Env, fleet: string, w: Outside, e: { what: string; who: string; machine?: string; text?: string }): Promise<void> {
   await db(env, fleet).batch([
     ["INSERT INTO fails (id, at, what, who, machine, text) VALUES (?, ?, ?, ?, ?, ?)", newId("f"), Date.now(), e.what, e.who, e.machine ?? null, e.text ?? null],
     ["DELETE FROM fails WHERE at < ?", Date.now() - KEEP_MS],
@@ -96,7 +95,7 @@ export async function partFailed(env: Env, fleet: string, w: Watch, e: { what: s
 on(WATCH, async (env, fleet, _input, w) => void (await watchFleet(env, fleet, w)));
 
 /** Строка запроса: пишет вход после ответа. Заодно убирает строки старше недели. Отказ — повод проверить долю отказов. */
-export async function note(env: Env, fleet: string, r: ObsRow, w?: Watch): Promise<void> {
+export async function note(env: Env, fleet: string, r: ObsRow, w?: Outside): Promise<void> {
   const got = await db(env, fleet).batch([
     [
       "INSERT INTO req (trace, at, type, src, dst, ok, word, why, ms, spans) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

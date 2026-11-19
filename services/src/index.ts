@@ -2,13 +2,13 @@
 // вебхук Telegram флота (/telegram/<флот>), сайты сессий (/s/<номер>/), файлы страницы; потребитель очереди аналитики.
 import type { Deps, Env, Module, PointNote } from "./env.ts";
 import { callHttp, handlersOf } from "./entrance.ts";
-import { analytics, consume, archive, builds, clock, files, github, keys, ledger, mcp, obs, prefs, reach, site, telegram } from "./modules/index.ts";
+import { analytics, consume, archive, builds, clock, factory, files, github, keys, ledger, mcp, obs, prefs, reach, site, telegram } from "./modules/index.ts";
 import { oauth } from "./oauth.ts";
 
 export { Records } from "./records.ts";
 
 /** Модули служб: у каждого имени запроса один хозяин — двое не соберутся. */
-export const MODULES: Module[] = [builds, ledger, archive, files, reach, prefs, keys, github, analytics, obs, clock];
+export const MODULES: Module[] = [builds, ledger, archive, files, reach, prefs, keys, github, analytics, obs, clock, factory];
 const handlers = handlersOf(MODULES);
 
 const CALL_PREFLIGHT = { "access-control-allow-origin": "*", "access-control-allow-methods": "POST", "access-control-allow-headers": "authorization, content-type, x-sb-as", "access-control-max-age": "86400" };

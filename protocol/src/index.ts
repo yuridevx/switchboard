@@ -9,3 +9,4 @@ export * from "./contracts/session.ts";
 export * from "./contracts/machine.ts";
 export * from "./contracts/fleet.ts";
 export * from "./contracts/services.ts";
+export * from "./contracts/factory.ts";

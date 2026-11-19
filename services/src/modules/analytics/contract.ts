@@ -1,2 +1,2 @@
 // Договор модуля истории для соседей: строка о вызове инструмента — в ту же таблицу журнала, что строки машин.
-export { toolLine } from "./analytics.ts";
+export { line, toolLine } from "./analytics.ts";

@@ -53,17 +53,22 @@ function logRow(fleet: string, machine: string, file: string, pos: number, n: nu
   });
 }
 
-/** Строка журнала о вызове инструмента сервером MCP: msg tool, сессия — кто звал, машина — его машина; в data — инструмент, знаков ответа, время.
+/** Строка истории от службы флота: file — имя службы, msg — имя строки; machine — машина, которой событие касается (строку без машины видит только админ).
  *  Ключ строки — время и случайный номер: повторов у неё нет. Аналитика не подключена — строки нет. */
-export async function toolLine(env: Env, f: typeof fetch, fleet: string, machine: string, l: { tool: string; from: string; ms: number; ok: boolean; chars: number; images?: number; trace?: string }): Promise<void> {
+export async function line(env: Env, f: typeof fetch, fleet: string, l: { file: string; msg: string; machine?: string; session?: string; level?: "info" | "warn" | "error"; kind?: string; text?: string; data?: unknown }): Promise<void> {
   if (!env.CH_URL) return;
   const at = Date.now();
-  const { from, ...data } = l;
   await ensure(env, f, LOG, CREATE_LOG);
   await ch(env, f, `INSERT INTO ${LOG} FORMAT JSONEachRow`, JSON.stringify({
-    fleet, machine, file: "tools", pos: at, n: Math.floor(Math.random() * 0xffffffff), at: at / 1000, part: "services", level: l.ok ? "info" : "warn", msg: "tool",
-    session: from, account: "", status: 0, kind: "", text: "", data: JSON.stringify(data),
+    fleet, machine: l.machine ?? "", file: l.file, pos: at, n: Math.floor(Math.random() * 0xffffffff), at: at / 1000, part: "services", level: l.level ?? "info", msg: l.msg,
+    session: l.session ?? "", account: "", status: 0, kind: l.kind ?? "", text: l.text ?? "", data: l.data === undefined ? "" : JSON.stringify(l.data),
   }));
+}
+
+/** Строка журнала о вызове инструмента сервером MCP: msg tool, сессия — кто звал, машина — его машина; в data — инструмент, знаков ответа, время. */
+export function toolLine(env: Env, f: typeof fetch, fleet: string, machine: string, l: { tool: string; from: string; ms: number; ok: boolean; chars: number; images?: number; trace?: string }): Promise<void> {
+  const { from, ...data } = l;
+  return line(env, f, fleet, { file: "tools", msg: "tool", machine, session: from, level: l.ok ? "info" : "warn", data });
 }
 
 async function ch(env: Env, f: typeof fetch, query: string, body?: string, params: Record<string, string> = {}): Promise<string> {
@@ -215,13 +220,13 @@ export const analytics: Module = {
       return {};
     },
 
-    /** История флота: строки журналов машин, до которых человек достаёт, новые первыми. */
+    /** История флота: строки журналов машин, до которых человек достаёт, и строки служб о них, новые первыми. Строку службы без машины видит админ. */
     async "log.query"(i: { msg?: string; machine?: string; session?: string; account?: string; level?: string; since?: number; before?: number; limit?: number }, ctx: Ctx) {
       if (!ctx.env.CH_URL) throw new Refusal("analytics_unavailable", "аналитика не подключена");
       if (i.machine && !canReach(ctx.who, i.machine)) throw new Refusal("forbidden", `до машины ${i.machine} вы не достаёте`);
       const limit = Math.min(i.limit ?? 100, 1000);
       const list = (items: string[]) => `[${items.map((m) => `'${m}'`).join(",")}]`;
-      const where = ["fleet = {fleet:String}", "has({machines:Array(String)}, machine)"];
+      const where = ["fleet = {fleet:String}", ctx.who.admin && !i.machine ? "(has({machines:Array(String)}, machine) OR machine = '')" : "has({machines:Array(String)}, machine)"];
       const params: Record<string, string> = { fleet: ctx.fleet, machines: list(i.machine ? [i.machine] : ctx.who.machines), limit: String(limit + 1) };
       const add = (cond: string, name: string, value: string | undefined) => {
         if (value === undefined || value === "") return;

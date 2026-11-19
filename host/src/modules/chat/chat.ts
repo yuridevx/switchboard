@@ -52,8 +52,8 @@ const blocksOf = (m: { message?: { content?: unknown } }): Block[] => (Array.isA
 
 const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const unesc = (v: string) => v.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
-/** Поля вида: номер вопроса; вид и ключ обращения. */
-export type Attrs = Pick<Peer, "ask" | "incident" | "key">;
+/** Поля вида: номер вопроса; вид и ключ обращения; номер тикета, имя шага и правило входа. */
+export type Attrs = Pick<Peer, "ask" | "incident" | "key" | "ticket" | "step" | "on">;
 /** Всё входящее от флота — один тег с отправителем и видом. Собирает и разбирает его только этот модуль: вид следует из пути сообщения, а не из текста. */
 export const envelope = (from: string, kind: Kind, text: string, attrs: Attrs = {}): string =>
   `<fleet from="${esc(from)}" kind="${kind}"${Object.entries(attrs).filter(([, v]) => v !== undefined).map(([k, v]) => ` ${k}="${esc(v as string)}"`).join("")}>\n${text}\n</fleet>`;

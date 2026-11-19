@@ -35,10 +35,13 @@ describe("свёртка разговора", () => {
       say("u1", '<fleet from="lead@laptop" kind="task">\nНайди вызовы\n</fleet>', { from: "lead@laptop", kind: "task", text: "Найди вызовы" }),
       say("u2", '<fleet from="wing@laptop" kind="question" ask="q7">\nКакую ветку брать?\n</fleet>', { from: "wing@laptop", kind: "question", text: "Какую ветку брать?", ask: "q7" }),
       say("u3", '<fleet from="@laptop" kind="incident" incident="disk" key="c:">\nДиск занят на 91%\n</fleet>', { from: "@laptop", kind: "incident", text: "Диск занят на 91%", incident: "disk", key: "c:" }),
+      say("u4", '<fleet from=".factory" kind="ticket" ticket="site-7" step="ревью">\nПроверь срезы\n</fleet>', { from: ".factory", kind: "ticket", text: "Проверь срезы", ticket: "site-7", step: "ревью" }),
     ]);
     expect(v.rows[0]).toMatchObject({ k: "in", via: "session", from: "lead@laptop", kind: "task", text: "Найди вызовы" });
     expect(v.rows[1]).toMatchObject({ k: "in", from: "wing@laptop", kind: "question", ref: "q7", text: "Какую ветку брать?" });
     expect(v.rows[2]).toMatchObject({ k: "in", via: "service", from: "@laptop", kind: "incident", ref: "disk · c:" });
+    // шаг тикета от службы «Фабрика»: номер и шаг — в шапке карточки
+    expect(v.rows[3]).toMatchObject({ k: "in", via: "service", from: ".factory", kind: "ticket", ref: "site-7 · ревью", text: "Проверь срезы" });
   });
   // прежние теги из кода ушли целиком: старая запись разговора без поля peer показывается текстом, как есть
   it("запись прежней системы с тегом и без peer — обычный текст", () => {
