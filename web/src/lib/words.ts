@@ -26,6 +26,8 @@ export const SAY: Record<string, string> = {
   // связь с людьми, GitHub
   no_vapid: "Уведомления не настроены у флота", no_telegram: "Бот Telegram не подключён", no_topics: "В группе выключены темы", not_linked: "Чат не привязан",
   github_failed: "GitHub отказал", no_app: "Приложение GitHub не создано", app_exists: "Приложение GitHub уже есть", not_installed: "Приложение GitHub не установлено",
+  // тикеты и работа сессии
+  no_ticket: "Такого тикета нет", no_term: "Не назван срок работы", bad_state: "Тикет уже в другом состоянии", not_yours: "Шаг ведёт другая сессия", no_session: "Такой сессии нет", failed: "Сессия остановилась со сбоем",
 };
 
 /** Слово отказа по-русски; незнакомое — как есть. */
