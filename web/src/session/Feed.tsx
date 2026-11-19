@@ -349,10 +349,11 @@ const PEER: Record<string, { word?: string; icon: string }> = {
   question: { word: "Вопрос", icon: "message-circle-question" },
   news: { word: "Весть", icon: "bell" },
   incident: { word: "Обращение", icon: "triangle-alert" },
+  ticket: { word: "Тикет", icon: "list-checks" },
 };
 
 /** Входящее от флота — карточка своего вида: что это, от кого, когда; отправитель-сессия — ссылка на её разговор.
- *  У обращения — его вид и ключ; у вопроса дочери — чем на него ответила эта сессия. Длинный текст свёрнут. */
+ *  У обращения — его вид и ключ; у тикета — номер и шаг; у вопроса дочери — чем на него ответила эта сессия. Длинный текст свёрнут. */
 function PeerCard({ r, view }: { r: Extract<Row, { k: "in" }>; view: View }) {
   const env = useContext(Env);
   const [whole, setWhole] = useState(false);
@@ -367,7 +368,7 @@ function PeerCard({ r, view }: { r: Extract<Row, { k: "in" }>; view: View }) {
         <Icon name={look.icon} size={15} />
         {look.word && <b>{look.word}</b>}
         {r.via === "session" ? <a className="pcard-from mono" href={`#/work/${r.from}`}>{name}</a> : <span className="pcard-from mono">{name}</span>}
-        {r.kind === "incident" && r.ref && <span className="pcard-ref mono">{r.ref}</span>}
+        {(r.kind === "incident" || r.kind === "ticket") && r.ref && <span className="pcard-ref mono">{r.ref}</span>}
         {r.at && <span className="pcard-at">{r.at}</span>}
         {r.via === "session" && r.uuid && env.rewind && env.canAct && <button type="button" className="pcard-act" aria-label="Откатить сюда" title="Откатить сюда" onClick={() => env.rewind!(r.uuid!)}><IconRotate size={14} stroke={1.7} /></button>}
       </div>
