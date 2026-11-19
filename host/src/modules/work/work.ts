@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { checkOutcome, checkRun, FACTORY, type FileIn, Refusal, shellRun, type Spec, TICKET_SET_TOOL, ticketList, ticketSet } from "@sb/protocol";
 import type { Ctx, HostApi, Module } from "../../core/contract.ts";
-import { envelope } from "../chat/contract.ts";
+import { type ChatApi, envelope } from "../chat/contract.ts";
 import type { FilesApi } from "../files/contract.ts";
 
 /** Работу сессии даёт только служба «Фабрика». */
@@ -42,7 +42,7 @@ export function make(): Module {
       host = h;
     },
     requests: {
-      async "work.give"(i: { name: string; spec?: Spec; ticket: string; step?: string; on?: string; key?: string; text: string; files?: FileIn[] }, ctx: Ctx) {
+      async "work.give"(i: { name: string; spec?: Spec; ticket: string; step?: string; on?: string; key?: string; text: string; files?: FileIn[]; asker?: string }, ctx: Ctx) {
         if (ctx.from !== FROM) throw new Refusal("forbidden", "работу сессии даёт служба «Фабрика»: создайте тикет — ticket.new");
         const callsign = `${i.name}@${host.machine}`;
         let s = host.session(callsign);
@@ -60,6 +60,8 @@ export function make(): Module {
           if (!files) throw new Refusal("no_files", "модуля файлов нет в этом Host");
           text = await files.attach(s, i.text, i.files, host.signal);
         }
+        // вопросы сессии по этому шагу идут тому, кто дал задачу тикетом, — как вопросы дочери идут родителю
+        if (i.asker) host.module<ChatApi>("host-chat")?.asked(callsign, i.asker);
         const uuid = randomUUID();
         given.set(uuid, { callsign, ticket: i.ticket, ...(i.step ? { step: i.step } : {}) });
         // шаг — новым ходом: ввод ждёт конца идущего хода, а не вклинивается в него. Иначе следующий шаг той же сессии

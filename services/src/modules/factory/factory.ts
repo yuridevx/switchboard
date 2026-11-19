@@ -230,6 +230,13 @@ async function stop(env: Env, w: Outside, fleet: string, project: string, n: num
   return s;
 }
 
+/** Кому идут вопросы сессии шага: создателю тикета — человеку или сессии (не ей самой); тикет завело правило входа — человеку из call проекта. */
+function askerOf(def: FactoryDef | null, s: Pick<Stored, "by">, session: string): string | undefined {
+  const kind = kindOf(s.by);
+  if (kind === "session") return s.by === session ? undefined : s.by;
+  return kind === "person" || kind === "device" ? s.by : def?.call?.[0];
+}
+
 /** Отдать взятый тикет сессии: свежей — выбрать машину и имя; запрос «дать работу» машине и срок шага на часах. Машина отказала — «стоп» с её словами. */
 async function give(env: Env, w: Outside, fleet: string, project: string, def: FactoryDef | null, s: Stored, trace: string): Promise<void> {
   const id = idOf(project, s.n);
@@ -268,6 +275,7 @@ async function give(env: Env, w: Outside, fleet: string, project: string, def: F
   const r = await toMachine(w, fleet, trace, {
     type: "work.give", to: "@" + machineOf(session), name, ticket: id, text: body(id, now_, def, last),
     ...(spec ? { spec } : {}), ...(at ? { step: at.step.name } : {}), ...(s.rule ? { on: s.rule } : {}), ...(s.key ? { key: s.key } : {}), ...(s.files ? { files: JSON.parse(s.files) as FileIn[] } : {}),
+    ...(askerOf(def, s, session) ? { asker: askerOf(def, s, session) } : {}),
   });
   if (!r.ok) return void (await stop(env, w, fleet, project, s.n, "work", `работа не дана: ${r.why}`, FACTORY, def));
   await set(env, fleet, { id: timer(project, s.n), kind: TERM, at: s.until!, input: { project, n: s.n, step: s.step } });

@@ -141,6 +141,25 @@ describe("дать работу сессии", () => {
     expect(st.kernel.sessions.size).toBe(1);
   });
 
+  // чьё: дизайн «Фабрика», принят словом пользователя 19 нояб. («делай»): вопрос сессии шага идёт создателю тикета — как вопрос дочери идёт родителю
+  it("вопрос сессии по шагу идёт тому, кто дал задачу тикетом: сессии-создателю — во ввод видом question, человеку — зовом", async () => {
+    st = await stand({ modules: [chat(), work()] });
+    await st.open("boss");
+    const { proc } = await st.open("dev");
+    const boss = st.proc("boss@laptop");
+    const question = { questions: [{ question: "Какую ветку брать?", options: [{ label: "main" }, { label: "release" }] }] };
+    // тикет создала сессия boss: вопрос исполнителя приходит ей, она отвечает инструментом answer
+    await give(st, "dev", "site-3", { asker: "boss@laptop" });
+    const asked = proc.ask("AskUserQuestion", question, "q-1");
+    await until(() => boss.inputs.some((m) => String(m.message.content).startsWith('<fleet from="dev@laptop" kind="question" ask="q-1">')), 5000, "вопрос у создателя тикета");
+    expect((await st.request("answer", { to: "dev@laptop", ask: "q-1", answer: "main" }, "boss@laptop")).ok).toBe(true);
+    await asked;
+    // тикет создал человек: вопрос уходит ему зовом
+    await give(st, "dev", "site-4", { asker: PULT });
+    void proc.ask("AskUserQuestion", question, "q-2");
+    expect(await until(() => st!.services.of("reach.send").find((f) => f.ask === "q-2"), 5000, "зов человека")).toMatchObject({ to: "~yuri@example.com", kind: "ask", callsign: "dev@laptop" });
+  });
+
   // эталон 18 — чьё: слово пользователя («серия сессий с приёмкой»): «сдал» шагу с проверкой проходит через скрипт на машине сессии
   it("18 · проверка держит «сдал»: скрипт вернул 1 — вердикт не ушёл, тикету возврат с выводом; вернул 0 — вердикт принят", async () => {
     st = await stand({ modules: [chat(), shell(), work()] });

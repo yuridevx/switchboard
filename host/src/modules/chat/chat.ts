@@ -54,6 +54,12 @@ const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").repl
 const unesc = (v: string) => v.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 /** Поля вида: номер вопроса; вид и ключ обращения; номер тикета, имя шага и правило входа. */
 export type Attrs = Pick<Peer, "ask" | "key" | "ticket" | "step" | "on">;
+/** Что модуль разговора отдаёт соседям этого Host. */
+export type ChatApi = {
+  /** Задачу сессии callsign дал from: ему пойдут её вопросы — как вопросы дочери идут родителю. Зовёт тот, кто даёт работу не сообщением.
+   *  Сессия называется позывным: хранилище сессии у каждого модуля своё. */
+  asked(callsign: string, from: string): void;
+};
 /** Всё входящее от флота — один тег с отправителем и видом. Собирает и разбирает его только этот модуль: вид следует из пути сообщения, а не из текста. */
 export const envelope = (from: string, kind: Kind, text: string, attrs: Attrs = {}): string =>
   `<fleet from="${esc(from)}" kind="${kind}"${Object.entries(attrs).filter(([, v]) => v !== undefined).map(([k, v]) => ` ${k}="${esc(v as string)}"`).join("")}>\n${text}\n</fleet>`;
@@ -322,6 +328,7 @@ export function make(): Module {
 
   return {
     name: "host-chat",
+    api: { asked: (callsign, from) => void merge(session(callsign), { asker: from }) } satisfies ChatApi,
     start(h) {
       host = h;
     },

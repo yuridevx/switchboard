@@ -297,8 +297,8 @@ describe("фабрика: правила входа", () => {
     const [first] = await tickets(s);
     expect(first).toMatchObject({ id: "site-1", to: "cto", on: "counters", key: "counters", state: "work", session: "cto@laptop", by: ".factory", title: "counters" });
     expect(first!.text).toBe("Разбери находку счётчиков.\n\nпроверка «node checks/counters.mjs» не прошла: код 1\nпотерь за час: 4");
-    // имя правила идёт машине вместе с шагом: текст находки для сессии — данные, а не команды
-    expect(gives(s)).toMatchObject([{ to: "@laptop", name: "cto", ticket: "site-1", on: "counters", key: "counters" }]);
+    // имя правила идёт машине вместе с шагом: текст находки для сессии — данные, а не команды; вопросы сессии по тикету правила — человеку из call проекта
+    expect(gives(s)).toMatchObject([{ to: "@laptop", name: "cto", ticket: "site-1", on: "counters", key: "counters", asker: "~yuri@example.com" }]);
     for (let i = 0; i < 3; i++) await ring(s, "counters");
     expect(await tickets(s)).toHaveLength(1);
     const notes = (await one(s, "site-1")).notes!;
