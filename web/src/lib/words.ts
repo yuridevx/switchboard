@@ -25,7 +25,7 @@ export const SAY: Record<string, string> = {
   no_shell: "Такой оболочки нет", no_run: "Такого запуска нет",
   // связь с людьми, GitHub
   no_vapid: "Уведомления не настроены у флота", no_telegram: "Бот Telegram не подключён", no_topics: "В группе выключены темы", not_linked: "Чат не привязан",
-  github_failed: "GitHub отказал", no_app: "Приложение GitHub не создано", app_exists: "Приложение GitHub уже есть", not_installed: "Приложение GitHub не установлено",
+  github_failed: "GitHub отказал", no_app: "Приложение GitHub не создано", not_installed: "Приложение GitHub не установлено",
   // тикеты и работа сессии
   no_ticket: "Такого тикета нет", no_term: "Не назван срок работы", bad_state: "Тикет уже в другом состоянии", not_yours: "Шаг ведёт другая сессия", no_session: "Такой сессии нет", failed: "Сессия остановилась со сбоем",
   no_dest: "Такого исполнителя нет", bad_factory: "Определение не принято", no_factory: "У проекта нет определения", no_rule: "Такого правила входа нет", bad_signature: "Подпись события не сошлась",

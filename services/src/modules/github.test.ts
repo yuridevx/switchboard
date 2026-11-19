@@ -15,6 +15,7 @@ async function github(s: Stand, secret?: string) {
   s.state.net = (url, init) => {
     const path = new URL(url).pathname;
     if (path === "/app-manifests/code123/conversions") return Response.json({ id: 42, slug: "switchboard-test", owner: { login: "yuri" }, pem: key, ...(secret ? { webhook_secret: secret } : {}) });
+    if (path === "/app") return Response.json({ slug: "switchboard-test", owner: { login: "team", type: "Organization" } });
     if (path === "/app/installations") return Response.json([{ id: 5 }]);
     if (path === "/installation/repositories") return Response.json({ repositories: [{ full_name: "yuri/site" }, { full_name: "yuri/base" }] });
     if (path === "/repos/yuri/site/installation") return Response.json({ id: 5 });
@@ -43,7 +44,6 @@ describe("GitHub", () => {
     const s = stand();
     await github(s);
     expect((await s.ask("github.setup", { code: "code123" })).result).toMatchObject({ installed: true, url: "https://github.com/apps/switchboard-test/installations/new" });
-    expect(await s.ask("github.setup", { code: "code123" })).toMatchObject({ ok: false, error: "app_exists" });
     expect((await s.ask("github.app", {}, "kanya1")).result).toEqual({ installed: true, name: "switchboard-test", url: "https://github.com/apps/switchboard-test/installations/new", repos: ["yuri/base", "yuri/site"], events: false });
     s.seen.net.length = 0;
     expect((await s.ask("github.token", { repo: "yuri/site" }, "klaptop")).result).toEqual({ token: "ghs_token", expires: Date.parse("2026-11-10T03:00:00Z") });
@@ -53,9 +53,13 @@ describe("GitHub", () => {
     expect(await s.ask("github.token", { repo: "yuri/other" }, "klaptop")).toMatchObject({ ok: false, error: "not_installed" });
     expect(await s.ask("github.token", { repo: "yuri/site" }, "kyura1")).toMatchObject({ ok: false, error: "forbidden" });
     expect(await s.ask("github.token", { repo: "не репозиторий" }, "klaptop")).toMatchObject({ ok: false, error: "bad_input" });
-    // замена приложения на подписанное на события: GitHub называет секрет подписи — приложение принимает события
+    // замена приложения на подписанное на события. Без replace формы нет; с ним новое заводится там же, где прежнее, — у организации-владельца
+    expect((await s.ask("github.setup", { redirect: "https://fleet.test/settings" })).result).toEqual({ installed: true, url: "https://github.com/apps/switchboard-test/installations/new" });
+    const again = (await s.ask("github.setup", { redirect: "https://fleet.test/settings", replace: true })).result as { form: { action: string; manifest: { name: string } } };
+    expect(again.form).toMatchObject({ action: "https://github.com/organizations/team/settings/apps/new", manifest: { name: "Switchboard team" } });
+    // страница после возврата с GitHub шлёт один код: GitHub называет секрет подписи — приложение принимает события
     await github(s, "whsec_new");
-    expect((await s.ask("github.setup", { code: "code123", replace: true })).ok).toBe(true);
+    expect((await s.ask("github.setup", { code: "code123" })).ok).toBe(true);
     expect((await s.ask("github.app")).result).toMatchObject({ installed: true, events: true });
   });
 });
