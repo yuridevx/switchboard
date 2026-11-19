@@ -1,6 +1,7 @@
 // Договор «Фабрики»: тикет — единица работы флота; шаг тикета кончается вердиктом; служба отдаёт шаг сессии запросом «дать работу».
-// Определение проекта — файл factory.json в репозитории ролей: посты, конвейеры, потолки и сроки.
+// Определение проекта — файл factory.json в репозитории ролей: посты, конвейеры, потолки, сроки и правила входа — то, что заводит тикеты само.
 import { Callsign, MachineAddr, Name, Person, request, z } from "../define.ts";
+import { CALL_MS } from "../frame.ts";
 import { Spec } from "./session.ts";
 
 /** Адрес службы «Фабрика»: от него сессия получает шаг тикета. */
@@ -22,9 +23,22 @@ export const termMs = (t: string): number => Number(t.slice(0, -1)) * UNIT[t.at(
 
 /* ===== Определение проекта ===== */
 
-/** Проверка-скрипт: команда и её предел. Код выхода 0 — хорошо; иначе вывод идёт в работу. */
+/** Проверка-скрипт: команда bash (на Windows — Git Bash, как у инструмента Bash сессии) и её предел. Код выхода 0 — хорошо; иначе вывод идёт в работу. */
 export const Check = z.strictObject({ run: z.string().min(1), for: Term });
 export type Check = z.infer<typeof Check>;
+/** Сколько знаков вывода проверки идёт в работу: конец вывода. */
+const CHECK_OUT = 4000;
+/** Запуск проверки — поля запроса shell.run машине to: команда bash, предел работы — срок проверки; cwd — папка, без неё домашняя. */
+export function checkRun(c: { run: string; for: string }, to: string, cwd?: string) {
+  const sec = termMs(c.for) / 1000;
+  return { to, shell: "bash" as const, script: c.run, timeout: sec, wait: sec + 10, ...(cwd ? { cwd } : {}) };
+}
+/** Исход проверки по снимку её запуска: прошла — код выхода 0; иначе слова для работы — чем кончилась и конец вывода. */
+export function checkOutcome(c: { run: string; for: string }, r: { state: string; code?: number; out?: string }): { good: true } | { good: false; text: string } {
+  if (r.state === "done" && r.code === 0) return { good: true };
+  const out = (r.out ?? "").slice(-CHECK_OUT).trim();
+  return { good: false, text: `проверка «${c.run}» не прошла: ${r.state === "failed" ? `код ${r.code}` : r.state === "timeout" ? `не уложилась в ${c.for}` : r.state}${out ? "\n" + out : ""}` };
+}
 /** Шаг конвейера: имя и ровно один исполнитель — сессия (session: new — свежая, same — та же, что на прошлом шаге сессии), пост (post; {tag} — метка тикета),
  *  человек (human) или событие (wait). do — что сделать: текст сессии, {id} — номер тикета. Срок (for) шага сессии — свой, иначе конвейера или поста. */
 export const StepDef = z.strictObject({
@@ -44,6 +58,19 @@ export type LineDef = z.infer<typeof LineDef>;
 /** Пост — именная постоянная сессия: машина, папка, провайдер, модель, роль и срок одного тикета. */
 export const PostDef = z.strictObject({ title: z.string().optional(), at: MachineAddr, cwd: z.string().min(1), key: z.string().min(1), model: z.string().min(1), pieces: z.array(z.string()).optional(), for: Term });
 export type PostDef = z.infer<typeof PostDef>;
+/** Предел проверки правила входа: она идёт одним запросом к машине, остаток предела запроса — на доставку и запись тикета. */
+export const RULE_CHECK_MS = CALL_MS - 30_000;
+/** Проверка правила входа: команда bash без модели на названной машине (cwd — папка, без неё домашняя). Код 0 — тихо; иначе вывод — находка. */
+export const RuleCheck = z.strictObject({ at: MachineAddr, run: z.string().min(1), for: Term, cwd: z.string().min(1).optional() });
+export type RuleCheck = z.infer<typeof RuleCheck>;
+/** Правило входа по времени: срок — every («каждые 10m») или cron (строка расписания, tz — часовой пояс, без него UTC). С проверкой тикет заводит
+ *  только её находка; без проверки — каждый срок. to — конвейер или пост; key — ключ находки (нет — имя правила): пока тикет с этим ключом открыт,
+ *  следующая находка дописывается в него заметкой. */
+export const RuleDef = z.strictObject({
+  name: Name, every: Term.optional(), cron: z.string().min(1).optional(), tz: z.string().min(1).optional(), check: RuleCheck.optional(),
+  to: z.string().min(1), title: z.string().optional(), text: z.string().optional(), key: z.string().optional(),
+});
+export type RuleDef = z.infer<typeof RuleDef>;
 /** Имя конвейера — слово исполнителя тикета: без пробелов и без @, чтобы не спутать с позывным. */
 const LineName = z.string().regex(/^[^\s@]+$/, "имя конвейера — одно слово без @");
 export const FactoryDef = z.strictObject({
@@ -54,6 +81,8 @@ export const FactoryDef = z.strictObject({
   call: z.array(Person).optional(),
   posts: z.record(Name, PostDef).default({}),
   lines: z.record(LineName, LineDef).default({}),
+  /** правила входа: что заводит тикеты само */
+  on: z.array(RuleDef).default([]),
 });
 export type FactoryDef = z.infer<typeof FactoryDef>;
 
@@ -75,6 +104,10 @@ export const Ticket = z.object({
   /** причина у stop */
   why: z.string().optional(),
   key: z.string().optional(), tag: z.string().optional(), pr: z.string().optional(),
+  /** правило входа, которое завело тикет */
+  on: z.string().optional(),
+  /** отложен: в очередь встанет не раньше этого момента, мс */
+  start: z.number().optional(),
   /** возвратов на нынешнем шаге */
   returns: z.number(),
   since: z.number(), moved: z.number(),
@@ -91,9 +124,9 @@ export type Ticket = z.infer<typeof Ticket>;
 
 export const ticketNew = request("ticket.new", {
   owner: "factory", target: "service",
-  tool: "Создать тикет — единицу работы с номером, исполнителем и вердиктом. Бери, чтобы дать задачу, которая не потеряется: остановленную сессию тикет поднимет сам, а исход вернётся вердиктом. to — исполнитель: конвейер или пост проекта (имена — factory_get) либо позывной сессии; нет — тикет ляжет в бэклог. for — срок работы: 20m, 2h, 1d — нужен только исполнителю-сессии, у конвейера и поста срок свой. title и text — что сделать и что считать готовым; tag — метка, по которой шаг конвейера выбирает пост; project — номер проекта (сессии не нужен: возьмётся её проект). Ответ: id — номер тикета. Отказы: no_project, no_dest (нет такого исполнителя), no_term (не назван срок), no_session.",
+  tool: "Создать тикет — единицу работы с номером, исполнителем и вердиктом. Бери, чтобы дать задачу, которая не потеряется: остановленную сессию тикет поднимет сам, а исход вернётся вердиктом. to — исполнитель: конвейер или пост проекта (имена — factory_get) либо позывной сессии; нет — тикет ляжет в бэклог. for — срок работы: 20m, 2h, 1d — нужен только исполнителю-сессии, у конвейера и поста срок свой. in — отложить: тикет встанет в очередь через этот срок; так ставят дело на потом и самой себе — по своему позывному. title и text — что сделать и что считать готовым; tag — метка, по которой шаг конвейера выбирает пост; project — номер проекта (сессии не нужен: возьмётся её проект). Ответ: id — номер тикета. Отказы: no_project, no_dest (нет такого исполнителя), no_term (не назван срок), no_session.",
   example: { to: "coder-move@laptop", for: "2h", title: "Обход не останавливается у поля", text: "Готово: эталон остановки зелёный." },
-  input: z.object({ project: z.string().optional(), to: z.string().optional(), title: z.string().min(1), text: z.string().optional(), tag: z.string().optional(), key: z.string().optional(), for: Term.optional() }),
+  input: z.object({ project: z.string().optional(), to: z.string().optional(), title: z.string().min(1), text: z.string().optional(), tag: z.string().optional(), key: z.string().optional(), for: Term.optional(), in: Term.optional() }),
   output: z.object({ id: z.string() }),
 });
 
@@ -120,20 +153,22 @@ export const FactoryState = z.object({
   project: z.string(), repo: z.string(), commit: z.string(), at: z.number(), paused: z.boolean(), def: FactoryDef,
   /** загрузка: шагов в работе у проекта и по конвейерам; ready — сколько ждёт места */
   load: z.object({ work: z.number(), lines: z.record(z.string(), z.object({ work: z.number(), ready: z.number() })) }),
+  /** ближайший срок правил входа по времени: имя правила → мс */
+  next: z.record(z.string(), z.number()),
 });
 export type FactoryState = z.infer<typeof FactoryState>;
 
 export const factoryApply = request("factory.apply", {
   owner: "factory", target: "service",
-  tool: "Применить определение проекта: службы читают factory.json из корня репозитория ролей, проверяют файл целиком и применяют. Бери после коммита и push правки определения. project — номер проекта; repo — репозиторий вида владелец/имя, он должен стоять в настройке флота profiles.repos. Ошибка в файле — отказ bad_factory с путём к строке, действует прежнее определение. Ответ: commit, число постов и конвейеров, opened — посты, открытые этим применением, failed — посты, которые открыть не удалось, с причиной.",
+  tool: "Применить определение проекта: службы читают factory.json из корня репозитория ролей, проверяют файл целиком и применяют. Бери после коммита и push правки определения. project — номер проекта; repo — репозиторий вида владелец/имя, он должен стоять в настройке флота profiles.repos. Ошибка в файле — отказ bad_factory с путём к строке, действует прежнее определение. Ответ: commit, число постов, конвейеров и правил входа, opened — посты, открытые этим применением, failed — посты, которые открыть не удалось, с причиной.",
   example: { project: "poe2", repo: "home-plab/poe2-v2" },
   input: z.object({ project: z.string(), repo: z.string() }),
-  output: z.object({ commit: z.string(), posts: z.number(), lines: z.number(), opened: z.array(Callsign), failed: z.array(z.object({ post: z.string(), why: z.string() })) }),
+  output: z.object({ commit: z.string(), posts: z.number(), lines: z.number(), rules: z.number(), opened: z.array(Callsign), failed: z.array(z.object({ post: z.string(), why: z.string() })) }),
 });
 
 export const factoryGet = request("factory.get", {
   owner: "factory", target: "service",
-  tool: "Фабрика проекта: применённое определение (посты, конвейеры с шагами, потолки, сроки), коммит, пауза и загрузка конвейеров. Бери, чтобы узнать имена конвейеров и постов для ticket_new и что сейчас идёт. project — номер проекта (сессии не нужен); без проекта у человека — список проектов, у которых определение применено. Отказ: no_factory — у проекта определения нет.",
+  tool: "Фабрика проекта: применённое определение (посты, конвейеры с шагами, потолки, сроки, правила входа), коммит, пауза, загрузка конвейеров и ближайшие сроки правил (next). Бери, чтобы узнать имена конвейеров и постов для ticket_new и что сейчас идёт. project — номер проекта (сессии не нужен); без проекта у человека — список проектов, у которых определение применено. Отказ: no_factory — у проекта определения нет.",
   example: {}, reads: true,
   input: z.object({ project: z.string().optional() }),
   output: z.object({ factory: FactoryState.optional(), projects: z.array(z.object({ project: z.string(), repo: z.string(), commit: z.string(), at: z.number(), paused: z.boolean() })).optional() }),
@@ -141,7 +176,7 @@ export const factoryGet = request("factory.get", {
 
 export const factoryPause = request("factory.pause", {
   owner: "factory", target: "service",
-  tool: "Поставить фабрику проекта на паузу или снять с неё. На паузе новые шаги не запускаются; идущие шаги сдаются как обычно; тикеты и очередь остаются на месте. on: true — пауза, false — снять. project — номер проекта (сессии не нужен).",
+  tool: "Поставить фабрику проекта на паузу или снять с неё. На паузе новые шаги не запускаются и правила входа не срабатывают; идущие шаги сдаются как обычно; тикеты и очередь остаются на месте. on: true — пауза, false — снять. project — номер проекта (сессии не нужен).",
   example: { on: true },
   input: z.object({ project: z.string().optional(), on: z.boolean() }),
   output: z.object({ paused: z.boolean() }),

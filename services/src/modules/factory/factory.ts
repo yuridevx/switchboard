@@ -1,16 +1,17 @@
 // Фабрика: тикеты и конвейеры флота. Тикет — единица работы проекта: исполнитель, шаг, состояние и заметки с вердиктами; записи — объект на проект.
 // Исполнитель — конвейер или пост из определения проекта либо сессия по позывному. Определение — файл factory.json в репозитории ролей,
 // применяется явным вызовом; битое не применяется. Шаг отдаётся сессии запросом «дать работу» её машине; кончает шаг вердикт — сессии,
-// которая его ведёт, машины этой сессии или человека — либо срок. Сама Фабрика ничего не чинит и не повторяет: отказ машины,
-// второй возврат и вышедший срок ставят тикет в «стоп» с причиной.
+// которая его ведёт, машины этой сессии или человека — либо срок. Тикеты заводят и правила входа из определения: по сроку правила
+// идёт проверка-скрипт на машине, код 0 — тихо, иначе её вывод — находка: новый тикет или заметка в открытый с тем же ключом.
+// Сама Фабрика ничего не чинит и не повторяет: отказ машины, второй возврат и вышедший срок ставят тикет в «стоп» с причиной.
 import {
-  CALL_MS, canReach, errFields, FACTORY, FACTORY_FILE, FactoryDef, type FactoryState, kindOf, type LineDef, machineOf, newId, type Project, Refusal,
-  sessionName, type Spec, type StepDef, termMs, type Ticket, type TicketNote, type TicketState, type Verdict, within,
+  CALL_MS, canReach, checkOutcome, checkRun, errFields, FACTORY, FACTORY_FILE, FactoryDef, type FactoryState, kindOf, type LineDef, machineOf, newId, type Project, Refusal,
+  RULE_CHECK_MS, type RuleDef, sessionName, type Spec, type StepDef, termMs, type Ticket, type TicketNote, type TicketState, type Verdict, within,
 } from "@sb/protocol";
 import type { Ctx, Env, Module, Outside } from "../../env.ts";
 import { type Op, records } from "../../records.ts";
 import { line as historyLine } from "../analytics/contract.ts";
-import { drop, on, set } from "../clock/contract.ts";
+import { drop, list as timers, next, on, set } from "../clock/contract.ts";
 import { file } from "../github/contract.ts";
 import { fleetPref } from "../prefs/contract.ts";
 import { sendTo } from "../reach/contract.ts";
@@ -18,6 +19,10 @@ import { sendTo } from "../reach/contract.ts";
 const NAME = "factory";
 /** Вид правила часов: срок шага в работе или ожидании. */
 const TERM = "factory.term";
+/** Вид правила часов: срок правила входа по времени. */
+const RULE = "factory.rule";
+/** Вид правила часов: отложенный тикет дождался своего момента. */
+const START = "factory.start";
 /** Возвратов на одном шаге: второй ставит тикет в «стоп». */
 const RETURNS = 2;
 /** Цель свежей сессии до взятия места: её машина выбирается, когда место взято. */
@@ -55,6 +60,8 @@ function parse(id: string): { project: string; n: number } {
   return { project: id.slice(0, cut), n };
 }
 const timer = (project: string, n: number) => `${NAME}/${project}/${n}`;
+/** Имена правил часов у правил входа проекта: начало общее, чтобы прочитать и снять их разом. */
+const ruleTimers = (project: string) => `${NAME}/${project}/on/`;
 const runsOf = (s: Pick<Stored, "runs">) => JSON.parse(s.runs) as Record<string, Run>;
 /** Подстановки определения: {id} — номер тикета, {tag} — его метка. */
 const fill = (text: string, id: string, tag: string | null) => text.replaceAll("{id}", id).replaceAll("{tag}", tag ?? "");
@@ -76,7 +83,8 @@ const ticket = (project: string, s: Stored, def: FactoryDef | null, notes?: Tick
   return {
     id: idOf(project, s.n), project, title: s.title, text: s.text, step: s.step, state: s.state, by: s.by, returns: s.returns, since: s.since, moved: s.moved,
     ...(s.dest ? { to: s.dest } : {}), ...(s.session ? { session: s.session } : {}), ...(s.why ? { why: s.why } : {}), ...(s.key ? { key: s.key } : {}), ...(s.tag ? { tag: s.tag } : {}),
-    ...(s.pr ? { pr: s.pr } : {}), ...(s.until ? { until: s.until } : {}), ...(s.dropped ? { dropped: true } : {}), ...(check ? { check } : {}), ...(notes ? { notes } : {}),
+    ...(s.pr ? { pr: s.pr } : {}), ...(s.rule ? { on: s.rule } : {}), ...(s.start ? { start: s.start } : {}), ...(s.until ? { until: s.until } : {}), ...(s.dropped ? { dropped: true } : {}),
+    ...(check ? { check } : {}), ...(notes ? { notes } : {}),
   };
 };
 
@@ -182,8 +190,8 @@ function backTo(def: FactoryDef | null, s: Stored): number {
 
 /* ===== Работа ===== */
 
-/** Текст шага для сессии: что сделать, сданное на прошлом шаге, замечание возврата и чем шаг кончается. */
-function body(id: string, s: Stored, def: FactoryDef | null, last: { done?: string; back?: string }): string {
+/** Текст шага для сессии: что сделать, сданное на прошлом шаге, замечание возврата, последняя заметка без вердикта (повторная находка, слово человека) и чем шаг кончается. */
+function body(id: string, s: Stored, def: FactoryDef | null, last: { done?: string; back?: string; note?: string }): string {
   const at = stepOf(def, s);
   return [
     `Тикет ${id}: ${s.title}`,
@@ -192,6 +200,7 @@ function body(id: string, s: Stored, def: FactoryDef | null, last: { done?: stri
     ...(s.text ? ["", fill(s.text, id, s.tag)] : []),
     ...(last.done ? ["", `Сдано на прошлом шаге: ${last.done}`] : []),
     ...(last.back ? ["", `Вернули с замечанием: ${last.back}`] : []),
+    ...(last.note ? ["", `Последняя заметка к тикету: ${last.note}`] : []),
     "",
     `Шаг кончается вердиктом — инструмент ticket_set: {"ticket":"${id}","verdict":"done","note":"что сделано"}. Вернуть с замечанием — verdict "back"; нужен человек — verdict "stop" с вопросом в note.`,
   ].join("\n");
@@ -240,8 +249,11 @@ async function give(env: Env, w: Outside, fleet: string, project: string, def: F
   const notes = await d.batch([
     ["SELECT text FROM notes WHERE n = ? AND verdict = 'done' AND text <> '' ORDER BY at DESC LIMIT 1", s.n],
     ["SELECT text FROM notes WHERE n = ? AND verdict = 'back' ORDER BY at DESC LIMIT 1", s.n],
+    // заметка без вердикта, которой прошлый шаг ещё не видел: она пришла после последнего вердикта
+    ["SELECT text FROM notes WHERE n = ?1 AND verdict IS NULL AND at >= (SELECT coalesce(max(at), 0) FROM notes WHERE n = ?1 AND verdict IS NOT NULL) ORDER BY at DESC LIMIT 1", s.n],
   ]);
-  const last = { done: (notes[0]![0] as { text?: string } | undefined)?.text, back: s.returns ? (notes[1]![0] as { text?: string } | undefined)?.text : undefined };
+  const text = (k: number) => (notes[k]![0] as { text?: string } | undefined)?.text;
+  const last = { done: text(0), back: s.returns ? text(1) : undefined, note: text(2) };
   const r = await toMachine(w, fleet, trace, {
     type: "work.give", to: "@" + machineOf(session), name, ticket: id, text: body(id, now_, def, last),
     ...(spec ? { spec } : {}), ...(at ? { step: at.step.name } : {}), ...(s.rule ? { on: s.rule } : {}), ...(s.key ? { key: s.key } : {}),
@@ -327,6 +339,85 @@ on(TERM, async (env, fleet, input, w) => {
 
 const outside = (ctx: Ctx): Outside => ({ platform: ctx.platform, fetch: ctx.fetch, log: ctx.log });
 
+/* ===== Новый тикет и правила входа ===== */
+
+type Draft = { title: string; text: string; to: string | null; by: string; key?: string; tag?: string; rule?: string; term: number | null; start?: number };
+
+/** Завести тикет: запись и её место на первом шаге — одной пачкой, тикет не виден «в очереди» раньше, чем узнал свою цель.
+ *  Отложенному — разовое правило часов на его момент. Исполнителю негде встать — отказ. */
+async function create(env: Env, fleet: string, project: string, def: FactoryDef | null, t: Draft, now: number): Promise<Stored> {
+  const p = plan(def, project, { n: 0, dest: t.to, tag: t.tag ?? null, term: t.term, runs: "{}" }, 0);
+  if (p.state === "stop") throw new Refusal("no_dest", p.why);
+  const { sets, params } = planSets(p, 0, now);
+  const got = await db(env, fleet, project).batch([
+    [
+      "INSERT INTO tickets (title, text, dest, state, by, key, tag, rule, since, moved, term, start) VALUES (?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?, ?)",
+      t.title, t.text, t.to, t.by, t.key ?? null, t.tag ?? null, t.rule ?? null, now, now, t.term, t.start ?? null,
+    ],
+    [`UPDATE tickets SET ${sets} WHERE n = last_insert_rowid() RETURNING *`, ...params],
+  ]);
+  const made = got[1]![0] as unknown as Stored;
+  if (t.start) await set(env, fleet, { id: `${NAME}/${project}/start/${made.n}`, kind: START, at: t.start, input: { project } });
+  return made;
+}
+
+// отложенный тикет дождался: раздача готового возьмёт его, если есть место
+on(START, async (env, fleet, input, w) => run(env, w, fleet, (input as { project: string }).project, newId("t"), w.now));
+
+/** Находка правила входа: открытый тикет с тем же правилом и ключом получает её заметкой; иначе — новый тикет исполнителю правила. */
+async function found(env: Env, w: Outside, fleet: string, project: string, def: FactoryDef, rule: RuleDef, text: string, trace: string, now: number): Promise<{ id: string; note: boolean }> {
+  const key = rule.key ?? rule.name;
+  const open = await db(env, fleet, project).all<{ n: number }>(
+    "INSERT INTO notes (n, at, by, verdict, text) SELECT n, ?, ?, NULL, ? FROM tickets WHERE rule = ? AND key = ? AND state <> 'done' ORDER BY n DESC LIMIT 1 RETURNING n",
+    now, FACTORY, text || `срок правила «${rule.name}»`, rule.name, key,
+  );
+  if (open[0]) return { id: idOf(project, open[0].n), note: true };
+  const made = await create(env, fleet, project, def, { title: rule.title ?? rule.name, text: [rule.text, text].filter(Boolean).join("\n\n"), to: rule.to, by: FACTORY, key, rule: rule.name, term: null }, now);
+  await settle(env, w, fleet, project, def, null, made, "new", FACTORY, made.title, trace);
+  return { id: idOf(project, made.n), note: false };
+}
+
+// срок правила входа: проект на паузе — пропуск; проверка вернула 0 — тихо, ни тикета, ни хода модели; иначе её вывод — находка.
+// Правило без проверки — находка каждый срок. Исход каждого срабатывания — строка истории «rule».
+on(RULE, async (env, fleet, input, w) => {
+  const { project, rule: name } = input as { project: string; rule: string };
+  const a = await applied(env, fleet, project);
+  const rule = a?.def.on.find((r) => r.name === name);
+  if (!a || !rule) return w.log.warn("правила входа нет в определении", { module: NAME, fleet, project, rule: name });
+  const line = (outcome: string, data: Record<string, unknown> = {}, text = "") =>
+    history(env, w, fleet, { msg: "rule", kind: outcome, who: rule.check?.at, text, data: { project, rule: name, source: "time", ...data } });
+  if (a.row.paused) return line("paused");
+  const trace = newId("t");
+  let out = "";
+  let ran: Record<string, unknown> = {};
+  if (rule.check) {
+    const r = await toMachine(w, fleet, trace, { type: "shell.run", ...checkRun(rule.check, rule.check.at, rule.check.cwd) });
+    // машина не ответила или отказала — проверки не было: это не находка, о машине без связи зовёт наблюдение
+    if (!r.ok) return line("failed", {}, r.why);
+    const got = r.result as { state: string; code?: number; out?: string; ms?: number };
+    ran = { ...(got.code !== undefined ? { code: got.code } : {}), ...(got.ms !== undefined ? { ms: got.ms } : {}) };
+    const o = checkOutcome(rule.check, got);
+    if (o.good) return line("quiet", ran);
+    out = o.text;
+  }
+  const f = await found(env, w, fleet, project, a.def, rule, out, trace, w.now);
+  await line(f.note ? "note" : "ticket", { ...ran, ticket: f.id }, out);
+});
+
+/** Правила часов проекта — по правилам входа определения: новое и изменённое ставится, снятое убирается; правило с прежним сроком идёт как шло. */
+async function schedule(env: Env, fleet: string, project: string, def: FactoryDef, now: number): Promise<void> {
+  const base = ruleTimers(project);
+  const have = new Map((await timers(env, fleet, base)).map((t) => [t.id.slice(base.length), t]));
+  for (const rule of def.on) {
+    const every = rule.every ? termMs(rule.every) : undefined;
+    const old = have.get(rule.name);
+    have.delete(rule.name);
+    if (old && old.every === every && old.cron === rule.cron && old.tz === rule.tz) continue;
+    await set(env, fleet, { id: base + rule.name, kind: RULE, input: { project, rule: rule.name }, ...(every ? { every } : { cron: rule.cron!, ...(rule.tz ? { tz: rule.tz } : {}) }) }, now);
+  }
+  for (const gone of have.keys()) await drop(env, fleet, { id: base + gone });
+}
+
 /* ===== Определение ===== */
 
 /** Файл определения → проверенное определение. Ошибки — все разом, каждая с путём к месту в файле. */
@@ -378,6 +469,26 @@ async function check(ctx: Ctx, project: string, text: string): Promise<FactoryDe
       roles(`${path}.pieces`, step.pieces);
     });
   }
+  const names = new Set<string>();
+  def.on.forEach((rule, i) => {
+    const path = `on[${i}]`;
+    if (names.has(rule.name)) errors.push(`${path}.name: правило ${rule.name} уже есть`);
+    names.add(rule.name);
+    // вход у правила пока один — время; срок ровно один
+    if ((rule.every === undefined) === (rule.cron === undefined)) errors.push(`${path}: у правила один срок — every или cron`);
+    if (rule.tz && !rule.cron) errors.push(`${path}.tz: часовой пояс бывает у cron`);
+    if (rule.cron)
+      try {
+        next({ cron: rule.cron, tz: rule.tz }, Date.now());
+      } catch (e) {
+        errors.push(`${path}.cron: ${e instanceof Refusal ? e.why : e}`);
+      }
+    if (!def.lines[rule.to] && !def.posts[rule.to]) errors.push(`${path}.to: исполнителя ${rule.to} нет: ни конвейера, ни поста`);
+    if (rule.check) {
+      place(`${path}.check.at`, rule.check.at);
+      if (termMs(rule.check.for) > RULE_CHECK_MS) errors.push(`${path}.check.for: предел проверки правила — не больше ${RULE_CHECK_MS / 1000}s`);
+    }
+  });
   if (errors.length) throw bad(errors);
   return def;
 }
@@ -385,26 +496,21 @@ async function check(ctx: Ctx, project: string, text: string): Promise<FactoryDe
 export const factory: Module = {
   name: NAME,
   handlers: {
-    async "ticket.new"(i: { project?: string; to?: string; title: string; text?: string; tag?: string; key?: string; for?: string }, ctx) {
+    async "ticket.new"(i: { project?: string; to?: string; title: string; text?: string; tag?: string; key?: string; for?: string; in?: string }, ctx) {
       const project = await projectOf(ctx, i.project);
       const def = (await applied(ctx.env, ctx.fleet, project))?.def ?? null;
       const now = Date.now();
-      const draft = { n: 0, dest: i.to ?? null, tag: i.tag ?? null, term: i.for ? termMs(i.for) : null, runs: "{}" };
       if (i.to !== undefined && !def?.lines[i.to] && !def?.posts[i.to]) {
         if (kindOf(i.to) !== "session") throw new Refusal("no_dest", `исполнителя ${i.to} нет: ни конвейера, ни поста проекта ${project}; сессии — позывной вида site@laptop`);
         if (!i.for) throw new Refusal("no_term", "тикету сессии нужен срок работы: for — 20m, 2h, 1d");
         if (!(await within(ctx.platform.sessions(ctx.fleet), CALL_MS, "платформа не назвала сессии")).some((s) => s.callsign === i.to)) throw new Refusal("no_session", `сессии ${i.to} нет во флоте`);
       }
-      const p = plan(def, project, draft, 0);
-      if (p.state === "stop") throw new Refusal("no_dest", p.why);
-      const { sets, params } = planSets(p, 0, now);
-      const d = db(ctx.env, ctx.fleet, project);
-      // запись и её место на первом шаге — одной пачкой: тикет не виден «в очереди» раньше, чем узнал свою цель
-      const got = await d.batch([
-        ["INSERT INTO tickets (title, text, dest, state, by, key, tag, since, moved, term) VALUES (?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?)", i.title, i.text ?? "", i.to ?? null, ctx.who.addr, i.key ?? null, i.tag ?? null, now, now, draft.term],
-        [`UPDATE tickets SET ${sets} WHERE n = last_insert_rowid() RETURNING *`, ...params],
-      ]);
-      const made = got[1]![0] as unknown as Stored;
+      if (i.in && i.to === undefined) throw new Refusal("bad_input", "отложить можно тикет с исполнителем: назовите to");
+      const made = await create(
+        ctx.env, ctx.fleet, project, def,
+        { title: i.title, text: i.text ?? "", to: i.to ?? null, by: ctx.who.addr, key: i.key, tag: i.tag, term: i.for ? termMs(i.for) : null, ...(i.in ? { start: now + termMs(i.in) } : {}) },
+        now,
+      );
       ctx.after(settle(ctx.env, outside(ctx), ctx.fleet, project, def, null, made, "new", ctx.who.addr, i.title, ctx.trace));
       return { id: idOf(project, made.n) };
     },
@@ -538,6 +644,7 @@ export const factory: Module = {
         const { sets, params } = planSets(plan(def, i.project, t, t.step), t.step, now);
         await d.run(`UPDATE tickets SET ${sets} WHERE n = ? AND state = 'ready'`, ...params, t.n);
       }
+      await schedule(ctx.env, ctx.fleet, i.project, def, now);
       // посты, которых ещё нет, открываются; не открылся — причина в ответе, пост откроется с первым тикетом
       const have = new Set((await within(ctx.platform.sessions(ctx.fleet), CALL_MS, "платформа не назвала сессии")).map((s) => s.callsign));
       const opened: string[] = [];
@@ -546,14 +653,14 @@ export const factory: Module = {
         const callsign = `${name}@${post.at.slice(1)}`;
         if (have.has(callsign)) continue;
         const r = await toMachine(w, ctx.fleet, ctx.trace, {
-          type: "session.open", to: post.at,
+          type: "session.open", to: post.at, mkdir: true,
           spec: { name, cwd: post.cwd, key: post.key, model: post.model, project: i.project, ...(post.pieces ? { pieces: post.pieces } : {}), ...(post.title ? { title: post.title } : {}) },
         });
         if (r.ok) opened.push(callsign);
         else failed.push({ post: name, why: r.why });
       }
       ctx.after(history(ctx.env, w, ctx.fleet, { msg: "factory", kind: "applied", who: ctx.who.addr, text: commit, data: { project: i.project, repo: i.repo, commit, by: ctx.who.addr } }).then(() => run(ctx.env, w, ctx.fleet, i.project, ctx.trace)));
-      return { commit, posts: Object.keys(def.posts).length, lines: Object.keys(def.lines).length, opened, failed };
+      return { commit, posts: Object.keys(def.posts).length, lines: Object.keys(def.lines).length, rules: def.on.length, opened, failed };
     },
 
     async "factory.get"(i: { project?: string }, ctx) {
@@ -569,7 +676,12 @@ export const factory: Module = {
       const counts = await db(ctx.env, ctx.fleet, project).all<{ dest: string; state: string; n: number }>("SELECT dest, state, count(*) AS n FROM tickets WHERE state IN ('work', 'ready') AND dest IS NOT NULL GROUP BY dest, state");
       const of = (dest: string, state: string) => counts.find((c) => c.dest === dest && c.state === state)?.n ?? 0;
       const lines = Object.fromEntries(Object.keys(a.def.lines).map((name) => [name, { work: of(name, "work"), ready: of(name, "ready") }]));
-      const state: FactoryState = { project, repo: a.row.repo, commit: a.row.sha, at: a.row.at, paused: !!a.row.paused, def: a.def, load: { work: Object.values(lines).reduce((n, l) => n + l.work, 0), lines } };
+      const base = ruleTimers(project);
+      const due = Object.fromEntries((await timers(ctx.env, ctx.fleet, base)).map((t) => [t.id.slice(base.length), t.at]));
+      const state: FactoryState = {
+        project, repo: a.row.repo, commit: a.row.sha, at: a.row.at, paused: !!a.row.paused, def: a.def,
+        load: { work: Object.values(lines).reduce((n, l) => n + l.work, 0), lines }, next: due,
+      };
       return { factory: state };
     },
 

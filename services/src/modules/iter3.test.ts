@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { type ArchSession, type HostMetrics, type SessionRow, sha256hex } from "@sb/protocol";
 import { around, blockKey } from "./archive/archive.ts";
-import { drop, fire } from "./clock/clock.ts";
+import { drop, fire, list as timers } from "./clock/clock.ts";
 import { gzip } from "../r2.ts";
 import { b64u } from "./reach/webpush.ts";
 import { type Stand, stand } from "../../test/stand.ts";
@@ -204,14 +204,17 @@ describe("наблюдение: оповещения о машине и сесс
     await s.ask("obs.metrics", metrics(Date.now()), "klaptop");
     // само число картину не сверяет: оно только ставит правило
     expect(pushes(s)).toBe(before);
-    const timers = ((await s.ask("clock.list", { prefix: "obs." })).result as { timers: { id: string; every?: number }[] }).timers;
-    expect(timers).toMatchObject([{ id: "obs.watch", every: 60_000 }]);
+    expect(await timers(s.env, s.fleet, "obs.")).toMatchObject([{ id: "obs.watch", every: 60_000 }]);
+    expect(((await s.ask("obs.health")).result as { watched?: number }).watched).toBeUndefined();
     const watch = { platform: s.platform, fetch: s.deps.fetch!, log: { info() {}, warn() {}, error() {}, with() { return this; } } as never };
     // срок ещё не пришёл — тихо; пришёл — сверка и оповещение, запросов во флот между ними нет
     expect(await fire(s.env, s.fleet, watch, Date.now() + 30_000)).toBe(0);
     expect(pushes(s)).toBe(before);
-    expect(await fire(s.env, s.fleet, watch, Date.now() + 61_000)).toBe(1);
+    const at = Date.now() + 61_000;
+    expect(await fire(s.env, s.fleet, watch, at)).toBe(1);
     expect(pushes(s)).toBe(before + 1);
+    // сводка здоровья говорит, когда картину сверяли: по этому полю видно, что часы идут
+    expect(((await s.ask("obs.health")).result as { watched?: number }).watched).toBe(at);
     await drop(s.env, s.fleet, { id: "obs.watch" });
   });
 });
