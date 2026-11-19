@@ -80,6 +80,8 @@ const STOP = Symbol("первый красный шаг останавливае
 const OVER = Symbol("бюджет вышел");
 const realClock = { now: () => Date.now(), setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (h) => clearTimeout(h) };
 const short = (v) => (v === undefined || v === null || v === false ? "ещё нет" : typeof v === "string" ? v : JSON.stringify(v)).slice(0, 160);
+/** Текст записи человека: строкой или блоками текста. */
+const saidBy = (e) => (typeof e.message?.content === "string" ? e.message.content : Array.isArray(e.message?.content) ? e.message.content.filter((c) => c.type === "text").map((c) => c.text).join("\n") : "");
 const textOf = (events) => events.filter((e) => e.type === "assistant").flatMap((e) => (Array.isArray(e.message?.content) ? e.message.content : [])).filter((c) => c.type === "text").map((c) => c.text).join("\n");
 
 /** Обвязка одной проверки. o: title — название; transport — провод общего клиента; clock — часы; budgetMs; lane — дорожка; part — часть (SB2_PART);
@@ -287,20 +289,24 @@ export function kit(o) {
       if (x?.state === "failed") throw new Error(`${cs}: сессия упала — ${x.why ?? "причина не названа"}`);
       return x;
     };
-    /** Итог хода за сообщением uuid (без uuid — первый итог в разговоре): записи хода и текст ответа. */
-    const ended = (uuid) => wait(`итог хода ${cs}`, async () => {
+    /** Итог хода за своим сообщением: записи хода и текст ответа. find — где в истории это сообщение; нет find — первый итог в разговоре. */
+    const endOf = (find) => wait(`итог хода ${cs}`, async () => {
       const x = await row();
       seen = `строка сессии — ${x?.state ?? "нет"}`;
       // ход идёт: итога в истории ещё нет — историю не спрашиваем
       if (x?.state === "busy" || x?.state === "starting") return undefined;
       const { events } = await must("session.history", { to: cs, limit: 200 });
-      const at = uuid ? events.findIndex((e) => e.uuid === uuid) : -1;
-      if (uuid && at < 0) return void (seen += ", сообщения в истории ещё нет");
+      const at = find ? find(events) : -1;
+      if (find && at < 0) return void (seen += ", сообщения в истории ещё нет");
       const after = events.slice(at + 1);
       const end = after.findIndex((e) => e.type === "result");
       if (end < 0) return void (seen += `, последняя запись — ${after.at(-1)?.type ?? "своё сообщение"}`);
       return { events: after.slice(0, end + 1), text: textOf(after.slice(0, end)) };
     }, () => seen);
+    /** Итог хода за сообщением с номером uuid (без uuid — первый итог в разговоре). */
+    const ended = (uuid) => endOf(uuid ? (events) => events.findIndex((e) => e.uuid === uuid) : undefined);
+    /** Итог хода за сообщением, которое ушло не через обвязку (его отправила страница): последняя запись человека с этим текстом. */
+    const after = (text) => endOf((events) => events.findLastIndex((e) => e.type === "user" && saidBy(e).includes(text)));
     const send = async (text, more) => {
       const sent = await must("message", { to: cs, text, ...more });
       if (!sent.uuid) throw new Error(`message: номера сообщения нет — ${JSON.stringify(sent).slice(0, 120)}`);
@@ -318,7 +324,7 @@ export function kit(o) {
       send,
       /** Ход: сообщение и итог именно этого хода. */
       turn: async (text, more) => ended(await send(text, more)),
-      ended,
+      ended, after,
       /** «Посреди хода»: ход стоит на первом шаге сценария, пока проверка его не отпустит; then — шаги после (по умолчанию ответ «готово»).
        *  Ответ — release(): отпустить и дождаться итога хода. */
       async hold(...then) {
