@@ -95,7 +95,7 @@ await stepTalk("выдуманный проект отвергнут: отказ
   return `проектов во флоте ${projects.length}; отказ: ${String(r.why).slice(0, 90)}`;
 });
 
-await stepTalk("сервер инструментов: инструкции, пример у каждого инструмента, пометка «только чтение», две страницы справки", async () => {
+await stepTalk("сервер инструментов: инструкции, пример у каждого инструмента, пометка «только чтение», страницы справки", async () => {
   const init = await mcp("initialize", { protocolVersion: "2025-06-18" });
   if (!String(init.instructions).includes("fleet_list") || String(init.instructions).length > 4096) throw new Error("инструкций нет или они длиннее 4 096");
   const tools = (await mcp("tools/list")).tools as Array<{ name: string; description: string; annotations?: { readOnlyHint?: boolean } }>;
@@ -106,7 +106,9 @@ await stepTalk("сервер инструментов: инструкции, п�
   if (!tools.find((t) => t.name === "fleet_list")?.annotations?.readOnlyHint || tools.find((t) => t.name === "message")?.annotations) throw new Error("пометка «только чтение» стоит не там");
   const pages = (await mcp("resources/list")).resources as Array<{ uri: string }>;
   const page = (await mcp("resources/read", { uri: "fleet://guide/practices" })).contents[0].text as string;
-  if (pages.length !== 2 || !page.includes("session_remove")) throw new Error("справка не та");
+  // страницы справки по именам: новая страница проверку не роняет, пропавшая — роняет
+  const missing = ["fleet://guide/practices", "fleet://guide/architecture", "fleet://guide/memory"].filter((uri) => !pages.some((x) => x.uri === uri));
+  if (missing.length || !page.includes("session_remove")) throw new Error("справка не та" + (missing.length ? ": нет " + missing.join(", ") : ""));
   return `инструментов ${tools.length}, знаков описаний ${tools.reduce((n, t) => n + t.description.length, 0)}, инструкций ${String(init.instructions).length}, страниц справки ${pages.length}`;
 });
 

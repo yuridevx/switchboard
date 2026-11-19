@@ -15,7 +15,7 @@ import { createMock, type Mock } from "../mock/fleet.ts";
 import { useFleet } from "../store/fleet.ts";
 import { archiveSummary, branches } from "./Archive.tsx";
 import { fireCount, installCommand } from "./fleet/Machines.tsx";
-import { firstPick, itemMatches, memoryMeasure, mergeTask } from "./fleet/Profiles.tsx";
+import { firstPick, itemMatches, memoryWord, mergeTask } from "./fleet/Profiles.tsx";
 import { bulkPlan, Releases } from "./fleet/Releases.tsx";
 import { journalWord } from "../lib/journal.ts";
 import { inviteFor } from "./settings/People.tsx";
@@ -94,11 +94,12 @@ describe("профили", () => {
     // прежний выбор держится, пока его кусочки есть на машине
     expect(firstPick([piece("web"), piece("base")], ["web", "gone"])).toEqual(["web"]);
   });
-  it("мера памяти: строки из 200 и килобайты из 25; сверх меры — помечено", () => {
-    expect(memoryMeasure("a\nb\nc\n")).toMatchObject({ lines: 3, over: false, word: "3 из 200 строк · 0,0 из 25 КБ" });
-    expect(memoryMeasure(Array.from({ length: 201 }, () => "x").join("\n")).over).toBe(true);
-    expect(memoryMeasure("я".repeat(13_000)).over).toBe(true);
-    expect(memoryMeasure("")).toMatchObject({ lines: 0, bytes: 0 });
+  // чьё: код — пределы индекса памяти считает машина; страница складывает слова из её чисел
+  it("мера памяти: слова из чисел машины — строки и килобайты против её же пределов", () => {
+    expect(memoryWord({ lines: 66, bytes: 12_100, maxLines: 200, maxBytes: 25_000 })).toBe("66 из 200 строк · 12,1 из 25 КБ");
+    expect(memoryWord({ lines: 0, bytes: 0, maxLines: 200, maxBytes: 25_000 })).toBe("0 из 200 строк · 0 из 25 КБ");
+    // предел другой — слова другие: своего числа у страницы нет
+    expect(memoryWord({ lines: 3, bytes: 40_000, maxLines: 150, maxBytes: 32_000 })).toBe("3 из 150 строк · 40 из 32 КБ");
   });
   it("поиск внутри набора — по имени и описанию; задача сведения называет репозиторий, шаг и файлы", () => {
     expect(itemMatches({ name: "deploy", about: "Выкладка сайта" }, "выкл")).toBe(true);

@@ -217,6 +217,8 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
         settings,
         files: Object.fromEntries(picked.map((p) => [p, [{ path: "CLAUDE.md", size: 4812 }, { path: "skills/design/SKILL.md", size: 3120 }, { path: "notes/todo.txt", size: 240 }, { path: "settings.json", size: 512 }]])),
         other: picked.map((p) => ({ from: p, path: "notes/todo.txt" })),
+        // мера индекса памяти — готовой от машины: пределы Claude страница не знает
+        memory: picked.includes("base") ? [{ piece: "base", path: "memory/MEMORY.md", lines: 66, bytes: 12_100, maxLines: 200, maxBytes: 25_000, over: false }] : [],
       };
     },
 

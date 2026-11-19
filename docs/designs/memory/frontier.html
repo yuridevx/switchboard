@@ -1,0 +1,408 @@
+<title>Память и сила модели</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* раскладка: сверху схема памяти для сильной модели; ниже — одна задача на слабой и сильной модели, лента замеров по поколениям моделей, судьба каждого вывода при росте силы, приёмы работы, ваш загружаемый слой. Под каждым блоком одна панель пояснения. */
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
+  --accent: #1f7a63; --accent-soft: #dcefe8; --new: #b8590f; --new-soft: #fbe9d7; --code: #f0eee7;
+  --fail: #cf3a34; --fail-soft: #fbe3e1; --cat-i: #12825f; --cat-s: #b8590f;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --code: #232a26;
+  --fail: #ef8a80; --fail-soft: #43221f; --cat-i: #3fa98a; --cat-s: #c97a34; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --code: #232a26;
+  --fail: #ef8a80; --fail-soft: #43221f; --cat-i: #3fa98a; --cat-s: #c97a34; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 Inter, system-ui, sans-serif; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
+main { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
+h1, h2, h3 { font-family: "Space Grotesk", Inter, system-ui, sans-serif; font-weight: 600; text-wrap: balance; margin: 0; }
+h1 { font-size: 34px; line-height: 1.15; letter-spacing: -0.01em; }
+h2 { font-size: 21px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+h3 { font-size: 14px; }
+p { margin: 0; }
+.lead { max-width: 64ch; color: var(--muted); margin-top: 10px; font-size: 16px; }
+section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+section.read > h2::after { content: "прочитал"; font: 500 11px Inter, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); border-radius: 99px; padding: 2px 9px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+.say { background: var(--soft); border-radius: 10px; padding: 11px 14px; font-size: 14px; min-height: 46px; overflow-wrap: anywhere; }
+.say b { font-weight: 600; }
+.say a { color: var(--accent); }
+.say .meta { display: block; color: var(--muted); font-size: 12.5px; margin-top: 5px; }
+.note { font-size: 12.5px; color: var(--muted); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.dia { overflow-x: auto; }
+.dia svg { display: block; width: 100%; min-width: 820px; height: auto; }
+.dia text { font-family: Inter, system-ui, sans-serif; text-anchor: middle; fill: var(--fg); }
+.dia .t { font-weight: 600; font-size: 14px; }
+.dia .s { font-size: 11.5px; fill: var(--muted); }
+.dia .l { font-size: 12px; fill: var(--muted); }
+.dia .n rect { fill: var(--card); stroke: var(--muted); stroke-width: 1.3; }
+.dia .n.box rect { fill: var(--soft); stroke: var(--line); }
+.dia .n.weak rect { fill: transparent; stroke-dasharray: 5 4; }
+.dia .n.weak .t { fill: var(--muted); }
+.dia .a .v { stroke: var(--muted); stroke-width: 1.6; fill: none; marker-end: url(#mh); }
+.dia .a.two .v { marker-start: url(#mh); }
+.dia .a.weak .v { stroke-dasharray: 5 4; }
+.dia .a .hit { stroke: transparent; stroke-width: 18; }
+.dia [data-i] { cursor: pointer; }
+.dia .n[data-i]:hover rect, .dia .n.on rect { stroke: var(--accent); stroke-width: 2.4; }
+.dia .a[data-i]:hover .v, .dia .a.on .v { stroke: var(--accent); stroke-width: 2.4; marker-end: url(#mh-on); }
+.dia .a.two[data-i]:hover .v, .dia .a.two.on .v { marker-start: url(#mh-on); }
+.dia .a[data-i]:hover .l, .dia .a.on .l { fill: var(--accent); }
+
+.keyrow { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); align-items: center; }
+.keyrow i { display: inline-block; width: 22px; height: 12px; border-radius: 4px; border: 1.5px solid var(--muted); vertical-align: -1px; margin-right: 5px; }
+.keyrow i.k-i { border-color: var(--cat-i); background: var(--accent-soft); }
+.keyrow i.k-s { border-color: var(--cat-s); background: var(--new-soft); }
+.keyrow i.k-c { border-style: dashed; }
+
+/* одна задача, две модели */
+.duel { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: stretch; }
+.duel .hd { font: 600 13px "Space Grotesk", sans-serif; color: var(--muted); padding: 0 4px 2px; align-self: end; }
+.duel .lab { font-size: 14px; display: flex; align-items: center; padding: 4px; }
+.cell { background: var(--card); border: 1.3px solid var(--line); border-radius: 10px; padding: 9px 12px; text-align: left; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cell .num { font: 600 24px/1.1 "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
+.cell .tag { font-size: 11.5px; color: var(--muted); }
+.cell.best { border-color: var(--accent); background: var(--accent-soft); }
+.cell.low .num { color: var(--muted); }
+.cell:hover, .cell.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+/* лента и дорожки */
+.lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: start; }
+.lane { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.lane.target { border-color: var(--accent); border-width: 1.5px; }
+.lane h3 small { display: block; font: 400 11.5px Inter, sans-serif; color: var(--muted); margin-top: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1.5px solid var(--muted); background: transparent; border-radius: 9px; padding: 5px 9px; font-size: 12.5px; line-height: 1.3; text-align: left; }
+.chip.i { border-color: var(--cat-i); background: var(--accent-soft); }
+.chip.s { border-color: var(--cat-s); background: var(--new-soft); }
+.chip.c { border-style: dashed; }
+.chip:hover, .chip.on { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); }
+.fate { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; align-items: start; }
+.fate .lane h3 { display: flex; gap: 6px; align-items: center; }
+.fate .mark { font: 600 13px "Space Grotesk", sans-serif; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--soft); flex: none; }
+.fate .lane.up .mark { background: var(--accent-soft); color: var(--accent); }
+.fate .lane.stay .mark { background: var(--fail-soft); color: var(--fail); }
+.fate .lane.gap { border-style: dashed; }
+
+/* приёмы */
+.ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; align-items: start; }
+.way { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.way > h3 { color: var(--muted); letter-spacing: .04em; text-transform: uppercase; font: 600 11.5px Inter, sans-serif; }
+.tip { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 13px; text-align: left; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tip b { font-weight: 600; font-size: 14.5px; }
+.tip span { font-size: 12.5px; color: var(--muted); }
+.tip:hover, .tip.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.fact { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; text-align: left; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fact:hover, .fact.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.fact .num { font: 600 26px/1.1 "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
+.fact .num small { font: 500 13px Inter, sans-serif; color: var(--muted); }
+.fact .cap { font-size: 13px; color: var(--muted); }
+@media (max-width: 720px) {
+  h1 { font-size: 27px; }
+  .duel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .duel .lab { grid-column: 1 / -1; padding-top: 8px; font-weight: 600; }
+  .duel .hd.first { display: none; }
+}
+</style>
+
+<main>
+<header>
+  <h1>Память и сила модели</h1>
+  <p class="lead">Почти всё, что известно о памяти агентов, измерено на слабых или старых моделях. На классе Claude Opus 5.5 картина другая: служба памяти перестаёт помогать, а выигрывают сырые записи, собственные заметки модели и их сверка.</p>
+</header>
+
+<section id="f-map" data-block>
+  <h2>Память для сильной модели</h2>
+  <div class="card dia">
+    <svg viewBox="0 0 1000 380" role="img" aria-label="Схема: ядро, заметки и сырьё слева, модель с окном справа, служба памяти пунктиром">
+      <defs>
+        <marker id="mh" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" style="fill: var(--muted)"/></marker>
+        <marker id="mh-on" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" style="fill: var(--accent)"/></marker>
+      </defs>
+      <g class="a" data-i="a-goal"><line class="hit" x1="366" y1="43" x2="246" y2="70"/><line class="v" x1="366" y1="43" x2="246" y2="70"/><text class="l" x="300" y="40">цели и зачем</text></g>
+      <g class="a" data-i="a-core"><line class="hit" x1="244" y1="84" x2="636" y2="150"/><line class="v" x1="244" y1="84" x2="636" y2="150"/><text class="l" x="440" y="104">всегда в окне</text></g>
+      <g class="a two" data-i="a-notes"><line class="hit" x1="244" y1="182" x2="636" y2="190"/><line class="v" x1="244" y1="182" x2="636" y2="190"/><text class="l" x="440" y="176">читает и пишет сама</text></g>
+      <g class="a" data-i="a-raw"><line class="hit" x1="636" y1="240" x2="246" y2="276"/><line class="v" x1="636" y1="240" x2="246" y2="276"/><text class="l" x="440" y="282">ищет сама</text></g>
+      <g class="a" data-i="a-check"><line class="hit" x1="140" y1="248" x2="140" y2="217"/><line class="v" x1="140" y1="248" x2="140" y2="217"/><text class="l" x="152" y="237" style="text-anchor: start">сверка</text></g>
+      <g class="a weak" data-i="a-lose"><line class="hit" x1="244" y1="300" x2="366" y2="326"/><line class="v" x1="244" y1="300" x2="366" y2="326"/><text class="l" x="300" y="342">теряет факты</text></g>
+      <g class="a weak" data-i="a-digest"><line class="hit" x1="574" y1="320" x2="700" y2="274"/><line class="v" x1="574" y1="320" x2="700" y2="274"/><text class="l" x="656" y="314" style="text-anchor: start">выжимка</text></g>
+
+      <g class="n" data-i="n-human"><rect x="370" y="16" width="200" height="54" rx="10"/><text class="t" x="470" y="40">Человек</text><text class="s" x="470" y="58">объясняет и чистит</text></g>
+      <g class="n" data-i="n-core"><rect x="40" y="50" width="200" height="64" rx="10"/><text class="t" x="140" y="78">Ядро</text><text class="s" x="140" y="97">около 200 строк</text></g>
+      <g class="n" data-i="n-notes"><rect x="40" y="150" width="200" height="64" rx="10"/><text class="t" x="140" y="178">Заметки</text><text class="s" x="140" y="197">одна тема — один файл</text></g>
+      <g class="n" data-i="n-raw"><rect x="40" y="250" width="200" height="64" rx="10"/><text class="t" x="140" y="278">Сырьё</text><text class="s" x="140" y="297">разговоры, журнал, код</text></g>
+      <g class="n weak" data-i="n-service"><rect x="370" y="300" width="200" height="60" rx="10"/><text class="t" x="470" y="326">Служба памяти</text><text class="s" x="470" y="344">заплатка для слабых</text></g>
+      <g class="n box" data-i="n-model"><rect x="640" y="110" width="260" height="160" rx="12"/><text class="t" x="770" y="135">Модель</text><text class="s" x="770" y="153">класс Opus 5.5 и сильнее</text></g>
+      <g class="n" data-i="n-window"><rect x="660" y="168" width="220" height="86" rx="9"/><text class="t" x="770" y="206">Окно</text><text class="s" x="770" y="226">ядро и то, что нашла сама</text></g>
+    </svg>
+  </div>
+  <div class="say" aria-live="polite"><b>Три места и одна проверка.</b> Маленькое ядро всегда в окне, заметки модель ведёт сама, сырьё остаётся нетронутым, и заметки сверяются по нему. Выжимка чужой службы на сильной модели только мешает. Нажмите на часть или стрелку.</div>
+</section>
+
+<section id="f-duel" data-block>
+  <h2>Одна задача, слабая и сильная модель</h2>
+  <div class="card">
+    <div class="duel">
+      <div class="hd first"></div><div class="hd">GPT-4o-mini</div><div class="hd">Claude Opus 5.5</div>
+      <div class="lab">Агент сам ищет по сырой истории</div>
+      <button type="button" class="cell low" data-i="d-agent-w"><span class="num">28–29</span><span class="tag">не умеет искать</span></button>
+      <button type="button" class="cell best" data-i="d-agent-s"><span class="num">97–99</span><span class="tag">лучший и дешевле окна</span></button>
+      <div class="lab">Вся история в окне</div>
+      <button type="button" class="cell" data-i="d-full-w"><span class="num">74</span><span class="tag">&nbsp;</span></button>
+      <button type="button" class="cell" data-i="d-full-s"><span class="num">95</span><span class="tag">&nbsp;</span></button>
+      <div class="lab">Служба памяти сама извлекает факты</div>
+      <button type="button" class="cell best" data-i="d-svc-w"><span class="num">78</span><span class="tag">лучший у слабой</span></button>
+      <button type="button" class="cell" data-i="d-svc-s"><span class="num">87–95</span><span class="tag">не лучше окна</span></button>
+      <div class="lab">Сильная читает память, которую писала слабая</div>
+      <div class="cell low"><span class="num">—</span><span class="tag">&nbsp;</span></div>
+      <button type="button" class="cell low" data-i="d-writer"><span class="num">45–84</span><span class="tag">вместо 87–95 на своей</span></button>
+    </div>
+  </div>
+  <div class="note">Доля верных ответов, %. Один разговор, 152 вопроса, один прогон на ячейку; судья — малая модель. Независимая работа, октябрь 2026.</div>
+  <div class="say" aria-live="polite"><b>Ответ зависит от модели.</b> То, что спасает слабую модель, сильной не нужно; то, с чем слабая не справляется, у сильной работает лучше всего. Нажмите на число.</div>
+</section>
+
+<section id="f-tape" data-block>
+  <h2>На каких моделях сделаны замеры</h2>
+  <div class="lanes">
+    <div class="lane"><h3>Малые до 2026<small>GPT-4o-mini, Claude 3 Haiku</small></h3><div class="chips" id="t1"></div></div>
+    <div class="lane"><h3>Сильные 2024–25<small>GPT-4o, Claude Haiku 4.5</small></h3><div class="chips" id="t2"></div></div>
+    <div class="lane"><h3>Малые 2026<small>GPT-5-mini</small></h3><div class="chips" id="t3"></div></div>
+    <div class="lane"><h3>Фронтир начала 2026<small>Opus 4.6, GPT-5.4</small></h3><div class="chips" id="t4"></div></div>
+    <div class="lane target"><h3>Фронтир конца 2026<small>Opus 5.5, Fable 5 — ваша цель</small></h3><div class="chips" id="t5"></div></div>
+    <div class="lane"><h3>Модель не названа<small>перенос не оценить</small></h3><div class="chips" id="t0"></div></div>
+  </div>
+  <div class="keyrow"><span><i class="k-i"></i>независимые</span><span><i class="k-s"></i>сами о себе</span><span><i class="k-c"></i>конкурент</span></div>
+  <div class="say" aria-live="polite"><b>39 замеров.</b> У 19 модель не названа. На вашем классе моделей — пять, и независимый из них один. Нажмите на замер: модели, дата, число, источник.</div>
+</section>
+
+<section id="f-fate" data-block>
+  <h2>Что происходит с выводом, когда модель сильнее</h2>
+  <div class="fate">
+    <div class="lane up"><h3><span class="mark">↑</span>Усиливается</h3><div class="chips">
+      <button type="button" class="chip" data-i="x-search">Сама ищет по сырью</button>
+      <button type="button" class="chip" data-i="x-notes">Сама ведёт заметки</button>
+      <button type="button" class="chip" data-i="x-writer">Важно, кто писал память</button>
+      <button type="button" class="chip" data-i="x-rules">Жёсткие правила записи вредят</button>
+      <button type="button" class="chip" data-i="x-harness">Оболочка важнее способа поиска</button>
+    </div></div>
+    <div class="lane stay"><h3><span class="mark">=</span>Не уходит</h3><div class="chips">
+      <button type="button" class="chip" data-i="x-trust">Вера своей неверной заметке</button>
+      <button type="button" class="chip" data-i="x-poison">Отравление памяти</button>
+      <button type="button" class="chip" data-i="x-rewrite">Вред переписывания памяти</button>
+      <button type="button" class="chip" data-i="x-conflict">Противоречия в фактах</button>
+      <button type="button" class="chip" data-i="x-caution">Осторожные правила копятся</button>
+      <button type="button" class="chip" data-i="x-report">Отчёты без сверки</button>
+      <button type="button" class="chip" data-i="x-long">Очень длинные задачи</button>
+    </div></div>
+    <div class="lane"><h3><span class="mark">↓</span>Уходит</h3><div class="chips">
+      <button type="button" class="chip" data-i="x-service">Польза службы памяти</button>
+      <button type="button" class="chip" data-i="x-vector">Спор «слова или векторы»</button>
+      <button type="button" class="chip" data-i="x-unread">Память лежит непрочитанной</button>
+      <button type="button" class="chip" data-i="x-clutter">Захламление заметок</button>
+      <button type="button" class="chip" data-i="x-tools">Неумение искать</button>
+    </div></div>
+    <div class="lane gap"><h3><span class="mark">?</span>Не измерено на вашем классе</h3><div class="chips">
+      <button type="button" class="chip" data-i="x-window">Вся история в окне до 1 М</button>
+      <button type="button" class="chip" data-i="x-poison5">Отравление на Opus 5.5</button>
+      <button type="button" class="chip" data-i="x-stale">Устаревшие факты</button>
+      <button type="button" class="chip" data-i="x-shared">Общая память многих агентов</button>
+      <button type="button" class="chip" data-i="x-cite">Сверка записи по цитате</button>
+      <button type="button" class="chip" data-i="x-months">Память на месяцы</button>
+    </div></div>
+  </div>
+  <div class="say" aria-live="polite"><b>С силой уходит неумение, а не доверчивость.</b> Сильная модель лучше ищет, пишет и чистит, но так же верит неверной записи — своей и чужой. Нажмите на вывод.</div>
+</section>
+
+<section id="f-ways" data-block>
+  <h2>Как работать с памятью на сильной модели</h2>
+  <div class="ways">
+    <div class="way"><h3>Что хранить</h3>
+      <button type="button" class="tip" data-i="w-raw"><b>Сырьё не выбрасывать</b><span>сырые записи вдвое точнее выжимок</span></button>
+      <button type="button" class="tip" data-i="w-core"><b>Ядро — около 200 строк</b><span>детали ниже, по ссылкам</span></button>
+      <button type="button" class="tip" data-i="w-prune"><b>Вычищать устаревшие правила</b><span>осторожные и абсолютные копятся</span></button>
+    </div>
+    <div class="way"><h3>Кто и как пишет</h3>
+      <button type="button" class="tip" data-i="w-strong"><b>Пишет та же сильная модель</b><span>84 против 95 на чужой памяти</span></button>
+      <button type="button" class="tip" data-i="w-why"><b>Объяснять зачем, а не как</b><span>жёсткое правило срезало прирост на 0,234</span></button>
+      <button type="button" class="tip" data-i="w-one"><b>Один урок — один файл</b><span>простая папка, без схемы</span></button>
+    </div>
+    <div class="way"><h3>Как читать и проверять</h3>
+      <button type="button" class="tip" data-i="w-find"><b>Дать поиск, а не подборку</b><span>97–99 против 87–95</span></button>
+      <button type="button" class="tip" data-i="w-verify"><b>Сверять заметки с сырьём</b><span>отдельным проходом</span></button>
+      <button type="button" class="tip" data-i="w-outside"><b>Внешнее — только после проверки</b><span>71–88 % атак письмом удаются</span></button>
+      <button type="button" class="tip" data-i="w-start"><b>Новое окно — с файлов и git</b><span>не со сжатия прошлого окна</span></button>
+    </div>
+  </div>
+  <div class="say" aria-live="polite"><b>Десять приёмов с опорой на замеры.</b> Семь — из советов Anthropic для новейших моделей, три — из независимых работ. Нажмите на приём — на чём он держится.</div>
+</section>
+
+<section id="f-you" data-block>
+  <h2>Ваш слой, который грузится в каждое окно</h2>
+  <div class="facts">
+    <button type="button" class="fact" data-i="y-lines"><span class="num">313 <small>строк</small></span><span class="cap">устав, персона и индекс памяти вместе</span></button>
+    <button type="button" class="fact" data-i="y-bytes"><span class="num">68,7 <small>КБ</small></span><span class="cap">строки длинные: около 220 байт каждая</span></button>
+    <button type="button" class="fact" data-i="y-locks"><span class="num">114</span><span class="cap">правил с замком в уставе и персоне</span></button>
+    <button type="button" class="fact" data-i="y-fleet"><span class="num">11 <small>из 423</small></span><span class="cap">разговоров флота открыли запись памяти</span></button>
+  </div>
+  <div class="say" aria-live="polite"><b>Это замер, а не совет менять устав.</b> Числа сняты с рабочей папки Switchboard и с прода 19 ноября. Нажмите на число — с чем из исследований его стоит сверить.</div>
+</section>
+</main>
+
+<script>
+// пояснения частей и замеров: нажатие на часть схемы, число, замер, вывод или приём
+(() => {
+  const SAY = {
+    "n-human": ["Человек.", "Задаёт цель и объясняет, зачем нужна память. Раз в какое-то время вычищает правила, которые устарели. Как вести записи — оставляет модели."],
+    "n-core": ["Ядро.", "То, что попадает в каждое окно: цель, главные правила, оглавление заметок. Anthropic советует держать его около 200 строк, детали — ниже по ссылкам."],
+    "n-notes": ["Заметки.", "Простая папка, один урок — один файл. Сильная модель ведёт её сама и держит маленькой: в длинной игре Sonnet 3.7 завёл 413 файлов, Fable 5 — 10."],
+    "n-raw": ["Сырьё.", "Разговоры, журнал, код, git. Ничего не теряет, поэтому служит опорой: по нему модель ищет ответы и по нему же проверяются заметки."],
+    "n-service": ["Служба памяти.", "Отдельная модель извлекает факты и подаёт выжимку. Слабой модели это помогает; на Opus 5.5 выжимка даёт 87–95 при 97–99 у собственного поиска."],
+    "n-model": ["Модель.", "Сила модели задаёт потолок всей памяти: и как она ищет, и что она записала. Одна и та же память на разных моделях даёт разный ответ."],
+    "n-window": ["Окно.", "В нём ядро и то, что модель достала сама по задаче. Для Opus 5.x, Fable и Mythos опубликованных замеров длинного окна нет, поэтому «положить всё» ничем не подкреплено."],
+    "a-goal": ["Цели и зачем.", "Сильной модели полезнее объяснение, зачем память, чем правила, как её вести. Правило «записывай только провалы» срезало прирост от памяти у Opus 5 на 0,234."],
+    "a-core": ["Всегда в окне.", "Ядро грузится в начале каждого окна и больше не меняется до конца сессии — так сохраняется кэш."],
+    "a-notes": ["Читает и пишет сама.", "С собственными заметками Opus 5.5 поднимается с 0,655 до 0,838, Sonnet 4.6 — с 0,330 до 0,364. Чем сильнее модель, тем больше отдача."],
+    "a-raw": ["Ищет сама.", "Агент над сырым файлом истории: 97–99 на Opus 5.5 и 28–29 на GPT-4o-mini. Слабой модели не хватает умения пользоваться поиском."],
+    "a-check": ["Сверка.", "Заметка может быть неверной, и модель ей поверит. В опыте Anthropic ошибочная запись сорвала задачу; исправила её только сверка с записью разговора отдельным проходом."],
+    "a-lose": ["Теряет факты.", "Каждый слой извлечения и сжатия что-то выбрасывает. То, что упустил слабый писатель, сильный читатель уже не восстановит."],
+    "a-digest": ["Выжимка.", "Opus 5.5 над памятью, которую писал GPT-4o-mini, даёт 84 вместо 95; над графовой — 45 вместо 87."],
+
+    "d-agent-w": ["Слабая модель и поиск.", "Codex и Claude Code на GPT-4o-mini над сырым файлом истории — 28 и 29. Инструмент есть, умения им пользоваться нет."],
+    "d-agent-s": ["Сильная модель и поиск.", "Три кодовых агента над сырым файлом на Opus 5.5 — 99, 98 и 97. У лучшего это меньше половины цены всей истории в окне."],
+    "d-full-w": ["Слабая модель и вся история.", "74. Разговор короткий и целиком помещается в окно."],
+    "d-full-s": ["Сильная модель и вся история.", "95. Это короткий разговор; на длинной истории замеров для Opus 5.5 нет."],
+    "d-svc-w": ["Слабая модель и служба памяти.", "Mem0 — 78 против 74 у всей истории в окне. Единственная клетка, где служба памяти выигрывает, и её сборка стоит дороже прогона со всей историей."],
+    "d-svc-s": ["Сильная модель и служба памяти.", "Mem0 — 95, Zep — 87. Не лучше всей истории в окне (95) и хуже собственного поиска (97–99)."],
+    "d-writer": ["Кто писал память.", "Opus 5.5 над памятью Mem0, написанной GPT-4o-mini, — 84 вместо 95. Над графом Zep, написанным слабой моделью, — 45 вместо 87."],
+
+    "x-search": ["Сама ищет по сырью.", "28–29 на GPT-4o-mini, 97–99 на Opus 5.5. Самый большой сдвиг из всех измеренных."],
+    "x-notes": ["Сама ведёт заметки.", "Прирост от собственной памяти: Sonnet 4.6 — +0,03, Opus 5.5 — +0,18, Opus 5 — +0,26. Данные Anthropic, ноябрь 2026."],
+    "x-writer": ["Важно, кто писал память.", "Память, написанная слабой моделью, срезает сильного читателя: 84 вместо 95, 45 вместо 87."],
+    "x-rules": ["Жёсткие правила записи вредят.", "Правило «записывай только провалы» у Opus 5 срезало прирост от памяти на 0,234. Сильной модели лучше объяснить цель."],
+    "x-harness": ["Оболочка важнее способа поиска.", "Opus 4.6 на одних и тех же вопросах: 93,1 в одной оболочке и 76,7 в другой. Разброс между оболочками 16,4 пункта, между способами поиска — 1,7."],
+    "x-trust": ["Вера своей неверной заметке.", "Модель следует записи, даже если запись ошибочна. Лечится только сверкой с сырьём. Показано Anthropic на длинной игре, ноябрь 2026."],
+    "x-poison": ["Отравление памяти.", "Одно письмо заставляет агента молча записать ложный факт: успех 87,5 % на GPT-5.4 и 71,4 % на Sonnet 4.6. Фильтр входа пропустил больше 90 %."],
+    "x-rewrite": ["Вред переписывания памяти.", "После принудительной консолидации GPT-5.4 провалила 54 % задач, которые решала без памяти."],
+    "x-conflict": ["Противоречия в фактах.", "Многошаговые противоречия: лучшая связка — 28 %, GPT-4o — 5 %, службы памяти — 2–3 %. Сильнее GPT-5-mini не мерили."],
+    "x-caution": ["Осторожные правила копятся.", "В памяти накапливаются перестраховочные и абсолютные правила, в том числе написанные самой моделью. Anthropic отмечает это прямо для Fable 5.2."],
+    "x-report": ["Отчёты без сверки.", "Модель может написать, что сделала то, чего не делала, если не требовать сверять каждое заявление с результатом инструмента."],
+    "x-long": ["Очень длинные задачи.", "Системная карта Opus 5.5 называет очень длинные траектории известным слабым местом. Это по пересказу: саму карту исследователь не читал."],
+    "x-service": ["Польза службы памяти.", "Mem0 обходит всю историю в окне только на GPT-4o-mini. На GPT-5-mini проигрывает ей 7–35 пунктов, на Opus 5.5 — не выигрывает."],
+    "x-vector": ["Спор «слова или векторы».", "Разрыв между поиском по тексту и векторами: 23,3 пункта у слабой Gemini Flash-Lite и 1,7 у Opus 4.6."],
+    "x-unread": ["Память лежит непрочитанной.", "Sonnet 4.6 читает свою память реже чем в половине случаев, Sonnet 5 — в 9 из 10. Данные Anthropic."],
+    "x-clutter": ["Захламление заметок.", "Sonnet 3.7 — 413 файлов за игру, Fable 5 — 10, Opus 5.5 — маленькая папка с целью и следующими шагами."],
+    "x-tools": ["Неумение искать.", "То, что на слабой модели выглядит провалом памяти, часто провал поиска: 28–29 у GPT-4o-mini с теми же инструментами."],
+    "x-window": ["Вся история в окне до 1 М.", "На 512 К–1 М токенов модели начала 2026 расходятся втрое: 76 % у Opus 4.6, 36,6 % у GPT-5.4, около 26 % у Gemini 3.x. Для Opus 5.x, Fable и Mythos чисел нет."],
+    "x-poison5": ["Отравление на Opus 5.5.", "Последний замер — GPT-5.4 и Sonnet 4.6, июль 2026. Opus 4.6 не проверяли из-за цены, Opus 5.5 не проверял никто."],
+    "x-stale": ["Устаревшие факты.", "Как сильная модель обходится с фактом, который перестал быть верным, не измерено. Последние данные о противоречиях — GPT-5-mini."],
+    "x-shared": ["Общая память многих агентов.", "Нет ни одного бенчмарка. Все замеры — один агент и один пользователь."],
+    "x-cite": ["Сверка записи по цитате.", "Запись с цитатой на код и проверкой цитаты при чтении подняла долю принятых изменений с 83 до 90 %. Модель в замере GitHub не названа."],
+    "x-months": ["Память на месяцы.", "Самый длинный замер — 9 недель, модель не названа. На нём рейтинг систем памяти перевернулся относительно трёх недель."],
+
+    "w-raw": ["Сырьё не выбрасывать.", "Агенты с сырыми эпизодами вдвое точнее принуждённых к консолидации (GPT-5.4). Сырьё — единственное, по чему можно проверить заметку."],
+    "w-core": ["Ядро — около 200 строк.", "Совет Anthropic для новейших моделей: загружаемый в каждую сессию слой — около 200 строк, детали ниже по ссылкам. Claude Code сам режет индекс памяти на 200 строках."],
+    "w-prune": ["Вычищать устаревшие правила.", "Осторожные и абсолютные правила копятся и остаются после того, как причина исчезла. Anthropic советует спрашивать у каждого: причина ещё жива?"],
+    "w-strong": ["Пишет та же сильная модель.", "Дешёвая модель на записи памяти срезает дорогую на чтении: 84 вместо 95. Экономить на писателе невыгодно."],
+    "w-why": ["Объяснять зачем, а не как.", "Жёсткое правило записи срезало прирост от памяти у Opus 5 на 0,234. Объяснение цели работает лучше инструкции."],
+    "w-one": ["Один урок — один файл.", "Простая папка заметок без схемы и базы. Так устроена и встроенная память Claude Code."],
+    "w-find": ["Дать поиск, а не подборку.", "Собственный поиск по сырью — 97–99, готовая выжимка — 87–95. Важна и подача: короткий список прямо в окно, а не файл с результатами."],
+    "w-verify": ["Сверять заметки с сырьём.", "Отдельный проход, который проверяет заметки по записи разговора. У факта в заметке — основание: файл, команда, дата."],
+    "w-outside": ["Внешнее — только после проверки.", "Письмо, страница или чужое сообщение могут записать ложь в память: 71–88 % успеха, фильтры входа не ловят. Рабочая защита — след, кто записал, и откат."],
+    "w-start": ["Новое окно — с файлов и git.", "Новое окно начинают с чтения заметок, файла прогресса и истории git, а не с пересказа прошлого окна. Счётчик оставшегося окна модели не показывают: на Fable 5 он вызывает преждевременную сдачу работы."],
+
+    "y-lines": ["313 строк в каждом окне.", "Устав — 138 строк, персона архитектора — 132, индекс памяти — 43. Ориентир Anthropic для загружаемого слоя — около 200 строк."],
+    "y-bytes": ["68,7 КБ.", "Устав — 35,2 КБ, персона — 21,8 КБ, индекс — 11,6 КБ. По строкам слой в полтора раза выше ориентира Anthropic, и строки длинные — около 220 байт каждая."],
+    "y-locks": ["114 правил с замком.", "83 в уставе и 31 в персоне. Вывод, с которым их стоит сверить: абсолютные правила копятся и переживают свою причину; у вас это частично закрыто правилом «устарело — удалять»."],
+    "y-fleet": ["11 из 423.", "За неделю на одной машине прода запись памяти открыли 11 разговоров. По данным Anthropic, Sonnet 4.6 читает память реже чем в половине случаев, Sonnet 5 — в 9 из 10; на флоте часть сессий идёт на других моделях."],
+  };
+
+  // замеры: класс модели, кто мерил (i — независимые, s — сами о себе, c — конкурент), модели, дата, число, вывод, сверено ли с источником
+  const S = [
+    ["t5", "i", "memorytax", "Память-служба на трёх моделях", "Claude Opus 5.5, GPT-6 Luna, GPT-4o-mini", "окт. 2026", "Opus 5.5: агент над сырым файлом 97–99, вся история 95, Mem0 95, Zep 87. GPT-4o-mini: Mem0 78, вся история 74, агент 28–29.", "Служба памяти — заплатка для слабой модели; потолок памяти задаёт модель, которая её писала.", "аннотация сверена; числа по моделям — из полного текста, вторым проходом не подтверждены", "https://arxiv.org/abs/2610.29823"],
+    ["t5", "s", "clbench", "Прирост от своих заметок", "Claude Opus 5.5, Opus 5, Sonnet 4.6", "нояб. 2026", "С памятью: Opus 5.5 0,655 → 0,838; Opus 5 0,564 → 0,828; Sonnet 4.6 0,330 → 0,364.", "Собственные заметки окупаются тем сильнее, чем сильнее модель.", "данные Anthropic", ""],
+    ["t5", "s", "pokemon", "Заметки в длинной игре", "Claude Opus 5.5, Fable 5, Sonnet 3.7", "нояб. 2026", "Sonnet 3.7 — 413 файлов и один значок; Fable 5 — 10 файлов и четыре; Opus 5.5 — маленькая папка, игра пройдена.", "Сильная модель ведёт меньше записей и держит цель. По одному прогону на модель.", "данные Anthropic", ""],
+    ["t5", "s", "rules", "Жёсткое правило записи", "Claude Opus 5", "нояб. 2026", "Правило «записывай только провалы» срезало прирост от памяти на 0,234.", "Сильной модели правила записи мешают.", "данные Anthropic", ""],
+    ["t5", "s", "readrate", "Читает ли модель память", "Claude Sonnet 5, Sonnet 4.6", "нояб. 2026", "Sonnet 4.6 читает память реже чем в половине случаев, Sonnet 5 — в 9 из 10.", "Непрочитанная память уходит с поколением модели.", "данные Anthropic", ""],
+    ["t4", "i", "grep", "Слова против векторов", "Claude Opus 4.6, GPT-5.4, Gemini 3.1 Pro, Claude Haiku 4.5, Gemini 3.1 Flash-Lite", "май 2026", "Поиск по тексту выиграл во всех 10 парах на 1,7–23,3 пункта. Opus 4.6: 93,1 в одной оболочке, 76,7 в другой.", "Способ поиска важен слабым моделям; у сильной почти всё решает оболочка.", "сверено с источником", "https://arxiv.org/abs/2605.15184"],
+    ["t4", "i", "consol", "Вред консолидации", "GPT-5.4", "май 2026", "После консолидации провалено 54 % задач, решённых без памяти; сырые эпизоды вдвое точнее.", "Переписывание памяти моделью опускает качество ниже уровня без памяти.", "сверено с источником", "https://arxiv.org/abs/2605.12978"],
+    ["t4", "i", "memghost", "Письмо пишет в память", "GPT-5.4, Claude Sonnet 4.6", "июль 2026", "Успех атаки 87,5 % и 71,4 %; фильтр входа пропустил больше 90 %.", "Отравление памяти работает на сильных моделях. Opus 4.6 не проверяли.", "сверено с источником", "https://arxiv.org/abs/2607.05189"],
+    ["t4", "s", "mrcr", "Длинное окно, 8 иголок", "Claude Opus 4.6, GPT-5.5, GPT-5.4, Gemini 3.x", "2026", "На 512 К–1 М токенов: Opus 4.6 — 76 %, GPT-5.5 — 74 %, GPT-5.4 — 36,6 %, Gemini 3.x — около 26 %.", "Длинное окно у моделей расходится втрое. Для Opus 5.x и Fable чисел нет.", "числа вендоров о своих моделях", ""],
+    ["t3", "i", "bricks", "Mem0 против всей истории", "GPT-5-mini, GPT-OSS-120B", "март 2026", "LongMemEval: 49,0 против 82,4. LoCoMo: 57,7 против 92,9.", "Вся история в окне точнее службы памяти на 7–35 пунктов; предел задаёт сила модели.", "сверено с источником", "https://arxiv.org/html/2603.04814"],
+    ["t3", "i", "cost", "Когда память дешевле", "GPT-5-mini", "март 2026", "Память дешевле всей истории после 9–13 чтений одной истории, при кэше со скидкой 90 %.", "Память выигрывает только в цене и только при многих чтениях.", "сверено с источником", "https://arxiv.org/html/2603.04814"],
+    ["t3", "i", "mab", "Противоречия", "GPT-5-mini, GPT-4o, Claude 3.7 Sonnet, o4-mini", "июль 2025, версия июня 2026", "Многошаговые противоречия: GPT-5-mini с длинным окном — 28 %, GPT-4o — 5 %, Mem0 — 2 %.", "Противоречия не решает никто; сильная модель помогает, но до 28 %.", "сверено с источником", "https://arxiv.org/abs/2507.05257"],
+    ["t2", "i", "lme", "Всё в окне против нужного", "GPT-4o", "окт. 2024", "Только нужные сессии — 91,8 %; вся история, 115 К токенов, — 60,2 %.", "На GPT-4o положить всё в окно стоило 30 пунктов.", "из заметок", "https://arxiv.org/abs/2410.10813"],
+    ["t2", "s", "zep", "Граф против всей истории", "GPT-4o, GPT-4o-mini", "янв. 2025", "Zep 71,2 % против 60,2 % у всей истории в окне.", "На моделях 2024 года граф выигрывал — по данным вендора.", "из заметок", "https://arxiv.org/abs/2501.13956"],
+    ["t2", "i", "honcho", "Пересчёт чисел вендора", "Claude Haiku 4.5", "окт. 2026", "Прирост над моделью без памяти +6,3 пункта, а не заявленные +14,3.", "Даже воспроизводимые числа вендора вдвое завышают прирост.", "из заметок", "https://techsy.io/en/blog/honcho-memory-review"],
+    ["t2", "s", "supermem", "Смешанные метрики", "GPT-4o", "май 2026", "81,6 %; заявленные 97 % — другая метрика, полнота поиска.", "Числа вендора нельзя сравнивать с точностью ответа.", "из заметок", "https://supermemory.ai/research/longmembench"],
+    ["t1", "c", "locomo", "Аудит бенчмарка LoCoMo", "GPT-4.1-mini", "февр. 2026", "6,4 % эталонных ответов неверны; судья принимает 63 % неверных; малая модель со всей историей — 92,6 % при потолке 93,6 %.", "Бенчмарк исчерпан: малая модель уже у потолка.", "сверено с источником", "https://github.com/dial481/locomo-audit"],
+    ["t1", "s", "letta", "Файлы против службы", "GPT-4o-mini", "авг. 2025", "74,0 % против 68,5 % у Mem0.", "Файлы и поиск обошли службу памяти даже на малой модели.", "из заметок", "https://www.letta.com/blog/benchmarking-ai-agent-memory"],
+    ["t1", "i", "memdelta", "Поиск против всей истории", "GPT-4o-mini", "июнь 2026", "Статистически неразличимы.", "Разрыв между поиском и всей историей зависит от модели.", "из заметок", "https://arxiv.org/pdf/2606.29914"],
+    ["t1", "s", "ctxret", "Промахи поиска", "Claude 3 Haiku", "сент. 2024", "Промахи: 5,7 % → 2,9 % со словами рядом с векторами → 1,9 % с переранжированием.", "Мерили поиск, а не ответ модели; до 200 К токенов Anthropic советует класть всё в окно.", "сверено с источником", "https://www.anthropic.com/engineering/contextual-retrieval"],
+    ["t0", "s", "mem0a", "Статья Mem0, 2025", "не названа", "апр. 2025", "Вся история 72,9 % против 66,9–68,4 % у Mem0.", "Даже у вендора вся история точнее; выигрыш памяти — в задержке.", "из заметок", "https://arxiv.org/abs/2504.19413"],
+    ["t0", "c", "dispute", "Спор Zep и Mem0", "не названа", "май 2025", "Одна система: 66,0 %, 75,1 % и 58,4 % — смотря кто считал.", "Число расходится на 17 пунктов из-за настройки.", "из заметок", "https://www.getzep.com/blog/lies-damn-lies-statistics-is-mem0-really-sota-in-agent-memory/"],
+    ["t0", "s", "mem0b", "Mem0, 2026", "не названа", "апр. 2026", "LoCoMo 92,5, LongMemEval 94,4; противоречия — 33–36.", "Прогон вендора без сравнения со всей историей в окне.", "из заметок", "https://mem0.ai/blog/mem0-the-token-efficient-memory-algorithm"],
+    ["t0", "s", "hindsight", "Память на слабой открытой", "открытая модель 20B", "дек. 2025", "39 % → 83,6 % с памятью.", "Самый большой прирост вендор показывает на слабой модели.", "из заметок", "https://arxiv.org/html/2512.12818v1"],
+    ["t0", "c", "twelve", "Двенадцать систем", "не названа", "июнь 2026", "Задержка операции: Mem0 — 36 с, Cognee — 117 с, Zep — 155 с.", "Каждый слой сжатия теряет факты; графы платят сотнями секунд.", "из заметок", "https://arxiv.org/html/2606.24775v1"],
+    ["t0", "i", "weeks", "Память на девяти неделях", "не названа", "июль 2026", "На 9 неделях вся история теряет преимущество; плохо записанные факты отказывают в 24 % против 2 %.", "Качество записи важнее механизма.", "источник открыт, модели в нём нет", "https://www.alphaxiv.org/abs/2607.21962"],
+    ["t0", "s", "memtool", "Файловая память Anthropic", "не названа", "сент. 2025", "+39 % с файловой памятью и очисткой окна; −84 % токенов.", "Набор и методика не опубликованы.", "из заметок", "https://www.anthropic.com/news/context-management"],
+    ["t0", "i", "rot", "Гниение контекста", "18 моделей, имена не сверены", "июль 2025", "Качество падает с длиной входа на всех; похожие неверные куски вредят сильнее посторонних.", "«Помещается в окно» не значит «работает».", "из заметок", "https://www.trychroma.com/research/context-rot"],
+    ["t0", "s", "cursor", "Векторы в коде", "названа только Composer", "нояб. 2025", "+12,5 % точности от семантического поиска поверх поиска по тексту.", "На больших кодовых базах векторы — прибавка, а не замена.", "источник открыт, моделей в нём нет", "https://cursor.com/blog/semsearch"],
+    ["t0", "s", "copilot", "Запись с цитатой", "не названа", "янв. 2026", "Доля принятых изменений 83 → 90 %.", "Единственный продуктовый замер с контрольной группой.", "источник открыт, модели в нём нет", "https://github.blog/ai-and-ml/github-copilot/building-an-agentic-memory-system-for-github-copilot/"],
+    ["t0", "i", "minja", "Отравление запросами", "не названа", "март 2025", "Запись ложного удаётся в 98,2 %, атака — в 76,8 %.", "Общую память можно отравить обычными запросами.", "из заметок", "https://arxiv.org/abs/2503.03704"],
+    ["t0", "i", "agentpoison", "Закладка в памяти", "не названа", "июль 2024", "Успех выше 80 % при доле отравленных записей меньше 0,1 %.", "Ничтожная доля записей управляет агентом.", "из заметок", "https://arxiv.org/abs/2407.12784"],
+    ["t0", "i", "sandbox", "Место защиты", "9 открытых моделей", "май 2026", "Защита сняла атаку у 8 из 9 моделей, у рассуждающей подняла успех до 100 %.", "Универсальной защиты нет.", "из заметок", "https://arxiv.org/html/2605.08442v1"],
+    ["t0", "i", "follow", "Повтор прошлых ошибок", "не названа", "май 2025", "Ошибки прошлых записей повторяются; рост памяти без чистки не помогает.", "Качество записи и удаление плохого важнее объёма.", "из заметок", "https://arxiv.org/abs/2505.16067"],
+    ["t0", "s", "sleep", "Работа в простое", "не названа", "апр. 2025", "Впятеро меньше вычислений во время запроса.", "Мерили рассуждение, а не память; к переписыванию памяти не относится.", "из заметок", "https://arxiv.org/abs/2504.13171"],
+    ["t0", "s", "hermes", "Поиск без пересказа", "не названа", "май 2026", "30 с и $0,30 за вызов → 20 мс и $0.", "Отказ от пересказа найденного убрал цену и выдумки.", "из заметок", "https://hermesagent.org.cn/docs/releases/v0-15-0"],
+    ["t0", "i", "skills", "Автонавыки портятся", "не названа", "май 2026", "11 автонавыков за 14 дней ухудшили три процесса.", "Один пользователь; навыки без просмотра человеком деградируют.", "из заметок", "https://dev.to/akaranjkar08/i-keep-hermes-agents-self-improvement-off-for-the-first-14-days-heres-what-happens-when-i-dont-4agk"],
+    ["t0", "i", "bm25", "Ранжирование выдачи", "не названа", "нояб. 2026", "Векторы — 15 из 40, поиск по тексту с ранжированием — 34 из 40.", "Ранжирование важнее выбора между словами и индексом. Один проект.", "из заметок", "https://tobiasuhlig.medium.com/codebase-rag-vs-grep-for-ai-coding-agents-the-same-grep-hits-scored-10-30-or-34-of-40-5f8738c2e766"],
+    ["t0", "i", "semcode", "Векторы в коде, проверка", "версия Claude не названа", "2026", "Полнота на 50 задачах та же.", "Прибавка семантического поиска к агентному независимо не подтвердилась.", "из заметок", "https://ai.engineer/talks/zKk7sDMGDEQ-benchmarking-semantic-code-retrieval-on-claude"],
+  ];
+  const WHO = { i: "независимые исследователи", s: "сами о себе", c: "конкурент" };
+  for (const [tier, who, id, title, models, date, result, finding, checked, url] of S) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip " + who; b.dataset.i = "s-" + id; b.textContent = title;
+    document.getElementById(tier).append(b);
+    SAY["s-" + id] = [title + ".", result + " " + finding + "<span class='meta'>Модели: " + models + " · " + date + " · " + WHO[who] + " · " + checked + (url ? " · <a href='" + url + "' target='_blank' rel='noopener'>источник</a>" : "") + "</span>"];
+  }
+
+  const show = (el) => {
+    const sec = el.closest("section");
+    const [title, body] = SAY[el.dataset.i];
+    for (const x of sec.querySelectorAll("[data-i].on")) x.classList.remove("on");
+    el.classList.add("on");
+    sec.querySelector(".say").innerHTML = "<b>" + title + "</b> " + body;
+  };
+  for (const el of document.querySelectorAll("[data-i]")) {
+    el.addEventListener("click", () => show(el));
+    if (el.tagName !== "BUTTON") { el.setAttribute("tabindex", "0"); el.setAttribute("role", "button"); el.addEventListener("keydown", (e) => e.key === "Enter" && show(el)); }
+  }
+})();
+</script>
+<script>
+// метки «прочитал»: клавиша A (латинская или русская) над блоком
+(() => {
+  const KEY = "memory-frontier.read";
+  let read = [];
+  try { read = JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch {}
+  let over = null;
+  const draw = () => { for (const s of document.querySelectorAll("[data-block]")) s.classList.toggle("read", read.includes(s.id)); };
+  for (const s of document.querySelectorAll("[data-block]")) s.addEventListener("mouseenter", () => (over = s));
+  document.addEventListener("keydown", (e) => {
+    if (!(e.code === "KeyA" || e.key === "a" || e.key === "A" || e.key === "ф" || e.key === "Ф") || e.ctrlKey || e.metaKey || e.altKey || !over) return;
+    read = read.includes(over.id) ? read.filter((x) => x !== over.id) : [...read, over.id];
+    try { localStorage.setItem(KEY, JSON.stringify(read)); } catch {}
+    draw();
+  });
+  draw();
+})();
+</script>

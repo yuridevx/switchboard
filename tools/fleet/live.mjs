@@ -58,6 +58,8 @@ const LIST = [
   ["ошибки на виду", "live-errors.mjs", [fleet, device, machine], { SB2_KEY: "claude", SB2_MODEL: "claude-haiku-5-5" }, false, QUIET, ["claude", "r2"]],
   ["файлы сессии", "live-files.mjs", [fleet, device, machine], { SB2_BIG_MB: process.env.SB2_BIG_MB ?? "10" }, false, QUIET, ["r2"]],
   ["смена модели", "live-switch.mjs", [fleet, device, machine, ...pairs], {}, false, QUIET],
+  // память проекта — папка кусочка из git: замок записи по модели, след, кусочки родителя у дочерней; модели — аккаунты Claude
+  ["память флота", "live-memory.mjs", [fleet, device, machine], {}, false, QUIET, ["claude", "github"]],
   ["сценарии", "live-steps.ts", [fleet, device, machine], { SB2_PART: "one" }, false, QUIET],
   ["связь сессий и карточки входящего", "live-comms.ts", [fleet, device, machine], { SB2_PART: "talk" }, false, QUIET],
   // описание клиента флот читает по публичному адресу https — клиент настоящий: Claude Code

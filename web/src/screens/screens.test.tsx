@@ -317,6 +317,8 @@ describe("профили", () => {
     expect(v.other).toContainEqual({ from: "web", path: "notes/todo.txt" });
     expect(Object.fromEntries(summary(v.items))).toMatchObject({ скилы: 6, агенты: 2, команды: 2 });
     for (const [, , kinds] of VIEW_TABS) for (const k of kinds) expect(["skill", "agent", "rule", "instructions", "mcp", "hook", "memory", "command"]).toContain(k);
+    // чьё: код — мера индекса памяти приходит готовой вместе с набором: строки, байты и пределы считает машина
+    expect(v.memory).toEqual([{ piece: "base", path: "memory/MEMORY.md", lines: 66, bytes: 12_100, maxLines: 200, maxBytes: 25_000, over: false }]);
   });
   it("клоны: состояние в списке; «свести сейчас» не трогает конфликт и ошибку", async () => {
     const api = ask(quiet());

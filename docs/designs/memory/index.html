@@ -1,0 +1,536 @@
+<title>Память флота</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* раскладка: сверху карта — кто что делает с памятью; ниже числа, два режима, жизнь сессии по шагам Claude Code и флота, ядро, сырьё, чего не строим, эталоны, развилки, гейт, порядок. Каждый блок — рисунок и одна панель пояснения под ним. */
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
+  --accent: #1f7a63; --accent-soft: #dcefe8; --new: #b8590f; --new-soft: #fbe9d7; --code: #f0eee7; --chg: #fff3b0;
+  --fail: #cf3a34; --fail-soft: #fbe3e1;
+  --strong: #12825f; --weak: #5b63c4; --weak-soft: #e6e8f8; --on-cat: #ffffff;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --code: #232a26; --chg: #4a4318;
+  --fail: #ef8a80; --fail-soft: #43221f;
+  --strong: #3fa98a; --weak: #7a80d0; --weak-soft: #272a45; --on-cat: #101413; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --code: #232a26; --chg: #4a4318;
+  --fail: #ef8a80; --fail-soft: #43221f;
+  --strong: #3fa98a; --weak: #7a80d0; --weak-soft: #272a45; --on-cat: #101413; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 Inter, system-ui, sans-serif; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
+main { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
+h1, h2, h3 { font-family: "Space Grotesk", Inter, system-ui, sans-serif; font-weight: 600; text-wrap: balance; margin: 0; }
+h1 { font-size: 34px; line-height: 1.15; letter-spacing: -0.01em; }
+h2 { font-size: 21px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+h3 { font-size: 15px; }
+h3 small { font: 400 12.5px Inter, sans-serif; color: var(--muted); margin-left: 6px; }
+p { margin: 0; }
+.lead { max-width: 66ch; color: var(--muted); margin-top: 10px; font-size: 16px; }
+section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+section.read > h2::after { content: "прочитал"; font: 500 11px Inter, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); border-radius: 99px; padding: 2px 9px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+.say { background: var(--soft); border-radius: 10px; padding: 11px 14px; font-size: 14px; min-height: 46px; }
+.say b { font-weight: 600; }
+.say pre { font: 12px/1.5 "JetBrains Mono", ui-monospace, monospace; background: var(--code); border-radius: 8px; padding: 8px 10px; margin: 8px 0 4px; overflow-x: auto; white-space: pre; }
+code { font: 12.5px "JetBrains Mono", ui-monospace, monospace; background: var(--code); border-radius: 5px; padding: 1px 5px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* рисунки */
+.dia { overflow-x: auto; }
+.dia svg { display: block; width: 100%; min-width: 820px; height: auto; }
+.dia text { font-family: Inter, system-ui, sans-serif; text-anchor: middle; fill: var(--fg); }
+.dia .t { font-weight: 600; font-size: 14px; }
+.dia .s { font-size: 11.5px; fill: var(--muted); }
+.dia .l { font-size: 12px; fill: var(--muted); }
+.dia .h { font: 600 12px "Space Grotesk", Inter, sans-serif; fill: var(--muted); letter-spacing: .02em; }
+.dia .axis { stroke: var(--line); stroke-width: 1.4; fill: none; marker-end: url(#mh-line); }
+.dia .n rect { fill: var(--card); stroke: var(--muted); stroke-width: 1.3; }
+.dia .n.box rect { fill: var(--soft); stroke: var(--line); }
+.dia .n.new rect { fill: var(--new-soft); stroke: var(--new); }
+.dia .n.strong rect { fill: var(--accent-soft); stroke: var(--strong); stroke-width: 1.8; }
+.dia .n.weak rect { fill: var(--weak-soft); stroke: var(--weak); stroke-width: 1.8; stroke-dasharray: 7 4; }
+.dia .n.chg rect { fill: var(--chg); }
+.dia .a .v { stroke: var(--muted); stroke-width: 1.6; fill: none; marker-end: url(#mh); }
+.dia .a.two .v { marker-start: url(#mh); }
+.dia .a.new .v { stroke: var(--new); stroke-width: 2; marker-end: url(#mh-new); }
+.dia .a.new.two .v { marker-start: url(#mh-new); }
+.dia .a.new .l { fill: var(--new); font-weight: 600; }
+.dia .a.no .v { stroke: var(--fail); stroke-width: 2; stroke-dasharray: 6 4; marker-end: none; }
+.dia .a.no .x { stroke: var(--fail); stroke-width: 2.6; fill: none; }
+.dia .a.no .l { fill: var(--fail); font-weight: 600; }
+.dia .a.chg .l { paint-order: stroke; stroke: var(--chg); stroke-width: 7px; stroke-linejoin: round; }
+.dia .a .hit { stroke: transparent; stroke-width: 18; fill: none; }
+.dia [data-i] { cursor: pointer; }
+.dia .n[data-i]:hover rect, .dia .n.on rect { stroke: var(--accent); stroke-width: 2.6; stroke-dasharray: none; }
+.dia .a[data-i]:hover .v, .dia .a.on .v { stroke: var(--accent); stroke-width: 2.6; marker-end: url(#mh-on); }
+.dia .a.two[data-i]:hover .v, .dia .a.two.on .v { marker-start: url(#mh-on); }
+.dia .a.no[data-i]:hover .v, .dia .a.no.on .v { marker-end: none; }
+.dia .a[data-i]:hover .x, .dia .a.on .x { stroke: var(--accent); }
+.dia .a[data-i]:hover .l, .dia .a.on .l { fill: var(--accent); }
+.keyrow { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); align-items: center; }
+.keyrow i { display: inline-block; width: 22px; height: 12px; border-radius: 4px; border: 1.5px solid var(--muted); vertical-align: -1px; margin-right: 5px; }
+.keyrow i.k-new { border-color: var(--new); background: var(--new-soft); }
+.keyrow i.k-no { border-color: var(--fail); border-style: dashed; }
+.keyrow i.k-chg { border-color: var(--line); background: var(--chg); }
+.keyrow i.k-s { border: 0; background: var(--strong); }
+.keyrow i.k-w { border: 0; background: var(--weak); }
+
+/* числа */
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); gap: 10px; }
+.fact { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; text-align: left; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fact:hover, .fact.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.fact.risk { border-color: var(--fail); }
+.fact .num { font: 600 25px/1.1 "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
+.fact .num small { font: 500 13px Inter, sans-serif; color: var(--muted); }
+.fact .cap { font-size: 13px; color: var(--muted); }
+.bar { height: 8px; border-radius: 99px; background: var(--soft); overflow: hidden; display: flex; margin-top: 4px; }
+.bar b { display: block; height: 100%; background: var(--strong); border-radius: 99px; }
+.rows { display: flex; flex-direction: column; gap: 4px; }
+.rowb { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 6px 14px; align-items: center; background: none; border: 0; border-radius: 10px; padding: 7px 8px; text-align: left; }
+.rowb:hover, .rowb.on { background: var(--soft); box-shadow: 0 0 0 2px var(--accent); }
+.rowb .nm { font-size: 13.5px; font-weight: 500; }
+.rowb .nm small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+.sbar { display: flex; gap: 2px; height: 26px; min-width: 0; }
+.sbar b { display: flex; align-items: center; padding: 0 8px; border-radius: 4px; font: 600 12.5px Inter, sans-serif; color: var(--on-cat); font-variant-numeric: tabular-nums; min-width: 0; white-space: nowrap; }
+.sbar b.s { background: var(--strong); }
+.sbar b.w { background: var(--weak); }
+.sbar i { display: block; min-width: 0; }
+
+/* два режима */
+.modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.mode { background: var(--card); border: 1.8px solid var(--strong); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mode.w { border-color: var(--weak); border-style: dashed; }
+.mrow { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 10px; align-items: baseline; text-align: left; background: var(--soft); border: 1.3px solid transparent; border-radius: 9px; padding: 7px 10px; font-size: 13.5px; }
+.mrow:hover, .mrow.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.mrow .k { color: var(--muted); font-size: 12.5px; }
+.mrow .v { font-weight: 500; }
+.mrow.lock .v { color: var(--fail); }
+
+/* не строим */
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip { border: 1.5px dashed var(--muted); background: transparent; border-radius: 9px; padding: 6px 10px; font-size: 13px; line-height: 1.3; text-align: left; color: var(--muted); }
+.chip.src { border-style: solid; color: var(--fg); background: var(--card); }
+.chip:hover, .chip.on { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); color: var(--fg); }
+
+/* эталоны */
+.ets { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.et { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; min-width: 0; }
+.et .in, .et .out { border-radius: 7px; padding: 4px 8px; }
+.et .in { background: var(--soft); }
+.et .out { background: var(--accent-soft); }
+.et .dn { color: var(--muted); font-size: 12px; line-height: 1; padding-left: 8px; }
+.et .own { font-size: 11.5px; color: var(--muted); }
+
+.forks { display: flex; flex-direction: column; gap: 14px; }
+.forks h3 { margin-bottom: 6px; }
+.fork { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.fork .opt { border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--card); min-width: 0; }
+.fork .opt.rec { border-color: var(--accent); background: var(--accent-soft); }
+.fork .opt b { display: block; margin-bottom: 4px; }
+.fork .opt span { font-size: 13px; color: var(--muted); }
+.forks .dflt { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.gate { font: 12.5px/1.6 "JetBrains Mono", ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+ol.steps { list-style: none; counter-reset: st; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+ol.steps li { counter-increment: st; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 4px 10px; border-radius: 10px; }
+ol.steps li::before { content: counter(st); grid-row: span 2; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 600 13px "Space Grotesk", sans-serif; display: grid; place-items: center; }
+ol.steps .done { font-size: 13px; color: var(--muted); }
+ol.steps .done b { color: var(--accent); font-weight: 600; }
+@media (max-width: 720px) {
+  h1 { font-size: 27px; }
+  .modes { grid-template-columns: 1fr; }
+  .rowb { grid-template-columns: 1fr; }
+}
+/* жёлтое правки — поверх фона карточки, эталона и шага */
+.chg.chg.chg { background: var(--chg); }
+h3.chg { width: fit-content; padding: 2px 8px; border-radius: 6px; }
+</style>
+
+<main>
+<header>
+  <h1>Память флота</h1>
+  <p class="lead">Память ведут сильные модели: читают, пишут, держат индекс в мере и отсекают лишнее. Модели слабее память только читают. Всё стоит на штатной памяти Claude Code; флот добавляет <span class="chg" data-chg="arch2-lead">замок записи по модели</span>, наследование, след и справку.</p>
+</header>
+
+<section id="s-map" data-block>
+  <h2>Кто что делает с памятью</h2>
+  <div class="card dia">
+    <svg viewBox="0 0 1000 470" role="img" aria-label="Сильная модель читает и пишет память проекта и сверяет её с сырьём; модель слабее только читает, запись ей закрыта; чтения, записи и отказы уходят в историю флота">
+      <defs>
+        <marker id="mh" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" style="fill: var(--muted)"/></marker>
+        <marker id="mh-new" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" style="fill: var(--new)"/></marker>
+        <marker id="mh-on" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" style="fill: var(--accent)"/></marker>
+        <marker id="mh-line" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" style="fill: var(--line)"/></marker>
+      </defs>
+
+      <g class="a new" data-i="a-guide"><line class="hit" x1="388" y1="36" x2="204" y2="97"/><line class="hit" x1="612" y1="36" x2="796" y2="97"/><line class="v" x1="388" y1="36" x2="204" y2="97"/><line class="v" x1="612" y1="36" x2="796" y2="97"/><text class="l" x="262" y="54">страница «Память»</text><text class="l" x="738" y="54">страница «Память»</text></g>
+      <g class="a two" data-i="a-s-core"><line class="hit" x1="233" y1="149" x2="367" y2="149"/><line class="v" x1="233" y1="149" x2="367" y2="149"/><text class="l" x="300" y="141">индекс в окне</text></g>
+      <g class="a two" data-i="a-s-recs"><line class="hit" x1="233" y1="221" x2="367" y2="221"/><line class="v" x1="233" y1="221" x2="367" y2="221"/><text class="l" x="300" y="213">читает и пишет</text></g>
+      <g class="a" data-i="a-s-raw"><line class="hit" x1="381" y1="321" x2="233" y2="321"/><line class="v" x1="381" y1="321" x2="233" y2="321"/><text class="l" x="307" y="313">сверяет</text></g>
+      <g class="a chg" data-chg="arch2-map-index" data-i="a-w-core"><line class="hit" x1="633" y1="149" x2="767" y2="149"/><line class="v" x1="633" y1="149" x2="767" y2="149"/><text class="l" x="700" y="141">индекс в окне</text></g>
+      <g class="a" data-i="a-w-recs"><line class="hit" x1="633" y1="210" x2="767" y2="210"/><line class="v" x1="633" y1="210" x2="767" y2="210"/><text class="l" x="700" y="202">читает</text></g>
+      <g class="a no chg" data-chg="re-map-lock" data-i="a-w-lock"><line class="hit" x1="767" y1="238" x2="640" y2="238"/><line class="v" x1="767" y1="238" x2="660" y2="238"/><path class="x" d="M642,232 L654,244 M654,232 L642,244"/><text class="l" x="712" y="257">запись — отказ</text></g>
+      <g class="a" data-i="a-w-raw"><line class="hit" x1="619" y1="321" x2="767" y2="321"/><line class="v" x1="619" y1="321" x2="767" y2="321"/><text class="l" x="693" y="313">читает</text></g>
+      <g class="a new" data-i="a-t-s"><line class="hit" x1="150" y1="353" x2="387" y2="424"/><line class="v" x1="150" y1="353" x2="387" y2="424"/><text class="l" x="236" y="410">след</text></g>
+      <g class="a new chg" data-chg="arch2-map-refused" data-i="a-t-w"><line class="hit" x1="850" y1="353" x2="613" y2="424"/><line class="v" x1="850" y1="353" x2="613" y2="424"/><text class="l" x="770" y="410">след и отказы</text></g>
+
+      <g class="n new chg" data-chg="arch2-map-guide" data-i="n-guide"><rect x="390" y="10" width="220" height="46" rx="10"/><text class="t" x="500" y="30">Справка флота</text><text class="s" x="500" y="46">страница «Память»</text></g>
+      <g class="n strong" data-i="n-strong"><rect x="40" y="100" width="190" height="250" rx="12"/><text class="t" x="135" y="212">Сильная модель</text><text class="s" x="135" y="232">Opus 5.5, Fable</text><text class="s" x="135" y="250">читает, пишет, отсекает</text></g>
+      <g class="n weak chg" data-chg="re-map-weak" data-i="n-weak"><rect x="770" y="100" width="190" height="250" rx="12"/><text class="t" x="865" y="212">Модель слабее</text><text class="s" x="865" y="232">все остальные</text><text class="s" x="865" y="250">только читает</text></g>
+      <g class="n box" data-i="n-piece"><rect x="370" y="74" width="260" height="190" rx="12"/><text class="t" x="500" y="95">Память проекта</text><text class="s" x="500" y="111">папка в общем git</text></g>
+      <g class="n" data-i="n-core"><rect x="384" y="120" width="232" height="58" rx="9"/><text class="t" x="500" y="144">Ядро</text><text class="s" x="500" y="162">инструкции и индекс · всегда в окне</text></g>
+      <g class="n" data-i="n-recs"><rect x="384" y="192" width="232" height="58" rx="9"/><text class="t" x="500" y="216">Записи</text><text class="s" x="500" y="234">одна тема — один файл</text></g>
+      <g class="n" data-i="n-raw"><rect x="384" y="292" width="232" height="58" rx="9"/><text class="t" x="500" y="316">Сырьё</text><text class="s" x="500" y="334">разговоры на дисках машин</text></g>
+      <g class="n" data-i="n-log"><rect x="390" y="400" width="220" height="54" rx="10"/><text class="t" x="500" y="423">История флота</text><text class="s" x="500" y="441">журналы всех машин</text></g>
+    </svg>
+  </div>
+  <div class="keyrow"><span><i class="k-new"></i>добавляет этот дизайн</span><span><i></i>уже работает</span><span><i class="k-no"></i>отказ</span><span><i class="k-chg"></i>новое в этой версии</span><span>нажмите на часть или стрелку</span></div>
+  <div class="say" aria-live="polite"><b>Одна память, два режима.</b> Сильная модель ведёт память проекта и сверяет её с сырьём. Модель слабее получает тот же индекс и те же записи, но запись ей закрыта. Каждое чтение, запись и отказ уходят строкой в историю флота.</div>
+</section>
+
+<section id="s-why" data-block>
+  <h2>Почему так</h2>
+  <h3>Замеры на классе Opus 5.5 <small>один независимый прогон и данные Anthropic</small></h3>
+  <div class="facts">
+    <button class="fact" data-i="y-raw"><span class="num">97–99 <small>против 87–95</small></span><span class="cap">сама ищет по сырью — служба памяти</span></button>
+    <button class="fact" data-i="y-writer"><span class="num">84 <small>вместо 95</small></span><span class="cap">если память писала слабая модель</span></button>
+    <button class="fact" data-i="y-notes"><span class="num">+0,18</span><span class="cap">от собственных заметок; у Sonnet 4.6 +0,03</span></button>
+    <button class="fact" data-i="y-rule"><span class="num">−0,23</span><span class="cap">от жёсткого правила записи</span></button>
+    <button class="fact risk chg" data-chg="arch2-why-poison" data-i="y-poison"><span class="num">71–88 %</span><span class="cap">отравление памяти письмом; на Opus 5.5 не мерили</span></button>
+  </div>
+  <h3 class="chg" data-chg="re-week">Неделя на машине прода, по моделям</h3>
+  <div class="card">
+    <div class="keyrow" style="margin-bottom: 8px"><span><i class="k-s"></i>сильные: Opus 5.5, Fable 5.2</span><span><i class="k-w"></i>остальные: Muse, Haiku, Sonnet, Opus 4.8, GPT</span></div>
+    <div class="rows">
+      <button class="rowb" data-i="w-convs"><span class="nm">Разговоры<small>161 за 7 дней</small></span><span class="sbar"><b class="s" style="flex: 137 1 0">137</b><b class="w" style="flex: 24 1 0">24</b></span></button>
+      <button class="rowb" data-i="w-writes"><span class="nm">Записи в общую память<small>19 вызовов записи</small></span><span class="sbar"><b class="s" style="flex: 15 1 0">15</b><b class="w" style="flex: 4 1 0">4</b></span></button>
+      <button class="rowb" data-i="w-reads"><span class="nm">Разговоры, открывшие запись<small>11 из 161</small></span><span class="sbar"><b class="s" style="flex: 5 1 0">5</b><b class="w" style="flex: 6 1 0">6</b></span></button>
+    </div>
+  </div>
+  <div class="say" aria-live="polite"><b>Сильной модели память нужна сырой и своей.</b> Выжимка службы ей проигрывает, а память от слабого писателя срезает результат. На флоте модель вне списка ведёт 6 % разговоров и делает каждую пятую запись в общую память.</div>
+</section>
+
+<section id="s-modes" data-block>
+  <h2><span class="chg" data-chg="arch2-modes-title">Один старт, запись по модели</span></h2>
+  <div class="modes">
+    <div class="mode chg" data-chg="arch2-mode-start" style="grid-column: 1 / -1; border-color: var(--line)">
+      <h3>Старт процесса <small>один для любой модели</small></h3>
+      <button class="mrow" data-i="mo-s-prompt"><span class="k">подсказка памяти</span><span class="v">от Claude Code</span></button>
+      <button class="mrow" data-i="mo-s-index"><span class="k">индекс</span><span class="v">первым сообщением, заново после сжатия</span></button>
+      <button class="mrow" data-i="mo-s-dir"><span class="k">папка памяти</span><span class="v">память кусочка</span></button>
+    </div>
+    <div class="mode">
+      <h3>Пишет <small>сильная модель</small></h3>
+      <button class="mrow" data-i="mo-s-write"><span class="k">запись</span><span class="v">открыта, сведение сразу</span></button>
+      <button class="mrow chg" data-chg="arch2-mode-down" data-i="mo-s-switch"><span class="k">сменили на слабее</span><span class="v">замок со следующего вызова</span></button>
+    </div>
+    <div class="mode w chg" data-chg="arch2-mode-read">
+      <h3>Читает <small>модель слабее</small></h3>
+      <button class="mrow lock" data-i="mo-w-lock"><span class="k">запись</span><span class="v">замок: отказ до вызова</span></button>
+      <button class="mrow" data-i="mo-w-switch"><span class="k">сменили на сильную</span><span class="v">запись открыта со следующего вызова</span></button>
+    </div>
+  </div>
+  <h3 class="chg" data-chg="re-exp">Опыт: просьба «запомни» на Haiku 5.5 в режиме «разрешено всё»</h3>
+  <div class="facts">
+    <button class="fact" data-i="ex-a"><span class="num">+1 <small>файл</small></span><span class="cap">память включена, замка нет · попыток 2</span></button>
+    <button class="fact chg" data-chg="arch2-exp-lock" data-i="ex-c"><span class="num">0 <small>файлов</small></span><span class="cap">замок, старт тот же — так строим · попыток 1, отказов 1</span></button>
+    <button class="fact chg" data-chg="arch2-exp-bare" data-i="ex-b"><span class="num">0 <small>файлов</small></span><span class="cap">замок и старт без подсказки — не строим · попыток 0</span></button>
+  </div>
+  <div class="say" aria-live="polite"><span class="chg" data-chg="arch2-modes-say"><b>Старт от модели не зависит.</b> Подсказку, индекс и папку памяти любой модели даёт Claude Code. Флот добавляет одно: отказ до вызова записи, если модель сессии не из списка. Смена модели перезапуска не просит.</span></div>
+</section>
+
+<section id="s-life" data-block>
+  <h2>Жизнь сессии: Claude Code и флот</h2>
+  <div class="card dia">
+    <svg viewBox="0 0 1000 262" role="img" aria-label="Шаги сессии слева направо: открытие, старт, чтение, запись, чужая правка, сжатие, смена модели. Сверху то, что делает Claude Code, снизу то, что добавляет флот">
+      <line class="axis" x1="104" y1="52" x2="990" y2="52"/>
+      <text class="h" x="167.5" y="38">Открытие</text><text class="h" x="294.5" y="38">Старт</text><text class="h" x="421.5" y="38">Чтение</text><text class="h" x="548.5" y="38">Запись</text><text class="h" x="675.5" y="38">Чужая правка</text><text class="h" x="802.5" y="38">Сжатие</text><text class="h" x="929.5" y="38">Смена модели</text>
+      <text class="h" x="8" y="110" style="text-anchor: start">Claude Code</text><text class="h" x="8" y="220" style="text-anchor: start">Флот</text>
+
+      <g class="a new" data-i="la-start"><line class="hit" x1="294.5" y1="186" x2="294.5" y2="137"/><line class="v" x1="294.5" y1="186" x2="294.5" y2="137"/><text class="l" x="301" y="166" style="text-anchor: start">опции</text></g>
+      <g class="a new" data-i="la-read"><line class="hit" x1="421.5" y1="136" x2="421.5" y2="185"/><line class="v" x1="421.5" y1="136" x2="421.5" y2="185"/><text class="l" x="428" y="166" style="text-anchor: start">хук</text></g>
+      <g class="a new two" data-i="la-write"><line class="hit" x1="548.5" y1="137" x2="548.5" y2="185"/><line class="v" x1="548.5" y1="137" x2="548.5" y2="185"/><text class="l" x="555" y="166" style="text-anchor: start">хуки</text></g>
+      <g class="a" data-i="la-pull"><line class="hit" x1="675.5" y1="186" x2="675.5" y2="137"/><line class="v" x1="675.5" y1="186" x2="675.5" y2="137"/><text class="l" x="682" y="166" style="text-anchor: start">файлы</text></g>
+      <g class="a chg" data-chg="arch2-life-command" data-i="la-switch"><line class="hit" x1="929.5" y1="186" x2="929.5" y2="137"/><line class="v" x1="929.5" y1="186" x2="929.5" y2="137"/><text class="l" x="923" y="166" style="text-anchor: end">команда</text></g>
+
+      <g class="n" data-i="l-start-cc"><rect x="236.500" y="78" width="116" height="56" rx="9"/><text class="t" x="294.5" y="102" style="font-size: 12.5px">Ядро в окно</text><text class="s" x="294.5" y="120">инструкции, индекс</text></g>
+      <g class="n" data-i="l-read-cc"><rect x="363.500" y="78" width="116" height="56" rx="9"/><text class="t" x="421.5" y="102" style="font-size: 12.5px">Запись открыта</text><text class="s" x="421.5" y="120">чтением файла</text></g>
+      <g class="n chg" data-chg="arch2-life-write-cc" data-i="l-write-cc"><rect x="490.500" y="78" width="116" height="56" rx="9"/><text class="t" x="548.5" y="102" style="font-size: 12.5px">Файл записан</text><text class="s" x="548.5" y="120">предел индекса</text></g>
+      <g class="n" data-i="l-pull-cc"><rect x="617.500" y="78" width="116" height="56" rx="9"/><text class="t" x="675.5" y="102" style="font-size: 12.5px">Список правок</text><text class="s" x="675.5" y="120">приходит в ход</text></g>
+      <g class="n" data-i="l-compact-cc"><rect x="744.500" y="78" width="116" height="56" rx="9"/><text class="t" x="802.5" y="102" style="font-size: 12.5px">Индекс заново</text><text class="s" x="802.5" y="120">с диска</text></g>
+      <g class="n" data-i="l-switch-cc"><rect x="871.500" y="78" width="116" height="56" rx="9"/><text class="t" x="929.5" y="102" style="font-size: 12.5px">Модель на лету</text><text class="s" x="929.5" y="120">тот же процесс</text></g>
+
+      <g class="n new" data-i="l-open"><rect x="109.500" y="188" width="116" height="56" rx="9"/><text class="t" x="167.5" y="212" style="font-size: 12.5px">Кусочки родителя</text><text class="s" x="167.5" y="230">дочерней сессии</text></g>
+      <g class="n new chg" data-chg="arch2-life-start" data-i="l-start-f"><rect x="236.500" y="188" width="116" height="56" rx="9"/><text class="t" x="294.5" y="212" style="font-size: 12.5px">Папка памяти</text><text class="s" x="294.5" y="230">кусочка или выкл.</text></g>
+      <g class="n new" data-i="l-read-f"><rect x="363.500" y="188" width="116" height="56" rx="9"/><text class="t" x="421.5" y="212" style="font-size: 12.5px">Строка следа</text><text class="s" x="421.5" y="230">кто прочитал</text></g>
+      <g class="n new chg" data-chg="re-life-lock" data-i="l-write-f"><rect x="490.500" y="188" width="116" height="56" rx="9"/><text class="t" x="548.5" y="212" style="font-size: 12.5px">Замок и след</text><text class="s" x="548.5" y="230">сведение сразу</text></g>
+      <g class="n" data-i="l-pull-f"><rect x="617.500" y="188" width="116" height="56" rx="9"/><text class="t" x="675.5" y="212" style="font-size: 12.5px">Сведение</text><text class="s" x="675.5" y="230">раз в минуту</text></g>
+      <g class="n chg" data-chg="arch2-life-switch" data-i="l-switch-f"><rect x="871.500" y="188" width="116" height="56" rx="9"/><text class="t" x="929.5" y="212" style="font-size: 12.5px">Смена на лету</text><text class="s" x="929.5" y="230">памяти не касается</text></g>
+    </svg>
+  </div>
+  <div class="keyrow"><span><i class="k-new"></i>добавляет этот дизайн</span><span><i></i>уже работает</span><span>время идёт слева направо</span></div>
+  <div class="say" aria-live="polite"><b>Память течёт потоками Claude Code.</b> Он кладёт ядро в окно, отдаёт записи по запросу, перечитывает индекс после сжатия и сам требует сократить индекс у предела. <span class="chg" data-chg="arch2-life-say">Флот встаёт в четыре места: открытие, старт, чтение, запись. Смена модели остаётся как есть.</span></div>
+</section>
+
+<section id="s-core" data-block>
+  <h2>Ядро и фокус</h2>
+  <div class="facts">
+    <button class="fact" data-i="c-1"><span class="num">66 <small>из 200 строк</small></span><span class="bar"><b style="width: 33%"></b></span><span class="cap">55 записей · 477 КБ</span></button>
+    <button class="fact" data-i="c-2"><span class="num">45 <small>из 200 строк</small></span><span class="bar"><b style="width: 22.5%"></b></span><span class="cap">33 записи · 128 КБ</span></button>
+    <button class="fact" data-i="c-3"><span class="num">17 <small>из 200 строк</small></span><span class="bar"><b style="width: 8.5%"></b></span><span class="cap">15 записей · 62 КБ</span></button>
+    <button class="fact" data-i="c-4"><span class="num">14 <small>из 200 строк</small></span><span class="bar"><b style="width: 7%"></b></span><span class="cap">4 записи · 5,5 КБ</span></button>
+  </div>
+  <div class="say" aria-live="polite"><b>Индекс каждой памяти против предела Claude Code.</b> Самый большой занят на треть. Фокус держит та, кто пишет: у предела Claude Code возвращает ей требование переписать индекс. Своего отсечения флот не строит, пока след не покажет, что отсекать.</div>
+</section>
+
+<section id="s-raw" data-block>
+  <h2>Сырьё как опора</h2>
+  <div class="card">
+    <div class="rows">
+      <button class="rowb" data-i="r-all"><span class="nm">Записи памяти<small>одна машина прода</small></span><span class="sbar"><b class="s" style="flex: 111 1 0">111</b></span></button>
+      <button class="rowb" data-i="r-stamp"><span class="nm">Со штампом разговора<small>ставит Claude Code</small></span><span class="sbar"><b class="s" style="flex: 71 1 0">71</b><i style="flex: 40 1 0"></i></span></button>
+      <button class="rowb" data-i="r-here"><span class="nm">Разговор лежит на той же машине<small>остальные — на других</small></span><span class="sbar"><b class="s" style="flex: 17 1 0">17</b><i style="flex: 94 1 0"></i></span></button>
+    </div>
+  </div>
+  <div class="chips">
+    <button class="chip src" data-i="src-disk">Разговоры на диске · 994 на машине</button>
+    <button class="chip src" data-i="src-hist">История сессии по имени · 116 чтений за неделю</button>
+    <button class="chip src" data-i="src-arch">Архив с поиском · у 30 сессий</button>
+  </div>
+  <div class="say" aria-live="polite"><b>Неверную запись лечит только сверка с тем, что было сказано.</b> Сырьё уже лежит на машинах, а запись несёт номер своего разговора. Справка называет три пути к сырью; нового инструмента нет.</div>
+</section>
+
+<section id="s-not" data-block>
+  <h2>Не строим</h2>
+  <div class="chips">
+    <button class="chip" data-i="x-service">Служба памяти</button>
+    <button class="chip" data-i="x-vec">Векторный поиск и RAG</button>
+    <button class="chip" data-i="x-dream">Фоновая консолидация</button>
+    <button class="chip" data-i="x-store">Своё хранилище и инструмент памяти</button>
+    <button class="chip" data-i="x-recall">Подбор записей второй моделью</button>
+    <button class="chip" data-i="x-rules">Правила записи в справке</button>
+    <button class="chip chg" data-chg="arch2-not-start" data-i="x-start">Отдельный старт для слабой модели</button>
+    <button class="chip chg" data-chg="arch2-not-restart" data-i="x-restart">Перезапуск при смене модели</button>
+    <button class="chip chg" data-chg="arch2-not-notice" data-i="x-notice">Сообщение модели о смене режима</button>
+    <button class="chip" data-i="x-shell">Замок на команды оболочки</button>
+    <button class="chip" data-i="x-person">Личная память человека</button>
+    <button class="chip" data-i="x-screen">Экран «Память» и уборка сейчас</button>
+  </div>
+  <div class="say" aria-live="polite"><b>Отсечено.</b> У каждого пункта либо замер вреда, либо нет замера пользы на сильной модели. Нажмите на пункт — число и причина.</div>
+</section>
+
+<section id="s-etalons" data-block>
+  <h2>Эталоны</h2>
+  <div class="ets">
+    <div class="et chg" data-chg="arch2-et-start"><div class="in">Opus 5.5 и Haiku 5.5, один кусочек с памятью</div><div class="dn">↓</div><div class="out">опции запуска одинаковые: встроенная память включена, папка — память кусочка</div><div class="own">чьё: код</div></div>
+    <div class="et chg" data-chg="re-et-lock"><div class="in">Haiku 5.5 пишет файл в память кусочка</div><div class="dn">↓</div><div class="out">отказ с причиной, файл прежний, строка следа «отказ»</div><div class="own">слово пользователя 19 нояб. · факт опыта: 1 попытка, 1 отказ, 0 файлов</div></div>
+    <div class="et"><div class="in">Haiku 5.5 читает запись</div><div class="dn">↓</div><div class="out">чтение прошло, строка следа «чтение»</div><div class="own">слово пользователя 19 нояб.</div></div>
+    <div class="et"><div class="in">Opus 5.5 пишет запись</div><div class="dn">↓</div><div class="out">строка следа «запись», сведение с git сразу</div><div class="own">сведение — чьё: код</div></div>
+    <div class="et chg" data-chg="arch2-et-down"><div class="in">у живой сессии модель Opus 5.5 → Sonnet 5.5</div><div class="dn">↓</div><div class="out">следующая запись в память — отказ; процесс тот же, ответ на смену прежний</div><div class="own">слово пользователя 19 нояб. · ответ на смену — чьё: код</div></div>
+    <div class="et chg" data-chg="arch2-et-up"><div class="in">у живой сессии модель Sonnet 5.5 → Opus 5.5</div><div class="dn">↓</div><div class="out">следующая запись в память проходит; процесс тот же</div><div class="own">слово пользователя 19 нояб.</div></div>
+    <div class="et chg" data-chg="re-et-unknown"><div class="in">модель, которой нет в списке пишущих</div><div class="dn">↓</div><div class="out">режим «читает»</div><div class="own">слово пользователя 19 нояб.</div></div>
+    <div class="et"><div class="in">сессия открывает дочернюю, кусочки не названы</div><div class="dn">↓</div><div class="out">в документе дочерней — кусочки родителя; режим по её модели</div><div class="own">факт: 23 сессии из 38 без памяти открыты сессией с памятью</div></div>
+    <div class="et"><div class="in">дочерняя с пустым списком кусочков</div><div class="dn">↓</div><div class="out">без кусочков и без памяти</div><div class="own">чьё: код</div></div>
+    <div class="et"><div class="in">сессия без кусочка с памятью, просьба «запомни»</div><div class="dn">↓</div><div class="out">в папке машины 0 новых файлов памяти</div><div class="own">вторая развилка</div></div>
+  </div>
+</section>
+
+<section id="s-forks" data-block>
+  <h2>Развилки</h2>
+  <div class="forks">
+    <div class="chg" data-chg="re-fork-border">
+      <h3>Граница: кто пишет память</h3>
+      <div class="fork">
+        <div class="opt rec"><b>Opus 5.5 и Fable 5, 5.1, 5.2</b><span>Ваше слово: «Opus 5.5 и более сильные». Список — одна строка в коде; новая модель читает, пока её не назовут.</span></div>
+        <div class="opt"><b>Назвать ещё</b><span>Opus 5 (свои заметки дают ему +0,26), Sonnet 5.5, Muse Wonder, GPT-6 Luna. Силу Muse и GPT-6 я оценить не могу: они вышли после моих знаний.</span></div>
+      </div>
+      <p class="dflt">Не скажете иначе — пишут четыре модели из первого варианта.</p>
+    </div>
+    <div>
+      <h3>Сессия без кусочка с памятью</h3>
+      <div class="fork">
+        <div class="opt rec"><b>Встроенная память выключена</b><span>Память одна — общая. Сейчас такие сессии пишут в папку машины, которую не видит никто: 33 записи на трёх машинах.</span></div>
+        <div class="opt"><b>Оставить папку машины</b><span>Сильная сессия без кусочков помнит своё на одной машине.</span></div>
+      </div>
+      <p class="dflt">Не скажете иначе — выключаем.</p>
+    </div>
+    <div>
+      <h3>История всех сессий с поиском</h3>
+      <div class="fork">
+        <div class="opt rec"><b>Без нового поиска</b><span>Сырьё лежит на дисках, сильная модель ищет по нему сама; справка называет пути. Пересмотр — по следу за 14 дней.</span></div>
+        <div class="opt"><b>Архив для всех сессий</b><span>Отдельная большая работа: сейчас архив у 30 сессий и ни одного поиска за неделю.</span></div>
+      </div>
+      <p class="dflt">Не скажете иначе — не расширяем.</p>
+    </div>
+  </div>
+</section>
+
+<section id="s-gate" data-block>
+  <h2>Гейт</h2>
+  <div class="card gate"><span class="chg" data-chg="arch2-gate-numbers">Гейт: дубликаты ответственности 2 → 0 · состояния 2 → 0 · логики 1 → 0 · смысла 0 → 0 · других 2 → 0 · лишние коммуникации 1 → 0 · циклы 0 → 0
+Числа: модули +0 · запросы и кадры +0 · строки журнала +1 · страницы справки 2 → 3 · хуки сессии 1 → 3 · списки моделей в коде машины 0 → 1 · опции запуска, зависящие от модели, +0 · перезапуски из-за памяти +0 · настройки флота +0 · хранилища +0 · секреты +0 · места, где считается предел индекса, 2 → 1 · ожидаемые ветки сбоев +0 · эталоны +10
+Работа: большая — меняет договор открытия (неназванную часть документа ставит её владелец по документу родителя: дочерняя берёт кусочки родителя) и добавляет строку журнала; запись в память решается по модели в момент вызова</span>
+Сделано:
+<span class="chg" data-chg="arch2-gate-lock">  1. Слово пользователя 19 нояб. · память пишут, держат в мере и отсекают только сильные модели, остальные читают · хозяин кусочков держит список и сверяет модель документа на каждом вызове записи: правило одно, в одном месте · выигрыш: записей в общую память от моделей вне списка 4 → 0 из 19 за неделю
+  2. Дубликат ответственности · «слабая не пишет» держали бы двое: старт без подсказки памяти и замок · остаётся замок: он один действует сразу после смены модели · выигрыш: запретов одной записи 2 → 1, вариантов старта 2 → 1
+  3. Дубликат ответственности и лишняя коммуникация · новый процесс при смене модели просил бы и хозяин модели, и хозяин кусочков · память перезапуска не просит: замок смотрит модель в момент вызова · выигрыш: перезапусков из-за памяти 1 → 0; ответ на смену модели и его эталоны не меняются
+  4. Платформа раньше своего · подсказку, индекс и папку памяти любой модели даёт Claude Code; добавкой идёт только память соседних кусочков, как сейчас · выигрыш: способов доставки индекса домашней памяти 2 → 1
+  5. Дубликат состояния · список пишущих моделей — только у машины; справка называет правило, а модель называет причина отказа · выигрыш: мест 2 → 1</span>
+  6. Дубликат состояния · память проекта лежит в кусочке и в папках машин (33 записи на трёх машинах) · <span class="chg" data-chg="arch2-gate-shared">встроенная память включена только там, где есть общая</span>; записи из папок переносит агент · выигрыш: мест хранения 2 → 1
+  7. Дубликат логики · предел индекса: 25 000 байт у машины и 25 600 у пульта · считает машина, пульт показывает готовую меру · выигрыш: мест 2 → 1
+  8. Юнификация · след — строка того же журнала машины, который уже уходит в историю флота; отказ — та же строка с другим словом · выигрыш: новых каналов и запросов 0
+  9. Юнификация · наследование · неназванную часть документа ставит её владелец, и он получает документ родителя; проект и кусочки идут одним правилом · выигрыш: <span class="chg" data-chg="arch2-gate-fill">способов поставить неназванную часть 2 → 1</span>
+<span class="chg" data-chg="arch2-gate-tail">  10. Удаление раньше добавления · служба памяти, векторы, фоновая консолидация, своё хранилище, личная память, поиск по всей истории, экран, отдельный старт для слабой модели · не строятся: замер вреда или нет замера пользы
+  11. Сначала замеры · отсечение, экран «Память» и старт без подсказки для слабой модели · после 14 дней следа, отдельным дизайном; мерка старта — отказы на разговор</span>
+Развилки пользователю:
+  1. Граница пишущих · рекомендую: Opus 5.5 и Fable 5, 5.1, 5.2 · иначе: назвать ещё модели · не скажете иначе — эти четыре
+  2. Сессия без кусочка с памятью · рекомендую: встроенную память выключить · иначе: оставить папку машины · не скажете иначе — выключаем
+  3. История всех сессий с поиском · рекомендую: не расширять, сырьё на дисках · иначе: отдельная большая работа · не скажете иначе — не расширяем
+Не трогал как редакторское: подписи вкладки «Память» в пульте; слово «кусочек» в справке флота</div>
+</section>
+
+<section id="s-order" data-block>
+  <h2>Порядок реализации</h2>
+  <ol class="steps">
+    <li class="chg" data-chg="arch2-step-lock"><div>Замок по модели. Хозяин кусочков держит список пишущих моделей и на каждом вызове записи в память кусочка сверяет с ним модель из документа сессии: не из списка — отказ с причиной до вызова и строка журнала «отказ». Опции запуска от модели не зависят, смена модели идёт как сейчас. Сессия без кусочка с памятью стартует с выключенной встроенной памятью.</div>
+      <div class="done"><b>Готово:</b> <code>node tools/test/run.mjs host</code> зелёный, новых эталонов 6; на тестовом флоте сессия на Haiku с кусочком после просьбы «запомни» оставляет 0 новых файлов памяти, сессия на Opus 5.5 — 1; после смены Opus 5.5 → Haiku запись в память даёт отказ 1 из 1, новых процессов 0.</div></li>
+    <li><div>Наследование. Сессия, открытая другой сессией без названных кусочков, получает кусочки родителя: правило «неназванную часть документа ставит её владелец» получает документ родителя. Родитель на другой машине — один запрос его документа из картины флота. Пустой список — без кусочков.</div>
+      <div class="done"><b>Готово:</b> <span class="chg" data-chg="arch2-step-child">новых эталонов 2; эталон «проект родителя» зелёный без правки свойства</span>; на тестовом флоте дочерняя от сессии с кусочком показывает его в картине флота — 1 из 1.</div></li>
+    <li><div>След. Машина пишет <span class="chg" data-chg="arch2-step-trace">ту же строку журнала на каждое чтение записи и каждую запись, уровнем «инфо»</span>: позывной, модель, кусочек, запись, действие.</div>
+      <div class="done"><b>Готово:</b> <span class="chg" data-chg="arch2-step-trace-done">новых эталонов 2</span>; на тестовом флоте после чтения, записи и отказа запрос истории по имени строки отдаёт 3 строки из 3.</div></li>
+    <li><div>Справка. Страница «Память» в справке флота и одна строка о ней в инструкциях сервера: зачем память, три слоя, пути к сырью, <span class="chg" data-chg="arch2-step-guide">правило «пишут сильные модели» без списка моделей</span>. Правил записи нет.</div>
+      <div class="done"><b>Готово:</b> страниц справки 2 → 3; <code>node tools/test/run.mjs services</code> зелёный; инструкции сервера не длиннее 4 096 знаков (сейчас 1 843).</div></li>
+    <li><div>Мера индекса из одного места: машина, которая режет индекс по пределу Claude Code, отдаёт пульту готовую меру.</div>
+      <div class="done"><b>Готово:</b> чисел предела в коде пульта 2 → 0; <code>node tools/test/run.mjs host web</code> зелёный; снимок вкладки «Память» настоящего кода.</div></li>
+    <li><div>Слияние; на тестовый флот выкладывает CI; прод — по слову.</div>
+      <div class="done"><b>Готово:</b> живой список зелёный; на проде за 7 дней записей в общую память от моделей вне списка 4 → 0 тем же счётом по разговорам.</div></li>
+    <li><div>Перенос: по слову человека агент на сильной модели разбирает записи из папок машин — нужное в кусочки, остальное удаляет.</div>
+      <div class="done"><b>Готово:</b> записей в папках машин 33 → 0 тем же счётом.</div></li>
+    <li><div>Через 14 дней следа — сводка: чтения и записи по каждой записи памяти, записи без читателей, отказы по моделям. По ней отдельным дизайном — отсечение и экран «Память»; <span class="chg" data-chg="arch2-step-review">старт без подсказки для слабой модели</span> и третья развилка пересматриваются по счёту.</div>
+      <div class="done"><b>Готово:</b> сводка с числом записей без чтений из 111 и <span class="chg" data-chg="arch2-step-review-done">числом отказов на разговор по моделям</span>.</div></li>
+  </ol>
+</section>
+</main>
+
+<script>
+// пояснения частей: нажатие на часть рисунка, стрелку, число, строку режима или пункт
+(() => {
+  const J = (o) => "<pre>" + JSON.stringify(o, null, 2).replace(/</g, "&lt;") + "</pre>";
+  const LINE = { msg: "memory", callsign: "coder-move@server-2", model: "claude-opus-5-5", piece: "game", record: "movement-rules" };
+  const DENY = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Память только для чтения: модель claude-haiku-5-5 не из пишущих память. Важное для памяти скажи в ответе тому, кто дал задачу." } };
+  const SAY = {
+    "n-strong": ["Сильная модель.", "Сессия на модели из списка пишущих: Opus 5.5 и Fable 5, 5.1, 5.2. Она читает память, пишет записи, держит индекс в мере и отсекает устаревшее — обычной правкой файлов. За неделю на машине прода это 137 разговоров из 161."],
+    "n-weak": ["Модель слабее.", "Любая модель вне списка: Sonnet, Haiku, Opus до 5.5, Muse, GPT и другие. Память она читает, писать не может. Модель, которой в списке нет, тоже читает, пока её не назовут. За неделю это 24 разговора из 161."],
+    "n-guide": ["Справка флота.", "Страницы, которые сервер инструментов отдаёт сессиям. Добавляется страница «Память»: зачем память, три слоя, пути к сырью и правило «пишут сильные модели». Списка моделей в ней нет: он один, у машины, а свою модель сессия узнаёт из причины отказа. Правил записи тоже нет: их даёт сам Claude Code, а жёсткое правило сильной модели вредит."],
+    "n-piece": ["Память проекта.", "Папка в кусочке — наборе инструкций, навыков и памяти проекта в общем git. У каждой машины своя копия; машина сводит её с git раз в минуту и сразу после записи. На одной машине прода это 111 записей в пяти памятях."],
+    "n-core": ["Ядро.", "То, что есть в окне всегда: инструкции проекта и индекс памяти — одна строка на запись. Claude Code берёт первые 200 строк или 25 КБ индекса. Сейчас на сессию это 15–36 КБ инструкций и 1–12 КБ индекса."],
+    "n-recs": ["Записи.", "Одна тема — один файл с типом, описанием и датой правки. Сессия открывает запись, когда строка индекса подходит к задаче. Дату правки и номер разговора ставит сам Claude Code."],
+    "n-raw": ["Сырьё.", "Сами разговоры: файлы на диске машины, история сессии по имени, архив с поиском. На одной машине прода лежит 994 разговора. Заметку можно сверить с тем, что было сказано на самом деле, — это единственная опора против неверной записи."],
+    "n-log": ["История флота.", "Журналы всех машин в одной базе. Сюда идёт новая строка о каждом чтении, записи и отказе; читается тем же запросом, что и любая строка журнала." + J({ msg: "memory", limit: 50 })],
+    "a-guide": ["Страница «Память».", "Одна строка в инструкциях сервера ведёт на страницу. Инструкции сейчас занимают 1 843 знака из 4 096. Страница одна для обоих режимов: она описывает, где что лежит, а не как писать."],
+    "a-s-core": ["Индекс в окне.", "Claude Code кладёт индекс первым сообщением вместе с инструкциями и перечитывает его с диска после сжатия. У предела он сам требует переписать индекс — фокус держит та модель, которая пишет."],
+    "a-s-recs": ["Читает и пишет.", "Обычными инструментами работы с файлами; отдельного инструмента памяти нет. Отсечение — та же правка: сильная сессия сливает, сокращает и удаляет записи. В замере Anthropic Fable 5 держала 10 файлов заметок там, где Sonnet 3.7 завела 413."],
+    "a-s-raw": ["Сверяет с сырьём.", "На Opus 5.5 модель, которая сама ищет по сырой истории, даёт 97–99 против 87–95 у служб памяти. Справка называет, где сырьё лежит; нового инструмента нет."],
+    "a-w-core": ["Индекс в окне.", "Тем же путём, что у сильной модели: Claude Code кладёт индекс первым сообщением и перечитывает его с диска после сжатия. Старт процесса от модели не зависит, своей доставки индекса у флота для неё нет."],
+    "a-w-recs": ["Читает записи.", "Обычным чтением файла: папку памяти называет подсказка Claude Code. За неделю модель вне списка открывала записи чаще всех: в 6 разговорах из 9."],
+    "a-w-lock": ["Запись — отказ.", "Машина отвечает отказом до вызова инструмента записи, если путь лежит в памяти кусочка, а модель в документе сессии в этот момент не из списка. Причина приходит модели, отказ уходит строкой в историю флота." + J(DENY) + "Опыт на Haiku 5.5: попыток 1, отказов 1, новых файлов 0. Запись командой оболочки замок не видит."],
+    "a-w-raw": ["Читает сырьё.", "Разговоры на диске и история сессий доступны любой модели так же, как сейчас."],
+    "a-t-s": ["След.", "Строка журнала машины на каждое чтение и каждую запись записи памяти:" + J({ ...LINE, op: "write" }) + "Чтение — открытие записи инструментом чтения файлов; поиск по папке и команды оболочки строки не дают."],
+    "a-t-w": ["След и отказы.", "Те же строки плюс отказ замка:" + J({ ...LINE, callsign: "tester@server-2", model: "claude-haiku-5-5", op: "refused" }) + "Строка идёт уровнем «инфо»: в ленту сессии она не попадает, отказ там уже виден ответом инструмента. Число отказов на разговор — мерка: по ней через 14 дней решается, нужен ли слабой модели старт без подсказки памяти."],
+
+    "y-raw": ["97–99 против 87–95.", "Opus 5.5 на вопросах по длинной переписке: агент, который сам ищет по сырой истории, — 97–99; вся история в окне — 95; служба памяти Mem0 — 95, Zep — 87. У GPT-4o-mini наоборот: тот же агент даёт 28–29, служба — 78. Один независимый замер, один прогон (arXiv 2610.29823); сам я его не проверял."],
+    "y-writer": ["84 вместо 95.", "Opus 5.5 читает память, которую писала слабая модель: у Mem0 84 против 95 на памяти от сильного писателя, у Zep 45 против 87. Потолок памяти задаёт тот, кто её писал. Тот же замер."],
+    "y-notes": ["+0,18 от собственных заметок.", "Задачи с продолжением: Opus 5.5 — 0,655 → 0,838; Opus 5 — 0,564 → 0,828; Sonnet 4.6 — 0,330 → 0,364. Чем сильнее модель, тем больше ей дают её же заметки. Данные Anthropic о своих моделях, 6 ноября 2026."],
+    "y-rule": ["−0,23 от жёсткого правила.", "Правило «записывай только провалы» срезало прирост от памяти у Opus 5 на 0,234. Поэтому справка объясняет, зачем память и где что лежит, и не говорит, что писать. Данные Anthropic."],
+    "y-poison": ["Отравление памяти не уходит с силой.", "Одно письмо заставляет агента записать ложь в 71–88 % попыток на GPT-5.4 и Sonnet 4.6; на Opus 5.5 этого никто не мерил. Опора дизайна — сверка с сырьём, след и откат в git. Отказ Claude Code записать файл памяти с текстом, похожим на служебные теги, виден только в его коде, в документации его нет — в расчёт он не идёт."],
+    "w-convs": ["161 разговор за неделю.", "Одна машина прода, 7 дней, без вложенных агентов. Opus 5.5 — 117, Fable 5.2 — 20. Остальные 24: Muse Wonder — 9, Haiku 5.5 — 7, Sonnet 5.5 — 4, Opus 4.8 — 3, GPT-6 Luna — 1."],
+    "w-writes": ["19 записей в общую память.", "Вызовы записи и правки файлов в памяти кусочков: Fable 5.2 — 8, Opus 5.5 — 7, Muse Wonder — 4. Модель вне списка ведёт 6 % разговоров и делает 21 % записей. После правки её записи получают отказ."],
+    "w-reads": ["11 разговоров открыли запись.", "Opus 5.5 — 4 из 117, Fable 5.2 — 1 из 20, Muse Wonder — 6 из 9. Индекс в окне есть у всех; до самих записей чаще всех доходит модель вне списка. Режим «читает» это сохраняет."],
+
+    "mo-s-prompt": ["Подсказка памяти от Claude Code.", "Он сам объясняет модели, зачем память, как её читать, как писать запись и держать индекс. Подсказка одна для любой модели; флот к ней ничего не добавляет и не повторяет."],
+    "mo-s-index": ["Индекс первым сообщением.", "Идёт рядом с инструкциями проекта, сразу после системного промпта. После сжатия Claude Code перечитывает его с диска — и сильной модели, и слабой."],
+    "mo-s-dir": ["Папка памяти — память кусочка.", "Настройка Claude Code указывает на память последнего кусочка с памятью в наборе — так уже работает, для любой модели. Память остальных кусочков идёт добавкой с путём и индексом. Нет кусочка с памятью — встроенная память выключена (вторая развилка)." + J({ autoMemoryDirectory: "…/profiles/game/memory" })],
+    "mo-s-write": ["Запись открыта.", "После записи машина сразу сводит копию с общим git и пишет строку следа. Сверх предела индекса запись проходит, но Claude Code возвращает требование переписать индекс."],
+    "mo-s-switch": ["Сменили на модель слабее.", "Замок читает модель из документа сессии на каждом вызове записи, поэтому первая же запись после смены получает отказ. Процесс, окно и разговор те же; ответ на смену модели не меняется."],
+    "mo-w-lock": ["Замок на запись.", "Отказ приходит до вызова инструмента записи и работает в режиме «разрешено всё»." + J(DENY) + "Модель видит причину и не повторяет попытку. Замок — единственное, чем слабая модель отличается от сильной."],
+    "mo-w-switch": ["Сменили на сильную модель.", "Следующая запись проходит: подсказка, индекс и папка памяти у процесса уже есть. Человек, получивший отказ, меняет модель и просит запомнить ещё раз — без нового процесса."],
+    "ex-a": ["Память включена, замка нет.", "Так сессия работает сегодня на любой модели. Попыток записи 2, новых файлов 1, строк индекса 1 → 2. Первый запрос — 24 083 токена."],
+    "ex-b": ["Замок и старт без подсказки.", "Встроенная память выключена, индекс добавкой к промпту, замок стоит. Попыток записи 0, отказов 0, новых файлов 0; первый запрос — 23 291 токен против 24 083. Файлов столько же, сколько с одним замком; выигрыш — одна попытка и 792 токена, цена — в пункте «Отдельный старт для слабой модели» ниже."],
+    "ex-c": ["Замок, старт тот же.", "Встроенная память включена, подсказка та же, что у сильной модели, замок стоит. Попыток 1, отказов 1, новых файлов 0; обходить отказ командами оболочки модель не стала. По одному прогону на вариант, набор Claude Agent SDK 0.3.321."],
+
+    "l-open": ["Дочерняя берёт кусочки родителя.", "Сессия, открытая другой сессией без названных кусочков, получает кусочки родителя — с ними память, инструкции и навыки. Режим — по её собственной модели. На трёх машинах прода это даёт память ещё 23 сессиям из 38." + J({ to: "@server-2", spec: { name: "coder-move", cwd: "~/game", key: "claude", model: "claude-opus-5-5" }, prompt: "Почини разворот на месте" }) + "Пустой список <code>pieces: []</code> — дочерняя без кусочков."],
+    "l-start-cc": ["Ядро в окно.", "Claude Code склеивает инструкции от общих к ближним и последним добавляет индекс памяти. Это сообщение сразу после системного промпта, а не сам промпт."],
+    "l-start-f": ["Папка памяти.", "Хозяин кусочков ставит папкой встроенной памяти память кусочка — так уже работает. На модель старт не смотрит: опции запуска у Opus 5.5 и Haiku 5.5 одинаковые. Нет кусочка с памятью — встроенная память выключена, это вторая развилка:" + J({ autoMemoryEnabled: false })],
+    "l-read-cc": ["Запись открыта.", "Обычное чтение файла. Вложенные агенты внутри сессии памяти главной сессии не видят — это поведение Claude Code."],
+    "l-read-f": ["Строка следа о чтении.", "Машина пишет её, когда прочитанный файл лежит в памяти кусочка." + J({ ...LINE, op: "read" })],
+    "l-write-cc": ["Файл записан.", "У предела индекса Claude Code предупреждает, сверх предела — возвращает требование переписать индекс. Это есть в документации; на поведение, видное только в коде Claude Code, дизайн не опирается."],
+    "l-write-f": ["Замок и след.", "До записи машина сверяет модель из документа сессии со списком: не из списка — отказ и строка «отказ». После записи — строка «запись» и сведение копии с общим git."],
+    "l-pull-cc": ["Список правок приходит в ход.", "Когда файлы памяти меняются во время сессии, Claude Code приносит модели список изменённых записей. Это видно в коде Claude Code, в документации этого нет — дизайн на это не опирается."],
+    "l-pull-f": ["Сведение.", "Машина сводит копию с общим git раз в минуту и сразу после записи. Чужие правки приходят на диск без перезапуска сессии."],
+    "l-compact-cc": ["Индекс заново после сжатия.", "Claude Code перечитывает с диска корневые инструкции и индекс памяти. Добавка флота сидит в системном промпте и не сжимается. Флоту здесь делать нечего."],
+    "l-switch-cc": ["Модель на лету.", "Флот меняет модель живому процессу командой Claude Code; окно и разговор остаются. Так смена работает сегодня."],
+    "l-switch-f": ["Смена на лету, памяти не касается.", "Память к смене модели ничего не добавляет. Замок читает модель из документа на каждом вызове записи: стала слабее — следующая запись получает отказ, стала сильной — проходит. Нового процесса из-за памяти нет."],
+    "la-start": ["Опции запуска.", "Папка памяти или выключатель приходят процессу настройками Claude Code — теми же опциями, какими кусочки уже отдают плагины и инструкции."],
+    "la-read": ["Хук после чтения.", "Claude Code зовёт машину после вызова инструмента чтения; машина пишет строку следа, если путь лежит в памяти кусочка."],
+    "la-write": ["Хуки до и после записи.", "До вызова — пропуск или отказ; после — след и сведение. Хук после записи уже стоит: по нему машина сводит копию с git." + J(DENY)],
+    "la-pull": ["Файлы изменились.", "Сведение кладёт чужие правки в ту же папку, которую Claude Code считает памятью сессии."],
+    "la-switch": ["Команда смены модели.", "Хозяин модели шлёт её живому процессу — так смена работает сегодня. Новый процесс он просит только тогда, когда новой модели нужно другое окружение запуска; хозяин кусочков нового процесса не просит." + J({ to: "coder-move@server-2", patch: { model: "claude-sonnet-5-5" } })],
+
+    "c-1": ["Самая большая память.", "55 записей, 477 КБ; индекс — 66 строк и 12,1 КБ из 25. Инструкции этого кусочка — ещё 19,7 КБ в окне. Записи в среднем по 8,7 КБ — крупные."],
+    "c-2": ["Вторая по размеру.", "33 записи, 128 КБ; индекс — 45 строк и 4,9 КБ. Инструкции кусочка — 35,8 КБ, больше всех."],
+    "c-3": ["Третья.", "15 записей, 62 КБ; индекс — 17 строк и 3,3 КБ. Инструкции кусочка — 33,2 КБ в 225 строках."],
+    "c-4": ["Четвёртая.", "4 записи, 5,5 КБ; индекс — 14 строк и 1,2 КБ. Инструкции кусочка — 15,2 КБ."],
+
+    "r-all": ["111 записей.", "Одна машина прода, пять памятей. Все записи — текстовые файлы в общем git, с версией каждой правки."],
+    "r-stamp": ["71 запись со штампом разговора.", "Claude Code сам ставит в запись номер разговора, в котором она написана. У 40 записей штампа нет."],
+    "r-here": ["17 разговоров на той же машине.", "Остальные записи написаны на других машинах: память сводится между машинами, разговоры — нет. Машину автора называет история правок в git."],
+    "src-disk": ["Разговоры на диске.", "994 файла на одной машине. Сильная модель ищет по ним обычным поиском по тексту: когда найденное идёт прямо в окно, он обходит векторный (arXiv 2605.15184)."],
+    "src-hist": ["История сессии по имени.", "Уже работает: за неделю на машине чужой разговор прочитан 116 раз." + J({ to: "coder-move@server-2", limit: 30 })],
+    "src-arch": ["Архив с поиском.", "Снимки разговоров с поиском по словам. Есть у 30 сессий; за неделю не вызван ни разу." + J({ q: "почему отказались от очереди", limit: 20 })],
+
+    "x-service": ["Служба памяти.", "На Opus 5.5 выжимка службы даёт 87–95 против 97–99 у поиска по сырью. Независимый замер скорости: 36, 117 и 155 секунд на операцию у Mem0, Cognee и Zep."],
+    "x-vec": ["Векторный поиск и RAG.", "На вопросах о прошлых разговорах поиск по тексту обошёл векторы во всех 10 связках «оболочка — модель». Индекс самой большой памяти занят на треть: искать пока нечего. Первый шаг, если понадобится, — контрольные вопросы и счёт промахов."],
+    "x-dream": ["Фоновая консолидация.", "После принудительной консолидации GPT-5.4 провалила 54 % задач, которые решала без памяти (arXiv 2605.12978). Сильная модель отсекает сама по ходу работы; что отсекать, покажет след."],
+    "x-store": ["Своё хранилище и инструмент памяти.", "Память остаётся файлами в git штатным путём Claude Code — решение 5 ноября. Версия, время и откат уже есть."],
+    "x-recall": ["Подбор записей второй моделью.", "Claude Code умеет в начале хода выбрать до пяти записей второй моделью. На флоте за неделю таких событий 0, в документации режима нет — опираться нельзя."],
+    "x-rules": ["Правила записи в справке.", "Жёсткое правило срезало прирост от памяти у Opus 5 на 0,234. Подсказку о том, как писать память, Claude Code даёт сам."],
+    "x-start": ["Отдельный старт для слабой модели.", "Без подсказки памяти Haiku 5.5 в опыте не делала попыток записи: 0 против 1, первый запрос короче на 792 токена. Файлов в обоих случаях 0. За это машина сама доставляла бы слабой модели индекс, держала второй запрет той же записи и меняла процесс на границе списка. Пересмотр — по числу отказов на разговор за 14 дней."],
+    "x-restart": ["Перезапуск при смене модели.", "Нужен был бы только отдельному старту. Сегодня ответ на смену модели называет, что сработало сразу, а что вступит в силу с новым процессом; перезапуск из-за памяти в этот ответ не попал бы — модель в документе ведёт не хозяин кусочков. Замок по модели в момент вызова закрывает запись сразу и без нового процесса."],
+    "x-notice": ["Сообщение модели о смене режима.", "У Claude Code есть событие после смены модели, но хватает причины в отказе замка: она называет модель и говорит, что делать с важным."],
+    "x-shell": ["Замок на команды оболочки.", "Для него нужен разбор команд — свой механизм. В опыте модель отказ не обходила; запись мимо замка видна в истории git."],
+    "x-person": ["Личная память человека.", "Личных записей 15 из 111. Отдельной области для человека не заводим, пока не сказано иначе."],
+    "x-screen": ["Экран «Память» и уборка сейчас.", "Сначала след: через 14 дней по строкам чтений, записей и отказов — сводка и отдельный дизайн."],
+  };
+  const show = (el) => {
+    const sec = el.closest("section");
+    const [title, body] = SAY[el.dataset.i];
+    for (const x of sec.querySelectorAll("[data-i].on")) x.classList.remove("on");
+    el.classList.add("on");
+    sec.querySelector(".say").innerHTML = "<b>" + title + "</b> " + body;
+  };
+  for (const el of document.querySelectorAll("[data-i]")) {
+    el.addEventListener("click", () => show(el));
+    if (el.tagName !== "BUTTON") { el.setAttribute("tabindex", "0"); el.setAttribute("role", "button"); el.addEventListener("keydown", (e) => e.key === "Enter" && show(el)); }
+  }
+})();
+</script>
+<script>
+// метки «прочитал»: клавиша A (латинская или русская) над блоком
+(() => {
+  const KEY = "memory.read";
+  let read = [];
+  try { read = JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch {}
+  let over = null;
+  const draw = () => { for (const s of document.querySelectorAll("[data-block]")) s.classList.toggle("read", read.includes(s.id)); };
+  for (const s of document.querySelectorAll("[data-block]")) s.addEventListener("mouseenter", () => (over = s));
+  document.addEventListener("keydown", (e) => {
+    if (!(e.code === "KeyA" || e.key === "a" || e.key === "A" || e.key === "ф" || e.key === "Ф") || e.ctrlKey || e.metaKey || e.altKey || !over) return;
+    read = read.includes(over.id) ? read.filter((x) => x !== over.id) : [...read, over.id];
+    try { localStorage.setItem(KEY, JSON.stringify(read)); } catch {}
+    draw();
+  });
+  draw();
+})();
+</script>

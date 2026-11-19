@@ -38,14 +38,10 @@ export function firstPick(pieces: Piece[], was: string[] = []): string[] {
   return ok.includes("base") ? ["base"] : ok.slice(0, 1);
 }
 
-/** Мера индекса памяти: Claude читает из MEMORY.md первые 200 строк и 25 КБ — что сверх, в сессию не попадёт. */
-export const MEMORY_LINES = 200, MEMORY_BYTES = 25 * 1024;
-export function memoryMeasure(text: string): { lines: number; bytes: number; over: boolean; word: string } {
-  const lines = text ? text.replace(/\n$/, "").split("\n").length : 0;
-  const bytes = new TextEncoder().encode(text).length;
-  const over = lines > MEMORY_LINES || bytes > MEMORY_BYTES;
-  return { lines, bytes, over, word: `${lines} из ${MEMORY_LINES} строк · ${(bytes / 1024).toFixed(1).replace(".", ",")} из 25 КБ` };
-}
+/** Мера индекса памяти словами. Строки, байты и пределы Claude считает машина: что сверх предела, в сессию не попадёт. */
+export type MemoryMeasure = NonNullable<View["memory"]>[number];
+const kb = (bytes: number) => (bytes / 1000).toFixed(1).replace(".", ",").replace(/,0$/, "");
+export const memoryWord = (m: Pick<MemoryMeasure, "lines" | "bytes" | "maxLines" | "maxBytes">): string => `${m.lines} из ${m.maxLines} строк · ${kb(m.bytes)} из ${kb(m.maxBytes)} КБ`;
 
 /** Задача сессии, которая сводит остановившееся слияние клона. */
 export const mergeTask = (c: Pick<RepoClone, "repo" | "files" | "op">) =>
@@ -161,13 +157,6 @@ function Items({ items, open }: { items: Item[]; open: (i: Item) => void }) {
   );
 }
 
-/** Мера индекса памяти набора: читает MEMORY.md кусочка и говорит, сколько из него попадёт в сессию. */
-function MemoryMeasure({ machine, piece, path }: { machine: string; piece: string; path: string }) {
-  const f = useCall(profileFile, { to: "@" + machine, piece, path });
-  if (!f.data) return null;
-  const m = memoryMeasure(f.data.text);
-  return <Text size="sm" c={m.over ? "orange" : undefined}><span className="mono">{piece}/{path}</span>: {m.word}{m.over ? " — что сверх, в сессию не попадёт" : ""}</Text>;
-}
 
 function Viewer({ machine, picked, v, q }: { machine: string; picked: string[]; v: View; q: string }) {
   const [tab, setTab] = useState("sum");
@@ -202,7 +191,7 @@ function Viewer({ machine, picked, v, q }: { machine: string; picked: string[]; 
           {p?.append ? <><Text size="sm" fw={600}>Добавка к промпту</Text><pre className="codebox">{p.append}</pre></> : <Text size="sm" className="muted">Добавки к промпту нет</Text>}
         </Stack>
       )}
-      {tab === "memory" && v.items.filter((i) => i.kind === "memory" && i.path && /(^|\/)MEMORY\.md$/.test(i.path)).map((i) => <MemoryMeasure key={i.piece + i.path} machine={machine} piece={i.piece} path={i.path!} />)}
+      {tab === "memory" && (v.memory ?? []).map((m) => <Text key={m.piece + m.path} size="sm" c={m.over ? "orange" : undefined}><span className="mono">{m.piece}/{m.path}</span>: {memoryWord(m)}{m.over ? " — что сверх, в сессию не попадёт" : ""}</Text>)}
       {tab === "memory" && (() => {
         const all = v.items.filter((i) => i.kind === "memory" && itemMatches(i, q));
         const types = [...new Set(all.map(memoryType))];

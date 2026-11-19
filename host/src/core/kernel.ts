@@ -529,10 +529,12 @@ export class Kernel {
     let parts: Parts;
     this.opening.add(callsign);
     try {
-      // неназванные ключи документа ставят их хозяева: значение записано в документ, а не подразумевается
+      // неназванные ключи документа ставят их хозяева: значение записано в документ, а не подразумевается.
+      // Правило одно для всех ключей: хозяин видит документ открываемой сессии и документ сессии, которая её открывает
+      let parent: Promise<Spec | undefined> | undefined;
       for (const [key, owner] of this.specOwners) {
         if ((spec as Record<string, unknown>)[key] !== undefined || !owner.fill?.[key]) continue;
-        const value = await owner.fill[key]!();
+        const value = await owner.fill[key]!(spec, await (parent ??= o.parent?.() ?? Promise.resolve(undefined)));
         if (value !== undefined) (spec as Record<string, unknown>)[key] = value;
       }
       await this.checkSpec(spec as Record<string, unknown>, null);
