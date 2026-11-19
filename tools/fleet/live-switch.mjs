@@ -1,79 +1,62 @@
 // Живая проверка «Свободной смены модели»: одна сессия, один процесс — смена модели на лету обычным запросом session.update, как со страницы.
 // node tools/fleet/live-switch.mjs <флот> <устройство> <машина> <key/model> <key/model> [<key/model> …]
 // Первая пара — с чем открыть; каждая следующая — смена и ход. Ход печатает число и называет число прошлого хода: так видно, что разговор переехал.
-// В конце — смена посреди хода и итог: переходов без отказа, перезапусков процесса, строк журнала о смене.
+// В конце — смена посреди хода: ход стоит на шаге сценария, пока проверка его не отпустит. Последней строкой — что о сменах записал журнал машины.
 // SB2_ENV=prod — прод; KEEP=1 — сессию не убирать.
-import { fleetCall, machineTmp, newTag } from "./harness.mjs";
+import { check } from "./harness.mjs";
 import { say, tool, turn as script } from "./turn.mjs";
 
-const [fleet = "test", device = "cli", machine = "devbox", ...pairs] = process.argv.slice(2);
-if (pairs.length < 2) throw new Error("нужно: <флот> <устройство> <машина> <key/model> <key/model> …");
-const { call, must } = fleetCall(fleet, device);
-const tag = newTag();
-const cs = `switch-${tag}@${machine}`;
-const cwd = process.env.SB2_CWD ?? `${machineTmp(fleet, device, machine)}/sb2-switch-${tag}`;
-const doc = (s) => { const i = s.indexOf("/"); return { key: s.slice(0, i), model: s.slice(i + 1) }; };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const row = () => must("fleet.list", { machine, full: true }).sessions.find((s) => s.callsign === cs);
-const short = (v, n = 160) => String(typeof v === "string" ? v : JSON.stringify(v)).slice(0, n);
+const pairs = process.argv.slice(5);
+const doc = (s) => ({ key: s.slice(0, s.indexOf("/")), model: s.slice(s.indexOf("/") + 1) });
+const short = (v, n = 90) => String(typeof v === "string" ? v : JSON.stringify(v)).replace(/\s+/g, " ").slice(0, n);
 const task = (n) => script(tool("Bash", { command: `echo ${n * 11}` }), say("число: {итог 1}, прошлое число: {прошлый итог}"));
-const journal = (since) => must("machine.journal", { to: "@" + machine, session: cs, since, limit: 400 }).lines;
-let bad = 0, total = 0;
-const step = (ok, label, said) => { total++; if (!ok) bad++; console.log(`${ok ? "✓" : "✗"} ${label} · ${said}`); };
 
-/** Ждём конец хода: сессия свободна и итог новый. want — слово, которое должен нести итог этого хода: строка сессии догоняет ход не сразу. */
-async function turn(since, want, ms = 300_000) {
-  const end = Date.now() + ms;
-  for (;;) {
-    await sleep(2500);
-    const r = row();
-    if (!r) return { result: "", error: "сессии нет" };
-    if (r.state === "failed" || r.state === "stopped") return r;
-    if (r.state === "idle" && (r.last ?? 0) > since && (r.result || r.error) && (!want || String(r.result).includes(want) || Date.now() > end - ms + 90_000)) return r;
-    if (Date.now() > end) return { ...r, result: "", error: `не дождался: ${r.state}` };
-  }
-}
+await check(async (t) => {
+  if (pairs.length < 2) throw new Error("нужно: <флот> <устройство> <машина> <key/model> <key/model> …");
+  let s;
+  /** Строка сессии, догнавшая ход: в ней начало его ответа. Кто ответил не той моделью — отказ. */
+  const settled = async (want) => {
+    const r = await t.wait(`строка сессии с итогом хода «${want}»`, async () => {
+      const x = await s.row();
+      return String(x?.result ?? "").includes(want) && x;
+    });
+    if (r.answers) throw new Error(`ответила не та модель: ${r.answers}`);
+    return r;
+  };
 
-const t0 = Date.now();
-const opened = call("session.open", { to: "@" + machine, spec: { name: `switch-${tag}`, cwd, ...doc(pairs[0]) }, mkdir: true, prompt: task(1) });
-if (!opened.ok) throw new Error(`session.open: ${opened.error} ${opened.why ?? ""}`);
-let n = 1, missed = false;
-{
-  const r = await turn(t0);
-  step(!r.error && String(r.result).includes("11"), `открыта на ${pairs[0]}`, short(r.result || r.error));
-}
-for (let i = 1; i < pairs.length; i++) {
-  const t = Date.now();
-  const u = call("session.update", { to: cs, patch: doc(pairs[i]) });
-  const ms = Date.now() - t;
-  if (!u.ok) { step(false, `${pairs[i - 1]} → ${pairs[i]}`, `смена ОТКАЗ ${u.error} ${short(u.why ?? "")}`); missed = true; continue; }
-  n++;
-  call("message", { to: cs, text: task(n) });
-  const r = await turn(t, String(n * 11));
-  // после неудавшегося шага прошлое число у модели старее — тогда сверяется только нынешнее
-  const ok = !r.error && String(r.result).includes(String(n * 11)) && (missed || String(r.result).includes(String((n - 1) * 11)));
-  missed = !ok;
-  step(ok, `${pairs[i - 1]} → ${pairs[i]}`, `смена ${ms} мс${(u.result.later ?? []).length ? " · после хода перезапуск" : ""} · ${short(r.result || r.error, 90)}${r.answers ? " · ОТВЕТИЛА НЕ ТА: " + r.answers : ""}${r.cache ? ` · кэш ${r.cache.until ? "до " + new Date(r.cache.until).toTimeString().slice(0, 5) : r.cache.size ? Math.round(((r.cache.read ?? 0) / r.cache.size) * 100) + " % из кэша" : "?"}` : " · кэша в строке нет"}`);
-  // окно, которое считает живой процесс: должно совпасть с окном каталога
-  const w = call("session.call", { to: cs, method: "contextUsage" });
-  if (w.ok) console.log(`    окно процесса ${w.result?.maxTokens ?? w.result?.result?.maxTokens ?? "?"}`);
-}
-// смена посреди хода: команда ждёт 30 с, через 8 с — смена на другую пару из названных
-{
+  await t.step(`открыта на ${pairs[0]}`, async () => {
+    s = await t.session({ name: "switch", ...doc(pairs[0]), prompt: task(1) });
+    if (!s.first.text.includes("11")) throw new Error(`ответ без числа хода: ${short(s.first.text)}`);
+    return short(s.first.text);
+  });
+
+  for (let i = 1, n = 2; i < pairs.length; i++, n++) await t.step(`${pairs[i - 1]} → ${pairs[i]}`, async () => {
+    const u = await t.must("session.update", { to: s.callsign, patch: doc(pairs[i]) });
+    const reply = await s.turn(task(n));
+    // ход называет своё число и число прошлого хода: разговор переехал на новую модель целиком
+    for (const want of [String(n * 11), String((n - 1) * 11)]) if (!reply.text.includes(want)) throw new Error(`в ответе нет числа ${want}: ${short(reply.text)}`);
+    const r = await settled(String(n * 11));
+    // окно, которое считает живой процесс: должно совпасть с окном каталога
+    const w = await t.call("session.call", { to: s.callsign, method: "contextUsage" });
+    const cache = r.cache ? ` · кэш ${r.cache.until ? "до " + new Date(r.cache.until).toISOString().slice(11, 16) : "—"}${r.cache.size ? `, ${Math.round((100 * (r.cache.read ?? 0)) / r.cache.size)} % из кэша` : ""}` : "";
+    return `${(u.later ?? []).length ? "после хода перезапуск · " : ""}${short(reply.text)}${cache}${w.ok ? ` · окно процесса ${w.result?.maxTokens ?? w.result?.result?.maxTokens ?? "?"}` : ""}`;
+  });
+
   const target = pairs.find((p) => p !== pairs.at(-1));
-  const t = Date.now();
-  call("message", { to: cs, text: script(tool("Bash", { command: 'node -e "setTimeout(()=>console.log(4242),30000)"' }), say("число: {итог 1}")) });
-  await sleep(8000);
-  const u = call("session.update", { to: cs, patch: doc(target) });
-  const r = await turn(t, "4242");
-  step(u.ok && !r.error && String(r.result).includes("4242") && !r.answers, `посреди хода ${pairs.at(-1)} → ${target}`, `${u.ok ? "смена принята" : "смена ОТКАЗ " + u.error + " " + short(u.why ?? "")} · ${short(r.result || r.error, 90)}${r.answers ? " · ОТВЕТИЛА НЕ ТА: " + r.answers : ""}`);
-}
-const lines = journal(t0);
-const switches = lines.filter((l) => l.msg === "model_switch");
-const restarts = lines.filter((l) => l.msg === "restart").length;
-const refused = lines.filter((l) => l.msg === "call" && (l.status ?? 200) >= 400);
-console.log(`\nИТОГ: ${total - bad} из ${total} шагов · строк model_switch ${switches.length} (на лету ${switches.filter((l) => l.how === "hot").length}, перезапуском ${switches.filter((l) => l.how === "restart").length}) · перезапусков процесса ${restarts} · отклонённых вызовов модели ${refused.length}`);
-for (const l of refused.slice(0, 6)) console.log(`  отказ вызова: ${l.status} ${short(l.why ?? l.text ?? "", 200)}`);
-if (!process.env.KEEP) call("session.remove", { to: cs });
-else console.log("сессия оставлена:", cs);
-process.exit(bad ? 1 : 0);
+  await t.step(`посреди хода ${pairs.at(-1)} → ${target}`, async () => {
+    // ход стоит на команде, пока проверка его не отпустит: смена приходит именно посреди хода
+    const hold = await s.hold(say("итог команды: {итог 1}"));
+    await t.must("session.update", { to: s.callsign, patch: doc(target) });
+    const reply = await hold.release();
+    if (!reply.text.includes("отпущено")) throw new Error(`ход не донёс итог команды: ${short(reply.text)}`);
+    await settled("отпущено");
+    return `смена принята · ${short(reply.text)}`;
+  });
+
+  // что о сменах записал журнал машины — строкой для чтения, не шагом
+  const lines = (await t.must("machine.journal", { to: "@" + t.machine, session: s.callsign, limit: 400 })).lines;
+  const switches = lines.filter((l) => l.msg === "model_switch");
+  const refused = lines.filter((l) => l.msg === "call" && (l.status ?? 200) >= 400);
+  console.log(`журнал машины: строк model_switch ${switches.length} (на лету ${switches.filter((l) => l.how === "hot").length}, перезапуском ${switches.filter((l) => l.how === "restart").length}) · перезапусков процесса ${lines.filter((l) => l.msg === "restart").length} · отклонённых вызовов ${refused.length}`);
+  for (const l of refused.slice(0, 6)) console.log(`  отказ вызова: ${l.status} ${short(l.why ?? l.text ?? "", 200)}`);
+}, { second: "" });

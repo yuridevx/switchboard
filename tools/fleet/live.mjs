@@ -1,5 +1,6 @@
 // Живая проверка флота — один список: node tools/fleet/live.mjs <флот> <устройство> [машина] [вторая машина]
-// Список целиком гонит CI после выкладки main. Сессия у себя запускает одну свою проверку — её файл напрямую.
+// Список целиком гонит CI после выкладки main. Сессия у себя запускает одну свою проверку — через список, по названию:
+//   SB2_ONLY="смена модели" node tools/box/box.mjs node tools/fleet/live.mjs box cli m1 m2
 // Новая функция добавляет свою проверку строкой в LIST — и та идёт на каждом слиянии.
 // Проверки идут одновременно, у каждой свои пробные сессии. Дорожек три:
 //   тихая  — никого не задевает: все тихие идут разом на первой машине;
@@ -12,12 +13,15 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { lacks, local } from "./harness.mjs";
-import { appendSteps, stepLines } from "./steps.mjs";
+import os from "node:os";
+import { lacks, local, newTag } from "./harness.mjs";
+import { appendSteps, parseLines, readSteps, stamp } from "./steps.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
 const [fleet = "test", device = "cli", machine = "devbox", second = "wsl"] = process.argv.slice(2);
+// одна проверка списка — по названию: SB2_ONLY="смена модели"
+const only = process.env.SB2_ONLY ?? "";
 const prod = process.env.SB2_ENV === "prod";
 const LIMIT_MS = 4 * 60_000; // предел одной проверки
 
@@ -80,7 +84,8 @@ const LIST = [
   ...(local() ? [["выкладка сборки", "live-roll.mjs", [fleet, device, machine, second], {}, false, ALONE]] : []),
   // заводит и убирает негодный аккаунт Claude флота: при нём чужой ход на Claude получил бы лишний переход — идёт до всех
   ["аккаунты: негодный токен", "live-accounts.ts", [fleet, device, machine], { SB2_PART: "token" }, false, ALONE, ["claude"]],
-].filter((c) => (!prod || c[4]) && !(c[6] ?? []).some(lacks)).filter((_, i) => i % shards === shard - 1);
+].filter((c) => (!prod || c[4]) && !(c[6] ?? []).some(lacks)).filter((c, i) => (only ? c[0] === only : i % shards === shard - 1));
+if (only && !LIST.length) throw new Error(`в списке нет проверки «${only}» — или у этого флота нет того, что ей нужно`);
 
 // журнал шагов: строка общей формы на каждый шаг — в файл SB2_STEPS; работа CI сохраняет его при прогоне, читает tools/test/history.mjs
 const STEPS = process.env.SB2_STEPS;
@@ -91,20 +96,29 @@ const t00 = Date.now();
 const rows = [];
 let failed = 0, okAll = 0, badAll = 0;
 /** Проверка от запуска до своего блока в журнале: блок печатается целиком, когда она кончилась. */
-async function check([title, file, args, env]) {
-  const r = await run(file, args, env);
+async function check([title, file, args, env, , laneOf]) {
+  // название, дорожку, метку и файл для шагов проверке называет список: проверка на входе check (harness.mjs) отдаёт шаги строками журнала
+  const tag = newTag();
+  const own = path.join(os.tmpdir(), `sb2-steps-${process.pid}-${tag}.jsonl`);
+  const r = await run(file, args, { ...env, SB2_CHECK: title, SB2_LANE: laneOf, SB2_TAG: tag, SB2_STEPS: own });
+  const told = fs.existsSync(own) ? readSteps(fs.readFileSync(own, "utf8")) : null;
+  fs.rmSync(own, { force: true });
   // слова ошибки упавшей проверки — без строк стека: слова идут первыми, стек — последним
   const words = r.status !== 0 && r.stderr ? r.stderr.split("\n").filter((l) => l.trim() && !/^\s+at /.test(l)).slice(-6).join("\n") : "";
   const out = r.stdout + (words ? "\n" + words : "");
-  if (STEPS) appendSteps(STEPS, stepLines(title, r.stdout, r.status, words, { ...journal, t: Date.now() }));
+  // прежняя проверка строк журнала не отдаёт: её шаги читаются из вывода
+  const steps = stamp(title, told ?? parseLines(title, r.stdout, Date.now()), r.status, words, { ...journal, t: Date.now() });
+  if (STEPS) appendSteps(STEPS, steps);
   const lines = out.split("\n").filter((l) => /^[✓✗…]/.test(l));
-  const ok = lines.filter((l) => l.startsWith("✓")).length, bad = lines.filter((l) => l.startsWith("✗")).length, wait = lines.filter((l) => l.startsWith("…")).length;
+  const ok = steps.filter((s) => s.ok).length, bad = steps.length - ok, wait = lines.filter((l) => l.startsWith("…")).length;
   const sec = (r.ms / 1000).toFixed(0);
   const why = r.status === 0 ? "" : r.status === null ? " · предел проверки вышел" : " · код " + r.status;
   const block = [`\n== ${title}: ${ok} из ${ok + bad}${wait ? `, ждут выкладки ${wait}` : ""} · ${sec} с${why}`];
   // журнал прогона открыт всем: на проде в него идут только названия шагов и числа
   for (const l of lines) block.push(prod ? l.split(" · ")[0] : l.slice(0, 260));
-  if (r.status !== 0 && !prod && (!lines.length || !bad)) block.push(out.split("\n").slice(-8).join("\n"));
+  if (r.status !== 0 && !prod && (!lines.length || !lines.some((l) => l.startsWith("✗")))) block.push(out.split("\n").slice(-8).join("\n"));
+  // процесс снят жёстко — своё проверка убрать не успела: агент находит остатки по метке
+  if (r.status === null && told) block.push(`проверка снята по пределу: её сессии и папки с меткой ${tag} могли остаться на флоте`);
   console.log(block.join("\n"));
   okAll += ok;
   badAll += bad;

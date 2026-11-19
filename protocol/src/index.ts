@@ -3,6 +3,7 @@ export * from "./frame.ts";
 export * from "./define.ts";
 export * from "./log.ts";
 export * from "./client.ts";
+export * from "./picture.ts";
 export * from "./tools.ts";
 export * from "./troubles.ts";
 export * from "./contracts/session.ts";

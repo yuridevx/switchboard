@@ -11,12 +11,9 @@ export function labelOf(body) {
   return (cut < 0 ? body : body.slice(0, cut)).trim();
 }
 
-/** Строки журнала одной проверки по её выводу: строка на шаг ✓ или ✗.
- *  status — код выхода процесса проверки (null — снята по пределу); tail — последние слова её ошибки.
- *  ctx: t — время записи, мс; place — где шла («коробка linux», «флот test»); commit и run — коммит и прогон CI;
- *  bare — журнал прогона открыт всем (прод): причина отказа в строку не идёт. */
-export function stepLines(title, stdout, status, tail, ctx) {
-  const base = { t: ctx.t, part: "check", module: title, place: ctx.place, ...(ctx.commit ? { commit: ctx.commit } : {}), ...(ctx.run ? { run: ctx.run } : {}) };
+/** Шаги прежней проверки — из её вывода: строка на шаг ✓ или ✗. Проверка на входе check (harness.mjs) отдаёт свои шаги строками сама. */
+export function parseLines(title, stdout, t) {
+  const base = { t, part: "check", module: title };
   const lines = [];
   for (const raw of stdout.split("\n")) {
     const l = raw.trimEnd();
@@ -27,15 +24,28 @@ export function stepLines(title, stdout, status, tail, ctx) {
     const msg = labelOf(body);
     const ms = / · (\d+) мс$/.exec(body);
     const why = body.slice(msg.length).replace(/^[\s·:]+/, "").slice(0, 300);
-    lines.push({ ...base, level: ok ? "info" : "error", msg, ok, ...(ms ? { ms: Number(ms[1]) } : {}), ...(!ok && why && !ctx.bare ? { why } : {}) });
-  }
-  // проверка упала мимо шагов — ошибка до первого шага, ошибка страницы, предел: красная строка о ней самой
-  if (status !== 0 && lines.every((l) => l.ok)) {
-    const why = status === null ? "предел проверки вышел" : (tail ?? "").slice(0, 300);
-    lines.push({ ...base, level: "error", msg: "проверка дошла до конца", ok: false, ...(why && !ctx.bare ? { why } : {}) });
+    lines.push({ ...base, level: ok ? "info" : "error", msg, ok, ...(ms ? { ms: Number(ms[1]) } : {}), ...(!ok && why ? { why } : {}) });
   }
   return lines;
 }
+
+/** Строки шагов одной проверки — в журнал прогона: к каждой место, коммит и прогон.
+ *  status — код выхода процесса проверки (null — снята по пределу); tail — последние слова её ошибки.
+ *  ctx: t — время записи, мс; place — где шла («коробка linux», «флот test»); commit и run — коммит и прогон CI;
+ *  bare — журнал прогона открыт всем (прод): причина отказа в строку не идёт. */
+export function stamp(title, steps, status, tail, ctx) {
+  const where = { place: ctx.place, ...(ctx.commit ? { commit: ctx.commit } : {}), ...(ctx.run ? { run: ctx.run } : {}) };
+  const lines = steps.map(({ why, ...l }) => ({ ...l, ...where, ...(why && !ctx.bare ? { why } : {}) }));
+  // проверка упала мимо шагов — ошибка до первого шага, ошибка страницы, предел: красная строка о ней самой
+  if (status !== 0 && lines.every((l) => l.ok)) {
+    const why = status === null ? "предел проверки вышел" : (tail ?? "").slice(0, 300);
+    lines.push({ t: ctx.t, part: "check", module: title, ...where, level: "error", msg: "проверка дошла до конца", ok: false, ...(why && !ctx.bare ? { why } : {}) });
+  }
+  return lines;
+}
+
+/** Строки журнала прежней проверки по её выводу. */
+export const stepLines = (title, stdout, status, tail, ctx) => stamp(title, parseLines(title, stdout, ctx.t), status, tail, ctx);
 
 /** Дописать строки в файл журнала шагов. */
 export function appendSteps(file, lines) {
