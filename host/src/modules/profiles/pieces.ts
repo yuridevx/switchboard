@@ -10,7 +10,7 @@ const INDEX_LINES = 200;
 const INDEX_BYTES = 25_000;
 
 /** Настройки и переменные, которые держит аккаунт и система: кусочек не платит и не выбирает, куда идти. */
-const OWN_SETTINGS = new Set(["apiKeyHelper", "autoMemoryDirectory"]);
+const OWN_SETTINGS = new Set(["apiKeyHelper", "autoMemoryDirectory", "autoMemoryEnabled"]);
 const OWN_ENV = /^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDE_CONFIG_DIR$)/;
 
 export type Piece = {
@@ -145,6 +145,9 @@ export function assemble(list: string[], folderOf: (id: string) => string | null
 }
 
 export const valuesOf = (m: Record<string, Won>): Record<string, unknown> => Object.fromEntries(Object.entries(m).map(([k, w]) => [k, w.value]));
+
+/** Мера индекса памяти против пределов Claude. Пределы знает только машина: она же режет по ним индекс соседней памяти; страница показывает готовое. */
+export const indexMeasure = (lines: number, bytes: number) => ({ lines, bytes, maxLines: INDEX_LINES, maxBytes: INDEX_BYTES, over: lines > INDEX_LINES || bytes > INDEX_BYTES });
 
 /** Индекс памяти в пределах Claude. */
 function memoryIndex(dir: string): string | null {

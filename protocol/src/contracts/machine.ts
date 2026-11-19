@@ -109,6 +109,8 @@ export const profileView = request("profile.view", {
     settings: z.record(z.string(), Won).optional(),
     files: z.record(z.string(), z.array(z.object({ path: z.string(), size: z.number() }).loose())).optional(),
     other: z.array(z.object({ from: z.string(), path: z.string() })).optional(),
+    /** мера индекса памяти каждого кусочка набора против пределов Claude: считает машина, страница показывает готовое */
+    memory: z.array(z.object({ piece: z.string(), path: z.string(), lines: z.number(), bytes: z.number(), maxLines: z.number(), maxBytes: z.number(), over: z.boolean() })).optional(),
   }),
 });
 export const profileFile = request("profile.file", {
