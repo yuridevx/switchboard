@@ -210,7 +210,8 @@ export class Kernel {
   // ───────────────────────── опции запуска ─────────────────────────
 
   private env(extra?: Record<string, string>): Record<string, string | undefined> {
-    return { ...process.env, ...extra, DISABLE_UPDATES: "1", CLAUDE_CODE_HARBOR_KITE: "0" };
+    // свой таймер Claude Code в сессиях флота выключен: расписание живёт в определении проекта (правила входа «Фабрики»), а не в разговоре
+    return { ...process.env, ...extra, DISABLE_UPDATES: "1", CLAUDE_CODE_HARBOR_KITE: "0", CLAUDE_CODE_DISABLE_CRON: "1" };
   }
 
   /** Вклады модулей в query(): у ключа один хозяин, второй — конфликт. */

@@ -22,6 +22,8 @@ describe("ядро Host", () => {
     expect(opts.mcpServers.fleet).toEqual({ type: "http", url: "https://fleet.test/mcp", headers: { Authorization: "Bearer home:k00001:0123456789abcdef0123", "x-sb-as": "site@laptop" } });
     expect(opts.systemPrompt.append).toContain("site@laptop");
     expect(opts.env.DISABLE_UPDATES).toBe("1");
+    // чьё: дизайн «Фабрика», развилка 1 закрыта рекомендованным (слово пользователя 19 нояб. — «делай»): таймер Claude Code в сессиях флота выключен
+    expect(opts.env.CLAUDE_CODE_DISABLE_CRON).toBe("1");
     const last = st.link.rows("site@laptop").at(-1)!;
     expect(last.row).toMatchObject({ callsign: "site@laptop", state: "idle", by: "pult~yuri@example.com", spec: { name: "site", model: "claude-fable-5-2" } });
     expect(st.kernel.disk.records()[0]).toMatchObject({ callsign: "site@laptop", spec: { name: "site" } });

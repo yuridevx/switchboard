@@ -9,7 +9,7 @@
 // Сама Фабрика ничего не чинит и не повторяет: отказ машины, второй возврат и вышедший срок ставят тикет в «стоп» с причиной.
 import {
   CALL_MS, canReach, checkOutcome, checkRun, errFields, FACTORY, FACTORY_FILE, FactoryDef, type FactoryState, type FileIn, kindOf, type LineDef, machineOf, newId, type Project, Refusal,
-  RULE_CHECK_MS, type RuleDef, sessionName, type Spec, type StepDef, termMs, type Ticket, type TicketNote, type TicketState, type Verdict, within,
+  RULE_CHECK_MS, type RuleDef, sessionName, type Spec, type StepDef, termMs, type Ticket, type TicketAct, type TicketNote, type TicketState, type Verdict, within,
 } from "@sb/protocol";
 import type { Ctx, Env, Module, Outside } from "../../env.ts";
 import { type Op, records } from "../../records.ts";
@@ -351,6 +351,22 @@ on(TERM, async (env, fleet, input, w) => {
 const outside = (ctx: Ctx): Outside => ({ platform: ctx.platform, fetch: ctx.fetch, log: ctx.log });
 
 /* ===== Правка тикета и вердикт ===== */
+
+/** Почему пришедшему нельзя сделать это с тикетом; можно — null. Одно правило: им отказывает запись и по нему чтение называет доступные действия.
+ *  Вердикт шагу в работе или ожидании: сессия — только та, что ведёт шаг; машина — шагу своей сессии; человек — любому. */
+function barred(id: string, was: Pick<Stored, "state" | "session">, by: string, act: TicketAct): Refusal | null {
+  if (act === "verdict") {
+    if (was.state !== "work" && was.state !== "wait") return new Refusal("bad_state", `тикет ${id} — ${was.state}: вердикт дают шагу в работе или ожидании`);
+    const kind = kindOf(by);
+    if (kind === "session" && was.session !== by) return new Refusal("not_yours", `шаг тикета ${id} ведёт ${was.session ?? "не сессия"}`);
+    if (kind === "machine" && machineOf(was.session ?? "") !== machineOf(by)) return new Refusal("not_yours", `шаг тикета ${id} ведёт сессия другой машины`);
+    return null;
+  }
+  if (act === "resume") return was.state === "stop" ? null : new Refusal("bad_state", `тикет ${id} — ${was.state}: в очередь возвращают вставший`);
+  if (act === "drop") return was.state === "done" ? new Refusal("bad_state", `тикет ${id} уже закрыт`) : null;
+  return was.state === "work" || was.state === "done" ? new Refusal("bad_state", `тикет ${id} — ${was.state}: исполнителя меняют у тикета в очереди, ждущего или вставшего`) : null;
+}
+const ACTS: TicketAct[] = ["verdict", "resume", "drop", "assign"];
 
 /** Правки одного тикета от одного автора. Каждая проходит, только если тикет всё ещё в том же состоянии и на том же шаге; заметка — той же пачкой.
  *  Тикет уже ушёл — отказ bad_state. planned — правка по плану шага k. */
@@ -698,7 +714,8 @@ export const factory: Module = {
         const s = got[0]![0] as unknown as Stored | undefined;
         if (!s) throw new Refusal("no_ticket", `тикета ${i.ticket} нет`);
         const notes = (got[1] as unknown as { at: number; by: string; verdict: Verdict | null; text: string }[]).map((x) => ({ at: x.at, by: x.by, text: x.text, ...(x.verdict ? { verdict: x.verdict } : {}) }));
-        return { tickets: [ticket(project, s, (await applied(ctx.env, ctx.fleet, project))?.def ?? null, notes)] };
+        const acts = ACTS.filter((act) => !barred(i.ticket!, s, ctx.who.addr, act));
+        return { tickets: [{ ...ticket(project, s, (await applied(ctx.env, ctx.fleet, project))?.def ?? null, notes), acts }] };
       }
       const project = await projectOf(ctx, i.project);
       const where = ["1 = 1"];
@@ -723,29 +740,30 @@ export const factory: Module = {
       const now = Date.now();
       const note = i.note ?? "";
       const { move, planned } = mover(ctx.env, ctx.fleet, project, def, was, by, now);
+      /** Отказ, если пришедшему это с тикетом нельзя. */
+      const no = (act: TicketAct) => {
+        const refusal = barred(i.ticket, was, by, act);
+        if (refusal) throw refusal;
+      };
       let s: Stored;
       let word: string;
       if (i.verdict) {
-        // вердикт шагу в работе или ожидании: сессия — только та, что ведёт шаг; машина — шагу своей сессии; человек — любому
-        if (was.state !== "work" && was.state !== "wait") throw new Refusal("bad_state", `тикет ${i.ticket} — ${was.state}: вердикт дают шагу в работе или ожидании`);
-        const kind = kindOf(by);
-        if (kind === "session" && was.session !== by) throw new Refusal("not_yours", `шаг тикета ${i.ticket} ведёт ${was.session ?? "не сессия"}`);
-        if (kind === "machine" && machineOf(was.session ?? "") !== machineOf(by)) throw new Refusal("not_yours", `шаг тикета ${i.ticket} ведёт сессия другой машины`);
+        no("verdict");
         // возврат от машины сессии — проверка шага не прошла: шаг остаётся у той же сессии
-        ({ s, word } = await decide(ctx.env, ctx.fleet, project, def, was, { verdict: i.verdict, note, by, pr: i.pr, same: kind === "machine" }, now));
+        ({ s, word } = await decide(ctx.env, ctx.fleet, project, def, was, { verdict: i.verdict, note, by, pr: i.pr, same: kindOf(by) === "machine" }, now));
       } else if (i.resume) {
-        if (was.state !== "stop") throw new Refusal("bad_state", `тикет ${i.ticket} — ${was.state}: в очередь возвращают вставший`);
+        no("resume");
         s = await planned(was.step, ", returns = 0, backstep = NULL", [], null, note || "возвращён в очередь");
         word = "resume";
       } else if (i.drop) {
-        if (was.state === "done") throw new Refusal("bad_state", `тикет ${i.ticket} уже закрыт`);
+        no("drop");
         s = await move("state = 'done', until = NULL, target = NULL, dropped = 1", [], null, note || "снят");
         word = "drop";
       } else {
         // правка без вердикта: исполнитель, срок, PR, заметка
         const term = i.for ? termMs(i.for) : was.term;
         if (i.to !== undefined) {
-          if (was.state === "work") throw new Refusal("bad_state", `тикет ${i.ticket} в работе: исполнителя меняют у тикета в очереди или вставшего`);
+          no("assign");
           const p = plan(def, project, { ...was, dest: i.to, term, runs: "{}" }, 0);
           if (p.state === "stop") throw new Refusal(kindOf(i.to) === "session" && !term ? "no_term" : "no_dest", p.why);
           // вставший тикет исполнителя меняет, но в очередь не идёт: его возвращает resume
