@@ -64,11 +64,6 @@ function jwt({ id, pem }: App): string {
 }
 
 const installUrl = (slug: string) => `https://github.com/apps/${slug}/installations/new`;
-/** Организация — владелец приложения; приложение в личном аккаунте — undefined. */
-async function ownerOrg(ctx: Net, app: App): Promise<string | undefined> {
-  const { owner } = json<{ owner: { login: string; type: string } }>(await api(ctx, "GET", "/app", jwt(app)));
-  return owner.type === "Organization" ? owner.login : undefined;
-}
 const readApp = (ctx: Net) => db(ctx.env, ctx.fleet).first<App>("SELECT id, slug, owner, pem FROM app WHERE one = 1");
 const issue = async (ctx: Net, installation: number, auth: string, body: object) => json<{ token: string; expires_at: string }>(await api(ctx, "POST", `/app/installations/${installation}/access_tokens`, auth, body));
 
@@ -175,14 +170,13 @@ export const github: Module = {
     },
 
     /** Без code — форма создания приложения для браузера; с code из возврата GitHub — приложение с ключом.
-     *  Приложение уже есть — форму даёт только replace; новое заводится там же, где прежнее: у организации-владельца, если её не назвали. */
+     *  Приложение уже есть — форму даёт только replace. org — организация-владелец нового приложения; не названа — оно в личном аккаунте человека. */
     async "github.setup"(i: { code?: string; redirect?: string; org?: string; replace?: boolean }, ctx) {
       const had = await readApp(ctx);
       if (!i.code) {
         if (had && !i.replace) return { installed: true, url: installUrl(had.slug) };
         if (i.org !== undefined && !ORG.test(i.org)) throw new Refusal("bad_input", "org — не имя организации");
-        const org = i.org ?? (had ? await ownerOrg(ctx, had) : undefined);
-        return { installed: false, form: manifestForm(i.redirect ?? ctx.origin, ctx.origin + eventsPath(ctx.fleet), org) };
+        return { installed: false, form: manifestForm(i.redirect ?? ctx.origin, ctx.origin + eventsPath(ctx.fleet), i.org) };
       }
       if (!CODE.test(i.code)) throw new Refusal("bad_input", "code — не из возврата GitHub");
       // код GitHub выдаёт за созданное приложение и принимает один раз; форму при живом приложении даёт только replace — второй раз о замене не спрашиваем

@@ -12,6 +12,9 @@ import { ThisDevicePush } from "./Alerts.tsx";
 /** Куда GitHub вернёт человека после создания приложения: эта же страница, экран «GitHub». */
 export const githubReturn = (at: { origin: string; pathname: string } = location) => `${at.origin}${at.pathname}?open=settings/github`;
 
+/** Поля запроса формы нового приложения: куда GitHub вернёт человека, организация-владелец (пусто — личный аккаунт) и слово замены. */
+export const setupAsk = (org: string, replace: boolean, at?: { origin: string; pathname: string }) => ({ redirect: githubReturn(at), ...(org.trim() ? { org: org.trim() } : {}), ...(replace ? { replace: true } : {}) });
+
 /** Создание приложения GitHub идёт формой браузера: служба отдаёт адрес и манифест. */
 function submitForm(form: { action: string; manifest: unknown }) {
   const f = document.createElement("form");
@@ -45,10 +48,12 @@ export function GitHub() {
   }, []);
   if (app.error) return <Failed error={app.error} retry={app.refetch} />;
   const create = async (replace: boolean) => {
-    const r = await act(githubSetup, { redirect: githubReturn(), ...(org.trim() ? { org: org.trim() } : {}), ...(replace ? { replace: true } : {}) });
+    const r = await act(githubSetup, setupAsk(org, replace));
     if (r?.form) submitForm(r.form);
     else if (r?.url) window.open(r.url, "_blank");
   };
+  // владельца нового приложения называет человек — и при создании, и при замене: приложение может жить в личном аккаунте, а стоять на организации
+  const orgField = <TextInput label="Организация" placeholder="пусто — в вашем аккаунте" className="mono" value={org} onChange={(e) => setOrg(e.currentTarget.value)} w={260} />;
   return (
     <Stack>
       {app.data?.installed ? (
@@ -58,8 +63,13 @@ export function GitHub() {
           {app.data.events === false && <Text size="sm" c="orange">События репозиториев этому приложению не приходят: слияние PR не сдаёт шаг тикета. {admin ? "Замените приложение — новое подпишется на события." : "Заменить приложение может админ флота."}</Text>}
           <Group>
             {app.data.url && <Button component="a" href={`${app.data.url}/installations/new`} target="_blank" rel="noreferrer" size="xs" variant="default">Доступ на GitHub</Button>}
-            {admin && <Button size="xs" variant="subtle" color="red" onClick={() => confirmDanger({ title: "Заменить приложение GitHub?", body: "Прежнее приложение перестанет выдавать токены: кусочки профилей не сведутся, пока новое не получит доступ к репозиториям.", confirm: "Заменить", onConfirm: () => create(true) })}>Заменить приложение</Button>}
           </Group>
+          {admin && (
+            <Group align="end" gap="sm">
+              {orgField}
+              <Button variant="subtle" color="red" onClick={() => confirmDanger({ title: "Заменить приложение GitHub?", body: "Прежнее приложение перестанет выдавать токены: кусочки профилей не сведутся, пока новое не получит доступ к репозиториям.", confirm: "Заменить", onConfirm: () => create(true) })}>Заменить приложение</Button>
+            </Group>
+          )}
         </div>
       ) : app.data?.name ? (
         <div className="card">
@@ -71,7 +81,7 @@ export function GitHub() {
           <Text>Приложение GitHub даёт машинам токены на репозитории кусочков профилей.</Text>
           {admin ? (
             <Group align="end" gap="sm">
-              <TextInput label="Организация" placeholder="пусто — в вашем аккаунте" className="mono" value={org} onChange={(e) => setOrg(e.currentTarget.value)} w={260} />
+              {orgField}
               <Button onClick={() => void create(false)}>Создать приложение GitHub</Button>
             </Group>
           ) : <Text size="sm">Создать его может админ флота.</Text>}
