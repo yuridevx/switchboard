@@ -1,5 +1,5 @@
 // Договор «Фабрики»: тикет — единица работы флота; шаг тикета кончается вердиктом; служба отдаёт шаг сессии запросом «дать работу».
-// Определение проекта — файл factory.json в репозитории ролей: посты, конвейеры, потолки, сроки и правила входа — то, что заводит тикеты само.
+// Определение проекта — файл factory.json в репозитории ролей: посты, конвейеры, потолки, сроки, репозитории и правила входа — то, что заводит тикеты само.
 import { Callsign, MachineAddr, Name, Person, request, z } from "../define.ts";
 import { CALL_MS } from "../frame.ts";
 import { FileIn, Spec } from "./session.ts";
@@ -15,6 +15,14 @@ export type Verdict = z.infer<typeof Verdict>;
 /** Состояние тикета: ready — в очереди (без исполнителя — бэклог); work — шаг у сессии; wait — ждёт человека или события; stop — встал с причиной; done — закрыт. */
 export const TicketState = z.enum(["ready", "work", "wait", "stop", "done"]);
 export type TicketState = z.infer<typeof TicketState>;
+/** Событие шага-ожидания. pr.merged — шаг ждёт PR, который тикет назвал при сдаче прошлого шага: слит — «сдал», замечания ревью — «вернул»
+ *  автору с текстом, закрыт без слияния — «стоп». */
+export const WaitEvent = z.enum(["pr.merged"]);
+export type WaitEvent = z.infer<typeof WaitEvent>;
+/** Репозиторий GitHub: владелец/имя. */
+export const RepoName = z.string().regex(/^[A-Za-z0-9-]+\/(?!\.\.?$)[\w.-]+$/, "репозиторий вида владелец/имя");
+/** PR: репозиторий и номер — владелец/имя#12. */
+export const PrRef = z.string().regex(/^[A-Za-z0-9-]+\/(?!\.\.?#)[\w.-]+#[1-9]\d*$/, "PR вида владелец/имя#12");
 /** Срок словами: число и единица — s, m, h или d. */
 export const Term = z.string().regex(/^[1-9]\d*[smhd]$/, "срок вида 90s, 20m, 2h или 3d");
 const UNIT: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
@@ -43,7 +51,7 @@ export function checkOutcome(c: { run: string; for: string }, r: { state: string
  *  человек (human) или событие (wait). do — что сделать: текст сессии, {id} — номер тикета. Срок (for) шага сессии — свой, иначе конвейера или поста. */
 export const StepDef = z.strictObject({
   name: z.string().min(1),
-  session: z.enum(["new", "same"]).optional(), post: z.string().min(1).optional(), human: z.literal(true).optional(), wait: z.string().min(1).optional(),
+  session: z.enum(["new", "same"]).optional(), post: z.string().min(1).optional(), human: z.literal(true).optional(), wait: WaitEvent.optional(),
   do: z.string().optional(), check: Check.optional(), for: Term.optional(),
   /** свежей сессии — свои провайдер, модель и роль вместо заданных конвейером */
   key: z.string().optional(), model: z.string().optional(), pieces: z.array(z.string()).optional(),
@@ -76,6 +84,9 @@ export type RuleDef = z.infer<typeof RuleDef>;
  *  не принят (ключ события — имя аккаунта); model — ответила не та модель, что в документе сессии (ключ — позывной). Правила у проекта нет —
  *  событие остаётся строкой журнала машины. */
 export const MACHINE_RULES = { account: "account", model: "model" } as const;
+/** Репозиторий проекта: repo — свой, о его PR GitHub сообщает флоту событием с подписью (приложение GitHub флота должно быть к нему допущено). */
+export const RepoDef = z.strictObject({ repo: RepoName });
+export type RepoDef = z.infer<typeof RepoDef>;
 /** Имя конвейера — слово исполнителя тикета: без пробелов и без @, чтобы не спутать с позывным. */
 const LineName = z.string().regex(/^[^\s@]+$/, "имя конвейера — одно слово без @");
 export const FactoryDef = z.strictObject({
@@ -86,6 +97,8 @@ export const FactoryDef = z.strictObject({
   call: z.array(Person).optional(),
   posts: z.record(Name, PostDef).default({}),
   lines: z.record(LineName, LineDef).default({}),
+  /** репозитории проекта: по ним событие GitHub находит тикеты, которые ждут PR */
+  repos: z.record(Name, RepoDef).default({}),
   /** правила входа: что заводит тикеты само */
   on: z.array(RuleDef).default([]),
 });
@@ -150,9 +163,9 @@ export const ticketList = request("ticket.list", {
 
 export const ticketSet = request("ticket.set", {
   owner: "factory", target: "service",
-  tool: "Сдать шаг тикета или изменить тикет. Шаг кончается вердиктом: verdict done — сделано; back — вернуть назад с замечанием; stop — нужен человек. note — заметка к вердикту: что сделано, замечание или вопрос. Вердикт шагу в работе даёт только сессия, которая его ведёт, или человек. Человеку и менеджеру: to — назначить исполнителя; resume: true — вернуть вставший тикет в очередь; drop: true — снять без работы; pr — номер PR вида owner/repo#12. Отказы: not_yours (шаг ведёт другая сессия), no_ticket, bad_state.",
+  tool: "Сдать шаг тикета или изменить тикет. Шаг кончается вердиктом: verdict done — сделано; back — вернуть назад с замечанием; stop — нужен человек. note — заметка к вердикту: что сделано, замечание или вопрос. Вердикт шагу в работе даёт только сессия, которая его ведёт, или человек. Человеку и менеджеру: to — назначить исполнителя; resume: true — вернуть вставший тикет в очередь; drop: true — снять без работы. pr — PR тикета вида владелец/имя#12: назови его, сдавая шаг, после которого конвейер ждёт слияния, — шаг-ожидание сдаст событие GitHub. Отказы: not_yours (шаг ведёт другая сессия), no_ticket, bad_state.",
   example: { ticket: "poe2-41", verdict: "done", note: "3 среза, эталоны 12 из 12" },
-  input: z.object({ ticket: z.string(), verdict: Verdict.optional(), note: z.string().optional(), to: z.string().optional(), for: Term.optional(), resume: z.boolean().optional(), drop: z.boolean().optional(), pr: z.string().optional() }),
+  input: z.object({ ticket: z.string(), verdict: Verdict.optional(), note: z.string().optional(), to: z.string().optional(), for: Term.optional(), resume: z.boolean().optional(), drop: z.boolean().optional(), pr: PrRef.optional() }),
   output: z.object({ id: z.string(), state: TicketState, step: z.number() }),
 });
 

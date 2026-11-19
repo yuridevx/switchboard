@@ -11,6 +11,9 @@ async function pem(): Promise<string> {
   return `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...der)).replace(/(.{64})/g, "$1\n")}\n-----END PRIVATE KEY-----\n`;
 }
 
+/** Секрет подписи событий приложения GitHub флота: его называет GitHub при создании приложения. */
+export const WEBHOOK_SECRET = "whsec_test_secret";
+
 /** Что сейчас лежит в factory.json репозитория ролей и на каком коммите: тест меняет поля — следующее применение читает новое. */
 export type DefFile = { text: string; sha: string };
 
@@ -22,7 +25,7 @@ export async function factoryFleet(file: DefFile, env?: Partial<Env>): Promise<S
   const key = await pem();
   s.state.net = (url) => {
     const path = new URL(url).pathname;
-    if (path === "/app-manifests/code123/conversions") return Response.json({ id: 42, slug: "switchboard-test", owner: { login: "team" }, pem: key });
+    if (path === "/app-manifests/code123/conversions") return Response.json({ id: 42, slug: "switchboard-test", owner: { login: "team" }, pem: key, webhook_secret: WEBHOOK_SECRET });
     if (path === "/repos/team/roles/installation") return Response.json({ id: 5 });
     if (path === "/app/installations/5/access_tokens") return Response.json({ token: "ghs_token", expires_at: "2027-01-01T00:00:00Z" });
     if (path === "/repos/team/roles/commits/HEAD") return Response.json({ sha: file.sha });

@@ -1,7 +1,9 @@
-// Эталоны «Входов»: адрес с секретом для событий снаружи и зов правила входа по имени. Событие идёт «Фабрике» — тикетом по правилу.
+// Эталоны «Входов»: адрес с секретом для событий снаружи и зов правила входа по имени — событие идёт «Фабрике» тикетом по правилу;
+// событие приложения GitHub с подписью — вердикт тикету, который ждёт PR.
 import { describe, expect, it, vi } from "vitest";
 import type { Ticket } from "@sb/protocol";
-import { appliedFleet } from "../../test/factory.ts";
+import { appliedFleet, WEBHOOK_SECRET } from "../../test/factory.ts";
+import { stand } from "../../test/stand.ts";
 import type { Stand } from "../../test/stand.ts";
 import { drop } from "./clock/clock.ts";
 
@@ -145,5 +147,77 @@ describe("входы: правило зовут по имени", () => {
     expect(await s.ask("ticket.new", { project: "site", on: "model", title: "Своё название" })).toMatchObject({ ok: false, error: "bad_input" });
     expect(await s.ask("ticket.new", { project: "site", text: "без названия" })).toMatchObject({ ok: false, error: "bad_input" });
     await finish(s);
+  });
+});
+
+/* ===== События GitHub ===== */
+
+/** Проект «site» слушает свой репозиторий team/site; конвейер ship: шаг сессии, затем ожидание слияния PR. */
+const SHIP = {
+  ...DEF,
+  repos: { site: { repo: "team/site" } },
+  lines: { ship: { limit: 2, for: "2h", at: ["@laptop"], cwd: "~/work/{id}", key: "claude", model: "claude-opus-5-5", steps: [{ name: "сделать", session: "new" }, { name: "слияние", wait: "pr.merged", for: "3d" }] } },
+};
+/** Подпись события, как её ставит GitHub: HMAC-SHA256 тела секретом приложения. */
+async function signed(secret: string, raw: string): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return "sha256=" + [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+/** Событие приложения GitHub флоту. */
+async function github(s: Stand, event: string, payload: object, secret = WEBHOOK_SECRET) {
+  const raw = JSON.stringify(payload);
+  const res = await s.http(`/github/${s.fleet}`, { method: "POST", headers: { "content-type": "application/json", "x-github-event": event, "x-hub-signature-256": await signed(secret, raw) }, body: raw });
+  return [res.status, await res.json()] as const;
+}
+const closed = (number: number, merged: boolean) => ({ action: "closed", repository: { full_name: "team/site" }, sender: { login: "octocat" }, pull_request: { number, merged } });
+/** Тикет на конвейере ship: шаг сессии сдан с PR — тикет ждёт слияния. */
+async function waiting(s: Stand, title: string, pr: string): Promise<string> {
+  const id = ((await s.ask("ticket.new", { project: "site", to: "ship", title })).result as { id: string }).id;
+  const session = (await one(s, id)).session!;
+  expect(await s.ask("ticket.set", { ticket: id, verdict: "done", note: "PR открыт", pr }, "klaptop", session)).toMatchObject({ ok: true, result: { state: "wait", step: 1 } });
+  return id;
+}
+
+describe("входы: события GitHub", () => {
+  // эталон 11 — чьё: слово пользователя («внешние события: PR, слияния PR»)
+  it("11 · слияние сдаёт шаг: тикет ждёт PR 218; событие слияния с неверной подписью — 401, тикет на месте; с верной — шаг сдан", async () => {
+    const { s } = await appliedFleet(SHIP, CH);
+    const id = await waiting(s, "Шапка сайта", "team/site#218");
+    expect(await github(s, "pull_request", closed(218, true), "чужой секрет")).toEqual([401, { error: "bad_signature" }]);
+    expect(await one(s, id)).toMatchObject({ state: "wait", step: 1, pr: "team/site#218" });
+    expect(await github(s, "pull_request", closed(218, true))).toEqual([200, { tickets: [id] }]);
+    const t = await one(s, id);
+    expect(t).toMatchObject({ state: "done", pr: "team/site#218" });
+    expect(t.notes!.at(-1)).toMatchObject({ by: ".github", verdict: "done", text: "PR team/site#218 слит" });
+    // тикет закрыт: свежая сессия шага убрана, срок ожидания снят с часов
+    expect(s.seen.delivered.filter((f) => f.type === "session.remove").map((f) => f.to)).toEqual(["site-1-s1@laptop"]);
+    // в истории — событие с верной подписью: что пришло и каким тикетам дан вердикт
+    expect(lines(s, "hook")).toEqual([{ outcome: "merged", path: `/github/${s.fleet}`, event: "pull_request", status: 200, pr: "team/site#218", tickets: [id] }]);
+    await finish(s);
+  });
+
+  it("замечания ревью возвращают шаг автору с текстом; PR закрыт без слияния — «стоп»; событие не о ждущем PR тикеты не трогает", async () => {
+    const { s } = await appliedFleet(SHIP);
+    const id = await waiting(s, "Подвал сайта", "team/site#219");
+    const review = { action: "submitted", repository: { full_name: "team/site" }, pull_request: { number: 219 }, review: { state: "changes_requested", body: "поправь тест подвала", user: { login: "reviewer" } } };
+    expect(await github(s, "pull_request_review", review)).toEqual([200, { tickets: [id] }]);
+    // возврат — на ближайший прежний шаг с сессией, той же сессии, с текстом ревью
+    expect(await one(s, id)).toMatchObject({ state: "work", step: 0, session: "site-1-s1@laptop", returns: 1 });
+    expect(String(gives(s).at(-1)!.text)).toContain("Вернули с замечанием: замечания ревью PR team/site#219 от reviewer: поправь тест подвала");
+    expect(await s.ask("ticket.set", { ticket: id, verdict: "done", note: "поправлено" }, "klaptop", "site-1-s1@laptop")).toMatchObject({ ok: true, result: { state: "wait", step: 1 } });
+    // чужой PR, одобрение ревью и событие не о PR — мимо
+    expect(await github(s, "pull_request", closed(999, true))).toEqual([200, { tickets: [] }]);
+    expect(await github(s, "pull_request_review", { ...review, review: { ...review.review, state: "approved" } })).toEqual([200, { tickets: [] }]);
+    expect(await github(s, "ping", { zen: "Keep it logically awesome." })).toEqual([200, { tickets: [] }]);
+    expect(await one(s, id)).toMatchObject({ state: "wait", step: 1 });
+    expect(await github(s, "pull_request", closed(219, false))).toEqual([200, { tickets: [id] }]);
+    expect(await one(s, id)).toMatchObject({ state: "stop", why: "PR team/site#219 закрыт без слияния" });
+    await finish(s);
+  });
+
+  it("флоту без приложения с событиями подпись сверить нечем — 401", async () => {
+    const s = stand();
+    expect(await github(s, "pull_request", closed(1, true))).toEqual([401, { error: "bad_signature" }]);
+    expect((await s.http(`/github/${s.fleet}`)).status).toBe(404);
   });
 });

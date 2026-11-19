@@ -1,5 +1,7 @@
 // GitHub для флота в коробке. Git — настоящий: репозиторий кусочков лежит на диске коробки, машины клонируют и отправляют как обычно —
 // адрес https://github.com/ подменяет настройка самого git (insteadOf) в его общем файле настроек, который коробка даёт машинам.
+// Событие приложения флоту шлёт тоже двойник: POST /box/deliver { url, event, payload } — он подписывает тело секретом, который назвал
+// при создании приложения, и доставляет на адрес флота, как это делает GitHub.
 // Токены приложения GitHub на раннере не получить, поэтому пять запросов API о них отвечает двойник; подпись приложения он сверяет по-настоящему.
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -51,6 +53,14 @@ export function serve(port, log = () => {}, state = "") {
   const git = (...args) => execFileSync("git", ["--git-dir", bare(state), ...args], { stdio: ["ignore", "pipe", "pipe"] }).toString();
   const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
   const APP = 1, INSTALL = 7;
+  /** Секрет подписи событий приложения: GitHub называет его один раз — в ответе на создание приложения. */
+  const SECRET = crypto.randomBytes(20).toString("hex");
+  /** Доставка события флоту: тело подписано секретом приложения. */
+  const deliver = async ({ url, event, payload }) => {
+    const raw = JSON.stringify(payload);
+    const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-github-event": event, "x-hub-signature-256": "sha256=" + crypto.createHmac("sha256", SECRET).update(raw).digest("hex") }, body: raw, signal: AbortSignal.timeout(60_000) });
+    return { status: r.status, body: await r.text() };
+  };
   /** Подпись приложения в Authorization: Bearer <JWT RS256> — сверяется ключом, который двойник выдал при создании приложения. */
   const signedByApp = (req) => {
     const [head, body, sign] = (/^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "").split(".");
@@ -61,7 +71,12 @@ export function serve(port, log = () => {}, state = "") {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://github.box");
     const send = (status, body) => (log(`${req.method} ${url.pathname} → ${status}`), res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body)));
-    if (req.method === "POST" && /^\/app-manifests\/[\w-]+\/conversions$/.test(url.pathname)) return send(201, { id: APP, slug: "switchboard-box", owner: { login: "box" }, pem: privateKey.export({ type: "pkcs1", format: "pem" }) });
+    if (req.method === "POST" && /^\/app-manifests\/[\w-]+\/conversions$/.test(url.pathname)) return send(201, { id: APP, slug: "switchboard-box", owner: { login: "box" }, pem: privateKey.export({ type: "pkcs1", format: "pem" }), webhook_secret: SECRET });
+    if (req.method === "POST" && url.pathname === "/box/deliver") {
+      const parts = [];
+      req.on("data", (d) => parts.push(d));
+      return void req.on("end", () => deliver(JSON.parse(Buffer.concat(parts).toString("utf8"))).then((r) => send(200, r), (e) => send(502, { message: String(e?.message ?? e) })));
+    }
     const token = /^token (.+)$/.exec(req.headers.authorization ?? "")?.[1];
     if (req.method === "GET" && url.pathname === "/installation/repositories") return token?.startsWith("ghs_box_") ? send(200, { repositories: [{ full_name: REPO }] }) : send(401, { message: "Bad credentials" });
     // чтение репозитория токеном установки: голова основной ветки и файл на названном коммите

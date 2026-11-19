@@ -1,9 +1,9 @@
 // Worker служб v2: без состояния. Вход /call, сервер MCP и вход OAuth для внешних клиентов, проход сокетов в платформу,
-// вебхук Telegram флота (/telegram/<флот>), адреса с секретом для событий снаружи (/h/<флот>/<секрет>), сайты сессий (/s/<номер>/),
+// вебхук Telegram флота (/telegram/<флот>), адреса с секретом для событий снаружи (/h/<флот>/<секрет>), события приложения GitHub флота (/github/<флот>), сайты сессий (/s/<номер>/),
 // файлы страницы; потребитель очереди аналитики.
 import type { Deps, Env, Module, PointNote } from "./env.ts";
 import { callHttp, handlersOf } from "./entrance.ts";
-import { analytics, consume, archive, builds, clock, factory, files, github, hook, hooks, keys, ledger, mcp, obs, prefs, reach, site, telegram } from "./modules/index.ts";
+import { analytics, consume, archive, builds, clock, factory, files, github, githubHook, hook, hooks, keys, ledger, mcp, obs, prefs, reach, site, telegram } from "./modules/index.ts";
 import { oauth } from "./oauth.ts";
 
 export { Records } from "./records.ts";
@@ -31,6 +31,7 @@ export async function serve(req: Request, env: Env, exec: ExecutionContext, deps
   if (entry) return entry;
   if (pathname.startsWith("/telegram/")) return telegram(req, env, exec, deps);
   if (pathname.startsWith("/h/")) return hook(req, env, deps);
+  if (pathname.startsWith("/github/")) return githubHook(req, env, deps);
   if (pathname.startsWith("/s/")) return site(req, env);
   if (pathname === "/manifest.webmanifest" && env.ASSETS) {
     // Манифест приложения; с приглашением — адрес запуска несёт его, чтобы приложение с экрана «Домой» вошло само

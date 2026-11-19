@@ -4,6 +4,7 @@
 // которая его ведёт, машины этой сессии или человека — либо срок. Тикеты заводят и правила входа из определения: по сроку правила
 // идёт проверка-скрипт на машине, код 0 — тихо, иначе её вывод — находка: новый тикет или заметка в открытый с тем же ключом.
 // Тем же событием правила приходит зов по имени (ticket.new {on}) и запрос на адрес с секретом (модуль «Входы»).
+// Шаг-ожидание сдаёт событие GitHub о PR тикета: слит — «сдал», замечания ревью — «вернул», закрыт — «стоп».
 // Сама Фабрика ничего не чинит и не повторяет: отказ машины, второй возврат и вышедший срок ставят тикет в «стоп» с причиной.
 import {
   CALL_MS, canReach, checkOutcome, checkRun, errFields, FACTORY, FACTORY_FILE, FactoryDef, type FactoryState, type FileIn, kindOf, type LineDef, machineOf, newId, type Project, Refusal,
@@ -11,6 +12,7 @@ import {
 } from "@sb/protocol";
 import type { Ctx, Env, Module, Outside } from "../../env.ts";
 import { type Op, records } from "../../records.ts";
+import type { PrEvent } from "../github/contract.ts";
 import { line as historyLine } from "../analytics/contract.ts";
 import { drop, list as timers, next, on, set } from "../clock/contract.ts";
 import { file } from "../github/contract.ts";
@@ -42,6 +44,11 @@ const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS def (one INTEGER PRIMARY KEY CHECK (one = 1), repo TEXT NOT NULL, sha TEXT NOT NULL, at INTEGER NOT NULL, by TEXT NOT NULL, json TEXT NOT NULL, paused INTEGER NOT NULL DEFAULT 0)",
 ];
 const db = (env: Env, fleet: string, project: string) => records(env, fleet, NAME, SCHEMA, project);
+/** Записи на флот: событие GitHub приходит флоту, а тикеты лежат по проектам — какой проект слушает какой свой репозиторий, пишет применение определения. */
+const FLEET_SCHEMA = ["CREATE TABLE IF NOT EXISTS repos (repo TEXT NOT NULL, project TEXT NOT NULL, PRIMARY KEY (repo, project))"];
+const fleetDb = (env: Env, fleet: string) => records(env, fleet, NAME, FLEET_SCHEMA);
+/** От чьего имени вердикт события GitHub. */
+const GITHUB = ".github";
 
 /** Сессия, которая вела шаг: fresh — открыта этим тикетом и уйдёт вместе с ним. */
 type Run = { s: string; fresh?: true };
@@ -340,6 +347,73 @@ on(TERM, async (env, fleet, input, w) => {
 
 const outside = (ctx: Ctx): Outside => ({ platform: ctx.platform, fetch: ctx.fetch, log: ctx.log });
 
+/* ===== Правка тикета и вердикт ===== */
+
+/** Правки одного тикета от одного автора. Каждая проходит, только если тикет всё ещё в том же состоянии и на том же шаге; заметка — той же пачкой.
+ *  Тикет уже ушёл — отказ bad_state. planned — правка по плану шага k. */
+function mover(env: Env, fleet: string, project: string, def: FactoryDef | null, was: Stored, by: string, now: number) {
+  const d = db(env, fleet, project);
+  const move = async (sets: string, params: (string | number | null)[], verdict: Verdict | null, text: string): Promise<Stored> => {
+    const ops: Op[] = [[`UPDATE tickets SET ${sets}, moved = ? WHERE n = ? AND state = ? AND step = ? RETURNING *`, ...params, now, was.n, was.state, was.step]];
+    if (verdict || text) ops.push(["INSERT INTO notes (n, at, by, verdict, text) SELECT ?, ?, ?, ?, ? WHERE changes() > 0", was.n, now, by, verdict, text]);
+    const s = (await d.batch(ops))[0]![0] as unknown as Stored | undefined;
+    if (!s) throw new Refusal("bad_state", `тикет ${idOf(project, was.n)} уже изменён: прочитайте его заново`);
+    return s;
+  };
+  const planned = (k: number, extra: string, more: (string | number | null)[], verdict: Verdict | null, text: string) => {
+    const { sets, params } = planSets(plan(def, project, was, k), k, now);
+    return move(sets + extra, [...params, ...more], verdict, text);
+  };
+  return { move, planned };
+}
+
+/** Вердикт шагу в работе или ожидании — от сессии, машины, человека или события. «Сдал» ведёт на следующий шаг или закрывает тикет; «стоп» ставит
+ *  с причиной; «вернул» — назад, на ближайший прежний шаг с сессией, второй возврат на шаге — «стоп». same — возврат оставляет шаг у той же
+ *  сессии: проверка шага не прошла. Ответ — тикет после правки и слово движения для истории. */
+async function decide(env: Env, fleet: string, project: string, def: FactoryDef | null, was: Stored, v: { verdict: Verdict; note: string; by: string; pr?: string; same?: boolean }, now: number): Promise<{ s: Stored; word: string }> {
+  const { move, planned } = mover(env, fleet, project, def, was, v.by, now);
+  const last = (was.dest ? def?.lines[was.dest]?.steps.length : undefined) ?? 1;
+  let s: Stored;
+  if (v.verdict === "done") {
+    const pr = v.pr ? ", pr = ?" : "";
+    s = was.step + 1 >= last ? await move("state = 'done', until = NULL, why = NULL, target = NULL" + pr, v.pr ? [v.pr] : [], "done", v.note) : await planned(was.step + 1, pr, v.pr ? [v.pr] : [], "done", v.note);
+  } else if (v.verdict === "stop") s = await move("state = 'stop', until = NULL, why = ?", [v.note || "нужен человек"], "stop", v.note);
+  else {
+    const k = v.same ? was.step : backTo(def, was);
+    const again = was.backstep === k ? was.returns + 1 : 1;
+    if (again >= RETURNS) s = await move("state = 'stop', until = NULL, why = 'второй возврат', returns = ?, backstep = ?", [again, k], "back", v.note);
+    else if (v.same) s = await move("returns = ?, backstep = ?", [again, k], "back", v.note);
+    else s = await planned(k, ", returns = ?, backstep = ?", [again, k], "back", v.note);
+  }
+  return { s, word: s.state === "stop" && v.verdict === "back" ? "stop" : v.verdict };
+}
+
+/** Событие GitHub о PR: тикеты проектов, которые слушают его репозиторий, на шаге-ожидании с этим PR получают вердикт — слит — «сдал»,
+ *  замечания ревью — «вернул» автору с текстом, закрыт без слияния — «стоп». Ответ — номера тикетов, которым дан вердикт. */
+export async function prEvent(env: Env, w: Outside, fleet: string, e: PrEvent, trace: string): Promise<string[]> {
+  const projects = await fleetDb(env, fleet).all<{ project: string }>("SELECT project FROM repos WHERE repo = ?", e.pr.slice(0, e.pr.indexOf("#")));
+  const moved: string[] = [];
+  const v = e.outcome === "merged" ? { verdict: "done" as const, note: `PR ${e.pr} слит` }
+    : e.outcome === "changes" ? { verdict: "back" as const, note: `замечания ревью PR ${e.pr} от ${e.by}: ${e.text}`.trim() }
+    : { verdict: "stop" as const, note: `PR ${e.pr} закрыт без слияния` };
+  for (const { project } of projects) {
+    const def = (await applied(env, fleet, project))?.def ?? null;
+    for (const was of await db(env, fleet, project).all<Stored>("SELECT * FROM tickets WHERE state = 'wait' AND pr = ?", e.pr)) {
+      if (!stepOf(def, was)?.step.wait) continue;
+      try {
+        const { s, word } = await decide(env, fleet, project, def, was, { ...v, by: GITHUB }, Date.now());
+        await settle(env, w, fleet, project, def, was, s, word, GITHUB, v.note, trace);
+        moved.push(idOf(project, was.n));
+      } catch (x) {
+        // тикет ушёл с шага раньше события: вердикт уже дал человек или срок
+        if (!(x instanceof Refusal)) throw x;
+        w.log.warn("событие PR тикету не дано", { module: NAME, fleet, ticket: idOf(project, was.n), pr: e.pr, word: x.word, why: x.why });
+      }
+    }
+  }
+  return moved;
+}
+
 /* ===== Новый тикет и правила входа ===== */
 
 type Draft = { title: string; text: string; to: string | null; by: string; key?: string; tag?: string; rule?: string; term: number | null; start?: number; files?: FileIn[] };
@@ -594,18 +668,7 @@ export const factory: Module = {
       const by = ctx.who.addr;
       const now = Date.now();
       const note = i.note ?? "";
-      /** Правка тикета, если он всё ещё в том же состоянии и на том же шаге; заметка — той же пачкой. Тикет уже ушёл — отказ. */
-      const move = async (sets: string, params: (string | number | null)[], verdict: Verdict | null, text: string): Promise<Stored> => {
-        const ops: Op[] = [[`UPDATE tickets SET ${sets}, moved = ? WHERE n = ? AND state = ? AND step = ? RETURNING *`, ...params, now, n, was.state, was.step]];
-        if (verdict || text) ops.push(["INSERT INTO notes (n, at, by, verdict, text) SELECT ?, ?, ?, ?, ? WHERE changes() > 0", n, now, by, verdict, text]);
-        const s = (await d.batch(ops))[0]![0] as unknown as Stored | undefined;
-        if (!s) throw new Refusal("bad_state", `тикет ${i.ticket} уже изменён: прочитайте его заново`);
-        return s;
-      };
-      const planned = (k: number, extra = "", more: (string | number | null)[] = [], verdict: Verdict | null = null, text = note) => {
-        const { sets, params } = planSets(plan(def, project, was, k), k, now);
-        return move(sets + extra, [...params, ...more], verdict, text);
-      };
+      const { move, planned } = mover(ctx.env, ctx.fleet, project, def, was, by, now);
       let s: Stored;
       let word: string;
       if (i.verdict) {
@@ -614,20 +677,8 @@ export const factory: Module = {
         const kind = kindOf(by);
         if (kind === "session" && was.session !== by) throw new Refusal("not_yours", `шаг тикета ${i.ticket} ведёт ${was.session ?? "не сессия"}`);
         if (kind === "machine" && machineOf(was.session ?? "") !== machineOf(by)) throw new Refusal("not_yours", `шаг тикета ${i.ticket} ведёт сессия другой машины`);
-        const last = (was.dest ? def?.lines[was.dest]?.steps.length : undefined) ?? 1;
-        if (i.verdict === "done") {
-          const pr = i.pr ? ", pr = ?" : "";
-          s = was.step + 1 >= last ? await move("state = 'done', until = NULL, why = NULL, target = NULL" + pr, i.pr ? [i.pr] : [], "done", note) : await planned(was.step + 1, pr, i.pr ? [i.pr] : [], "done");
-        } else if (i.verdict === "stop") s = await move("state = 'stop', until = NULL, why = ?", [note || "нужен человек"], "stop", note);
-        else {
-          // возврат: машина сессии — проверка шага не прошла, шаг остаётся у той же сессии; иначе — назад, на ближайший прежний шаг с сессией
-          const k = kind === "machine" ? was.step : backTo(def, was);
-          const again = was.backstep === k ? was.returns + 1 : 1;
-          if (again >= RETURNS) s = await move("state = 'stop', until = NULL, why = 'второй возврат', returns = ?, backstep = ?", [again, k], "back", note);
-          else if (kind === "machine") s = await move("returns = ?, backstep = ?", [again, k], "back", note);
-          else s = await planned(k, ", returns = ?, backstep = ?", [again, k], "back");
-        }
-        word = s.state === "stop" && i.verdict === "back" ? "stop" : i.verdict;
+        // возврат от машины сессии — проверка шага не прошла: шаг остаётся у той же сессии
+        ({ s, word } = await decide(ctx.env, ctx.fleet, project, def, was, { verdict: i.verdict, note, by, pr: i.pr, same: kind === "machine" }, now));
       } else if (i.resume) {
         if (was.state !== "stop") throw new Refusal("bad_state", `тикет ${i.ticket} — ${was.state}: в очередь возвращают вставший`);
         s = await planned(was.step, ", returns = 0, backstep = NULL", [], null, note || "возвращён в очередь");
@@ -688,6 +739,11 @@ export const factory: Module = {
         await d.run(`UPDATE tickets SET ${sets} WHERE n = ? AND state = 'ready'`, ...params, t.n);
       }
       await schedule(ctx.env, ctx.fleet, i.project, def, now);
+      // какие свои репозитории слушает проект: по ним событие GitHub находит его тикеты
+      await fleetDb(ctx.env, ctx.fleet).batch([
+        ["DELETE FROM repos WHERE project = ?", i.project],
+        ...[...new Set(Object.values(def.repos).map((r) => r.repo))].map((repo): Op => ["INSERT INTO repos (repo, project) VALUES (?, ?)", repo, i.project]),
+      ]);
       // посты, которых ещё нет, открываются; не открылся — причина в ответе, пост откроется с первым тикетом
       const have = new Set((await within(ctx.platform.sessions(ctx.fleet), CALL_MS, "платформа не назвала сессии")).map((s) => s.callsign));
       const opened: string[] = [];

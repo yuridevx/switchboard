@@ -9,12 +9,12 @@ async function pem(): Promise<string> {
   return `-----BEGIN PRIVATE KEY-----\n${b64}\n-----END PRIVATE KEY-----\n`;
 }
 
-/** Подделка API GitHub. */
-async function github(s: Stand) {
+/** Подделка API GitHub. secret — секрет подписи событий, который GitHub называет при создании приложения, подписанного на события. */
+async function github(s: Stand, secret?: string) {
   const key = await pem();
   s.state.net = (url, init) => {
     const path = new URL(url).pathname;
-    if (path === "/app-manifests/code123/conversions") return Response.json({ id: 42, slug: "switchboard-test", owner: { login: "yuri" }, pem: key });
+    if (path === "/app-manifests/code123/conversions") return Response.json({ id: 42, slug: "switchboard-test", owner: { login: "yuri" }, pem: key, ...(secret ? { webhook_secret: secret } : {}) });
     if (path === "/app/installations") return Response.json([{ id: 5 }]);
     if (path === "/installation/repositories") return Response.json({ repositories: [{ full_name: "yuri/site" }, { full_name: "yuri/base" }] });
     if (path === "/repos/yuri/site/installation") return Response.json({ id: 5 });
@@ -29,7 +29,11 @@ describe("GitHub", () => {
     const r = (await s.ask("github.setup", { redirect: "https://fleet.test/settings" })).result as { installed: boolean; form: { action: string; manifest: Record<string, unknown> } };
     expect(r.installed).toBe(false);
     expect(r.form.action).toBe("https://github.com/settings/apps/new");
-    expect(r.form.manifest).toMatchObject({ redirect_url: "https://fleet.test/settings", public: false, default_permissions: { contents: "write" } });
+    // приложение подписывается на события о PR и ревью: GitHub шлёт их на адрес флота
+    expect(r.form.manifest).toMatchObject({
+      redirect_url: "https://fleet.test/settings", public: false, default_permissions: { contents: "write", pull_requests: "read" },
+      hook_attributes: { url: `https://fleet.test/github/${s.fleet}`, active: true }, default_events: ["pull_request", "pull_request_review"],
+    });
     expect((await s.ask("github.app")).result).toEqual({ installed: false });
     expect(await s.ask("github.token", { repo: "yuri/site" }, "klaptop")).toMatchObject({ ok: false, error: "no_app" });
     expect(await s.ask("github.setup", {}, "kanya1")).toMatchObject({ ok: false, error: "forbidden" });
@@ -40,7 +44,7 @@ describe("GitHub", () => {
     await github(s);
     expect((await s.ask("github.setup", { code: "code123" })).result).toMatchObject({ installed: true, url: "https://github.com/apps/switchboard-test/installations/new" });
     expect(await s.ask("github.setup", { code: "code123" })).toMatchObject({ ok: false, error: "app_exists" });
-    expect((await s.ask("github.app", {}, "kanya1")).result).toEqual({ installed: true, name: "switchboard-test", url: "https://github.com/apps/switchboard-test/installations/new", repos: ["yuri/base", "yuri/site"] });
+    expect((await s.ask("github.app", {}, "kanya1")).result).toEqual({ installed: true, name: "switchboard-test", url: "https://github.com/apps/switchboard-test/installations/new", repos: ["yuri/base", "yuri/site"], events: false });
     s.seen.net.length = 0;
     expect((await s.ask("github.token", { repo: "yuri/site" }, "klaptop")).result).toEqual({ token: "ghs_token", expires: Date.parse("2026-11-10T03:00:00Z") });
     const issue = s.seen.net.find((n) => n.url.endsWith("/access_tokens"))!;
@@ -49,6 +53,10 @@ describe("GitHub", () => {
     expect(await s.ask("github.token", { repo: "yuri/other" }, "klaptop")).toMatchObject({ ok: false, error: "not_installed" });
     expect(await s.ask("github.token", { repo: "yuri/site" }, "kyura1")).toMatchObject({ ok: false, error: "forbidden" });
     expect(await s.ask("github.token", { repo: "не репозиторий" }, "klaptop")).toMatchObject({ ok: false, error: "bad_input" });
+    // замена приложения на подписанное на события: GitHub называет секрет подписи — приложение принимает события
+    await github(s, "whsec_new");
+    expect((await s.ask("github.setup", { code: "code123", replace: true })).ok).toBe(true);
+    expect((await s.ask("github.app")).result).toMatchObject({ installed: true, events: true });
   });
 });
 
