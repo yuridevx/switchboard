@@ -69,6 +69,23 @@ const manifestForm = (redirect: string, org?: string) => ({
   },
 });
 
+/** Файл репозитория на голове его основной ветки — соседнему модулю служб: текст и коммит, с которого он прочитан.
+ *  Приложение флота должно быть допущено к репозиторию; файла нет — no_file. */
+export async function file(ctx: Ctx, repo: string, path: string): Promise<{ text: string; commit: string }> {
+  if (!REPO.test(repo)) throw new Refusal("bad_input", "repo — не вида владелец/имя");
+  const app = await readApp(ctx);
+  if (!app) throw new Refusal("no_app", "приложения ещё нет: github.setup не делали");
+  const auth = jwt(app);
+  const found = await api(ctx, "GET", `/repos/${repo}/installation`, auth);
+  if (found.status === 404) throw new Refusal("not_installed", `приложение не допущено к ${repo}: ${installUrl(app.slug)}`);
+  const { token } = await issue(ctx, json<{ id: number }>(found).id, auth, { repositories: [repo.split("/")[1]], permissions: { contents: "read" } });
+  const head = json<{ sha: string }>(await api(ctx, "GET", `/repos/${repo}/commits/HEAD`, `token ${token}`));
+  const got = await api(ctx, "GET", `/repos/${repo}/contents/${path}?ref=${head.sha}`, `token ${token}`);
+  if (got.status === 404) throw new Refusal("no_file", `в ${repo} нет файла ${path}`);
+  const { content, encoding } = json<{ content: string; encoding?: string }>(got);
+  return { text: Buffer.from(content, encoding === "base64" ? "base64" : "utf8").toString("utf8"), commit: head.sha };
+}
+
 export const github: Module = {
   name: NAME,
   handlers: {

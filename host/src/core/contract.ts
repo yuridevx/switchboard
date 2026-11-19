@@ -13,13 +13,15 @@ export type QueryPart = {
   settings?: Record<string, unknown>;
   /** добавка к системному промпту */
   append?: string;
-  hooks?: Record<string, Array<{ matcher?: string; hooks: Array<(...a: any[]) => Promise<unknown>> }>>;
+  /** timeout — предел хуков этого отбора в секундах: его держит Claude Code */
+  hooks?: Record<string, Array<{ matcher?: string; timeout?: number; hooks: Array<(...a: any[]) => Promise<unknown>> }>>;
   /** данные ниже по силе: уступают тому же ключу env и settings у любого модуля и в конфликт не идут */
   defaults?: { env?: Record<string, string>; settings?: Record<string, unknown> };
   [option: string]: unknown;
 };
 
-export type InputOpts = { priority?: Priority; uuid?: string; [k: string]: unknown };
+/** priority: now и next — срочности сообщения из договора; later — поле SDK «после конца идущего хода»: так встаёт во ввод шаг тикета. */
+export type InputOpts = { priority?: Priority | "later"; uuid?: string; [k: string]: unknown };
 
 /** Сессия глазами модуля. */
 export interface SessionApi {

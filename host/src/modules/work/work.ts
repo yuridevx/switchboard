@@ -1,16 +1,22 @@
 // «Дать работу»: служба «Фабрика» отдаёт сессии шаг тикета. Сессии с таким именем нет — открыть по документу; остановлена — поднять;
 // ввод — тегом вида ticket. Ход, который взял шаг и кончается без вердикта, возвращается один раз — штатным хуком остановки Claude Code.
+// Проверка шага — скрипт из определения: машина запускает его перед вердиктом «сдал» штатным хуком перед вызовом инструмента;
+// код не 0 — вердикт не уходит, тикету — возврат с выводом скрипта. Что проверять, знает тикет: машина спрашивает его в момент вердикта.
 // Записей о шагах модуль не держит: что шаг у сессии и что вердикт дан, записано в тикете. В памяти — только ввод, который дан,
 // пока ход его не взял и не кончился; после перезапуска Host восстанавливать нечего.
 import { randomUUID } from "node:crypto";
-import { Refusal, type Spec, ticketSet } from "@sb/protocol";
+import { FACTORY, Refusal, shellRun, type Spec, termMs, TICKET_SET_TOOL, ticketList, ticketSet } from "@sb/protocol";
 import type { Ctx, HostApi, Module } from "../../core/contract.ts";
 import { envelope } from "../chat/contract.ts";
 
-/** Адрес службы «Фабрика»: работу сессии даёт только она. */
-const FROM = ".factory";
-/** Инструмент вердикта у процесса сессии: сервер fleet, запрос ticket.set. */
-const SET_TOOL = "mcp__fleet__ticket_set";
+/** Работу сессии даёт только служба «Фабрика». */
+const FROM = FACTORY;
+/** Инструмент вердикта у процесса сессии. */
+const SET_TOOL = TICKET_SET_TOOL;
+/** Предел хука проверки шага у Claude Code, секунды: сама проверка ограничена сроком из определения, он не больше предела запуска скрипта машины. */
+const CHECK_HOOK_S = 6 * 3600;
+/** Сколько знаков вывода проверки уходит сессии и в заметку тикета: хвост, где причина. */
+const CHECK_OUT = 4000;
 /** Шаг на руках у сессии: set — вердикт по нему в этом ходе уже ушёл. */
 type Step = { ticket: string; step?: string; set?: boolean };
 
@@ -43,20 +49,61 @@ export function make(): Module {
         let s = host.session(callsign);
         if (!s) {
           if (!i.spec) throw new Refusal("no_session", `сессии ${callsign} нет`);
-          s = await host.open(i.spec, { by: FROM });
+          // папку сессии называет определение — у свежей сессии она своя на тикет: её нет — создаётся
+          s = await host.open(i.spec, { by: FROM, mkdir: true });
         } else if (s.state === "failed") throw new Refusal("failed", `${callsign}: ${s.info.error ?? "сессия остановилась со сбоем"}`);
         else if (s.state === "stopping") throw new Refusal("stopped", `${callsign} останавливается`);
         else if (s.state === "stopped") await s.start();
         const uuid = randomUUID();
         given.set(uuid, { callsign, ticket: i.ticket, ...(i.step ? { step: i.step } : {}) });
-        s.input(envelope(FROM, "ticket", i.text, { ticket: i.ticket, step: i.step, on: i.on, key: i.key }), { priority: "next", uuid });
+        // шаг — новым ходом: ввод ждёт конца идущего хода, а не вклинивается в него. Иначе следующий шаг той же сессии
+        // приходил бы посреди хода, которым она сдаёт прошлый, и напоминание о вердикте относилось бы не к тому ходу
+        s.input(envelope(FROM, "ticket", i.text, { ticket: i.ticket, step: i.step, on: i.on, key: i.key }), { priority: "later", uuid });
         host.log.info("work", { callsign, kind: "given", why: word(i) });
         return { callsign };
       },
     },
     compose(s) {
+      /** Вердикт «сдал» не принят: причина — сессии. */
+      const deny = (reason: string) => ({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } });
       return {
         hooks: {
+          // «сдал» шагу с проверкой: сначала скрипт на этой машине, в папке сессии, с пределом из определения
+          PreToolUse: [
+            {
+              matcher: SET_TOOL,
+              timeout: CHECK_HOOK_S,
+              hooks: [
+                async (input: { tool_input?: { ticket?: string; verdict?: string } }) => {
+                  const id = input.tool_input?.ticket;
+                  if (input.tool_input?.verdict !== "done" || !id) return {};
+                  let check;
+                  try {
+                    const t = (await host.call(ticketList, { ticket: id }, { from: s.callsign })).tickets[0];
+                    if (t?.state !== "work" || t.session !== s.callsign) return {};
+                    check = t.check;
+                  } catch (e) {
+                    // службы не ответили — не ответят и вердикту: отказ словом, сессия сдаст позже
+                    return (e as Refusal).word === "no_ticket" ? {} : deny(`Шаг не принят: не удалось узнать проверку шага — ${(e as Error).message}. Сдай ещё раз.`);
+                  }
+                  if (!check) return {};
+                  const sec = termMs(check.for) / 1000;
+                  const r = await host.call(shellRun, { to: "@" + host.machine, shell: process.platform === "win32" ? "powershell" : "bash", script: check.run, cwd: s.info.cwd, timeout: sec, wait: sec + 10 });
+                  const good = r.state === "done" && r.code === 0;
+                  host.log.info("work", { callsign: s.callsign, kind: "checked", why: `тикет ${id}: проверка «${check.run}» — ${good ? "код 0" : r.state === "failed" ? `код ${r.code}` : r.state}` });
+                  if (good) return {};
+                  const out = (r.out ?? "").slice(-CHECK_OUT);
+                  const note = `проверка «${check.run}» не прошла: ${r.state === "failed" ? `код ${r.code}` : r.state === "timeout" ? `не уложилась в ${check.for}` : r.state}${out ? "\n" + out : ""}`;
+                  // возврат записывает машина: шаг остаётся у этой сессии, второй возврат ставит тикет в «стоп»
+                  const set = await host.call(ticketSet, { ticket: id, verdict: "back", note }).catch((e: unknown) => {
+                    host.log.warn("work", { callsign: s.callsign, kind: "checked", word: (e as Refusal).word ?? "offline", why: `тикет ${id}: возврат проверки не записан — ${(e as Error).message}` });
+                    return undefined;
+                  });
+                  return deny(set?.state === "stop" ? `Шаг встал: ${note}\nЭто второй возврат на шаге — тикет ждёт человека. Больше его не сдавай.` : `Шаг не принят: ${note}\nИсправь и сдай снова.`);
+                },
+              ],
+            },
+          ],
           // вердикт ушёл — шаг сдан: этому ходу напоминать не о чем
           PostToolUse: [
             {

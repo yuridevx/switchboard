@@ -15,6 +15,8 @@ const WORKTREE: ToolKind = { word: "Ворктри", icon: "git-branch", keys: [
 /** Инструменты файлов сервера fleet: отправить файл человеку и поднять сайт. Лента рисует их не строкой инструмента, а самим файлом и сайтом. */
 export const SEND_TOOL = "mcp__fleet__file_send";
 export const SITE_TOOL = "mcp__fleet__site_publish";
+/** Инструмент вердикта шага тикета у процесса сессии. */
+export const TICKET_SET_TOOL = "mcp__fleet__ticket_set";
 
 export const TOOL_KINDS: Record<string, ToolKind> = {
   [SEND_TOOL]: { word: "Отправка файла", icon: "file-text", keys: ["title", "path"] },
