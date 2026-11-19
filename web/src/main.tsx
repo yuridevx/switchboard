@@ -26,6 +26,9 @@ import { theme } from "./theme.ts";
 
 // Редкие разделы — отдельными кусками сборки: графики и таблицы не грузятся, пока их не открыли.
 const Archive = lazy(() => import("./screens/Archive.tsx").then((m) => ({ default: m.Archive })));
+const Factory = lazy(() => import("./screens/Factory.tsx").then((m) => ({ default: m.Factory })));
+const FactoryTicket = lazy(() => import("./screens/Factory.tsx").then((m) => ({ default: m.TicketPage })));
+const FactoryNew = lazy(() => import("./screens/Factory.tsx").then((m) => ({ default: m.NewTicket })));
 const Fleet = lazy(() => import("./screens/Fleet.tsx").then((m) => ({ default: m.Fleet })));
 const Machine = lazy(() => import("./screens/Machine.tsx").then((m) => ({ default: m.Machine })));
 const Observe = lazy(() => import("./screens/Observe.tsx").then((m) => ({ default: m.Observe })));
@@ -44,6 +47,9 @@ const router = createHashRouter([
     children: [
       { index: true, element: <Navigate to="/work" replace /> },
       { path: "work/:callsign?", element: <Work /> },
+      { path: "factory/:project?", element: late(<Factory />) },
+      { path: "factory/:project/new", element: late(<FactoryNew />) },
+      { path: "factory/:project/t/:id", element: late(<FactoryTicket />) },
       { path: "archive/:sid?", element: late(<Archive />) },
       { path: "spend", element: late(<Spend />) },
       { path: "fleet/:tab?", element: late(<Fleet />) },
