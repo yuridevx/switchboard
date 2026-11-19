@@ -66,6 +66,13 @@ export const rulesTest = request("rules.test", {
 
 /* ===== Профили (host-profiles) ===== */
 
+/** Имя кусочка — репозиторий и папка в нём: team/profiles/ops → team/profiles и ops. Выход из папки и короткое имя — не кусочек. */
+export function splitPiece(id: string): { repo: string; folder: string } | null {
+  const parts = id.split("/");
+  if (parts.length < 3 || parts.some((p) => !p || p === "." || p === "..")) return null;
+  return { repo: parts.slice(0, 2).join("/"), folder: parts.slice(2).join("/") };
+}
+
 export const Piece = z.object({
   id: z.string(),
   repo: z.string(),

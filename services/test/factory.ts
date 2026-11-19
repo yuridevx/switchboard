@@ -14,8 +14,9 @@ async function pem(): Promise<string> {
 /** Секрет подписи событий приложения GitHub флота: его называет GitHub при создании приложения. */
 export const WEBHOOK_SECRET = "whsec_test_secret";
 
-/** Что сейчас лежит в factory.json репозитория ролей и на каком коммите: тест меняет поля — следующее применение читает новое. */
-export type DefFile = { text: string; sha: string };
+/** Что сейчас лежит в factory.json репозитория ролей и на каком коммите: тест меняет поля — следующее применение читает новое.
+ *  dir — папка кусочка, в которой лежит файл; нет — он в корне. */
+export type DefFile = { text: string; sha: string; dir?: string };
 
 /** Флот с проектом «site» (участники — Юра и Аня), приложением GitHub и репозиторием ролей team/roles. */
 export async function factoryFleet(file: DefFile, env?: Partial<Env>): Promise<Stand> {
@@ -29,7 +30,8 @@ export async function factoryFleet(file: DefFile, env?: Partial<Env>): Promise<S
     if (path === "/repos/team/roles/installation") return Response.json({ id: 5 });
     if (path === "/app/installations/5/access_tokens") return Response.json({ token: "ghs_token", expires_at: "2027-01-01T00:00:00Z" });
     if (path === "/repos/team/roles/commits/HEAD") return Response.json({ sha: file.sha });
-    if (path === "/repos/team/roles/contents/factory.json") return file.text ? Response.json({ content: Buffer.from(file.text).toString("base64"), encoding: "base64" }) : new Response("{}", { status: 404 });
+    if (path === `/repos/team/roles/contents/${file.dir ? file.dir + "/" : ""}factory.json`) return file.text ? Response.json({ content: Buffer.from(file.text).toString("base64"), encoding: "base64" }) : new Response("{}", { status: 404 });
+    if (path.startsWith("/repos/team/roles/contents/")) return new Response("{}", { status: 404 });
     return new Response(null, { status: 201 });
   };
   expect((await s.ask("github.setup", { code: "code123" })).ok).toBe(true);

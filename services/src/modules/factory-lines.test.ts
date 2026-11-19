@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { fail, type FactoryState, type Frame, ok, type Ticket } from "@sb/protocol";
 import type { Env, Outside } from "../env.ts";
-import { appliedFleet } from "../../test/factory.ts";
+import { appliedFleet, factoryFleet } from "../../test/factory.ts";
 import type { Stand } from "../../test/stand.ts";
 import { drop, fire, list } from "./clock/clock.ts";
 
@@ -78,6 +78,21 @@ describe("фабрика: определение проекта", () => {
     // человеку без проекта — его проекты с определением; не участнику — отказ; проекту без определения — no_factory
     expect((await s.ask("factory.get", {})).result).toMatchObject({ projects: [{ project: "site", repo: "team/roles", commit: "c1", paused: false }] });
     expect(await s.ask("factory.get", { project: "site" }, "koleg1")).toMatchObject({ ok: false, error: "forbidden" });
+  });
+});
+
+describe("фабрика: где лежит определение", () => {
+  // чьё: факт (у флота один репозиторий ролей на несколько проектов — определение проекта лежит в папке его кусочка)
+  it("определение читается из папки кусочка: один репозиторий ролей держит определения нескольких проектов", async () => {
+    const s = await factoryFleet({ text: JSON.stringify(DEF), sha: "c1", dir: "site-roles" });
+    // в корне файла нет — корень не подменяет папку
+    expect(await s.ask("factory.apply", { project: "site", repo: "team/roles" })).toMatchObject({ ok: false, error: "no_file" });
+    expect(await s.ask("factory.apply", { project: "site", repo: "team/roles/site-roles" })).toMatchObject({ ok: true, result: { commit: "c1", posts: 2, lines: 4 } });
+    expect(((await s.ask("factory.get", { project: "site" })).result as { factory: FactoryState }).factory).toMatchObject({ repo: "team/roles/site-roles", commit: "c1" });
+    // кусочек чужого репозитория и выход из папки — отказ, действует прежнее
+    for (const repo of ["team/other/site-roles", "team/roles/../x"]) expect(await s.ask("factory.apply", { project: "site", repo })).toMatchObject({ ok: false, error: "bad_factory" });
+    expect(((await s.ask("factory.get", { project: "site" })).result as { factory: FactoryState }).factory.commit).toBe("c1");
+    await close(s);
   });
 });
 

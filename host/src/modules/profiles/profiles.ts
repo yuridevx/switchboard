@@ -2,9 +2,8 @@
 // Состояние репозитория живёт в памяти Host: следующее сведение узнает его заново. Список репозиториев — настройка флота; машина её не хранит.
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { githubToken, prefsGet, READ_MS, Refusal, sessionCall, within, type Piece as PieceOut, type RepoClone } from "@sb/protocol";
+import { githubToken, prefsGet, READ_MS, Refusal, sessionCall, splitPiece, within, type Piece as PieceOut, type RepoClone } from "@sb/protocol";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
-import { splitId } from "./folder.ts";
 import { assemble, BadPieces, indexMeasure, namesIn, nearMemory, readPiece, valuesOf, type Assembly } from "./pieces.ts";
 import { realGit, syncRepo, type Git, type RepoState } from "./sync.ts";
 import { FILE_MAX, insideFile, viewOf } from "./view.ts";
@@ -45,7 +44,7 @@ export function make(o: { git?: Git } = {}): Module {
   const cloneOf = (repo: string) => join(root(), repo.replace("/", "__"));
   /** Папка кусочка на диске: на подъёме списка репозиториев ещё нет. */
   function folderOf(id: string): string | null {
-    const p = splitId(id);
+    const p = splitPiece(id);
     if (!p) return null;
     const dir = join(cloneOf(p.repo), p.folder);
     return existsSync(dir) ? dir : null;
@@ -70,7 +69,7 @@ export function make(o: { git?: Git } = {}): Module {
       r.state = { ...rest, dir: clone, ...(state.state === "ok" ? { at: Date.now() } : r.state.at ? { at: r.state.at } : {}) };
       // сведение принесло чужие правки кусочков — работающие сессии этого репозитория перечитывают скилы, агентов и серверы плагинов
       if (pulled) for (const s of host.sessions()) {
-        if (s.state === "stopped" || s.state === "failed" || !(s.spec.pieces ?? []).some((id) => splitId(id)?.repo === repo)) continue;
+        if (s.state === "stopped" || s.state === "failed" || !(s.spec.pieces ?? []).some((id) => splitPiece(id)?.repo === repo)) continue;
         void host.call(sessionCall, { to: s.callsign, method: "reload" }).catch((e: unknown) => host.log.warn("reload", { callsign: s.callsign, why: `кусочки ${repo} обновились, сессия не перечитала: ${(e as Error).message}` }));
       }
       if (state.state !== "ok") {
@@ -147,7 +146,7 @@ export function make(o: { git?: Git } = {}): Module {
       const file = fileOf(input);
       if (typeof file === "string") {
         const path = resolve(file);
-        for (const repo of new Set(a.pieces.map((p) => splitId(p.id)!.repo))) if (path.startsWith(cloneOf(repo) + sep)) void kick(repo);
+        for (const repo of new Set(a.pieces.map((p) => splitPiece(p.id)!.repo))) if (path.startsWith(cloneOf(repo) + sep)) void kick(repo);
         const hit = recordOf(file);
         if (hit) trace(hit, "write");
       }
@@ -262,7 +261,7 @@ export function make(o: { git?: Git } = {}): Module {
         }
         const s = host.session(session);
         if (!s) throw new Refusal("not_found", `сессии ${session} нет на ${host.machine}`);
-        const only = new Set(piecesOf(s).flatMap((id) => splitId(id)?.repo ?? []));
+        const only = new Set(piecesOf(s).flatMap((id) => splitPiece(id)?.repo ?? []));
         if (!repos.size) await tick();
         await Promise.all([...only].map(kick));
         return { repos: clones(only) };
