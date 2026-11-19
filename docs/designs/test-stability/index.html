@@ -1,0 +1,688 @@
+<title>Тесты без случайности</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* раскладка: сверху числа и карта «три входа теста»; ниже по одной теме на блок: история, ожидание, бюджет, своё состояние, три места, красный, тесты частей, журнал, эталоны, гейт, порядок */
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
+  --accent: #1f7a63; --accent-soft: #dcefe8; --warn: #a8620a; --warn-soft: #fbecd2; --bad: #b3362b; --bad-soft: #f7e1de; --code: #f0eee7; --chg: #fff3b0;
+  --display: "Space Grotesk", "Segoe UI", sans-serif; --text: Inter, "Segoe UI", system-ui, sans-serif; --mono: "JetBrains Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warn: #f0b05c; --warn-soft: #40301a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4318; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --warn: #f0b05c; --warn-soft: #40301a; --bad: #ef8a80; --bad-soft: #43221f; --code: #232a26; --chg: #4a4318; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 400 15px/1.5 var(--text); padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 34px; }
+h1 { font: 600 30px/1.15 var(--display); margin: 0; text-wrap: balance; }
+.lead { color: var(--muted); max-width: 64ch; margin: 6px 0 0; }
+h2 { font: 600 19px/1.25 var(--display); margin: 0 0 12px; text-wrap: balance; }
+section.read > h2::after { content: " ✓ прочитал"; font: 500 12px var(--text); color: var(--accent); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.scroll { overflow-x: auto; }
+svg { display: block; width: 100%; height: auto; font-family: var(--text); }
+.wide svg { min-width: 780px; }
+.n rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.n.in rect { fill: var(--accent-soft); stroke: var(--accent); }
+.n.no rect { fill: var(--bad-soft); stroke: var(--bad); stroke-dasharray: 6 4; }
+.n.mid rect { stroke: var(--fg); stroke-width: 2; }
+.n text { fill: var(--fg); font-size: 15px; font-weight: 600; }
+.n text.sub { fill: var(--muted); font-size: 12px; font-weight: 400; }
+.a path { stroke: var(--muted); stroke-width: 2; fill: none; }
+.a.in path { stroke: var(--accent); }
+.a.no path { stroke: var(--bad); stroke-dasharray: 6 4; }
+.a text { fill: var(--muted); font-size: 12px; }
+.a.no text { fill: var(--bad); font-weight: 600; }
+.a .head { fill: var(--muted); stroke: none; }
+.a.in .head { fill: var(--accent); }
+.a.no .head { fill: var(--bad); }
+.a .cut { stroke: var(--bad); stroke-width: 3; stroke-dasharray: none; }
+.zone { fill: none; stroke: var(--line); stroke-dasharray: 5 5; }
+.zone-t { fill: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+[data-x] { cursor: pointer; }
+[data-x]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.n[data-x]:hover rect, .n.on rect { stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: none; }
+.a[data-x]:hover path, .a.on path { stroke-width: 3.5; }
+.dim .n:not(.hot), .dim .a:not(.hot) { opacity: .3; }
+.why { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; min-height: 64px; }
+.why b { font: 600 15px var(--display); }
+.why p { margin: 0; max-width: 72ch; }
+pre { margin: 0; background: var(--code); border-radius: 8px; padding: 10px 12px; font: 400 12.5px/1.5 var(--mono); overflow-x: auto; white-space: pre; }
+.nums { display: flex; flex-wrap: wrap; gap: 10px; }
+.num { flex: 1 1 180px; min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.num b { font: 600 24px var(--display); font-variant-numeric: tabular-nums; display: block; }
+.num span { color: var(--muted); font-size: 13px; }
+.bars { display: grid; gap: 4px; font-size: 13px; }
+.bar { display: grid; grid-template-columns: 210px minmax(0, 1fr) 120px; gap: 10px; align-items: center; background: none; border: 1.5px solid transparent; border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 13px; color: inherit; text-align: left; }
+.bar:hover, .bar.on { border-color: var(--accent); }
+.bar i { display: block; height: 14px; border-radius: 4px; background: var(--muted); min-width: 3px; }
+.bar.t i { background: var(--warn); } .bar.w i { background: var(--bad); } .bar.g i { background: var(--accent); }
+.bar .v { font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
+@media (max-width: 560px) { .bar { grid-template-columns: 120px minmax(0, 1fr) 84px; } }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.two > div { min-width: 0; }
+.cap { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.stops { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.stop { background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; align-content: start; min-width: 0; font: inherit; color: inherit; text-align: left; }
+.stop:hover, .stop.on { border-color: var(--accent); }
+.stop.hold { border-color: var(--accent); }
+.stop .who { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.stop b { font: 600 16px var(--display); display: block; }
+.stop .q { font-weight: 600; }
+.stop .m { color: var(--muted); font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border-radius: 8px; padding: 5px 9px; font: 500 13px var(--text); border: 1.5px solid transparent; background: var(--soft); color: var(--fg); text-align: left; }
+.chip:hover, .chip.on { border-color: var(--accent); }
+.steps { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.step { flex: 1 1 150px; min-width: 0; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; text-align: left; font: inherit; color: inherit; display: grid; gap: 4px; align-content: start; }
+.step:hover, .step.on { border-color: var(--accent); }
+.step .who { font: 500 11px var(--text); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.step .what { font-weight: 600; overflow-wrap: anywhere; }
+.arrow { align-self: center; color: var(--muted); font-size: 18px; flex: none; }
+.et { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 10px; }
+.e { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.e .io { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; }
+.e .io > div { background: var(--soft); border-radius: 8px; padding: 8px; overflow-wrap: anywhere; min-width: 0; }
+.e .io > div.out { background: var(--accent-soft); }
+.e .src { color: var(--muted); font-size: 12px; }
+.e b { font: 600 14px var(--display); }
+.gate { white-space: pre-wrap; font: 400 13px/1.6 var(--mono); overflow-wrap: anywhere; }
+.order { display: grid; gap: 8px; counter-reset: s; }
+.o { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 12px 46px; position: relative; display: grid; gap: 4px; counter-increment: s; min-width: 0; }
+.o::before { content: counter(s); position: absolute; left: 12px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 600 13px var(--display); display: grid; place-items: center; }
+.o b { font: 600 15px var(--display); }
+.o .done { color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.chg { background: var(--chg); border-radius: 3px; }
+.n.chg rect, svg .chg-bg { fill: var(--chg); }
+svg .chg-bg { stroke: none; }
+div.chg { padding: 8px; }
+button { cursor: pointer; }
+/* шкалы времени и бюджета */
+.tl .lane { stroke: var(--line); stroke-width: 2; }
+.tl .busy { fill: var(--accent); }
+.tl .lab { fill: var(--fg); font-size: 13px; font-weight: 600; }
+.tl .note { fill: var(--muted); font-size: 12px; }
+.tl .bad { fill: var(--bad); font-size: 12px; font-weight: 600; }
+.tl .good { fill: var(--accent); font-size: 12px; font-weight: 600; }
+.tl .tick { stroke: var(--bad); stroke-width: 2; }
+.tl .sleep { fill: var(--warn-soft); stroke: var(--warn); }
+.tl .sig { stroke: var(--accent); stroke-width: 2.5; fill: none; }
+.tl .dotm { fill: var(--fg); }
+.bud .axis { stroke: var(--line); stroke-width: 1; }
+.bud .axt { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.bud .b-in { fill: var(--bad); } .bud .b-chk { fill: var(--muted); } .bud .b-job { fill: var(--line); } .bud .b-ok { fill: var(--accent); }
+.bud .lab { fill: var(--fg); font-size: 13px; font-weight: 600; }
+.bud .note { fill: var(--muted); font-size: 12px; }
+.bud .grp { fill: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.out2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.out2 > div { min-width: 0; }
+.out2 pre .r { color: var(--bad); } .out2 pre .g { color: var(--accent); } .out2 pre .m { color: var(--muted); }
+.parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.part { background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 2px; align-content: start; text-align: left; font: inherit; color: inherit; min-width: 0; }
+.part:hover, .part.on { border-color: var(--accent); }
+.part b { font: 600 15px var(--display); }
+.part .k { font: 600 20px var(--display); font-variant-numeric: tabular-nums; }
+.part .m { color: var(--muted); font-size: 12.5px; }
+.fork { border: 1.5px dashed var(--warn); border-radius: 10px; padding: 12px; background: var(--warn-soft); display: grid; gap: 6px; margin-top: 12px; }
+.fork b { font: 600 14px var(--display); }
+.fork .opts { display: flex; flex-wrap: wrap; gap: 6px; }
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Тесты без случайности</h1>
+  <p class="lead">У теста три входа: код, свой зафиксированный вход и сигналы самой системы. Время, соседи и внешний мир входом не бывают — обвязка не даёт их выразить. Тогда красный значит одно: код.</p>
+</header>
+
+<section id="b-nums" data-block>
+  <h2>Что изменится</h2>
+  <div class="nums">
+    <div class="num"><b>32 → 1</b><span>способ ждать условие в живых проверках</span></div>
+    <div class="num"><b>23 → 0</b><span>фиксированных пауз: до 233 с сна на один прогон</span></div>
+    <div class="num"><b>24 → 1</b><span>предел: один бюджет на проверку вместо 24 разных чисел в 168 местах</span></div>
+    <div class="num"><b>8 из 63 → 0</b><span>красных main после зелёного запроса на слияние</span></div>
+    <div class="num"><b>165 → 46</b><span>шага на живом флоте после слияния: остаются швы с настоящими службами</span></div>
+    <div class="num"><b>34 → 0</b><span>пауз настоящим временем в тестах частей</span></div>
+  </div>
+</section>
+
+<section id="b-map" data-block>
+  <h2>Три входа теста</h2>
+  <div class="card wide" data-explain>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 390" role="img" aria-label="В центре тест. Слева три его входа: код, свой зафиксированный вход и сигналы системы. Справа три источника случайности, которые входом не бывают: время, соседи и внешний мир; каждая стрелка от них перечёркнута. Снизу итог: красный значит код.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0 0 L10 5 L0 10 z" fill="context-stroke" stroke="none"/></marker>
+      </defs>
+      <text class="zone-t" x="20" y="18">входы</text>
+      <text class="zone-t" x="750" y="18">не входы</text>
+      <g class="n in" data-x="in-code" data-path="in" tabindex="0"><rect x="20" y="30" width="230" height="64" rx="10"/><text x="36" y="57">Код</text><text class="sub" x="36" y="77">то, что проверяем</text></g>
+      <g class="n in" data-x="in-own" data-path="in nb" tabindex="0"><rect x="20" y="150" width="230" height="64" rx="10"/><text x="36" y="177">Свой вход</text><text class="sub" x="36" y="197">свои сессии, сценарий, часы теста</text></g>
+      <g class="n in chg" data-chg="sig-map" data-x="in-sig" data-path="in time" tabindex="0"><rect x="20" y="270" width="230" height="64" rx="10"/><text x="36" y="297">Сигналы системы</text><text class="sub" x="36" y="317">кадры картины флота</text></g>
+      <g class="n mid" data-x="test" data-path="in time nb world" tabindex="0"><rect x="385" y="118" width="230" height="128" rx="10"/><text x="401" y="150">Тест</text><text class="sub" x="401" y="174">пишется только через обвязку:</text><text class="sub" x="401" y="194">шаг · ожидание</text><text class="sub" x="401" y="214">свои ресурсы · бюджет</text></g>
+      <g class="n" data-x="red" data-path="in time nb world" tabindex="0"><rect x="385" y="306" width="230" height="56" rx="10"/><text x="401" y="331">Красный значит: код</text><text class="sub" x="401" y="350">зелёный — свойство держится</text></g>
+      <g class="n no" data-x="no-time" data-path="time" tabindex="0"><rect x="750" y="30" width="230" height="64" rx="10"/><text x="766" y="57">Время</text><text class="sub" x="766" y="77">паузы, опрос, пределы шагов</text></g>
+      <g class="n no" data-x="no-nb" data-path="nb" tabindex="0"><rect x="750" y="150" width="230" height="64" rx="10"/><text x="766" y="177">Соседи</text><text class="sub" x="766" y="197">чужие сессии, общее состояние</text></g>
+      <g class="n no" data-x="no-world" data-path="world" tabindex="0"><rect x="750" y="270" width="230" height="64" rx="10"/><text x="766" y="297">Внешний мир</text><text class="sub" x="766" y="317">сеть, провайдеры, занятая машина</text></g>
+      <g class="a in" data-x="a-code" data-path="in" tabindex="0"><path d="M250 62 C320 62 320 150 385 150" marker-end="url(#ah)"/></g>
+      <g class="a in" data-x="a-own" data-path="in nb" tabindex="0"><path d="M250 182 L385 182" marker-end="url(#ah)"/></g>
+      <g class="a in" data-x="a-sig" data-path="in time" tabindex="0"><path d="M250 302 C320 302 320 214 385 214" marker-end="url(#ah)"/></g>
+      <g class="a no" data-x="a-time" data-path="time" tabindex="0"><path d="M750 62 C680 62 680 150 615 150" marker-end="url(#ah)"/><path class="cut" d="M672 92 L692 112 M692 92 L672 112"/><text x="636" y="50">ждёт сигнал</text></g>
+      <g class="a no" data-x="a-nb" data-path="nb" tabindex="0"><path d="M750 182 L615 182" marker-end="url(#ah)"/><path class="cut" d="M672 172 L692 192 M692 172 L672 192"/><text x="622" y="160">читает только своё</text></g>
+      <g class="a no" data-x="a-world" data-path="world" tabindex="0"><path d="M750 302 C680 302 680 214 615 214" marker-end="url(#ah)"/><path class="cut" d="M672 252 L692 272 M692 252 L672 272"/><text x="626" y="326">в воротах его нет</text></g>
+      <g class="a" data-x="a-red" data-path="in time nb world" tabindex="0"><path d="M500 246 L500 306" marker-end="url(#ah)"/></g>
+    </svg>
+    </div>
+    <div class="why"><b>Нажмите на узел или стрелку</b><p>Наведение подсвечивает один источник случайности и то, чем он закрыт.</p></div>
+  </div>
+</section>
+
+<section id="b-history" data-block>
+  <h2>Что показала история: 516 прогонов, 2742 работы, 31 октября — 19 ноября</h2>
+  <div class="card" data-explain>
+    <div class="two">
+      <div>
+        <p class="cap">Красных работ по местам, с 17 ноября</p>
+        <div class="bars">
+          <button class="bar g" data-x="h-parts"><span>Тесты частей</span><i style="width:0.4%"></i><span class="v">2 из 1196</span></button>
+          <button class="bar t" data-x="h-box"><span>Коробка, Linux</span><i style="width:11%"></i><span class="v">19 из 177</span></button>
+          <button class="bar t" data-x="h-boxwin"><span>Коробка, Windows</span><i style="width:8%"></i><span class="v">6 из 75</span></button>
+          <button class="bar w" data-x="h-fleet"><span>Живой флот после выкладки</span><i style="width:87%"></i><span class="v">53 из 61</span></button>
+        </div>
+      </div>
+      <div>
+        <p class="cap">Чем краснели 255 шагов на живом флоте</p>
+        <div class="bars">
+          <button class="bar t" data-x="c-page"><span>Страница не дождалась элемента</span><i style="width:100%"></i><span class="v">108</span></button>
+          <button class="bar" data-x="c-once"><span>Прочитано один раз или чужое</span><i style="width:60%"></i><span class="v">65</span></button>
+          <button class="bar w" data-x="c-foreign"><span>Чужая служба отказала</span><i style="width:51%"></i><span class="v">55</span></button>
+          <button class="bar t" data-x="c-limit"><span>Ожидание вышло по пределу</span><i style="width:18%"></i><span class="v">19</span></button>
+          <button class="bar w" data-x="c-net"><span>Запрос не дошёл до флота</span><i style="width:7%"></i><span class="v">8</span></button>
+        </div>
+        <div class="legend"><span><i style="background:var(--warn)"></i>время</span><span><i style="background:var(--muted)"></i>время и соседи</span><span><i style="background:var(--bad)"></i>внешний мир</span></div>
+      </div>
+    </div>
+    <div class="chips" style="margin-top:12px">
+      <button class="chip" data-x="h-same">99 из 100 красных проверок флота на том же коммите в коробке зелёные</button>
+      <button class="chip" data-x="h-main">8 из 63: main красный после зелёного запроса на слияние</button>
+      <button class="chip" data-x="h-cascade">255 красных шагов — 188 красных проверок</button>
+    </div>
+    <div class="why"><b>Нажмите на строку</b><p>Числа сняты с журналов всех прогонов CI.</p></div>
+  </div>
+</section>
+
+<section id="b-wait" data-block>
+  <h2>Ожидание — по сигналу</h2>
+  <div class="card wide" data-explain>
+    <div class="scroll">
+    <svg class="tl" viewBox="0 0 1000 300" role="img" aria-label="Три дорожки на оси времени. Сессия: сообщение ушло, короткий ход, свободна. Сейчас: опрос успевает спросить до начала хода, видит «свободна» и читает итог слишком рано; либо проверка спит по четыре секунды на каждый ход. После: кадр картины о своей сессии приходит проверке сам; в истории за её сообщением стоит итог хода — шаг идёт дальше.">
+      <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker></defs>
+      <g data-x="w-session" tabindex="0">
+        <text class="lab" x="20" y="54">Сессия</text>
+        <line class="lane" x1="170" y1="50" x2="980" y2="50"/>
+        <circle class="dotm" cx="300" cy="50" r="5"/><text class="note" x="262" y="30">сообщение ушло</text>
+        <rect class="busy" x="430" y="38" width="46" height="24" rx="4"/><text class="note" x="418" y="30">ход: 40 мс</text>
+        <text class="note" x="190" y="76">свободна</text><text class="note" x="500" y="76">свободна</text>
+      </g>
+      <g data-x="w-poll" tabindex="0">
+        <text class="lab" x="20" y="144">Сейчас</text><text class="note" x="20" y="162">опрос и паузы</text>
+        <line class="lane" x1="170" y1="140" x2="980" y2="140"/>
+        <line class="tick" x1="370" y1="126" x2="370" y2="154"/><text class="bad" x="300" y="118">опрос: «свободна»</text>
+        <text class="bad" x="300" y="176">→ читает итог до хода</text>
+      </g>
+      <g data-x="w-sleep" tabindex="0">
+        <rect class="sleep" x="560" y="126" width="400" height="28" rx="5"/><text class="note" x="572" y="145">или сон 2,5 с + 1,5 с на каждый ход</text>
+      </g>
+      <g class="chg" data-chg="sig-lane" data-x="w-signal" tabindex="0">
+        <text class="lab" x="20" y="244">После</text><text class="note" x="20" y="262">сигнал системы</text>
+        <rect class="chg-bg" x="484" y="210" width="440" height="60" rx="4"/>
+        <line class="lane" x1="170" y1="240" x2="980" y2="240"/>
+        <path class="sig" d="M476 62 L476 232" marker-end="url(#ah2)" stroke="var(--accent)"/>
+        <text class="good" x="490" y="226">кадр картины: строка сессии изменилась</text>
+        <text class="good" x="490" y="262">→ в истории итог хода этого сообщения: шаг идёт дальше</text>
+      </g>
+    </svg>
+    </div>
+    <div class="chg" data-chg="sig-scheme" style="margin-top:14px">
+    <p class="cap">Что слушает проверка</p>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 280" role="img" aria-label="Слева флот: он отдаёт ленту сессии, кадры картины и историю разговора. Кадры картины идут через общий клиент — тот же, что у страницы — в обвязку проверок как сигнал. История разговора идёт в обвязку по запросу как факт. Стрелка от ленты к обвязке перечёркнута: ленту слушает только страница.">
+      <g class="n" data-x="v-fleet" data-path="pic fact feed" tabindex="0"><rect x="20" y="14" width="190" height="250" rx="10"/><text x="36" y="44">Флот</text><text class="sub" x="36" y="64">отдаёт три вещи</text></g>
+      <g class="n" data-x="v-feed" data-path="feed" tabindex="0"><rect x="330" y="14" width="250" height="60" rx="10"/><text x="346" y="40">Лента сессии</text><text class="sub" x="346" y="60">её слушает страница</text></g>
+      <g class="n in" data-x="v-client" data-path="pic" tabindex="0"><rect x="330" y="108" width="250" height="64" rx="10"/><text x="346" y="135">Общий клиент</text><text class="sub" x="346" y="155">тот же, что у страницы</text></g>
+      <g class="n" data-x="v-history" data-path="fact" tabindex="0"><rect x="330" y="204" width="250" height="60" rx="10"/><text x="346" y="230">История разговора</text><text class="sub" x="346" y="250">по запросу</text></g>
+      <g class="n mid" data-x="v-harness" data-path="pic fact feed" tabindex="0"><rect x="760" y="92" width="220" height="96" rx="10"/><text x="776" y="122">Обвязка проверок</text><text class="sub" x="776" y="144">картина — сигнал</text><text class="sub" x="776" y="164">история — факт</text></g>
+      <g class="a" data-x="va-feed" data-path="feed" tabindex="0"><path d="M210 44 L330 44" marker-end="url(#ah)"/><text x="222" y="34">события хода</text></g>
+      <g class="a in" data-x="va-frames" data-path="pic" tabindex="0"><path d="M210 140 L330 140" marker-end="url(#ah)"/><text x="222" y="130">кадры картины</text></g>
+      <g class="a" data-x="va-ask" data-path="fact" tabindex="0"><path d="M210 234 L330 234" marker-end="url(#ah)"/><text x="222" y="224">записи</text></g>
+      <g class="a no" data-x="va-nofeed" data-path="feed" tabindex="0"><path d="M580 44 C680 44 700 108 760 112" marker-end="url(#ah)"/><path class="cut" d="M675 67 L695 87 M695 67 L675 87"/><text x="604" y="34">не слушает</text></g>
+      <g class="a in" data-x="va-signal" data-path="pic" tabindex="0"><path d="M580 140 L760 140" marker-end="url(#ah)"/><text x="640" y="130">сигнал</text></g>
+      <g class="a in" data-x="va-fact" data-path="fact" tabindex="0"><path d="M580 234 C680 234 700 172 760 168" marker-end="url(#ah)"/><text x="592" y="262">факт: итог хода за сообщением</text></g>
+    </svg>
+    </div>
+    </div>
+    <div class="chips" style="margin-top:10px">
+      <button class="chip chg" data-chg="sig-fact" data-x="w-fact">Факт без сигнала: перечитывается, пока не станет правдой</button>
+      <button class="chip" data-x="w-hold">«Посреди хода» держит сама проверка</button>
+      <button class="chip chg" data-chg="sig-away" data-x="w-away">Человек не на связи — без картины</button>
+      <button class="chip" data-x="w-page">Страница: предел — остаток бюджета</button>
+      <button class="chip" data-x="w-code">Как это выглядит в проверке</button>
+    </div>
+    <div class="why"><b>Нажмите на дорожку</b><p><span class="chg" data-chg="sig-why">Сигнал уже есть: картина флота приходит кадрами по одному соединению. Так её получает страница.</span></p></div>
+  </div>
+</section>
+
+<section id="b-budget" data-block>
+  <h2>Один бюджет на проверку</h2>
+  <div class="card wide" data-explain>
+    <div class="scroll">
+    <svg class="bud" viewBox="0 0 1000 300" role="img" aria-label="Шкала в секундах от 0 до 1200. Сейчас: ожидания внутри шагов до 1200 секунд, предел проверки 240 секунд, работа CI 360 секунд — внутреннее длиннее внешнего. После: шаг ждёт не дольше остатка бюджета, бюджет проверки 240 секунд, работа CI 360 секунд.">
+      <g>
+        <line class="axis" x1="200" y1="20" x2="200" y2="280"/><line class="axis" x1="352" y1="20" x2="352" y2="280"/><line class="axis" x1="428" y1="20" x2="428" y2="280"/><line class="axis" x1="580" y1="20" x2="580" y2="280"/><line class="axis" x1="960" y1="20" x2="960" y2="280"/>
+        <text class="axt" x="196" y="294">0</text><text class="axt" x="338" y="294">240 с</text><text class="axt" x="416" y="294">360</text><text class="axt" x="568" y="294">600</text><text class="axt" x="940" y="294">1200</text>
+      </g>
+      <text class="grp" x="20" y="34">сейчас</text>
+      <g data-x="b-now-in" tabindex="0"><text class="lab" x="20" y="62">Ожидание в шаге</text><rect class="b-in" x="200" y="48" width="760" height="18" rx="4"/></g>
+      <g data-x="b-now-chk" tabindex="0"><text class="lab" x="20" y="92">Предел проверки</text><rect class="b-chk" x="200" y="78" width="152" height="18" rx="4"/><text class="note" x="362" y="92">процесс снят: строки ✗ нет, уборки нет</text></g>
+      <g data-x="b-now-job" tabindex="0"><text class="lab" x="20" y="122">Работа CI</text><rect class="b-job" x="200" y="108" width="228" height="18" rx="4"/></g>
+      <text class="grp" x="20" y="174">после</text>
+      <g data-x="b-new-in" tabindex="0"><text class="lab" x="20" y="202">Ожидание в шаге</text><rect class="b-ok" x="200" y="188" width="118" height="18" rx="4"/><text class="note" x="328" y="202">не дольше остатка бюджета</text></g>
+      <g data-x="b-new-chk" tabindex="0"><text class="lab" x="20" y="232">Бюджет проверки</text><rect class="b-ok" x="200" y="218" width="152" height="18" rx="4"/><text class="note" x="362" y="232">обвязка сама: ✗ шаг — ждал, видел → уборка → выход</text></g>
+      <g data-x="b-new-job" tabindex="0"><text class="lab" x="20" y="262">Работа CI</text><rect class="b-job" x="200" y="248" width="228" height="18" rx="4"/><text class="note" x="438" y="262">жёсткий выход — последняя ветка</text></g>
+    </svg>
+    </div>
+    <div class="why"><b>Нажмите на полосу</b><p>Внутреннее ожидание не бывает длиннее внешнего предела.</p></div>
+  </div>
+</section>
+
+<section id="b-own" data-block>
+  <h2>Своё состояние</h2>
+  <div class="card wide" data-explain>
+    <p class="cap">Сейчас: проверки идут одновременно и задевают общее</p>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 340" role="img" aria-label="Сверху общее для флота: проект и люди, репозиторий кусочков, первая сессия из списка. Слева машина 1 с тихими проверками: тикеты, серверные функции, память флота, разделы страницы. Справа машина 2 с шумными: подмена Host и сценарии второй машины. Пять красных стрелок показывают пересечения.">
+      <rect class="zone" x="20" y="24" width="960" height="84" rx="10"/><text class="zone-t" x="32" y="42">общее для флота</text>
+      <rect class="zone" x="20" y="150" width="560" height="170" rx="10"/><text class="zone-t" x="32" y="168">машина 1 · тихие, идут разом</text>
+      <rect class="zone" x="620" y="150" width="360" height="170" rx="10"/><text class="zone-t" x="632" y="168">машина 2 · шумные, по очереди</text>
+      <g class="n" data-x="s-project" data-path="p1" tabindex="0"><rect x="40" y="52" width="200" height="44" rx="8"/><text x="54" y="79">Проект и люди</text></g>
+      <g class="n" data-x="s-repo" data-path="p3" tabindex="0"><rect x="400" y="52" width="220" height="44" rx="8"/><text x="414" y="79">Репозиторий кусочков</text></g>
+      <g class="n" data-x="s-first" data-path="p4" tabindex="0"><rect x="740" y="52" width="220" height="44" rx="8"/><text x="754" y="79">Первая сессия из списка</text></g>
+      <g class="n" data-x="k-tickets" data-path="p1" tabindex="0"><rect x="40" y="186" width="120" height="44" rx="8"/><text x="54" y="213">тикеты</text></g>
+      <g class="n" data-x="k-server" data-path="p2" tabindex="0"><rect x="180" y="256" width="190" height="44" rx="8"/><text x="194" y="283">серверные функции</text></g>
+      <g class="n" data-x="k-memory" data-path="p3" tabindex="0"><rect x="180" y="186" width="150" height="44" rx="8"/><text x="194" y="213">память флота</text></g>
+      <g class="n" data-x="k-bar" data-path="p4" tabindex="0"><rect x="390" y="186" width="170" height="44" rx="8"/><text x="404" y="213">разделы страницы</text></g>
+      <g class="n" data-x="k-swap" data-path="p2" tabindex="0"><rect x="640" y="256" width="150" height="44" rx="8"/><text x="654" y="283">подмена Host</text></g>
+      <g class="n" data-x="k-far" data-path="p3" tabindex="0"><rect x="640" y="186" width="230" height="44" rx="8"/><text x="654" y="213">сценарии: вторая машина</text></g>
+      <g class="a no" data-x="x-project" data-path="p1" tabindex="0"><path d="M100 186 L130 98" marker-end="url(#ah)"/></g>
+      <g class="a no" data-x="x-m2" data-path="p2" tabindex="0"><path d="M370 278 L638 278" marker-end="url(#ah)"/></g>
+      <g class="a no" data-x="x-repo" data-path="p3" tabindex="0"><path d="M270 186 L440 98" marker-end="url(#ah)"/><path d="M720 186 L580 98" marker-end="url(#ah)"/></g>
+      <g class="a no" data-x="x-first" data-path="p4" tabindex="0"><path d="M500 186 L800 98" marker-end="url(#ah)"/></g>
+    </svg>
+    </div>
+    <p class="cap" style="margin-top:14px">После</p>
+    <div class="steps">
+      <button class="step" data-x="o-res"><span class="who">ресурсы</span><span class="what">Сессии, папки и устройства выдаёт обвязка — с меткой проверки, с уборкой при любом исходе</span></button>
+      <button class="step" data-x="o-shake"><span class="who">общее</span><span class="what">Строка списка называет, что проверка трясёт: флот или машину</span></button>
+      <button class="step" data-x="o-refuse"><span class="who">отказ</span><span class="what">Необъявленный запрос, который задевает общее, обвязка отклоняет словом<span class="chg" data-chg="refuse-metric"> · польза считается, пересмотр 20 декабря</span></span></button>
+    </div>
+    <div class="why"><b>Нажмите на узел или красную стрелку</b><p>Каждое пересечение — найденный в коде случай.</p></div>
+  </div>
+</section>
+
+<section id="b-places" data-block>
+  <h2>Три места — три вопроса</h2>
+  <div data-explain>
+    <div class="stops">
+      <button class="stop hold" data-x="p-part"><span class="who">часть · держит слияние</span><b>Тесты частей</b><span class="q">Верен ли модуль?</span><span class="m">900 тестов · соседи — подделки · часы теста</span></button>
+      <button class="stop hold" data-x="p-box"><span class="who">коробка · держит слияние</span><b>Флот на одном раннере</b><span class="q">Сходятся ли части?</span><span class="m">187 шагов · своё настоящее, чужое — двойники и контейнеры · наружу не ходит</span></button>
+      <button class="stop" data-x="p-fleet"><span class="who">живой флот · после выкладки</span><b>Швы с настоящими службами</b><span class="q">Целы ли стыки с внешним миром?</span><span class="m">46 шагов из 165 · настоящие модели, аккаунты, хранилище · слияние не держит</span></button>
+    </div>
+    <div class="fork">
+      <b>Развилка 1 · что идёт на живом флоте после каждого слияния</b>
+      <div class="opts">
+        <button class="chip" data-x="f1-a">Рекомендую: швы — 46 шагов</button>
+        <button class="chip" data-x="f1-b">Иначе: весь список, 165 шагов, как принято 18 ноября</button>
+        <button class="chip" data-x="f1-seams">Какие проверки — швы</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:12px"><div class="why" style="margin-top:0;border-top:0;padding-top:0"><b>Нажмите на место</b><p>Одно свойство проверяется в одном месте — самом низком, где оно видно.</p></div></div>
+  </div>
+</section>
+
+<section id="b-red" data-block>
+  <h2>Красный называет причину</h2>
+  <div class="card" data-explain>
+    <div class="out2">
+      <div><p class="cap">Сейчас</p>
+<pre><span class="r">✗ показ · not_found: сообщения c744f8f1 нет</span>
+<span class="r">✗ откат «разговор и файлы» · not_found: …</span>
+<span class="r">✗ второй откат подряд · not_found: …</span>
+<span class="r">✗ обрезка переживает остановку · сообщений 0</span>
+<span class="r">✗ сессия помнит оставшееся · ответ: ""</span>
+<span class="r">✗ откат «только разговор» · not_found: …</span>
+<span class="r">✗ разговоры папки · нет в списке: []</span>
+== откат разговора: 3 из 10 · 80 с · код 1</pre></div>
+      <div><p class="cap">После</p>
+<pre><span class="g">✓ сессия открыта · 3,1 с</span>
+<span class="r">✗ три хода правят один файл</span>
+<span class="m">  ждал:  итог хода rw-00eb64@m1</span>
+<span class="chg" data-chg="sig-red"><span class="m">  видел: строка сессии — занята 41 с,</span>
+<span class="m">         занятие: Write note.txt</span></span>
+<span class="m">  бюджет 240 с вышел · снято сессий: 1</span>
+== откат разговора: красный на шаге 2 из 10
+   дальше не шла</pre></div>
+    </div>
+    <div class="chips" style="margin-top:12px">
+      <button class="chip" data-x="r-first">Первый красный останавливает проверку</button>
+      <button class="chip" data-x="r-seen">«Ждал» и «видел»</button>
+      <button class="chip" data-x="r-nodots">Шага «ждёт выкладки» нет</button>
+      <button class="chip" data-x="r-skip">Проверка не запустилась — красный</button>
+      <button class="chip" data-x="r-retry">Повторов нет</button>
+    </div>
+    <div class="why"><b>Нажмите на плашку</b><p>Один красный — одна причина.</p></div>
+  </div>
+</section>
+
+<section id="b-parts" data-block>
+  <h2>Тесты частей: то же правило</h2>
+  <div class="card wide" data-explain>
+    <div class="parts">
+      <button class="part" data-x="t-host"><b>Программа машины</b><span class="k">202 · 14</span><span class="m">опроса с настоящим пределом · паузы</span></button>
+      <button class="part" data-x="t-web"><b>Страница</b><span class="k">15 из 25</span><span class="m">файлов тестов на моке с настоящими таймерами</span></button>
+      <button class="part" data-x="t-keeper"><b>Служба машины</b><span class="k">54 · 10</span><span class="m">опроса до 30 с · паузы до 2,5 с</span></button>
+      <button class="part" data-x="t-platform"><b>Платформа</b><span class="k">2</span><span class="m">паузы: гонка 700 мс против 300</span></button>
+      <button class="part" data-x="t-services"><b>Службы</b><span class="k">3</span><span class="m">паузы по 5 мс ради разного времени записей</span></button>
+    </div>
+    <p class="cap" style="margin-top:14px">Тишина — это барьер, не пауза</p>
+    <div class="scroll">
+    <svg class="tl" viewBox="0 0 1000 170" role="img" aria-label="Две дорожки. Сейчас: действие, пауза 200 мс, утверждение «ничего не пришло» — на медленной машине проходит, ничего не проверив. После: действие, следом метка тем же путём; метка вернулась — всё, что шло до неё, уже пришло бы.">
+      <g data-x="q-now" tabindex="0">
+        <text class="lab" x="20" y="44">Сейчас</text>
+        <line class="lane" x1="170" y1="40" x2="980" y2="40"/>
+        <circle class="dotm" cx="230" cy="40" r="5"/><text class="note" x="206" y="22">действие</text>
+        <rect class="sleep" x="250" y="28" width="300" height="24" rx="5"/><text class="note" x="262" y="45">пауза 200 мс</text>
+        <text class="bad" x="566" y="45">«ничего не пришло» — а оно ещё в пути</text>
+      </g>
+      <g data-x="q-new" tabindex="0">
+        <text class="lab" x="20" y="124">После</text>
+        <line class="lane" x1="170" y1="120" x2="980" y2="120"/>
+        <circle class="dotm" cx="230" cy="120" r="5"/><text class="note" x="206" y="102">действие</text>
+        <circle cx="300" cy="120" r="6" fill="var(--accent)"/><text class="good" x="280" y="102">метка тем же путём</text>
+        <circle cx="480" cy="120" r="6" fill="var(--accent)"/><text class="good" x="456" y="150">метка вернулась</text>
+        <text class="good" x="566" y="125">до метки ничего не пришло — значит, и не придёт</text>
+      </g>
+    </svg>
+    </div>
+    <div class="chips" style="margin-top:10px">
+      <button class="chip" data-x="t-signal">Стенд сообщает сам, а не отвечает на опрос</button>
+      <button class="chip" data-x="t-clock">Часы теста — одни</button>
+      <button class="chip" data-x="t-gate">Таймер в тесте — сборка падает<span class="chg" data-chg="rule-ts"> · TypeScript и JavaScript</span></button>
+      <button class="chip" data-x="t-ci">Почему в CI это сейчас зелёное</button>
+    </div>
+    <div class="why"><b>Нажмите на часть</b><p>Пауз настоящим временем в тестах частей — 34, окон тишины — 15.</p></div>
+  </div>
+</section>
+
+<section id="b-journal" data-block>
+  <h2>Журнал шагов: «плавает» — это запрос, а не раскопки</h2>
+  <div class="card" data-explain>
+    <div class="steps">
+      <button class="step" data-x="j-step"><span class="who">обвязка</span><span class="what">Шаг кончился</span></button><span class="arrow">→</span>
+      <button class="step" data-x="j-line"><span class="who">строка</span><span class="what">Одна строка журнала общей формы</span></button><span class="arrow">→</span>
+      <button class="step" data-x="j-file"><span class="who">работа CI</span><span class="what">Файл строк при прогоне</span></button><span class="arrow">→</span>
+      <button class="step" data-x="j-read"><span class="who">разбор</span><span class="what">Один коммит, один шаг, два исхода — плавает</span></button><span class="arrow">→</span>
+      <button class="step" data-x="j-backlog"><span class="who">агент</span><span class="what">Плавающий шаг — баг в бэклог</span></button>
+    </div>
+    <div class="fork">
+      <b>Развилка 2 · где лежит журнал шагов</b>
+      <div class="opts">
+        <button class="chip" data-x="f2-a">Рекомендую: файл при прогоне CI</button>
+        <button class="chip" data-x="f2-b">Иначе: история флота в ClickHouse</button>
+      </div>
+    </div>
+    <div class="why"><b>Нажмите на звено</b><p>Сегодня историю прогонов можно узнать только разбором текста журналов.</p></div>
+  </div>
+</section>
+
+<section id="b-etalons" data-block>
+  <h2>Эталоны</h2>
+  <div class="et">
+    <div class="e"><b>Ход короче опроса</b><div class="io"><div>сессия берёт ход и освобождается за 40 мс</div><span>→</span><div class="out">ожидание хода возвращает итог именно этого хода: не раньше и не по пределу</div></div><span class="src">чьё: факт — в коробке модель отвечает мгновенно, короткий ход проскакивает между опросами</span></div>
+    <div class="e"><b>Бюджет вышел</b><div class="io"><div>условие шага не наступает; часы стенда доходят до бюджета</div><span>→</span><div class="out">одна строка ✗ с «ждал» и «видел», уборка сделана, код выхода 1</div></div><span class="src">чьё: слово пользователя — у всех операций предел и штатная остановка</span></div>
+    <div class="e"><b>Первый красный останавливает</b><div class="io"><div>проверка из пяти шагов, второй падает</div><span>→</span><div class="out">красная строка одна; шаги 3–5 не идут; сессии сняты</div></div><span class="src">чьё: факт — на Windows 47 красных шагов от 22 причин</span></div>
+    <div class="e"><b>Общее — только по объявлению</b><div class="io"><div>тихая проверка шлёт запрос, меняющий состав проекта</div><span>→</span><div class="out">отказ словом до отправки; с объявлением «трясёт флот» запрос уходит</div></div><span class="src">чьё: факт — смена состава проекта рвёт соединения страниц соседних проверок</span></div>
+    <div class="e"><b>Проверка не запустилась</b><div class="io"><div>перед первым шагом нет того, что проверке нужно</div><span>→</span><div class="out">красный с названием недостающего, а не выход с кодом 0</div></div><span class="src">чьё: устав — проверка, которая не может упасть, проверкой не считается</span></div>
+    <div class="e"><b>Строка шага</b><div class="io"><div>проверка из трёх шагов: два зелёных, один красный</div><span>→</span><div class="out">три строки журнала общей формы: проверка, шаг, исход, время, место, коммит</div></div><span class="src">чьё: слово пользователя — наблюдаемость первой</span></div>
+    <div class="e"><b>«Посреди хода» держится</b><div class="io"><div>ход стоит на шаге сценария, пока проверка его не отпустит</div><span>→</span><div class="out">сессия занята всё это время; после отпускания ход кончается</div></div><span class="src">чьё: факт — «молния прерывает ход» красная в 9 прогонах из 55</span></div>
+    <div class="e"><b>Мок на часах теста</b><div class="io"><div>тест страницы на моке флота кончился</div><span>→</span><div class="out">настоящих таймеров не осталось: 0; время двигал только тест</div></div><span class="src">чьё: факт — мок отвечает через 90 мс и сам меняет сессии раз в 1,6 с</span></div>
+    <div class="e"><b>Таймер в тесте</b><div class="io"><div>в файл проверки подложен вызов таймера</div><span>→</span><div class="out">правило сборки красное и называет файл и строку</div></div><span class="src">чьё: устав — гейт проверяет устройство кода</span></div>
+  </div>
+</section>
+
+<section id="b-gate" data-block>
+  <h2>Гейт</h2>
+  <div class="card"><div class="gate">Работа: большая — меняет вход обвязки живых проверок (через него пишутся все 25 проверок), состав списка на живом флоте и правило сборки
+Гейт: дубликаты ответственности 3 → 0 · состояния 2 → 0 · логики 7 → 0 · смысла 4 → 0 · других 4 → 0 · лишние коммуникации 4 → 0 · циклы 0 → 0 · строк реестров 40
+  ответственность · конец проверки по времени решают трое: шаг, список, работа CI → один бюджет у обвязки; список и CI — только жёсткий выход
+  ответственность · свойство потока между частями проверяют два места: 119 шагов из 165 идут и в коробке, и на живом флоте → коробка; флоту — швы (развилка 1)
+  ответственность · уборку пробных сессий каждая проверка делает сама — тремя способами или никак → обвязка
+  состояние · предел: 24 значения в 168 местах → одно число у обвязки
+  состояние · строка сессии: копия из опроса в каждой проверке (10 копий чтения) рядом с картиной флота → картина из одного соединения проверки
+  логика · «ждать, пока условие»: 32 реализации и 13 обёрток → 1 · шаг: 21 → 1 · деление проверки на части: 6 → 1
+  логика · повтор запроса, не дошедшего до флота: 6 копий → 0: в коробке такого не бывает, на флоте это ответ о сети
+  смысл · «…» значит и «на машине старая сборка», и «число ещё не пришло», и «кусочек не сведён» → шаг зелёный или красный
+  смысл · красный значит и код, и окружение, и саму проверку → в воротах красный — код
+  смысл · «нужно проверке»: и вид службы, и настоящая служба → поле «где идёт»: коробка, флот, прод (вместе с пометкой «годна проду»)
+  другие · второй способ запроса к флоту — отдельный процесс на каждый запрос рядом с общим клиентом → общий клиент
+  другие · второй журнал итогов — строки ✓/✗, которые список разбирает как текст, рядом со сводкой CI → строка журнала общей формы, сводка из неё
+  коммуникации · опрос списка сессий там, где картина приходит кадрами: 32 цикла → 0 (перечитывание фактов без сигнала — одно, в обвязке)
+  коммуникации · процесс-посредник на каждый запрос → нет · 119 шагов повторно на живом флоте → нет (развилка 1)
+<span class="chg" data-chg="gate-blind">Слепой проход: логики +3 → 0 · смысла +1 → 0 · других +2 → 0 · лишние коммуникации +1 → 0 · циклы 0 → 0 · строк реестров +7
+  логика · слежение за лентой — подписка, счёт номеров, дочитка — живёт в странице; обвязка получила бы вторую реализацию → обвязка ленту не слушает: сигнал — кадр картины, итог хода — факт истории
+  логика · применение кадра картины: страница и обвязка → одна функция общего клиента
+  логика · ручная проверка Telegram: свои шаг, ожидание и сон → та же обвязка
+  другие · её же запрос к флоту — ещё один способ рядом с общим клиентом → общий клиент
+  другие · правило про таймеры для Go — второй разбор кода ради двух файлов → правило читает TypeScript и JavaScript
+  смысл · соединение картины значит и «наблюдаю», и «человек на связи» — вопросы и итоги сессий ему не шлются → присутствие объявляет проверка; «переписка с человеком» идёт без картины
+  коммуникации · соединение с каждой машиной и подписка на ленту каждой сессии ради конца хода → нет: одно соединение картины
+  числа · соединений проверки с флотом 1 · подписок на ленту 0 · реализаций ожидания в обвязке 1 · новых имён в договоре запросов 0 · слов объявления у проверки +1: «человек не на связи»
+</span>Числа: объявлений своих помощников шага и ожидания в файлах проверок 91 → 0 · имён входа обвязки 9 → 7 · каналов проверки к флоту 2 → 1 · фиксированных пауз 23 → 0
+  разных пределов 24 → 1 · ветки конца проверки 5 → 3 (красный шаг, бюджет, жёсткий выход) · новых эталонов 9 · полей строки списка 7 → 7
+  новых имён в договоре запросов 0 · новых настроек 0 · новых секретов 0 · правил сборки 5 → 6
+  тесты частей: пауз 34 → 0 · опросов с настоящим пределом у программы машины 202 → 0 · «подождать n оборотов» 52 → 0 · вызовов таймера мимо часов стенда в коде программы машины 12 → 0
+Сделано:
+  1. Юнификация · обвязка проверок · всё сводится к существующему общему файлу обвязки, новый модуль не появляется · выигрыш: объявлений помощников 91 → 0
+  2. Простые коммуникации · состояние сессии и конец хода · <span class="chg" data-chg="gate-done2">подписка на картину тем же общим клиентом, что у страницы, вместо опроса; итог хода — факт истории за своим сообщением</span> · выигрыш: опросных циклов 32 → 0, пауз 23 → 0
+  3. Лишняя устойчивость · повторы и «ждёт выкладки» · убраны: красный шаг и его причина словами · выигрыш: копий повтора 6 → 0, веток конца 5 → 3
+  4. Удаление раньше добавления · доли списка по имени, разбор «код или окружение» таблицей слов, уборка остатков прошлого прогона · не появляются: при своём состоянии соседи не важны, причину называет шаг, остаток после жёсткого выхода называет список
+  5. Платформа раньше своего · история прогонов · хранит CI: файл строк при прогоне, читается разбором · выигрыш: новых входов и хранилищ 0 (развилка 2)
+  6. Явное · «посреди хода» · состояние держит сама проверка шагом сценария, а не гонка с моделью · выигрыш: ходов, которые держит команда со сном, 5 → 0
+Решено одной строкой:
+  бюджет проверки — нынешние 240 с, одно число; своё число строка списка называет, только когда история покажет нужду
+  факт без сигнала (файл на диске, строка в истории, запись архива) обвязка перечитывает до бюджета: условие, которое стало правдой, правдой остаётся
+  коробка на Windows остаётся после слияния · дорожки «тихая», «шумная», «одна» остаются — исправляются объявления четырёх проверок
+  подъём коробки ждёт готовности частей тем же ожиданием; свой предел части в 60 с уходит, остаётся один предел подъёма — нынешние 5 мин
+  одну свою проверку запускает список по её названию: объявление дорожки — у строки списка, обвязка получает его при запуске
+  барьер годится там, где действие и метка идут одной очередью; где следствие идёт через ввод-вывод, тест ждёт явное событие
+  порядок работ — по размеру потерь: живые проверки (красный main 8 из 63), затем тесты частей (в CI 2 из 1196, обе — код)
+Развилки пользователю:
+  1. Живой флот после каждого слияния. 18 нояб. принято: список идёт на флоте целиком и растёт. Данные: 53 прогона из 61 красные; 99 из 100 красных
+     проверок на том же коммите в коробке зелёные · рекомендую: после слияния — только швы с настоящими службами, 46 шагов; весь список на флоте —
+     ручным запуском перед «в прод» · иначе: весь список после каждого слияния, на новой обвязке · не скажете иначе — швы
+  2. Журнал шагов. Правило «вся история — в ClickHouse» сказано о системе; прогоны CI живут в CI · рекомендую: файл строк общей формы при прогоне,
+     читает разбор · иначе: строки шагов в историю флота — новый вход для устройств и раздел в «Наблюдении» · не скажете иначе — файл при прогоне
+  3. Правило в устав, в раздел «Проверка»: «Тест ждёт сигнал системы, а не время; читает только своё; внешний мир — не вход ворот слияния» ·
+     рекомендую: да · иначе: правило живёт только в скилах · не скажете иначе — в устав не вносится
+Не трогал как редакторское: имена проверок и шагов; тексты строк ✓/✗; названия дорожек
+Вердикт: ждёт слова</div></div>
+</section>
+
+<section id="b-order" data-block>
+  <h2>Порядок реализации</h2>
+  <div class="order">
+    <div class="o"><b>Журнал шагов и разбор истории</b><span class="done">Готово: список пишет строку на каждый шаг, работа CI сохраняет файл; команда разбора по последним 20 прогонам main печатает по местам «работ, красных, плавающих шагов». Строк в файле работы = шагов в её итоге: 187 из 187 в коробке Linux (сейчас 0). Числа «до» — с этой страницы.</span></div>
+    <div class="o"><b>Обвязка: шаг, ожидание, свои сессии, бюджет</b><span class="done">Готово: эталоны обвязки на поддельном флоте — 7 из 7 (сейчас 0): ход короче опроса, бюджет вышел, первый красный, общее по объявлению, проверка не запустилась, строка шага, «посреди хода».<span class="chg" data-chg="order-picture"> Кадр картины применяет одна функция общего клиента — у страницы и у обвязки: своих в странице 1 → 0; подписок обвязки на ленту — 0.</span></span></div>
+    <div class="o"><b>Проверки без страницы — на обвязке</b><span class="done">Готово: в 14 файлах объявлений своих помощников шага и ожидания 63 → 0, вызовов сна 27 → 0, копий повтора запроса 6 → 0, исходов «ждёт выкладки» 6 → 0. Коробка: шагов этих проверок столько же, сколько сейчас, все зелёные.<span class="chg" data-chg="order-telegram"> «Переписка с человеком» объявляет «человек не на связи» и идёт без картины. Ручная проверка Telegram с живыми аккаунтами — на той же обвязке: своих шага, ожидания, сна и запроса к флоту 4 → 0.</span></span></div>
+    <div class="o"><b>Проверки со страницей — на обвязке</b><span class="done">Готово: в 10 файлах объявлений своих помощников 28 → 0, ожиданий страницы со своим числом 76 → 0, пауз страницы 11 → 0, вызовов сна 13 → 0; во всех проверках ходов, которые держит команда со сном, 5 → 0; разных чисел предела в проверках 24 → 1; список получает исходы строками журнала — разбор текста ✓/✗ 1 → 0. Коробка: шагов столько же, все зелёные.</span></div>
+    <div class="o"><b>Правило сборки: тест не ждёт времени сам</b><span class="done">Готово: правило красное на подложенном таймере (эталон «таймер в тесте»); нарушений в файлах проверок 0.</span></div>
+    <div class="o"><b>Список: кто что трясёт и где идёт</b><span class="done">Готово: четыре проверки объявлены верно (тикеты, серверные функции, конвейер, память флота); эталон «общее по объявлению» зелёный. У каждой строки списка поле «где идёт»: 29 из 29, пометок «годна проду» 0. На живом флоте после слияния идут швы: шагов 165 → 46.</span></div>
+    <div class="o"><b>Страница: мок на часах теста</b><span class="done">Готово: файлов тестов на моке с настоящими таймерами 15 → 0; эталон «мок на часах теста» зелёный; пауз 5 → 0.</span></div>
+    <div class="o"><b>Программа машины: сигнал стенда и одни часы</b><span class="done">Готово: опросов с настоящим пределом 202 → 0, «подождать n оборотов» 52 → 0, пауз 14 → 0, вызовов таймера мимо часов стенда в коде программы машины 12 → 0; ожидание, которое не может упасть, 1 → 0.</span></div>
+    <div class="o"><b>Служба машины, платформа и службы</b><span class="done">Готово: пауз 15 → 0, окон тишины 8 → 0 — барьером; правило сборки включено для тестов <span class="chg" data-chg="order-rule">частей на TypeScript</span>, нарушений 0.</span></div>
+    <div class="o"><b>Скилы: как писать проверку</b><span class="done">Готово: в скиле «делай» ловушек о живых проверках 13 → 11 — имена от метки и одновременность теперь держит обвязка; в цикле тестов уровень «вживую» называет место — коробка или шов.</span></div>
+    <div class="o"><b>Замер по истории</b><span class="done">Готово: команда разбора по 30 прогонам main подряд после шага «Список»: красных работ коробки 9 из 127 → 0, красный main после зелёного запроса 8 из 63 → 0, плавающих шагов — 0; отказов необъявленному запросу — число, к пересмотру 20 декабря.</span></div>
+  </div>
+</section>
+</div>
+
+<script>
+// пояснения: клик по узлу, стрелке, строке или плашке — короткий текст, где нужно — пример; ховер подсвечивает путь
+(() => {
+  const X = {
+    "in-code": ["Код", "То, что проверяется. Единственное, от чего исход теста вправе меняться."],
+    "in-own": ["Свой вход", "Всё, что тест читает, он сначала создал сам: свои сессии, свои папки, свой сценарий хода, свои часы. Чужого он не видит, поэтому сосед не может изменить его исход."],
+    "in-sig": ["Сигналы системы", "Система сама сообщает о каждом изменении сессии: картина флота приходит кадрами по одному соединению. Страница живёт на этом сигнале. Тест ждёт его же — и не спрашивает, сколько прошло времени."],
+    "test": ["Тест пишется только через обвязку", "Обвязка — общий код, на котором стоят все проверки. Она даёт четыре вещи: шаг, ожидание, свои ресурсы и бюджет. В ней нет «подождать N секунд», «взять первую сессию из списка» и «повторить, если не дошло» — поэтому в тесте их не написать.", "await check(\"откат разговора\", async (t) => {\n  const s = await t.session({ name: \"rw\" });\n  await t.step(\"три хода правят один файл\", async () => {\n    await s.turn(script);                       // ждёт итог этого хода\n    await t.wait(\"файл на диске\", () => read(s, \"note.txt\") === \"три\");\n  });\n});"],
+    "red": ["Красный значит: код", "Когда время, соседи и внешний мир исход не меняют, красный остаётся одного рода. Его не надо разбирать руками: сейчас в бэклоге около двадцати записей «красное не по коду»."],
+    "no-time": ["Время", "23 фиксированные паузы, 32 своих цикла опроса и 24 разных предела в 168 местах. Исход зависит от скорости машины: на занятом компьютере шаг не успевает, на быстром — читает раньше, чем случилось."],
+    "no-nb": ["Соседи", "Проверки идут одновременно. Одна берёт «первую сессию из списка» — а это сессия соседа. Другая меняет состав проекта — и у соседей рвутся соединения страниц."],
+    "no-world": ["Внешний мир", "Провайдер модели ответил 403, хранилище — 500, запрос с раннера не дошёл, рабочий компьютер занят на 99 %. К коду это отношения не имеет, а прогон красный."],
+    "a-code": ["Код → тест", "Менять исход теста может только проверяемый код."],
+    "a-own": ["Свой вход → тест", "Ресурсы выдаёт обвязка — с меткой проверки. Она же их убирает, чем бы проверка ни кончилась."],
+    "a-sig": ["Сигнал → тест", "Ожидание заканчивается, когда система сообщила о событии. Не раньше и не «через полторы секунды после»."],
+    "a-time": ["Время закрыто: тест ждёт сигнал", "Пауз нет, своего предела у шага нет. Предел один — бюджет проверки: он нужен, чтобы зависший тест остановился, а не чтобы «успеть»."],
+    "a-nb": ["Соседи закрыты: тест читает только своё", "Запрос, который задевает общее для флота, проходит только у проверки, которая это объявила. Такие идут одни."],
+    "a-world": ["Внешний мир закрыт: в воротах слияния его нет", "Слияние держат тесты частей и коробка — флот на одном раннере, который наружу не ходит. Стыки с настоящими службами проверяются после выкладки и слияние не держат."],
+    "a-red": ["Итог", "Одна красная строка, одна причина — в словах: чего ждал и что видел."],
+    "h-parts": ["Тесты частей: 2 красных из 1196", "Оба — настоящие ошибки кода в запросах на слияние. В CI тесты частей стабильны: у каждой части свой раннер. На занятом компьютере те же тесты плавают — они держатся на настоящем времени."],
+    "h-box": ["Коробка, Linux: 19 из 177", "Коробка — весь флот на одном раннере. На main она краснела 6 раз из 69, хотя тот же код только что прошёл в запросе на слияние: страница не дождалась формы за 30 с, коробка не поднялась за 60 с, шаг прочитал журнал раньше записи."],
+    "h-boxwin": ["Коробка, Windows: 6 из 75", "На main — 3 из 58. Те же причины, плюс каскад: одна потерянная запись разговора делает красными семь шагов подряд."],
+    "h-fleet": ["Живой флот: 53 из 61", "Тот же список после каждой выкладки, на настоящих машинах с настоящей моделью. Красный в 87 % прогонов. Проверка, которая почти всегда красная, ничего не сообщает."],
+    "c-page": ["Страница не дождалась элемента: 108", "Шаг ждёт элемент 8, 15, 20 или 30 с — число своё в каждом месте. Страница на раннере получает картину флота от занятой машины медленнее этого числа."],
+    "c-once": ["Прочитано один раз или чужое: 65", "Шаг читает строку сессии сразу после ответа на запрос — а картина ещё прежняя. Или берёт первую сессию из списка — а она чужая и в ней нет нужного слова.", "ответ: claude-haiku-5-5\nдокумент сессии: claude-fable-5-2   ← прочитан раньше, чем обновился"],
+    "c-foreign": ["Чужая служба отказала: 55", "Провайдер модели — 403 по дневному лимиту трат, хранилище — 500, провайдер не подтвердил модель."],
+    "c-limit": ["Ожидание вышло по пределу: 19", "Свой цикл опроса проверки дошёл до своего числа."],
+    "c-net": ["Запрос не дошёл: 8", "Раннер CI не достучался до флота — и это после пяти встроенных повторов."],
+    "h-same": ["Тот же коммит — в коробке зелёный", "У 100 красных проверок флота тот же коммит прошёл и коробку. В 99 случаях эта проверка там зелёная: красное на флоте — не о коде."],
+    "h-main": ["Красный main после зелёного запроса", "Восемь раз за три дня, и ни разу — из-за кода. Дважды коробка не поднялась за 60 с. Дважды проверка разделов упала, не назвав шага. Дважды страница не дождалась элемента за 30 с. Раз шаг прочитал журнал раньше записи. Раз скрипт на машине не уложился в 30 с."],
+    "h-cascade": ["Каскад", "После красного шага проверка идёт дальше, и следующие шаги краснеют от той же причины. На Windows 47 красных шагов — это 22 причины."],
+    "w-session": ["Сессия", "В коробке модель отвечает мгновенно: ход длится десятки миллисекунд. На живом флоте — секунды. Проверка одна на оба места."],
+    "w-poll": ["Опрос", "Проверка спрашивает список сессий раз в 1,5–2,5 с. Первый вопрос приходит до начала хода: «свободна». Проверка считает ход законченным и читает итог, которого ещё нет. Так написано в 4 проверках; в коде одной из них это прямо названо.", "✗ три хода правят один файл · файл после трёх ходов: \"\""],
+    "w-sleep": ["Пауза", "Чтобы опрос «не промахнулся», в проверках стоят паузы. Всего 23 места, от 163 до 233 с сна на прогон. На занятой машине паузы не хватает, на свободной она просто потеряна."],
+    "w-signal": ["Сигнал", "Проверка держит одно соединение с флотом — то же, каким страница получает картину. Кадр о своей сессии — повод перечитать условие шага. Ход кончен, когда в истории разговора за отправленным сообщением стоит итог хода: до конца хода это неправда, после — правда навсегда. Короткий ход мимо не проскочит.", "const done = await s.turn(script);   // итог хода именно этого сообщения\nawait t.wait(\"модель в строке сессии\", () => s.row.model === want);"],
+    "w-fact": ["Факт без сигнала", "Файл на диске машины, запись в истории, запись в архиве: о них кадров нет. Обвязка перечитывает такое условие — на каждом кадре своей сессии и по редкому такту, — пока оно не станет правдой, до бюджета проверки. Исход от скорости не зависит: условие, ставшее правдой, правдой остаётся. Ожидание в обвязке одно — это оно. Проходящее состояние — «занята» — по такту не поймать: его приносит кадр картины, а окно держит сама проверка."],
+    "w-away": ["Человек не на связи — без картины", "Открытое соединение картины значит для флота «человек на связи» — и вопросы с итогами сессий на его устройства и в чат не уходят. Проверка, чьё свойство — «человека на связи нет», говорит это обвязке: соединения нет, условия шага перечитываются по такту. Сейчас такая одна — переписка с человеком.", "await check(\"переписка с человеком\", { away: true }, async (t) => {\n  …   // вопрос сессии уходит в чат: человека на связи нет\n});"],
+    "v-fleet": ["Флот", "Отдаёт картину — кадрами по соединению, историю разговора — по запросу, ленту событий хода — тем, кто на неё подписался."],
+    "v-feed": ["Лента сессии", "События хода пачками с номером — зрителям разговора. Подписка, счёт номеров и дочитка пропущенного после обрыва живут в странице. Проверке лента не нужна: конец хода виден в картине, итог — в истории."],
+    "v-client": ["Общий клиент", "Один код соединения с флотом у страницы, программы машины и скриптов. Картину из кадров собирает одна функция в нём — её зовут и страница, и обвязка."],
+    "v-history": ["История разговора", "Записи разговора и итоги ходов по порядку. Итог хода стоит за последней записью своего хода — и остаётся там после перезапуска программы машины."],
+    "v-harness": ["Обвязка проверок", "Одно соединение и запросы. Свою строку сессии читает из картины; условие шага перечитывает на её кадре. Ожидание одно."],
+    "va-feed": ["Флот → лента", "Событие хода получает только подписчик разговора. Подписчик для сессии — зритель: ему не ставится «непрочитано», ему приходят её вопросы."],
+    "va-frames": ["Флот → общий клиент", "Снимок картины при подключении, дальше — изменённые строки. После обрыва соединение снова начинает со снимка: дочитывать нечего."],
+    "va-ask": ["Флот → история", "Обычный запрос: последние записи разговора."],
+    "va-nofeed": ["Обвязка ленту не слушает", "Иначе ей нужны соединение с каждой машиной, подписка на каждую сессию и своя дочитка пропущенного — вторая, рядом с той, что в странице. И проверка стала бы зрителем своих сессий — изменила бы то, что проверяет."],
+    "va-signal": ["Общий клиент → обвязка", "Кадр о своей сессии: сменилось состояние, занятие, вопрос, итог. Чужие строки обвязка не читает."],
+    "va-fact": ["История → обвязка", "После кадра обвязка спрашивает: стоит ли за моим сообщением итог хода. Номер сообщения вернула отправка."],
+    "w-hold": ["«Посреди хода» держит сама проверка", "Часть шагов проверяет то, что бывает только во время хода: молния прерывает, сообщение встаёт в очередь, модель меняется посреди хода. Сейчас пять таких ходов держит команда со сном на 25–90 с, а шаг спит 8–12 с в расчёте, что ход ещё идёт. После — ход стоит на шаге сценария, пока проверка его не отпустит. Окно становится входом проверки, а не гонкой.", "const hold = await s.turnHeld(script);  // ход стоит на своём шаге\nawait page.keyboard.press(\"Enter\");     // сообщение встаёт в очередь\nawait hold.release();                   // ход идёт дальше"],
+    "w-page": ["Страница", "В проверках со страницей 76 ожиданий со своим числом — 8, 15, 20, 30, 40, 90 с — и 11 пауз. После — чисел нет: страницу выдаёт обвязка, предел каждого ожидания — остаток бюджета проверки. Зелёный прогон от этого не дольше: ожидание кончается, как только элемент появился."],
+    "w-code": ["До и после", "Одна и та же проверка.", "// сейчас\nawait box.fill(text); await box.press(\"Enter\");\nawait sleep(2500); await idle(cs); await sleep(1500);\n\n// после\nawait s.turnFromPage(text);"],
+    "b-now-in": ["Ожидание внутри шага: до 1200 с", "В проверках встречаются ожидания на 300, 400, 600 и 1200 с. Запрос с пятью повторами ждёт до 10 минут."],
+    "b-now-chk": ["Предел проверки: 240 с", "Он короче внутренних ожиданий. Когда он выходит, процесс проверки снимается: шаг не успевает напечатать, чего ждал, сессии остаются на флоте."],
+    "b-now-job": ["Работа CI: 360 с", "Сумма подъёма коробки и очередей проверок длиннее этого числа: работа может оборваться раньше, чем список допечатает итог."],
+    "b-new-in": ["Ожидание — не дольше остатка", "У шага своего числа нет. Он ждёт сигнал, пока у проверки остался бюджет."],
+    "b-new-chk": ["Бюджет проверки: одно число", "Нынешние 240 с. Вышел — обвязка сама печатает красный шаг: чего ждал и что видел последним; убирает свои сессии и выходит. Своё число строка списка называет, только когда история покажет, что проверке нужно другое."],
+    "b-new-job": ["Работа CI", "Жёсткий выход остаётся последней веткой — на случай, когда зависла сама обвязка. Список тогда называет метку проверки: по ней агент находит, что осталось на флоте."],
+    "s-project": ["Проект и люди", "Общее для всего флота. Изменение состава проекта заставляет флот закрыть соединения всех страниц человека, чтобы отдать новую картину."],
+    "s-repo": ["Репозиторий кусочков", "Один на флот. Две проверки пишут в него одновременно с разных машин."],
+    "s-first": ["Первая сессия из списка", "Не ресурс проверки: это чья угодно сессия, и хозяин уберёт её, когда закончит."],
+    "k-tickets": ["«Тикеты»", "Идёт среди тихих, но заводит проект — то есть меняет общее для флота."],
+    "k-server": ["«Серверные функции»", "Идёт среди тихих на первой машине, но поднимает копию сессии на второй."],
+    "k-memory": ["«Память флота»", "Пишет в общий репозиторий кусочков и сводит его на первой машине."],
+    "k-bar": ["«Разделы страницы»", "Открывает первую сессию из списка флота."],
+    "k-swap": ["«Подмена Host»", "Перезапускает программу второй машины посреди хода. Ради неё вторая машина отдана шумным проверкам."],
+    "k-far": ["«Сценарии: вторая машина»", "Пишет в тот же репозиторий кусочков со второй машины."],
+    "x-project": ["Тихая проверка рвёт соединения соседям", "«Тикеты» заводят проект, флот закрывает соединения страниц. Рядом идёт десяток проверок со страницами — они видят обрыв и считают ошибки."],
+    "x-m2": ["Копия на машину, которую перезапускают", "Вторая машина отдана шумным, чтобы тихие её не касались. «Серверные функции» и «конвейер» касаются."],
+    "x-repo": ["Две записи в один репозиторий", "«Память флота» и «сценарии: вторая машина» одновременно отправляют изменения в один репозиторий."],
+    "x-first": ["Чужая сессия", "«Разделы страницы» открывают чужую сессию; «поиск по слову» искал своё слово в чужом разговоре и падал в 6 прогонах из 39."],
+    "o-res": ["Ресурсы выдаёт обвязка", "Сессия, папка на машине, устройство и приглашение получают метку проверки. Уборка — у обвязки: после зелёного, красного и вышедшего бюджета. Сейчас 11 проверок убирают за собой только в конце скрипта, а 7 видов следов не убирает никто.", "const s = await t.session({ name: \"rw\" });   // rw-3fa9c1@m1, снимется сама"],
+    "o-shake": ["Что проверка трясёт", "Три дорожки остаются: тихие идут разом, шумные — по очереди на второй машине, меняющие общее для флота — по одной до всех. Меняется то, что дорожку определяет объявление в строке списка, и оно проверяется.", "[\"тикеты\", …, \"одна\"]   // заводит проект — трясёт флот"],
+    "o-refuse": ["Отказ необъявленному", "У обвязки короткий перечень запросов, которые задевают общее: состав проекта, аккаунты и ключи флота, перезапуск программы машины, выкладка сборки, правила флота. Тихая проверка такой запрос отправить не может — получает отказ словом на первом же прогоне, а не плавающих соседей через неделю.", "✗ тикеты · запрос «состав проекта» трясёт флот: объявите дорожку «одна»", ["refuse-metric-x", "Польза считается числом таких отказов в журнале шагов. Пересмотр — 20 декабря: по этому числу решается, остаётся ли перечень."]],
+    "p-part": ["Тесты частей", "Свойство одного модуля на его входе. Соседи — подделки, время — часы теста. Идут на каждый запрос на слияние, каждая часть — своей работой."],
+    "p-box": ["Коробка", "Весь флот на одном раннере: платформа, службы, страница, две машины с настоящей программой машины и настоящим Claude Code. Модель, Telegram и токены GitHub играют двойники; история флота и хранилище — настоящие, локальные. Наружу коробка не ходит — поэтому внешний мир её исход не меняет. Здесь проверяется всё, что зависит только от нашего кода."],
+    "p-fleet": ["Живой флот", "Настоящие машины, модели, аккаунты, хранилище, уведомления. Вопрос к нему один: сходится ли наш код с настоящими службами. Двойник может разойтись с настоящей службой — это видно только здесь. Свойства самого кода здесь повторно не проверяются: они закреплены в коробке."],
+    "f1-a": ["Рекомендую: швы", "После каждого слияния на флоте идут 46 шагов — те, чьё свойство требует настоящей службы. Весь список на флоте остаётся возможным: запускается руками перед словом «в прод». Данные: 99 из 100 красных проверок флота на том же коммите в коробке зелёные; 119 шагов из 165 проверяют то же, что уже проверено."],
+    "f1-b": ["Иначе: весь список", "Как принято 18 ноября: список идёт на флоте целиком. На новой обвязке он перестанет краснеть от времени и соседей; от внешнего мира — продолжит. Цена: около трёх минут работы занятых машин на каждое слияние и красный, который надо читать."],
+    "f1-seams": ["Швы — 46 шагов", "Запросы к флоту (8), часы флота на будильнике настоящей платформы (2), страница с ответом настоящей модели (5), аккаунты и модели (4), смена модели между провайдерами (3), файлы сессии через хранилище (7), отказ провайдера на негодный файл (7), память флота через GitHub (6), уведомление на устройстве (3), правила после сжатия разговора (1)."],
+    "r-first": ["Первый красный останавливает проверку", "Следующие шаги стоят на том, что создал упавший. Идти дальше — значит печатать ту же причину ещё несколько раз."],
+    "r-seen": ["«Ждал» и «видел»", "Обвязка знает, какого сигнала ждёт шаг, и помнит последнее, что пришло. Красная строка называет оба — этого хватает, чтобы понять причину без повторного прогона."],
+    "r-nodots": ["Шага «ждёт выкладки» нет", "Третий исход «…» появился, когда на флоте могла стоять старая сборка. Теперь на тестовом флоте всегда main. Сейчас «…» прячет и другое: целая проверка выходит зелёной, не сделав ни шага."],
+    "r-skip": ["Проверка не запустилась — красный", "Нет того, что проверке нужно, — это отказ с названием недостающего."],
+    "r-retry": ["Повторов нет", "Сейчас запрос, не дошедший до флота, повторяется до пяти раз — в шести копиях. В коробке «не дошёл» — ошибка кода, и повтор её прячет. На живом флоте это ответ о сети — он и печатается."],
+    "t-host": ["Программа машины", "Стенд: настоящее ядро, поддельные Claude, флот, служба машины и часы. Тест ждёт событие опросом с настоящим пределом в 5 с — 202 раза; ждёт «n оборотов» — 52 раза; спит — 14 раз. Двенадцать вызовов таймера в коде идут мимо часов стенда. Одно ожидание упасть не может: его условие всегда истинно."],
+    "t-web": ["Страница", "Мок флота в 15 файлах тестов живёт на настоящих таймерах: отвечает через 90 мс и сам меняет состояние сессий раз в 1,6 с. Тест ждёт до 1 с настоящего времени — на занятом компьютере не успевает. После: у мока часы теста; сессия меняется, когда тест сказал."],
+    "t-keeper": ["Служба машины", "Держит настоящие процессы — это и проверяется. 54 опроса до 30 с, 10 пауз до 2,5 с, 8 окон тишины. После: тест ждёт сигнал процесса; тишина — барьером."],
+    "t-platform": ["Платформа", "Тесты идут в настоящем рантайме Cloudflare и ждут кадр по событию — так и должно быть. Остаются две гонки настоящих таймеров и три ожидания настоящего предела."],
+    "t-services": ["Службы", "Три паузы по 5 мс нужны только затем, чтобы время двух записей различалось. После: время записи задаёт тест."],
+    "q-now": ["Окно тишины", "Утверждение «не случилось» после паузы. На медленной машине оно проходит, ничего не проверив: событие просто ещё не дошло. Таких 15: 8 у службы машины, 7 у программы машины."],
+    "q-new": ["Барьер", "Вслед за действием тест отправляет метку тем же путём и ждёт её. Путь сохраняет порядок: всё, что было отправлено до метки, пришло бы до неё. Годится там, где действие и метка идут одной очередью; где следствие уходит через диск или сеть, тест ждёт явное событие отказа."],
+    "t-signal": ["Сигнал стенда", "Стенд сам видит каждый кадр, который уходит из ядра, и каждую запись процесса. Тест подписывается на это и получает событие — без опроса и своего предела. Предел остаётся один: предел теста."],
+    "t-clock": ["Часы теста — одни", "Всё время в тесте идёт от одних часов, и двигает их тест. Код, который берёт время мимо них, переводится на них: двенадцать вызовов таймера у программы машины."],
+    "t-gate": ["Правило сборки", "Существующая проверка устройства кода получает шестое правило: файл теста или проверки не зовёт таймер и сон сам — только через стенд или обвязку. Нарушение называет файл и строку.", "✗ проверка «разговор на странице», строка 62 — таймер в проверке: ждите сигнал через обвязку", ["rule-ts-x", "Правило читает вызовы тем же разбором кода, что и импорты, — в файлах на TypeScript и JavaScript. Тесты службы машины на Go под него не идут: второго разбора ради двух файлов нет, их паузы убираются один раз."]],
+    "t-ci": ["Почему в CI зелёное", "Каждая часть идёт на своём раннере именно затем, чтобы тесты, чувствительные ко времени, не мешали друг другу. На одном занятом компьютере те же тесты краснеют — в бэклоге пять таких записей за ноябрь."],
+    "j-step": ["Шаг кончился", "Обвязка знает о шаге всё: проверку, название, исход, время, чего ждал и что видел."],
+    "j-line": ["Строка журнала", "Та же форма строки, что у всех частей системы.", "{\"t\":1795262131000,\"level\":\"error\",\"part\":\"check\",\n \"module\":\"откат разговора\",\"msg\":\"три хода правят один файл\",\n \"ok\":false,\"ms\":240000,\n \"why\":\"ждал: итог хода · видел: вызов Write\",\n \"place\":\"коробка linux\",\"commit\":\"cd023190\",\"run\":44585875108}"],
+    "j-file": ["Файл при прогоне", "Работа CI сохраняет файл строк рядом со своим журналом. Сводка прогона на странице CI строится из тех же строк."],
+    "j-read": ["Разбор", "Одна команда читает файлы последних прогонов и отвечает на три вопроса: какие шаги на одном коммите были и красными, и зелёными; сколько красных работ по местам; сколько шаг длится против бюджета.", "плавает (один коммит, два исхода):\n  флоу без окон › аккаунты и провайдеры     2 из 30\nкрасных работ: части 0 из 270 · коробка 1 из 60"],
+    "j-backlog": ["В бэклог", "Плавающий шаг — баг проверки или гонка в продукте. Он записывается сразу, со ссылками на оба прогона."],
+    "f2-a": ["Рекомендую: файл при прогоне", "История прогонов уже хранится в CI — там же, где сами прогоны. Новых входов, хранилищ и секретов нет; ворота слияния не зависят от живого флота."],
+    "f2-b": ["Иначе: история флота", "Строки шагов идут в ClickHouse тестового флота и видны в «Наблюдении». Для этого нужен новый вход записи для устройств и секрет флота в работе запроса на слияние; отправка не должна держать ворота."],
+  };
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  for (const box of document.querySelectorAll("[data-explain]")) {
+    const out = box.querySelector(".why");
+    const items = [...box.querySelectorAll("[data-x]")];
+    const show = (el) => {
+      const [title, text, code, add] = X[el.dataset.x] ?? [el.dataset.x, ""];
+      for (const i of items) i.classList.toggle("on", i === el);
+      // правка: пояснение правленого элемента — жёлтым целиком; добавка к прежнему пояснению — своим жёлтым абзацем
+      const own = el.closest("[data-chg]");
+      const mark = own ? ` class="chg" data-chg="${own.dataset.chg}-x"` : "";
+      out.innerHTML = `<b>${esc(title)}</b><p${mark}>${esc(text)}</p>${add ? `<p class="chg" data-chg="${add[0]}">${esc(add[1])}</p>` : ""}${code ? `<pre>${esc(code)}</pre>` : ""}`;
+    };
+    for (const el of items) {
+      el.addEventListener("click", () => show(el));
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); show(el); } });
+      const svg = el.closest("svg");
+      if (!svg || !el.dataset.path) continue;
+      const paths = el.dataset.path.split(" ");
+      const peers = items.filter((i) => svg.contains(i));
+      el.addEventListener("mouseenter", () => { svg.classList.add("dim"); for (const i of peers) i.classList.toggle("hot", (i.dataset.path ?? "").split(" ").some((p) => paths.includes(p))); });
+      el.addEventListener("mouseleave", () => { svg.classList.remove("dim"); for (const i of peers) i.classList.remove("hot"); });
+    }
+  }
+  window.__explained = X;
+})();
+</script>
+<script>
+// метки «прочитал»: клавиша A (латинская или русская) над блоком
+(() => {
+  const KEY = "test-stability.read";
+  let read = [];
+  try { read = JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch {}
+  let over = null;
+  const draw = () => { for (const s of document.querySelectorAll("[data-block]")) s.classList.toggle("read", read.includes(s.id)); };
+  for (const s of document.querySelectorAll("[data-block]")) s.addEventListener("mouseenter", () => (over = s));
+  document.addEventListener("keydown", (e) => {
+    if (!(e.code === "KeyA" || e.key === "a" || e.key === "A" || e.key === "ф" || e.key === "Ф") || e.ctrlKey || e.metaKey || e.altKey || !over) return;
+    read = read.includes(over.id) ? read.filter((x) => x !== over.id) : [...read, over.id];
+    try { localStorage.setItem(KEY, JSON.stringify(read)); } catch {}
+    draw();
+  });
+  draw();
+})();
+</script>
