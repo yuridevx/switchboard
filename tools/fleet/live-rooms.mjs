@@ -63,15 +63,11 @@ await check(async (t) => {
     const done = await t.wait("сообщение бота об итоге", async () => (await botDid()).find((c) => c.method === "sendMessage" && String(c.body.text).includes("закончила") && String(c.body.text).includes(s.callsign)));
     const before = await mark();
     await human("/human/message", { chat: CHAT, from: CHAT, text: turn(say("получено из чата")), reply_to: done.message });
-    // сообщение ушло сессии из чата, своего номера у проверки нет: её ход виден в истории — ответ этим словом и итог хода за ним
-    const answer = await t.wait("сессия ответила на сообщение из чата", async () => {
-      const events = await s.history();
-      const at = events.findLastIndex((e) => e.type === "assistant" && JSON.stringify(e.message?.content ?? "").includes("получено из чата"));
-      return at >= 0 && events.slice(at).some((e) => e.type === "result") && events[at];
-    });
+    // сообщение ушло сессии из чата, мимо обвязки: итог хода — за записью человека с этим текстом
+    const reply = await s.after("получено из чата");
+    if (!reply.text.includes("получено из чата")) throw new Error(`сессия ответила не тем: ${reply.text.slice(0, 80)}`);
     // отметку «дошло до машины» бот ставит реакцией на сообщение человека
     const seen = await t.wait("реакция бота на сообщение человека", async () => (await botDid(before)).find((c) => c.method === "setMessageReaction"));
-    const text = (Array.isArray(answer.message?.content) ? answer.message.content : []).filter((c) => c.type === "text").map((c) => c.text).join(" ");
-    return `реакция ${seen.body.reaction?.[0]?.emoji}; итог: ${text.slice(0, 40)}`;
+    return `реакция ${seen.body.reaction?.[0]?.emoji}; итог: ${reply.text.slice(0, 40)}`;
   });
 });
