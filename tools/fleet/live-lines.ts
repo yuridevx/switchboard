@@ -105,7 +105,11 @@ if (!lacks("clickhouse"))
       peak = Math.max(peak, now);
     }
     if (peak > LIMIT) throw new Error(`по истории в работе одновременно было ${peak}, потолок ${LIMIT}`);
-    return `строк «дан» ${given}, «сдан» ${done}; одновременно в работе до ${peak}`;
+    // отбор истории по времени: since отсекает старое, before — новое
+    const mid = lines.map((l) => l.at).sort((a, b) => a - b)[Math.floor(lines.length / 2)]!;
+    const late = (await api.call(logQuery, { msg: "ticket", since: mid, limit: 1000 })).lines, early = (await api.call(logQuery, { msg: "ticket", before: mid, limit: 1000 })).lines;
+    if (!late.length || !early.length || late.some((l) => l.at < mid) || early.some((l) => l.at >= mid)) throw new Error(`отбор по времени: после середины ${late.length} (старше её ${late.filter((l) => l.at < mid).length}), до середины ${early.length} (новее её ${early.filter((l) => l.at >= mid).length})`);
+    return `строк «дан» ${given}, «сдан» ${done}; одновременно в работе до ${peak}; отбор по времени: после середины ${late.length}, до неё ${early.length}`;
   });
 await step(`тихая проверка не будит: правило сработало ${QUIET_RUNS} раз — тикетов 0`, async () => {
   const runs = await quiet;

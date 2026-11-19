@@ -239,7 +239,8 @@ export const analytics: Module = {
       add("has({levels:Array(String)}, level)", "levels", i.level ? list(LEVELS[i.level]!) : undefined);
       add("at >= fromUnixTimestamp64Milli({since:Int64})", "since", i.since === undefined ? undefined : String(i.since));
       add("at < fromUnixTimestamp64Milli({before:Int64})", "before", i.before === undefined ? undefined : String(i.before));
-      const query = `SELECT toUnixTimestamp64Milli(at) AS at, machine, part, level, msg, session, account, status, kind, text, data FROM ${LOG} FINAL
+      // время строки отдаётся под своим именем: псевдоним at перекрыл бы колонку at в условии — since перестал бы отсекать, а before дал бы пусто
+      const query = `SELECT toUnixTimestamp64Milli(at) AS ms, machine, part, level, msg, session, account, status, kind, text, data FROM ${LOG} FINAL
         WHERE ${where.join(" AND ")} ORDER BY at DESC LIMIT {limit:UInt32} FORMAT JSON`;
       let text: string;
       try {
@@ -250,7 +251,7 @@ export const analytics: Module = {
       }
       const data = (JSON.parse(text) as { data: Record<string, string | number>[] }).data;
       const lines: LogRow[] = data.slice(0, limit).map((r) => ({
-        at: Number(r.at), machine: String(r.machine), part: String(r.part), level: String(r.level), msg: String(r.msg),
+        at: Number(r.ms), machine: String(r.machine), part: String(r.part), level: String(r.level), msg: String(r.msg),
         ...(r.session ? { session: String(r.session) } : {}), ...(r.account ? { account: String(r.account) } : {}), ...(Number(r.status) ? { status: Number(r.status) } : {}),
         ...(r.kind ? { kind: String(r.kind) } : {}), ...(r.text ? { text: String(r.text) } : {}), ...(r.data ? { data: JSON.parse(String(r.data)) as unknown } : {}),
       }));
