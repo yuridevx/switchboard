@@ -54,10 +54,10 @@ describe("лента: свои сообщения и отправители", ()
   });
   it("сообщение службы — строка с отправителем; документ — именем файла; картинка — картинкой", () => {
     const v = fold([
-      say("1", "Диск /var занят на 91%", { from: ".incidents" }),
+      say("1", "Диск /var занят на 91%", { from: ".factory" }),
       { type: "user", uuid: "2", message: { role: "user", content: [{ type: "text", text: "Смотри" }, { type: "document", title: "отчёт.pdf", source: { type: "base64", media_type: "application/pdf", data: "AAAA" } }, { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } }] } },
     ]);
-    expect(v.rows[0]).toMatchObject({ k: "in", via: "service", from: ".incidents", text: "Диск /var занят на 91%" });
+    expect(v.rows[0]).toMatchObject({ k: "in", via: "service", from: ".factory", text: "Диск /var занят на 91%" });
     expect(v.rows[1]).toMatchObject({ k: "me", text: "Смотри", files: [{ name: "отчёт.pdf" }], pics: ["data:image/png;base64,iVBOR"] });
   });
   it("своё сообщение получает номер сессии; запись ленты с этим номером не даёт повтора", () => {

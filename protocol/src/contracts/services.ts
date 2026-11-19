@@ -148,7 +148,7 @@ export type DeviceRow = z.infer<typeof DeviceRow>;
 export const reachSend = request("reach.send", {
   owner: "reach", target: "service",
   tool: "Написать человеку флота. Бери, когда нужен человек: вопрос, новость, просьба; обычный ответ он видит в ленте сессии и так. to — человек вида ~a@b.c, title — заголовок, text — сообщение. Уйдёт на его телефон и в Telegram, если страница у него не открыта; force — слать в любом случае. Ответ человека из Telegram придёт в твою сессию. Ответ: sent — на сколько устройств ушло, online — открыта ли у него страница.", example: {"to":"~a@b.c","title":"Нужен доступ","text":"Не могу зайти на стенд: какой адрес?"},
-  input: z.object({ to: Person, title: z.string(), text: z.string(), callsign: Callsign.optional(), kind: z.enum(["ask", "done", "failed", "message", "incident", "alert"]).optional(), force: z.boolean().optional(), /** номер вопроса и подписи вариантов: ответ кнопками */ ask: z.string().optional(), options: z.array(z.string()).optional() }),
+  input: z.object({ to: Person, title: z.string(), text: z.string(), callsign: Callsign.optional(), kind: z.enum(["ask", "done", "failed", "message", "alert"]).optional(), force: z.boolean().optional(), /** номер вопроса и подписи вариантов: ответ кнопками */ ask: z.string().optional(), options: z.array(z.string()).optional() }),
   output: z.object({ sent: z.number(), online: z.boolean() }),
 });
 export const reachKey = request("reach.key", { owner: "reach", target: "service", input: Empty, output: z.object({ key: z.string() }) });

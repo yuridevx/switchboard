@@ -43,7 +43,7 @@ beforeEach(async () => {
 afterEach(() => (cleanup(), vi.useRealTimers(), vi.restoreAllMocks(), mock.stop()));
 
 describe("эталоны страницы «Связь сессий»", () => {
-  it("входящее от флота — карточка своего вида: слово вида, отправитель-ссылка на его разговор; у обращения — вид и ключ; у вопроса видно, чем на него ответили", async () => {
+  it("входящее от флота — карточка своего вида: слово вида, отправитель-ссылка на его разговор; у тикета — номер и правило входа; у вопроса видно, чем на него ответили", async () => {
     // чьё: слово пользователя 16 нояб. — «нарисуй фронтенд карточки для всех новых форматов сообщения»; вид ставит машина, страница получает его полем
     page(<Conversation callsign="lead@laptop" />, "/work/lead@laptop");
     await screen.findByText(/старый клиент вызывается из/);
@@ -58,11 +58,11 @@ describe("эталоны страницы «Связь сессий»", () => {
     expect(message.className).toBe("pcard pk-message");
     expect(message.querySelector(".pcard-head b")).toBeNull();
     expect(card("Весть от wing@laptop")[0]!.className).toBe("pcard pk-news");
-    // обращение службы компьютера: отправитель — машина, не ссылка; вид и ключ — в шапке
-    const incident = card("Обращение от @laptop")[0]!;
-    expect(incident.className).toBe("pcard pk-incident");
-    expect(within(incident).queryByRole("link")).toBeNull();
-    expect(incident.querySelector(".pcard-ref")!.textContent).toBe("disk · c:");
+    // тикет от службы «Фабрика», заведённый событием правила входа: отправитель — служба, не ссылка; номер и правило — в шапке
+    const ticket = card("Тикет от .factory")[0]!;
+    expect(ticket.className).toBe("pcard pk-ticket");
+    expect(within(ticket).queryByRole("link")).toBeNull();
+    expect(ticket.querySelector(".pcard-ref")!.textContent).toBe("billing-12 · disk");
     // два вопроса ведомого: на первый эта сессия ответила инструментом answer, второй ещё ждёт; номер вопроса человеку не показываем
     const [answered, waiting] = card("Вопрос от wing@laptop");
     expect(answered!.querySelector(".pcard-answer")!.textContent).toBe("отвечено: оставить");

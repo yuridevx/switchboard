@@ -72,6 +72,10 @@ export const RuleDef = z.strictObject({
   to: z.string().min(1), title: z.string().optional(), text: z.string().optional(), key: z.string().optional(),
 });
 export type RuleDef = z.infer<typeof RuleDef>;
+/** Правила, которые зовёт по имени сама машина — в проекте сессии, с которой случилось событие: account — вход аккаунта или ключа провайдера
+ *  не принят (ключ события — имя аккаунта); model — ответила не та модель, что в документе сессии (ключ — позывной). Правила у проекта нет —
+ *  событие остаётся строкой журнала машины. */
+export const MACHINE_RULES = { account: "account", model: "model" } as const;
 /** Имя конвейера — слово исполнителя тикета: без пробелов и без @, чтобы не спутать с позывным. */
 const LineName = z.string().regex(/^[^\s@]+$/, "имя конвейера — одно слово без @");
 export const FactoryDef = z.strictObject({

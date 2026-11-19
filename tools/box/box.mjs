@@ -158,9 +158,6 @@ async function up() {
     fs.mkdirSync(home, { recursive: true });
     fs.writeFileSync(path.join(home, "machine.key"), (await call("redeem", { invite: (await call("invite", { addr: "@" + m }, admin)).invite })).key + "\n");
     fs.writeFileSync(path.join(home, "keeper.json"), JSON.stringify({ base, machine: m, node: process.execPath }));
-    // настройка Host: порт обращений служб компьютера включён (0 — любой свободный; настоящий называет incident.list)
-    fs.mkdirSync(path.join(home, "host", "data"), { recursive: true });
-    fs.writeFileSync(path.join(home, "host", "data", "host.json"), JSON.stringify({ "host-incidents": { port: 0 } }));
     // у каждой машины свой файл службы: обновляя себя, она подменяет именно его
     const bin = path.join(home, win ? "keeper.exe" : "keeper");
     fs.copyFileSync(path.join(root, "dist/builds", String(build), win ? "keeper-windows-amd64.exe" : "keeper-linux-amd64"), bin);

@@ -6,13 +6,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ok } from "@sb/protocol";
 import { DOING_GAP_MS, make as chat, peopleOnly } from "../src/modules/chat/chat.ts";
-import { make as incidents } from "../src/modules/incidents/incidents.ts";
 import { make as machine } from "../src/modules/machine/machine.ts";
 import { make as points, projectDir } from "../src/modules/points/points.ts";
 import { make as profiles } from "../src/modules/profiles/profiles.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
 import { make as shell } from "../src/modules/shell/shell.ts";
-import { FakeHolders, stand, tick, until, type Stand } from "../stand/index.ts";
+import { stand, tick, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 const servers: Server[] = [];
@@ -392,53 +391,6 @@ describe("shell", () => {
     const info = (await st.request("shell.info", { to: "@laptop" })).result as any;
     expect(info.found).toContainEqual({ shell: "node", path: process.execPath, version: expect.any(String) });
   }, 60_000);
-});
-
-describe("incidents", () => {
-  it("виды — из настроек флота: добавка к промпту и кого позвать; порт 0 — настоящий порт; причина недоставки — в списке; вид — в строке сессии", async () => {
-    const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
-    const work = join(home, "work");
-    mkdirSync(work, { recursive: true });
-    st = await stand({ home, modules: [chat(), incidents()], config: { "host-incidents": { port: 0 } } });
-    st.services.handlers["prefs.get"] = () => ({ values: { "incidents.kinds": { disk: { cwd: work, prompt: "Сначала df -h.", notify: ["~yuri@example.com"] }, lost: { cwd: join(home, "нет-такой") }, far: { cwd: work, machines: ["server"] } } } });
-    st.link.deliver({ type: "changed", what: "incidents.kinds" });
-    const port = ((await st.request("incident.list", { to: "@laptop" })).result as any).port as number;
-    await tick(20);
-    const post = (x: object) => fetch(`http://127.0.0.1:${port}/incident`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(x) });
-    const res = await post({ type: "disk", key: "c:", text: "место кончается" });
-    expect(res.status).toBe(202);
-    const proc = await until(() => st!.proc("disk-1@laptop"), 5000, "процесс инцидента");
-    await until(() => proc.inputs.length === 1, 5000, "обращение во вводе");
-    expect(proc.inputs[0]!.message.content).toBe('<fleet from="@laptop" kind="incident" incident="disk" key="c:">\nместо кончается\n</fleet>');
-    expect((st.sdk.last("disk-1@laptop")!.options as any).systemPrompt.append).toContain("Сначала df -h.");
-    expect(st.services.of("reach.send")).toContainEqual(expect.objectContaining({ to: "~yuri@example.com", kind: "incident", title: expect.stringContaining("инцидент disk") }));
-    expect(st.link.rows("disk-1@laptop").at(-1)!.row).toMatchObject({ incident: { kind: "disk", key: "c:" } });
-    // вид другой машины здесь не действует; вид с негодной папкой — обращение ждёт с причиной
-    expect((await post({ kind: "far", text: "x" })).status).toBe(400);
-    expect(await st.request("incident.raise", { to: "@laptop", kind: "lost", key: "", text: "x" }, "@laptop")).toMatchObject({ ok: false, error: "open_failed" });
-    const list = ((await st.request("incident.list", { to: "@laptop" })).result as any).incidents as any[];
-    expect(list.find((a) => a.kind === "lost")).toMatchObject({ state: "pending", why: expect.stringContaining("bad_dir") });
-    expect(list.find((a) => a.kind === "disk")).toMatchObject({ callsign: "disk-1@laptop" });
-    expect(list.find((a) => a.kind === "disk").why).toBeUndefined();
-  });
-
-  it("подмена Host: обращение, уже отданное во ввод живого процесса, второй раз не шлётся", async () => {
-    const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
-    const work = join(home, "work");
-    mkdirSync(work, { recursive: true });
-    const holders = new FakeHolders();
-    const config = { "host-incidents": { kinds: { disk: { cwd: work } } } };
-    const first = await stand({ home, holders, modules: [chat(), incidents()], config });
-    expect((await first.request("incident.raise", { to: "@laptop", kind: "disk", key: "c:", text: "место" }, "@laptop")).ok).toBe(true);
-    const proc = await until(() => first.proc("disk-1@laptop"), 5000, "процесс инцидента");
-    await until(() => proc.inputs.length === 1, 5000, "обращение во вводе");
-    await first.kernel.shutdown("подмена");
-    st = await stand({ home, holders, modules: [chat(), incidents()], config });
-    await until(() => st!.kernel.sessions.get("disk-1@laptop")?.state === "idle", 5000, "attach");
-    await tick(40);
-    expect(st.proc("disk-1@laptop")).toBe(proc);
-    expect(proc.inputs).toHaveLength(1);
-  });
 });
 
 describe("machine, proxy, profiles", () => {

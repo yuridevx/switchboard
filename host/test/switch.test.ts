@@ -5,7 +5,6 @@ import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Module } from "../src/core/contract.ts";
 import { make as accounts } from "../src/modules/accounts/accounts.ts";
 import { capOf, procModel } from "../src/modules/accounts/pair.ts";
 import { encodeSignature, toMetaRequest } from "../src/modules/proxy/muse/request.ts";
@@ -39,8 +38,8 @@ const CATALOGS: Record<string, Array<Record<string, unknown>>> = {
 
 type Hit = { path: string; model: string; headers: IncomingHttpHeaders; body: any };
 type Reply = { status?: number; body?: unknown };
-const raised: Array<{ kind: string; key: string }> = [];
-const incidents = (): Module => ({ name: "host-incidents", requests: { "incident.raise": (i: { kind: string; key: string }) => (raised.push(i), { id: String(raised.length) }) } });
+/** События машины правилам входа: запросы ticket.new службам. */
+const raised: Array<{ on: string; key: string }> = [];
 
 /** Флот на стенде: аккаунт Claude и три провайдера на одном поддельном сервере. */
 async function fleet(answer: (hit: Hit) => Reply = () => ({}), o: { home?: string; holders?: Stand["holders"] } = {}) {
@@ -65,7 +64,8 @@ async function fleet(answer: (hit: Hit) => Reply = () => ({}), o: { home?: strin
     mkdirSync(join(home, "store"), { recursive: true });
     writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: { accounts: { [A]: { ok: true, keep: false, limits: {} } } } }));
   }
-  st = await stand({ home, ...(o.holders ? { holders: o.holders } : {}), modules: [accounts(), proxy(), incidents()], start: false });
+  st = await stand({ home, ...(o.holders ? { holders: o.holders } : {}), modules: [accounts(), proxy()], start: false });
+  st.services.handlers["ticket.new"] = (f: any) => (raised.push(f), { id: "site-1" });
   const KEYS: Record<string, Record<string, unknown>> = { orca: { protocol: "anthropic" }, oai: { protocol: "openai" }, enved: { protocol: "anthropic", env: { PROVIDER_REGION: "eu" } } };
   st.services.handlers["keys.list"] = () => ({ keys: [{ name: A, protocol: "claude", at: 1, tail: "tail" }, ...Object.entries(KEYS).map(([name, k]) => ({ name, at: 1, tail: "tail", base: url, ...k }))] });
   st.services.handlers["keys.value"] = (f: any) => (KEYS[f.name] ? { value: `sk-${f.name}`, base: url, ...KEYS[f.name] } : { value: `tok-${f.name}`, protocol: "claude", base: url });

@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { make as chat } from "../src/modules/chat/chat.ts";
 import { make as files } from "../src/modules/files/files.ts";
-import { make as incidents } from "../src/modules/incidents/incidents.ts";
 import { make as work } from "../src/modules/work/work.ts";
 import { stand, tick, until, type Stand } from "../stand/index.ts";
 
@@ -253,36 +252,10 @@ describe("файлы: сессия поднимает сайт", () => {
   });
 });
 
-describe("файлы: обращение службы компьютера, история, предел", () => {
-  it("эталон 14 · обращение службы компьютера с файлом: машина сразу кладёт файл в хранилище, в обращении — имя, хэш, размер; дальше тот же шаг: файл в папку и уведомление", async () => {
-    st = await stand({ modules: [chat(), files(), incidents()], config: { "host-incidents": { port: 0 } } });
-    const work = st.dir;
-    const store = await storage(st);
-    st.services.handlers["prefs.get"] = () => ({ values: { "incidents.kinds": { disk: { cwd: work } } } });
-    st.link.deliver({ type: "changed", what: "incidents.kinds" });
-    const port = ((await st.request("incident.list", { to: "@laptop" })).result as any).port as number;
-    await tick(20);
-    const res = await fetch(`http://127.0.0.1:${port}/incident`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "disk", key: "c:", text: "место кончается", files: [{ name: "df.txt", mime: "text/plain", base64: Buffer.from("/ 99%").toString("base64") }] }) });
-    expect(res.status).toBe(202);
-    const f = { name: "df.txt", hash: sha("/ 99%"), size: 5 };
-    expect(store.blobs.get(f.hash)?.toString()).toBe("/ 99%");
-    const proc = await until(() => st!.proc("disk-1@laptop"), 5000, "процесс инцидента");
-    await until(() => proc.inputs.length === 1, 5000, "обращение во вводе");
-    expect(proc.inputs[0]!.message.content).toBe(`<fleet from="@laptop" kind="incident" incident="disk" key="c:">\nместо кончается\n\nЗагружены файлы в папку сессии:\n- uploads/df.txt · 5 байт · sha256 ${f.hash}\n</fleet>`);
-    expect(readFileSync(join(work, "uploads", "df.txt"), "utf8")).toBe("/ 99%");
-    const list = ((await st.request("incident.list", { to: "@laptop" })).result as any).incidents as any[];
-    expect(list[0]).toMatchObject({ kind: "disk", callsign: "disk-1@laptop", files: [f] });
-    // своей папки вложений у обращений нет
-    expect(existsSync(join(st.home, "incidents"))).toBe(false);
-    // хранилище не ответило — обращение не принято, отказ словом службе
-    store.down = true;
-    const bad = await fetch(`http://127.0.0.1:${port}/incident`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "disk", key: "d:", text: "ещё", files: [{ name: "x.txt", base64: Buffer.from("новое").toString("base64") }] }) });
-    expect([bad.status, ((await bad.json()) as { error: string }).error]).toEqual([400, "store_failed"]);
-    expect(((await st.request("incident.list", { to: "@laptop" })).result as any).incidents).toHaveLength(1);
-  });
-
-  // чьё: дизайн «Фабрика», принят словом пользователя 19 нояб. («делай»): событие идёт тикетом, его файлы встают в папку сессии тем же шагом, что файлы сообщения
-  it("файлы тикета: шаг приходит сессии со строкой уведомления о них, файл — в папке сессии, хэш сверен", async () => {
+describe("файлы: тикет, история, предел", () => {
+  // чьё: дизайн «Фабрика», принят словом пользователя 19 нояб. («делай»): обращение службы компьютера с файлом теперь событие правила входа — файл кладут
+  // в хранилище службы (эталоны входов), тикет несёт имя, хэш и размер; на машине — тот же шаг, что у файлов сообщения: файл в папку и уведомление
+  it("эталон 14 · файлы тикета: шаг приходит сессии со строкой уведомления о них, файл — в папке сессии, хэш сверен", async () => {
     st = await stand({ modules: [chat(), files(), work()] });
     const store = await storage(st);
     const { proc } = await st.open("site");

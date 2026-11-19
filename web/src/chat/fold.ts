@@ -162,7 +162,8 @@ function summary(v: View, text: string) {
 
 /** Входящее от флота: отправителя, вид и текст машина отдаёт готовыми полями — тег страница не разбирает. */
 function incoming(v: View, m: Msg, p: Peer) {
-  const ref = p.ask ?? (p.incident ? [p.incident, p.key].filter(Boolean).join(" · ") : p.ticket ? [p.ticket, p.step].filter(Boolean).join(" · ") : undefined);
+  // у тикета в шапке — номер, шаг и правило входа, которым он заведён
+  const ref = p.ask ?? (p.ticket ? [p.ticket, p.step, p.on].filter(Boolean).join(" · ") : undefined);
   push(v, { k: "in", uuid: m.uuid, via: /^[.@]/.test(p.from) ? "service" : "session", from: p.from, kind: p.kind, ...(ref ? { ref } : {}), text: p.text, at: timeOf(m), ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}) });
 }
 

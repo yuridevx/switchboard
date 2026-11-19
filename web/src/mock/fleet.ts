@@ -1,6 +1,6 @@
 // Мок флота: провод договора в памяти страницы. Живой: занятые сессии пишут события, ответ на вопрос меняет состояние, записи видны сразу.
 import {
-  type Account, type ArchPoint, type ArchSession, type Ask, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type Link, type LogRow, type MachineRow,
+  type Account, type ArchPoint, type ArchSession, type Ask, type DeviceRow, type Frame, type KeyRow, type LedgerEvent, type Link, type LogRow, type MachineRow,
   type ObsRow, type PassRow, type PersonRow, type Piece, type Project, type Reply, type SessionRow, type Span, type Transport, fail, machineOf, newId, ok, Refusal,
   CLAUDE, kindOf, type Kind,
 } from "@sb/protocol";
@@ -104,7 +104,7 @@ export function createMock(o: MockOptions = {}) {
   add(row("api@server", "waiting", "infra", { title: "Предел запросов на входе", mode: "plan", last: T - 22 * MIN, pieces: ["base", "ops"],
     ask: ask({ kind: "plan", title: "План", text: "## Предел запросов на входе\n\n1. Счётчик на адрес в памяти процесса, окно 10 секунд.\n2. Отказ `429` со словом `too_many` и временем сброса.\n3. Тесты: 3 сценария — ровно на пределе, сверх предела, после сброса.\n\nФайлы: `src/entrance.ts`, `src/limit.ts`, `test/limit.test.ts`.", tool: "ExitPlanMode", options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }] }, 22) }));
   add(row("ingest@server", "busy", "infra", { title: "Разбор ночной выгрузки", doing: "Выполняет node scripts/ingest.mjs", last: T - 1 * MIN, context: 0.67, pieces: ["base", "ops"] }));
-  add(row("nightcheck@server", "idle", "infra", { title: "Ночная проверка флота", wait: T + 95 * MIN, incident: { kind: "disk", key: "/var" }, last: T - 7 * HOUR, by: "~yuri@example.com", pieces: ["base", "ops"] }));
+  add(row("nightcheck@server", "idle", "infra", { title: "Ночная проверка флота", wait: T + 95 * MIN, last: T - 7 * HOUR, by: "~yuri@example.com", pieces: ["base", "ops"] }));
   add(row("migrate@server", "stopped", "infra", { title: "Перенос журналов в архив", archiveError: "архив не ответил: store_failed", last: T - 2 * DAY, pieces: ["base"] }));
   add(row("landing@anya-pc", "busy", "site", { title: "Новый первый экран", doing: "Собирает снимки на 390 и 1440", by: ANYA, last: T - 2 * MIN, account: "anya@example.com", pieces: ["base", "web"] }));
   add(row("design@anya-pc", "idle", "site", { title: "Палитра и сетка", by: ANYA, unread: [ME, ANYA], result: "Тёмный вариант готов: фон #0F1413, контраст 11,4 : 1. Оба варианта лежат рядом, выберите один.", last: T - 41 * MIN, account: "anya@example.com", pieces: ["base", "web"] }));
@@ -130,7 +130,7 @@ export function createMock(o: MockOptions = {}) {
     peer("wing@laptop", "Обёртка payments/client.ts готова: старый клиент вызывается из **трёх** мест — checkout.ts, renew.ts, refund.ts. Тесты обёртки 12 из 12.", T - 6 * MIN, "result"),
     peer("docs@laptop", "Раздел «Оплата» в документации ссылается на старый клиент — поправлю ссылки, когда обёртка встанет в main.", T - 5.5 * MIN, "message"),
     peer("wing@laptop", "Ждёт ответа человека: разрешение — Bash: git push origin payments-wrap.", T - 5.2 * MIN, "news"),
-    peer("@laptop", "Диск C: заполнен на 94%: сборки в ~/projects/billing/dist занимают 61 ГБ.", T - 5.1 * MIN, "incident", { incident: "disk", key: "c:" }),
+    peer(".factory", "Тикет billing-12: Место на диске\n\nДиск C: заполнен на 94%: сборки в ~/projects/billing/dist занимают 61 ГБ.", T - 5.1 * MIN, "ticket", { ticket: "billing-12", on: "disk", key: "c:" }),
     peer("wing@laptop", "От какой ветки делать правку вызовов?\n· main — свежая, без обёртки\n· payments-wrap — с обёрткой", T - 5 * MIN, "question", { ask: "q7" }),
   );
   talk("wing@laptop").push(peer("lead@laptop", "Найди все оставшиеся вызовы payments/legacy после правки обёртки и пришли список файлов.", T - 3 * MIN, "task"));
@@ -295,13 +295,6 @@ export function createMock(o: MockOptions = {}) {
     ["account.closed", "laptop", 3 * HOUR + 10 * MIN, undefined, "work@example.com", "work: окно Fable закрыто до сброса"],
     ["account.token", "server", 2 * DAY, undefined, "team@example.com", "team: Claude не принял токен"],
   ] as const).map(([msg, machine, agoMs, session, account, text]) => ({ at: T - agoMs, machine, part: "host", level: msg === "account.token" ? "error" : msg === "account.moved" ? "info" : "warn", msg, ...(session ? { session } : {}), account, kind: msg.slice(msg.indexOf(".") + 1), text }));
-  const incidents: Record<string, Incident[]> = {
-    server: [
-      { id: "i1", kind: "disk", key: "/var", text: "Диск /var занят на 91%", at: T - 35 * MIN, callsign: "nightcheck@server", state: "taken" },
-      { id: "i2", kind: "cert", key: "stand.example.com", text: "Сертификат stand.example.com истекает через 6 дней", at: T - 4 * HOUR, state: "pending" },
-    ],
-    laptop: [{ id: "i3", kind: "watchdog", key: "host", text: "Host перезапущен Keeper после падения", at: T - 5 * HOUR, state: "done" }],
-  };
   const prefs: Record<"me" | "fleet", Record<string, unknown>> = {
     me: { pins: ["site@laptop"], view: { work: "list" }, "models.pins": ["claude/claude-fable-5-2", "orca/glm-5.3", "orca/deepseek-v4"] },
     fleet: {
@@ -822,7 +815,7 @@ export function createMock(o: MockOptions = {}) {
   };
 
   // запросы экранов (пропуска, аккаунты, профили, архив, правила, наблюдение) — в screens.ts: ложатся поверх прежних
-  const screenCtx = { now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, catalogs, moves, pieces, archive, incidents, prefs, ledger, obs, archPoints, journal, talk, talks, need, mach, sess, delta, setRow, row };
+  const screenCtx = { now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, catalogs, moves, pieces, archive, prefs, ledger, obs, archPoints, journal, talk, talks, need, mach, sess, delta, setRow, row };
   Object.assign(H, screenHandlers(screenCtx));
   // запросы второй итерации экранов — поверх: iter2.ts
   Object.assign(H, iter2Handlers(screenCtx, { ...H }));

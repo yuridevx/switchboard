@@ -253,10 +253,10 @@ describe("нажатие на уведомление", () => {
     expect(w.calls.filter((c) => c.url.startsWith("open:"))).toEqual([]);
   });
 
-  it("11 · уведомление тревоги открывает «Наблюдение», обращения — «Инциденты», прочее без сессии — «Работу»", async () => {
+  it("11 · уведомление тревоги открывает «Наблюдение», прочее без сессии — «Работу»", async () => {
     // источник: чьё: код
     const w = worker({});
-    for (const kind of ["alert", "incident", "fleet"]) await w.fire("notificationclick", { action: "", notification: { data: { title: "т", text: "т", kind }, close() {} } });
-    expect(w.calls.map((c) => c.url)).toEqual(["open:/#/observe", "open:/#/fleet/incidents", "open:/#/work"]);
+    for (const kind of ["alert", "fleet"]) await w.fire("notificationclick", { action: "", notification: { data: { title: "т", text: "т", kind }, close() {} } });
+    expect(w.calls.map((c) => c.url)).toEqual(["open:/#/observe", "open:/#/work"]);
   });
 });

@@ -42,7 +42,7 @@ export function Find() {
           id: "s:" + s.callsign, label: labels.of(s.callsign) ?? s.title ?? s.spec.name,
           about: `${s.callsign} · ${picture.machines[machineOfCall(s.callsign)]?.online === false ? "нет связи, последнее известное" : STATE_WORD[s.state]} · ${s.spec.cwd}${project ? ` · ${project}` : ""}`,
           // находится по папке, проекту и по обращению, которое сессия разбирает (вид и ключ инцидента)
-          words: [s.spec.cwd, project ?? "", s.spec.name, ...(s.incident ? [s.incident.kind, s.incident.key, "инцидент"] : [])],
+          words: [s.spec.cwd, project ?? "", s.spec.name],
           run: to(`/work/${s.callsign}`),
         };
       }),

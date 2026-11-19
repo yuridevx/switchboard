@@ -1,6 +1,5 @@
-// Запросы машине: аккаунты, профили, точки, скрипты, инциденты, сама машина, keeper.
+// Запросы машине: аккаунты, профили, точки, скрипты, сама машина, keeper.
 import { Callsign, Done, frame, KeeperAddr, MachineAddr, request, z } from "../define.ts";
-import { FileIn } from "./session.ts";
 
 const toMachine = z.object({ to: MachineAddr });
 
@@ -176,40 +175,6 @@ export const shellInfo = request("shell.info", {
   input: toMachine,
   output: z.object({ os: z.string(), shells: z.array(z.string()), home: z.string(), node: z.string().optional(), found: z.array(z.object({ shell: z.string(), path: z.string(), version: z.string().nullable() })).optional() }),
 });
-
-/* ===== Инциденты (host-incidents) ===== */
-
-export const Incident = z.object({
-  id: z.string(), kind: z.string(), key: z.string(), text: z.string(), at: z.number(),
-  callsign: Callsign.optional(), state: z.enum(["pending", "taken", "done"]),
-  /** обращение ждёт: почему не доставлено */
-  why: z.string().optional(),
-  /** вложения: имя, хэш, размер — содержимое в хранилище флота, как у файлов сообщения */
-  files: z.array(FileIn).optional(),
-});
-export type Incident = z.infer<typeof Incident>;
-export const incidentList = request("incident.list", {
-  owner: "host-incidents", target: "machine", tool: "Обращения служб компьютера и сессии, которые их разбирают; у недоставленного — причина.", example: {"to":"@laptop"}, reads: true,
-  input: toMachine, output: z.object({ incidents: z.array(Incident), port: z.number().optional() }),
-});
-/** Обращение от службы компьютера: открывает сессию по виду обращения или пишет в уже открытую. */
-export const incidentRaise = request("incident.raise", {
-  owner: "host-incidents", target: "machine",
-  input: z.object({ to: MachineAddr, kind: z.string(), key: z.string(), text: z.string(), files: z.array(FileIn).optional() }), output: z.object({ id: z.string(), callsign: Callsign.optional() }),
-});
-/** Правило вида обращений — ключ incidents.kinds настроек флота: имя вида → где открыть сессию, с чем, что ей сказать и кого позвать. */
-export const IncidentKind = z.object({
-  cwd: z.string(), pieces: z.array(z.string()).optional(),
-  /** провайдер и точная модель сессии этого вида — как в документе сессии */
-  key: z.string().optional(), model: z.string().optional(), project: z.string().optional(),
-  /** добавка к промпту сессии этого вида */
-  prompt: z.string().optional(),
-  /** кого позвать о новом обращении: ~почта */
-  notify: z.array(z.string()).optional(),
-  /** только эти машины; пусто — все */
-  machines: z.array(z.string()).optional(),
-});
-export type IncidentKind = z.infer<typeof IncidentKind>;
 
 /* ===== Машина (host-machine) ===== */
 

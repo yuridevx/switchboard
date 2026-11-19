@@ -90,5 +90,5 @@ export function liveSteps(now: () => number, about: string): Array<() => Ev[]> {
 }
 
 /** Входящее от флота, как его отдаёт машина: во вводе модели — тег с отправителем и видом, странице — разобранное поле peer. */
-export const peer = (from: string, body: string, at: number, kind: Kind = "message", attrs: Pick<Peer, "ask" | "incident" | "key"> = {}): Ev =>
+export const peer = (from: string, body: string, at: number, kind: Kind = "message", attrs: Pick<Peer, "ask" | "key" | "ticket" | "step" | "on"> = {}): Ev =>
   say(`<fleet from="${from}" kind="${kind}"${Object.entries(attrs).map(([k, v]) => ` ${k}="${v}"`).join("")}>\n${body}\n</fleet>`, at, { from, peer: { from, kind, text: body, ...attrs } });

@@ -8,7 +8,7 @@ import { dev, fleetEnv } from "../dev.mjs";
 import { lacks, machineTmp, newTag } from "./harness.mjs";
 import { say, tool, turn as script } from "./turn.mjs";
 import {
-  answer, CallError, createApi, fleetList, hostRestart, httpTransport, incidentList, incidentRaise, keeperState, machineMetrics, obsHealth, pointsDelete, pointsList, prefsGet, prefsSet, profileList, profileSync, PROXY_RULES, rulesTest,
+  answer, CallError, createApi, fleetList, hostRestart, httpTransport, keeperState, machineMetrics, obsHealth, pointsDelete, pointsList, prefsGet, prefsSet, profileList, profileSync, PROXY_RULES, rulesTest,
   sessionCall, sessionHistory, sessionOpen, sessionRemove, sessionRewind, sessionStart, sessionStop, sessionUpdate, shellInfo, shellRun, keysModels, type SessionRow,
 } from "@sb/protocol";
 
@@ -148,41 +148,6 @@ await stepOne("пара: ведомый открыт вместе с ведущ�
   await until("ведомый убран", async () => !(await rowOf(wing)), 60_000);
   return `${lead} ▸ ${wing}`;
 });
-
-/* Обращение (инцидент) */
-/** Свой вид обращений в настройках флота на время шага: открывает сессию, которая отвечает «принято». */
-async function withKind<T>(kind: string, fn: () => Promise<T>): Promise<T> {
-  const kinds = ((await api.call(prefsGet, { scope: "fleet", prefix: "incidents.kinds" })).values["incidents.kinds"] ?? {}) as Record<string, unknown>;
-  await api.call(prefsSet, { scope: "fleet", name: "incidents.kinds", value: { ...kinds, [kind]: { cwd: tmp(machine), ...DOC, prompt: script(say("принято")) } } });
-  try {
-    await sleep(3000); // Host перечитывает настройку по кадру «изменилось»
-    return await fn();
-  } finally {
-    await api.call(prefsSet, { scope: "fleet", name: "incidents.kinds", value: kinds }).catch(() => {});
-  }
-}
-await stepOne("обращение: вид из настроек флота открывает сессию; обращение видно в списке", () =>
-  withKind("live-" + tag, async () => {
-    const r = await api.call(incidentRaise, { to: "@" + machine, kind: "live-" + tag, key: "k1", text: "живая проверка обращения " + tag });
-    if (r.callsign) made.push(r.callsign);
-    const mine = (await api.call(incidentList, { to: "@" + machine })).incidents.find((i) => i.id === r.id);
-    if (!mine) throw new Error("обращения нет в списке");
-    return `сессия ${r.callsign ?? "—"}, состояние ${mine.state}`;
-  }));
-// порт обращений включается настройкой машины; шаг идёт там, где он включён
-const incidentPort = !PART || PART === "one" ? (await api.call(incidentList, { to: "@" + machine })).port : undefined;
-if (incidentPort) await stepOne("обращение через порт машины: служба компьютера шлёт POST на 127.0.0.1 — сессия открыта", () =>
-  withKind("port-" + tag, async () => {
-    const body = JSON.stringify({ kind: "port-" + tag, key: "p1", text: "обращение через порт " + tag });
-    const sent = await api.call(shellRun, { to: "@" + machine, shell: "node", wait: 30,
-      script: `const r = await fetch("http://127.0.0.1:${incidentPort}/incident", { method: "POST", headers: { "content-type": "application/json" }, body: ${JSON.stringify(body)} }); console.log("ответ", r.status, await r.text());` });
-    const got = /ответ (\d+) (.*)/.exec(sent.out ?? sent.stdout ?? "");
-    if (!got || got[1] !== "202") throw new Error(`порт ответил: ${(sent.out ?? sent.stdout ?? sent.state).slice(0, 120)}`);
-    const id = (JSON.parse(got[2]!) as { id: string }).id;
-    const mine = await until("сессия обращения открыта", async () => (await api.call(incidentList, { to: "@" + machine })).incidents.find((i) => i.id === id && i.callsign), 60_000);
-    made.push(mine.callsign!);
-    return `порт ${incidentPort}: 202, сессия ${mine.callsign}`;
-  }));
 
 /* Правило прокси: текст запроса к модели правится по правилу флота */
 await stepOne("правило прокси: слово в запросе к модели заменено по правилу флота", async () => {

@@ -263,7 +263,6 @@ export function Work() {
                         <SessionLine s={s} depth={depth} wing={wing} lamps={folded && lamps(folded)} parts={parts} why={whyMine(picture, s, pins)} selected={s.callsign === held} onPick={() => open(s.callsign)} sub={<>
                           {askLine(s) ? <> · {askLine(s)}</> : s.state === "failed" ? <> · {s.error ?? "сбой"}</> : null}
                           {!mine && <> <span className="chip">{personWord(s.by.includes("~") ? s.by.slice(s.by.indexOf("~")) : s.by)}</span></>}
-                          {s.incident && <> <span className="chip warn">обращение: {s.incident.kind}</span></>}
                           {(s.spec.pieces?.length ?? 0) > 1 && <> <span className="chip mono">{s.spec.pieces!.join(" + ")}</span></>}
                         </>} />
                         {/* закрепление: по наведению; на телефоне — в меню разговора, закреплённая помечена значком */}

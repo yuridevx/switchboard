@@ -1,4 +1,4 @@
-import { accountList, analyticsQuery, answer, buildsDeploy, buildsList, contract, createApi, type Frame, incidentList, invite, keeperState, keysList, ledgerRead, machineDirs, machineJournal, message, messageCancel, obsRecent, obsStats, passes, peopleList, peopleSet, pointsHistory, pointsList, pointsRaise, prefsGet, prefsSet, profileList, profileView, reachDevices, revoke, sessionCall, sessionHistory, sessionOpen, sessionUpdate, sessionWatch, whoami } from "@sb/protocol";
+import { accountList, analyticsQuery, answer, buildsDeploy, buildsList, contract, createApi, type Frame, invite, keeperState, keysList, ledgerRead, machineDirs, machineJournal, message, messageCancel, obsRecent, obsStats, passes, peopleList, peopleSet, pointsHistory, pointsList, pointsRaise, prefsGet, prefsSet, profileList, profileView, reachDevices, revoke, sessionCall, sessionHistory, sessionOpen, sessionUpdate, sessionWatch, whoami } from "@sb/protocol";
 import { describe, expect, it } from "vitest";
 import { fold } from "./chat/fold.ts";
 import { nPoints, nTools, nTurns } from "./lib/time.ts";
@@ -34,12 +34,13 @@ describe("свёртка разговора", () => {
     const v = fold([
       say("u1", '<fleet from="lead@laptop" kind="task">\nНайди вызовы\n</fleet>', { from: "lead@laptop", kind: "task", text: "Найди вызовы" }),
       say("u2", '<fleet from="wing@laptop" kind="question" ask="q7">\nКакую ветку брать?\n</fleet>', { from: "wing@laptop", kind: "question", text: "Какую ветку брать?", ask: "q7" }),
-      say("u3", '<fleet from="@laptop" kind="incident" incident="disk" key="c:">\nДиск занят на 91%\n</fleet>', { from: "@laptop", kind: "incident", text: "Диск занят на 91%", incident: "disk", key: "c:" }),
+      say("u3", '<fleet from=".factory" kind="ticket" ticket="site-9" on="disk" key="c:">\nДиск занят на 91%\n</fleet>', { from: ".factory", kind: "ticket", text: "Диск занят на 91%", ticket: "site-9", on: "disk", key: "c:" }),
       say("u4", '<fleet from=".factory" kind="ticket" ticket="site-7" step="ревью">\nПроверь срезы\n</fleet>', { from: ".factory", kind: "ticket", text: "Проверь срезы", ticket: "site-7", step: "ревью" }),
     ]);
     expect(v.rows[0]).toMatchObject({ k: "in", via: "session", from: "lead@laptop", kind: "task", text: "Найди вызовы" });
     expect(v.rows[1]).toMatchObject({ k: "in", from: "wing@laptop", kind: "question", ref: "q7", text: "Какую ветку брать?" });
-    expect(v.rows[2]).toMatchObject({ k: "in", via: "service", from: "@laptop", kind: "incident", ref: "disk · c:" });
+    // тикет, заведённый событием правила входа: в шапке — номер и имя правила
+    expect(v.rows[2]).toMatchObject({ k: "in", via: "service", from: ".factory", kind: "ticket", ref: "site-9 · disk" });
     // шаг тикета от службы «Фабрика»: номер и шаг — в шапке карточки
     expect(v.rows[3]).toMatchObject({ k: "in", via: "service", from: ".factory", kind: "ticket", ref: "site-7 · ревью", text: "Проверь срезы" });
   });
@@ -121,7 +122,7 @@ describe("мок флота", () => {
     const calls: Array<() => Promise<unknown>> = [
       () => api.call(whoami, {}), () => api.call(peopleList, {}), () => api.call(passes, {}), () => api.call(sessionHistory, { to: "site@laptop" }), () => api.call(sessionWatch, { to: "site@laptop" }),
       () => api.call(sessionCall, { to: "site@laptop", method: "contextUsage" }), () => api.call(accountList, { to: "@laptop" }), () => api.call(profileList, { to: "@laptop" }), () => api.call(profileView, { to: "@laptop", pieces: ["base", "web"] }),
-      () => api.call(machineDirs, { to: "@laptop" }), () => api.call(machineJournal, { to: "@server" }), () => api.call(keeperState, { to: ".keeper@server" }), () => api.call(incidentList, { to: "@server" }),
+      () => api.call(machineDirs, { to: "@laptop" }), () => api.call(machineJournal, { to: "@server" }), () => api.call(keeperState, { to: ".keeper@server" }),
       () => api.call(buildsList, {}), () => api.call(ledgerRead, {}), () => api.call(pointsList, {}), () => api.call(pointsHistory, { sid: m.state.archive[0].sid }), () => api.call(reachDevices, {}), () => api.call(prefsGet, { scope: "me" }),
       () => api.call(keysList, {}), () => api.call(analyticsQuery, { by: "model", since: "2026-11-01", until: "2026-11-07" }), () => api.call(obsRecent, {}), () => api.call(obsStats, { since: T - 7_200_000, until: T }),
     ];

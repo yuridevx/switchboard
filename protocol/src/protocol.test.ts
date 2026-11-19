@@ -183,9 +183,10 @@ describe("инструменты: одна таблица для страниц�
     for (const name of ["message", "session.open", "session.remove", "shell.run", "keys.set"]) expect(contract.request(name)!.reads, name).toBeUndefined();
   });
   // эталон «вид ставит машина»: у инструмента message поля вида нет; итог, вопрос и весть — служебный запрос только для машины;
-  // шаг тикета (ticket) ставит машина исполнителя по запросу службы «Фабрика» — дизайн «Фабрика», слово пользователя 19 нояб. («делай»)
-  it("вид входящего: семь видов; служебный запрос notice — не инструмент и только машине; message вида не принимает", () => {
-    expect(Kind.options).toEqual(["task", "message", "result", "question", "news", "incident", "ticket"]);
+  // шаг тикета (ticket) ставит машина исполнителя по запросу службы «Фабрика»; вида incident больше нет: события машины и служб компьютера
+  // идут тикетом по правилу входа — дизайн «Фабрика», слово пользователя 19 нояб. («делай»)
+  it("вид входящего: шесть видов; служебный запрос notice — не инструмент и только машине; message вида не принимает", () => {
+    expect(Kind.options).toEqual(["task", "message", "result", "question", "news", "ticket"]);
     expect(notice.tool).toBeUndefined();
     expect(notice.machineOnly).toBe(true);
     expect(notice.input.safeParse({ to: "a@b", kind: "task", text: "x" }).success).toBe(false);

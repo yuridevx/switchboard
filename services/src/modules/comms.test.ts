@@ -51,7 +51,7 @@ describe("знание о флоте", () => {
     const all = known();
     expect(names(RULES).length).toBeGreaterThan(5);
     for (const n of names(RULES)) expect(all.has(n), `в инструкциях назван ${n} — такого инструмента и поля нет`).toBe(true);
-    for (const kind of ["task", "message", "result", "question", "news", "incident"]) expect(RULES).toContain(`- ${kind}`);
+    for (const kind of ["task", "message", "result", "question", "news", "ticket"]) expect(RULES).toContain(`- ${kind}`);
     // файл и сайт человеку — инструментами: правила называют оба
     for (const tool of ["file_send", "site_publish"]) expect(names(RULES)).toContain(tool);
   });

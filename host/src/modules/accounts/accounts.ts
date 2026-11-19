@@ -8,7 +8,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { CLAUDE, findModels, incidentRaise, keysLimits, keysList, keysModels, keysValue, LIMIT_WORD, READ_MS, Refusal, within, type Account as AccountOut, type Model, type Offer, type Protocol, type SessionState } from "@sb/protocol";
+import { CLAUDE, findModels, keysLimits, keysList, keysModels, keysValue, LIMIT_WORD, MACHINE_RULES, READ_MS, Refusal, ticketNew, within, type Account as AccountOut, type Model, type Offer, type Protocol, type SessionState } from "@sb/protocol";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
 import { cacheOf, hours, launchEnv, launchSig, procModel, wireModel, type Cache, type Pair } from "./pair.ts";
 import { choose, closed, FABLE, FIVE, fits, isFable, nextReset, read, refusalHeaders, shown, WEEK, type Account, type Candidate } from "./limits.ts";
@@ -59,12 +59,8 @@ const ROUND_MS = 600_000;
 const PROBE_MS = READ_MS - 2_000;
 /** Кто делает вызов пробы: в строке журнала вместо позывного. */
 const PROBE = "проба";
-/** Вид обращения в «Инциденты»: токен аккаунта не принят. */
-const ACCOUNT_INCIDENT = "account";
 /** Настройки ключа провайдера из ответа службы ключей. */
 type KeyConfig = { protocol: string; base?: string; env?: Record<string, string>; settings?: Record<string, unknown>; cache?: number };
-/** Вид обращения в «Инциденты»: ответила не та модель. */
-const MODEL_INCIDENT = "model";
 /** Имя модели у записи, которую процесс написал сам (ошибка API, прерывание): модель её не давала. */
 const SYNTHETIC = "<synthetic>";
 /** Предел шага смены: сколько ждём, пока живой процесс примет новую модель, — как у остальных шагов сессии. */
@@ -239,9 +235,16 @@ export function make(): Module {
   /** Каталог моделей провайдера: спрашивается у службы каждый раз, своей копии нет. */
   const catalog = async (key: string): Promise<Model[]> => (await within(host.call(keysModels, { name: key }), READ_MS, `каталог ${key}: службы не ответили за ${READ_MS / 1000} с`)).models;
 
+  /** Событие машины — правилу входа проекта, по имени: тикет заведут службы. Проекта у сессии нет или правила у проекта нет — строка журнала:
+   *  само событие уже записано в журнал словом. */
+  function event(rule: string, key: string, text: string, project: string | undefined): void {
+    if (!project) return void host.log.warn("rule_event", { word: "no_project", why: `событие «${rule}» (${key}) правилу не отправлено: у сессии нет проекта` });
+    void host.call(ticketNew, { project, on: rule, key, text }).catch((e: unknown) => host.log.warn("rule_event", { word: (e as Refusal).word ?? "offline", why: `событие «${rule}» (${key}) проект ${project} не принял: ${say(e)}` }));
+  }
+
   /** Пара по каталогу и ключу провайдера: одно чтение каталога; значение ключа — в память. Модели в каталоге нет — отказ словом с похожими именами. */
-  async function learn(key: string, model: string): Promise<Pair> {
-    const [models, opts] = await Promise.all([catalog(key), key === CLAUDE ? undefined : takeKey(key)]);
+  async function learn(key: string, model: string, project?: string): Promise<Pair> {
+    const [models, opts] = await Promise.all([catalog(key), key === CLAUDE ? undefined : takeKey(key, project)]);
     const m = models.find((x) => x.id === model);
     if (!m) {
       const near = findModels(model.split(/[-./]/).filter((w) => w.length > 2 && w !== CLAUDE)[0] ?? model, models.map((x) => ({ key, model: x.id }))).slice(0, 6).map((o) => o.model);
@@ -254,15 +257,15 @@ export function make(): Module {
   }
 
   /** Свежий ключ провайдера: значение — в память, настройки — ответом. Вызовы, что идут разом, ждут один запрос; умерший вход служб не спрашивает. */
-  function takeKey(name: string): Promise<KeyConfig> {
+  function takeKey(name: string, project?: string): Promise<KeyConfig> {
     const gone = dead.get(name);
     if (gone) return Promise.reject(gone);
     let taken = taking.get(name);
-    if (!taken) taking.set(name, (taken = readKey(name).finally(() => taking.delete(name))));
+    if (!taken) taking.set(name, (taken = readKey(name, project).finally(() => taking.delete(name))));
     return taken;
   }
 
-  async function readKey(name: string): Promise<KeyConfig> {
+  async function readKey(name: string, project?: string): Promise<KeyConfig> {
     try {
       const { value, keep: _keep, until, ...config } = await within(host.call(keysValue, { name }), READ_MS, `ключ флота ${name}: службы не ответили за ${READ_MS / 1000} с`);
       values.set(name, value);
@@ -276,12 +279,12 @@ export function make(): Module {
     } catch (e) {
       const r = e as Refusal;
       if (r.word === "bad_token") {
-        // вход аккаунта умер: аккаунт — ключ флота со входом по подписке; то же обращение, что у аккаунта Claude с негодным токеном
+        // вход аккаунта умер: аккаунт — ключ флота со входом по подписке; то же событие, что у аккаунта Claude с негодным токеном
         const why = `${r.why ?? `${name}: вход не принят`} — войдите в аккаунт заново и запишите ключ во «Флоте»`;
         const refusal = new Refusal("bad_token", why);
         dead.set(name, refusal);
         host.log.error("account.token", { account: name, word: "bad_token", why });
-        void host.call(incidentRaise, { to: `@${host.machine}`, kind: ACCOUNT_INCIDENT, key: name, text: why }).catch((x: unknown) => host.log.warn("incident", { account: name, why: `обращение «аккаунт» не открыто: ${say(x)}` }));
+        event(MACHINE_RULES.account, name, why, project);
         throw refusal;
       }
       throw r.word === "not_found" || r.word === "no_key" ? new Refusal("no_key", `${name}: такого ключа флота нет`) : new Refusal(r.word ?? "module_failed", `ключ флота ${name}: ${r.why ?? say(e)}`);
@@ -297,7 +300,7 @@ export function make(): Module {
     if (known && known.key === key && known.model === model) return known;
     // пара только что сверена с каталогом при открытии: второй раз каталог не читается
     const id = `${key}/${model}`;
-    const pair = fresh.get(id) ?? (await learn(key, model));
+    const pair = fresh.get(id) ?? (await learn(key, model, s.spec.project));
     fresh.delete(id);
     seatOf(s).update((x) => ({ ...x, pair }));
     return pair;
@@ -351,10 +354,10 @@ export function make(): Module {
     seatOf(s).update((x) => ({ ...x, answers: other }));
     s.sync();
     if (!other) return;
-    // система ловит, агент чинит: строка журнала и обращение в «Инциденты»; сама сессия модель не меняет
+    // система ловит, агент чинит: строка журнала и событие правилу проекта; сама сессия модель не меняет
     const why = `${s.callsign}: в документе модель ${pair.model}, ответила ${other}`;
     host.log.error("model_drift", { callsign: s.callsign, word: "model_drift", why });
-    void host.call(incidentRaise, { to: `@${host.machine}`, kind: MODEL_INCIDENT, key: s.callsign, text: why }).catch((e: unknown) => host.log.warn("incident", { callsign: s.callsign, why: `обращение «модель» не открыто: ${say(e)}` }));
+    event(MACHINE_RULES.model, s.callsign, why, s.spec.project);
   }
 
   /** Размер запроса и прочитанное из кэша — в запись кэша. Ответ без размера записи не трогает: у путей с переводом провайдер называет размер
@@ -466,7 +469,7 @@ export function make(): Module {
       }
       const until = untils.get(pair.key);
       // значения нет, его срок вышел или вход умер (тогда отказ — сразу, из памяти)
-      if (!values.has(pair.key) || dead.has(pair.key) || (until !== undefined && now() >= until)) await takeKey(pair.key);
+      if (!values.has(pair.key) || dead.has(pair.key) || (until !== undefined && now() >= until)) await takeKey(pair.key, s.spec.project);
       // стороннему провайдеру любой вызов сессии уходит на модель документа
       return { callsign: s.callsign, to: pair.base ?? ANTHROPIC, protocol: pair.protocol, key: values.get(pair.key)!, name: pair.key, model: wireModel(pair.model), ...(pair.window ? { window: pair.window } : {}) };
     },
@@ -498,7 +501,7 @@ export function make(): Module {
         const why = `${name}: Claude не принял токен аккаунта (401) — аккаунт выбыл из выбора; замените токен во «Флоте»`;
         mark(name, (a) => void Object.assign(a, { ok: false, why: "токен не принят" }));
         host.log.error("account.token", { account: name, callsign: route.callsign, word: "bad_token", why });
-        void host.call(incidentRaise, { to: `@${host.machine}`, kind: ACCOUNT_INCIDENT, key: name, text: why }).catch((e: unknown) => host.log.warn("incident", { account: name, why: `обращение «аккаунт» не открыто: ${say(e)}` }));
+        event(MACHINE_RULES.account, name, why, host.session(route.callsign)?.spec.project);
       } else if (r.status === 429) {
         const window = closed(r.headers);
         const after = Number(r.headers["retry-after"]);
@@ -578,14 +581,14 @@ export function make(): Module {
       if (!keys.includes("key") && !keys.includes("model")) return;
       if (!spec.key) throw new Refusal("key_required", "назовите провайдера: key — claude или имя ключа флота (keys.list)");
       if (!spec.model) throw new Refusal("model_required", `назовите модель: model — точное имя из каталога провайдера ${spec.key} (keys.models)`);
-      fresh.set(`${spec.key}/${spec.model}`, await learn(spec.key, spec.model));
+      fresh.set(`${spec.key}/${spec.model}`, await learn(spec.key, spec.model, spec.project));
     },
     /** Документ записан — пара доходит до живого процесса командой; прокси с этой секунды шлёт вызовы новой паре, и проба процесса идёт уже новому провайдеру.
      *  Отказ или молчание процесса — запись о паре возвращена, отказ словом: документ возвращает ядро. Перезапуск — только когда процессу нужно другое окружение. */
     async applied(s, keys) {
       if (!keys.includes("key") && !keys.includes("model")) return;
       const id = `${s.spec.key}/${s.spec.model}`;
-      const pair = fresh.get(id) ?? (await learn(s.spec.key!, s.spec.model!));
+      const pair = fresh.get(id) ?? (await learn(s.spec.key!, s.spec.model!, s.spec.project));
       fresh.delete(id);
       const was = seatOf(s).get();
       // та же пара, что уже в документе: ни команды, ни перезапуска

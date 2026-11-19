@@ -83,7 +83,6 @@ const SHOTS = [
   ["fleet-login", "/fleet/accounts", async (p) => { await p.getByRole("button", { name: "Войти", exact: true }).first().click(); await p.getByText("Получить ссылку входа").click(); }, "wide"],
   ["fleet-profiles", "/fleet/profiles"],
   ["fleet-releases", "/fleet/releases", async (p) => void (await p.getByText("По машинам", { exact: true }).click())],
-  ["fleet-incidents", "/fleet/incidents"],
   ["observe", "/observe/requests"],
   ["observe-failed", "/observe/requests", async (p) => { await p.getByRole("switch").first().check({ force: true }); await p.waitForTimeout(600); await p.locator("tbody tr").first().click({ force: true }); }],
   ["observe-series", "/observe/series", async (p) => { await p.waitForTimeout(900); }],
@@ -97,7 +96,7 @@ const SHOTS = [
   ["settings-github", "/settings/github"],
   ["settings-names", "/settings/names"],
   ["more", "/inbox", click("Ещё"), "narrow"],
-  // экраны второй волны: фильтры и проекты «Работы», аккаунты и ключи, профили, архив, инциденты, настройки, согласие
+  // экраны второй волны: фильтры и проекты «Работы», аккаунты и ключи, профили, архив, настройки, согласие
   ["work-filters", "/work", async (p) => { await p.getByLabel("Фильтр списка").click(); await p.getByText("Свои фильтры…").click(); await p.getByText("Новый фильтр").click(); }],
   ["work-project-menu", "/work", async (p) => { await p.getByLabel("Вид списка").first().click(); await p.getByText("Список", { exact: true }).click(); await p.keyboard.press("Escape"); await p.getByLabel("Действия с проектом Сайт").click({ force: true }); }, "wide"],
   ["fleet-account-menu", "/fleet/accounts", async (p) => void (await p.getByLabel("Действия: ops@example.com").first().click())],
@@ -106,7 +105,6 @@ const SHOTS = [
   ["fleet-profiles-settings", "/fleet/profiles", async (p) => { await p.getByText("Веб", { exact: true }).click(); await p.getByText("Эксплуатация", { exact: true }).click(); await p.getByRole("button", { name: "Что в наборе" }).click({ timeout: 1500 }).catch(() => {}); await p.getByRole("tab", { name: "Настройки" }).click(); }],
   ["fleet-profiles-files", "/fleet/profiles", async (p) => void (await p.getByRole("tab", { name: "Файлы" }).click()), "wide"],
   ["fleet-profiles-repos", "/fleet/profiles", click("Репозитории")],
-  ["fleet-incident-kind", "/fleet/incidents", async (p) => void (await p.getByLabel("Изменить вид disk").click()), "wide"],
   ["fleet-machine-invite", "/fleet/machines", async (p) => { await p.getByText("Добавить машину").click(); await p.getByLabel("Имя машины").fill("tower"); await p.getByText("Выдать приглашение").click(); }, "wide"],
   ["machine-fire", "/machine/base2", click("Поднять её сессии на другой машине")],
   ["archive-point", "/archive/s3e8", async (p) => void (await p.locator(".insp .timeline .pt").nth(2).click()), "wide"],

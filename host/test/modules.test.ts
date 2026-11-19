@@ -6,15 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { make as accounts } from "../src/modules/accounts/accounts.ts";
-import { make as chat } from "../src/modules/chat/chat.ts";
-import { make as incidents } from "../src/modules/incidents/incidents.ts";
 import { make as machine } from "../src/modules/machine/machine.ts";
 import { make as points, projectDir, toBlocks } from "../src/modules/points/points.ts";
 import { make as profiles } from "../src/modules/profiles/profiles.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
 import { make as shell } from "../src/modules/shell/shell.ts";
 import { modules } from "../src/modules/index.ts";
-import { stand, until, type Stand } from "../stand/index.ts";
+import { stand, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 const servers: Server[] = [];
@@ -94,30 +92,6 @@ describe("shell", () => {
     const killed = await st.request("shell.kill", { to: "@laptop", run: (started.result as any).run });
     expect(killed.result).toMatchObject({ state: "killed" });
   }, 40_000);
-});
-
-describe("incidents", () => {
-  it("обращение открывает сессию своего вида; тот же ключ идёт в ту же сессию; чужой вид — отказ", async () => {
-    const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
-    const work = join(home, "work");
-    mkdirSync(work, { recursive: true });
-    st = await stand({ home, modules: [chat(), incidents()], config: { "host-incidents": { kinds: { disk: { cwd: work } } } } });
-    const first = await st.request("incident.raise", { to: "@laptop", kind: "disk", key: "c:", text: "место кончается" }, "@laptop");
-    expect(first).toMatchObject({ ok: true, result: { callsign: "disk-1@laptop" } });
-    const proc = await until(() => st!.proc("disk-1@laptop"), 5000, "процесс инцидента");
-    await until(() => proc.inputs.length === 1, 5000, "обращение во вводе");
-    expect(proc.inputs[0]!.message.content).toBe('<fleet from="@laptop" kind="incident" incident="disk" key="c:">\nместо кончается\n</fleet>');
-    expect((st.sdk.last("disk-1@laptop")!.options as any).systemPrompt.append).toContain("инцидент disk");
-    const second = await st.request("incident.raise", { to: "@laptop", kind: "disk", key: "c:", text: "стало хуже" }, "@laptop");
-    expect(second).toMatchObject({ ok: true, result: { callsign: "disk-1@laptop" } });
-    expect(await st.request("incident.raise", { to: "@laptop", kind: "nope", key: "", text: "x" }, "@laptop")).toMatchObject({ ok: false, error: "unknown_kind" });
-    const list = await st.request("incident.list", { to: "@laptop" });
-    expect((list.result as any).incidents).toHaveLength(2);
-    // ход взял обращение и кончился — оно закрыто
-    proc.send({ type: "system", subtype: "status", user_message_uuids: [(first.result as any).id] });
-    proc.send({ type: "result", subtype: "success", result: "ok" });
-    await until(() => ((st!.kernel.disk.section<any[]>("host-incidents").get() ?? []).find((a) => a.id === (first.result as any).id)?.state === "done"), 5000, "обращение закрыто");
-  });
 });
 
 describe("proxy", () => {

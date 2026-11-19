@@ -32,7 +32,6 @@ import { fireList, fireRun } from "./archive/Fire.tsx";
 import { DeleteTyped } from "../lib/DeleteTyped.tsx";
 import { checkWord, raiseInput, stepsOf } from "./archive/Raise.tsx";
 import { keyInput, parsePairs, pairsText } from "./fleet/Accounts.tsx";
-import { splitIncidents } from "./fleet/Incidents.tsx";
 import { pieceMatches, summary, VIEW_TABS } from "./fleet/Profiles.tsx";
 import { rollState } from "./fleet/Releases.tsx";
 import { ledgerMatches, mergeLedger } from "./Observe.tsx";
@@ -342,12 +341,6 @@ describe("выпуски и машины", () => {
     expect(rollState({ online: true, build: 411 }, 412, keeper("updating", 411))).toMatchObject({ lamp: "busy", word: "обновляется: Keeper ставит 412" });
     expect(rollState({ online: true, build: 412 }, 412, keeper("running", 412))).toEqual({ lamp: "idle", word: "на сборке 412", done: true });
     expect(rollState({ online: true, build: 411 }, 412, keeper("failed", 411, "Host дважды не запустился"))).toMatchObject({ lamp: "failed", done: false, word: expect.stringContaining("Host дважды не запустился") });
-  });
-  it("инциденты: открытые или все; недоставленные — отдельно, с причиной", () => {
-    const row = (id: string, state: "pending" | "taken" | "done", why?: string) => ({ id, kind: "disk", key: "/", text: id, at: Number(id), state, machine: "server", ...(why ? { why } : {}) });
-    const rows = [row("1", "done"), row("2", "taken"), row("3", "pending"), row("4", "pending", "вида нет")];
-    expect(splitIncidents(rows, false)).toEqual({ list: [rows[2], rows[1]], undelivered: [rows[3]] });
-    expect(splitIncidents(rows, true).list.map((r) => r.id)).toEqual(["3", "2", "1"]);
   });
 });
 

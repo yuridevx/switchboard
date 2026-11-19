@@ -79,9 +79,8 @@ async function claudeApi(answer: (hit: Hit, n: number) => Reply): Promise<{ url:
   return { url: `http://127.0.0.1:${(s.address() as { port: number }).port}`, hits };
 }
 
-const raised: Array<{ kind: string; key: string; text: string }> = [];
-/** Подделка «Инцидентов»: помнит обращения. */
-const incidents = (): Module => ({ name: "host-incidents", requests: { "incident.raise": (i: { kind: string; key: string; text: string }) => (raised.push(i), { id: String(raised.length) }) } });
+/** События машины правилам входа: запросы ticket.new службам. */
+const raised: Array<{ project: string; on: string; key: string; text: string }> = [];
 
 /** Флот на стенде: аккаунты Claude с заданными окнами, провайдер orca, поддельный Claude. */
 async function fleet(all: Record<string, Preset>, answer: (hit: Hit, n: number) => Reply = () => ({}), o: { home?: string; extra?: Module[] } = {}) {
@@ -92,7 +91,9 @@ async function fleet(all: Record<string, Preset>, answer: (hit: Hit, n: number) 
     mkdirSync(join(home, "store"), { recursive: true });
     writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: { accounts: book(all) } }));
   }
-  st = await stand({ home, modules: [...(o.extra ?? []), accounts(), proxy(), incidents()] });
+  st = await stand({ home, modules: [...(o.extra ?? []), accounts(), proxy()] });
+  st.services.handlers["people.list"] = () => ({ people: [], projects: [{ id: "site", name: "Сайт", members: [] }] });
+  st.services.handlers["ticket.new"] = (f: any) => (raised.push(f), { id: "site-1" });
   /** limits — окна аккаунта, которые знает флот (служба ключей) */
   const names: { list: string[]; limits: Record<string, Array<{ name: string; used: number; resets?: number; at: number }>> } = { list: Object.keys(all), limits: {} };
   st.services.handlers["keys.list"] = () => ({ keys: [...names.list.map((n) => ({ name: n, protocol: "claude", at: 1, tail: "tail", keep: all[n]?.keep ?? false, ...(names.limits[n] ? { limits: names.limits[n] } : {}) })), { name: "orca", protocol: "anthropic", base: api.url, at: 1, tail: "orca" }] });
@@ -350,17 +351,17 @@ describe("отказы Claude", () => {
     expect(journal("call")).toMatchObject([{ status: 429, kind: "throttle" }, { status: 200 }]);
   });
 
-  // чьё: факт документации — негодный токен; происшествие — обращение в «Инциденты»
+  // чьё: факт документации — негодный токен; происшествие — событие правилу входа «account» в проекте сессии (дизайн «Фабрика»)
   it("Claude ответил, что токен не годен — аккаунт выбыл из выбора с причиной, сессия перешла на следующий, происшествие", async () => {
     const api = await fleet({ [A]: { week: 0.2, hours: 20 }, [B]: { week: 0.4, hours: 90 } }, (hit) => (hit.account === A ? { status: 401 } : {}));
-    const { s } = await st!.open("site", claude());
+    const { s } = await st!.open("site", { ...claude(), project: "site" });
     expect((await call(s.rec.sessionId)).status).toBe(200);
     expect(api.hits.map((h) => h.account)).toEqual([A, B]);
     expect((await listed()).find((a) => a.name === A)).toMatchObject({ ok: false, why: "токен не принят" });
     expect(row().account).toBe(B);
     expect(journal("account.token")).toMatchObject([{ account: A, level: "error" }]);
-    await until(() => raised.length === 1, 5000, "обращение об аккаунте");
-    expect(raised[0]).toMatchObject({ kind: "account", key: A });
+    await until(() => raised.length === 1, 5000, "событие об аккаунте");
+    expect(raised[0]).toMatchObject({ project: "site", on: "account", key: A });
   });
 
   // чьё: код — сессия ждёт сброса и продолжает сама
@@ -428,7 +429,7 @@ describe("провайдеры и модели", () => {
   // чьё: слово пользователя 15 нояб. — «убрать любой десинк»
   it("ответ пришёл от другой модели — в строке сессии обе модели, строка журнала, происшествие; ответила названная — расхождения нет", async () => {
     await fleet({ [A]: {} });
-    const { q } = await st!.open("site", claude(FABLE));
+    const { q } = await st!.open("site", { ...claude(FABLE), project: "site" });
     expect((q.options as any).model).toBe(`${FABLE}[1m]`);
     const said = (model: string) => ({ type: "assistant", uuid: `u-${model}-${Math.random()}`, parent_tool_use_id: null, message: { model, content: [{ type: "text", text: "ок" }] } });
     await st!.turn(CS, [said(FABLE)]);
@@ -436,11 +437,17 @@ describe("провайдеры и модели", () => {
     await st!.turn(CS, [said("claude-opus-5-5")]);
     expect(row()).toMatchObject({ spec: { model: FABLE }, answers: "claude-opus-5-5" });
     expect(journal("model_drift")).toMatchObject([{ callsign: CS, level: "error" }]);
-    await until(() => raised.length === 1, 5000, "обращение о модели");
-    expect(raised[0]).toMatchObject({ kind: "model", key: CS });
+    await until(() => raised.length === 1, 5000, "событие о модели");
+    expect(raised[0]).toMatchObject({ project: "site", on: "model", key: CS, text: expect.stringContaining("ответила claude-opus-5-5") });
     // ответ субагента в сверку не идёт; названная модель снимает расхождение
     await st!.turn(CS, [{ ...said(HAIKU), parent_tool_use_id: "toolu_1" }, said(FABLE)]);
     expect(row().answers).toBeUndefined();
+    expect(raised).toHaveLength(1);
+    // у сессии без проекта правила нет: событие остаётся строкой журнала
+    await st!.open("free", claude(FABLE));
+    await st!.turn("free@laptop", [said("claude-opus-5-5")]);
+    expect(journal("model_drift")).toHaveLength(2);
+    expect(journal("rule_event")).toMatchObject([{ word: "no_project", level: "warn" }]);
     expect(raised).toHaveLength(1);
   });
 

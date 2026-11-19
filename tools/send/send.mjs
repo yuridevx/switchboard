@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Сообщение в сессию от служб компьютера (тревоги, сторожа): один файл без зависимостей, нужен только Node.
+// Сообщение в сессию и событие правилу входа от служб компьютера (тревоги, сторожа): один файл без зависимостей, нужен только Node.
 //   echo "<пропуск>" | node send.mjs <адрес флота> <сессия> <текст…>
-//   echo "<пропуск>" | node send.mjs <адрес флота> --incident <машина> <вид> <ключ> <текст…>
+//   echo "<пропуск>" | node send.mjs <адрес флота> --event <проект> <правило> <ключ> <текст…>   — событие правилу входа проекта: тикет по правилу
 //   import { send } from "…/send.mjs"; await send("site@laptop", "текст", { key, url }) → { ok: 1, error: "" } | { ok: 0, error }
 // Пропуск — первой строкой stdin (не аргументом: аргументы видны в списке процессов); из кода — полем key.
 // Выход: 0 — принято; 1 — отказ флота (слово и причина в stderr); 2 — вызван неверно или флот не ответил.
-const usage = "send.mjs <адрес флота> <сессия> <текст…> | send.mjs <адрес флота> --incident <машина> <вид> <ключ> <текст…>; пропуск — первой строкой stdin";
+const usage = "send.mjs <адрес флота> <сессия> <текст…> | send.mjs <адрес флота> --event <проект> <правило> <ключ> <текст…>; пропуск — первой строкой stdin";
 /** Адрес флота по умолчанию для вызова из кода: SWITCHBOARD_URL или прод. */
 export const RELAY = process.env.SWITCHBOARD_URL || "https://relay.pfarm.app";
 
@@ -21,10 +21,10 @@ async function firstLine() {
 export function frameOf(a) {
   const [base, ...rest] = a;
   if (!base || !/^https?:\/\//.test(base)) return null;
-  if (rest[0] === "--incident") {
-    const [, machine, kind, key, ...words] = rest;
-    if (!machine || !kind || !key || !words.length) return null;
-    return { base, frame: { type: "incident.raise", to: "@" + machine.replace(/^@/, ""), kind, key, text: words.join(" ") } };
+  if (rest[0] === "--event") {
+    const [, project, rule, key, ...words] = rest;
+    if (!project || !rule || !key || !words.length) return null;
+    return { base, frame: { type: "ticket.new", project, on: rule, key, text: words.join(" ") } };
   }
   const [to, ...words] = rest;
   if (!to || !to.includes("@") || !words.length) return null;
