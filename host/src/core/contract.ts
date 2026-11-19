@@ -64,8 +64,9 @@ export interface Module {
   spec?: Record<string, (value: unknown, s: SessionApi | null) => void | Promise<void>>;
   /** документ сессии целиком, с учётом правки, и ключи, которые правка меняет: согласованность своего ключа с чужими; негодное — throw Refusal своим словом */
   doc?(spec: Spec, keys: string[]): void | Promise<void>;
-  /** при открытии: значение своего ключа документа, когда его не назвали; назвать обязательно — throw Refusal своим словом */
-  fill?: Record<string, () => unknown | Promise<unknown>>;
+  /** при открытии: значение своего ключа документа, когда его не назвали. doc — документ открываемой сессии; parent — документ сессии, которая её открывает
+   *  (открывает не сессия — его нет). Назвать обязательно — throw Refusal своим словом */
+  fill?: Record<string, (doc: Spec, parent: Spec | undefined) => unknown | Promise<unknown>>;
   /** ключ документа изменён у живой сессии: применить без перезапуска */
   applied?(s: SessionApi, keys: string[]): void | Promise<void>;
   /** вклад в опции запуска */
@@ -91,7 +92,11 @@ export interface Module {
   stop?(): void | Promise<void>;
 }
 
-export type OpenOpts = { by: string; /** заголовок до первого слова SDK: начало первой задачи */ title?: string; resume?: string; fork?: boolean; mkdir?: boolean; /** к имени — первый свободный номер */ number?: boolean };
+export type OpenOpts = {
+  by: string; /** заголовок до первого слова SDK: начало первой задачи */ title?: string; resume?: string; fork?: boolean; mkdir?: boolean; /** к имени — первый свободный номер */ number?: boolean;
+  /** документ сессии, которая открывает эту: по нему хозяева ставят неназванные ключи. Читается один раз и только когда такой ключ есть */
+  parent?: () => Promise<Spec | undefined>;
+};
 
 /** Host глазами модуля. */
 export interface HostApi {

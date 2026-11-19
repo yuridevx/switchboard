@@ -10,8 +10,12 @@ import { pathToFileURL } from "node:url";
 
 /** Репозиторий кусочков коробки: владелец/имя, как на GitHub. */
 export const REPO = "box/pieces";
-/** Что в нём лежит: кусочек reviewer — ставит модель и несёт один скил; его ищут проверки «Новой сессии» и второй машины. */
+/** Что в нём лежит: кусочек reviewer — ставит модель и несёт один скил; его ищут проверки «Новой сессии» и второй машины.
+ *  Кусочек notes — с памятью: индекс и одна запись; его ищет проверка «память флота». */
 const FILES = {
+  "notes/.claude-plugin/plugin.json": JSON.stringify({ name: "notes", description: "Память проекта" }, null, 2),
+  "notes/memory/MEMORY.md": "- [Сборка](build.md) — как собирается проект\n",
+  "notes/memory/build.md": "Проект собирается одной командой.\n",
   "reviewer/.claude-plugin/plugin.json": JSON.stringify({ name: "reviewer", description: "Ревью изменений" }, null, 2),
   "reviewer/settings.json": JSON.stringify({ model: "claude-opus-5-5" }, null, 2),
   "reviewer/skills/review/SKILL.md": "---\nname: review\ndescription: Пройтись по изменениям и назвать находки\n---\n\nПрочитай дифф и назови находки по убыванию важности.\n",

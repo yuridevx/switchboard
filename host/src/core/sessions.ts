@@ -1,6 +1,6 @@
 // Запросы ядра о сессиях: открыть, изменить документ, остановить, запустить, убрать, список, проход к SDK. Родитель и пара — здесь.
 import { randomUUID } from "node:crypto";
-import { fleetList, kindOf, ledgerAdd, machineOf, message, notice, peopleList, READ_MS, Refusal, sessionName, sessionRemove, sessionStart, sessionStop, TOOL_METHODS, type SessionBrief, type Spec, type SpecPatch } from "@sb/protocol";
+import { fleetList, kindOf, ledgerAdd, machineOf, message, notice, peopleList, READ_MS, Refusal, sessionName, sessionRemove, sessionStart, sessionStop, TOOL_METHODS, type SessionRow, type Spec, type SpecPatch } from "@sb/protocol";
 import { limited } from "./clock.ts";
 import { tildePath } from "./paths.ts";
 import type { Ctx, Module, SessionApi } from "./contract.ts";
@@ -73,12 +73,12 @@ export function coreModule(k: Kernel): Module {
     if (!projects.some((p) => p.id === v)) throw new Refusal("no_project", `проекта ${String(v)} нет; есть: ${projects.map((p) => `${p.id} — ${p.name}`).join(", ") || "ни одного"}`);
   }
 
-  /** Проект сессии-родителя: из её документа — у себя, а если она на другой машине — из картины флота. */
-  async function projectOf(parent: string): Promise<string | undefined> {
+  /** Документ сессии-родителя: у себя — из записи, а если она на другой машине — полной строкой картины флота. */
+  async function docOf(parent: string): Promise<Spec | undefined> {
     const here = k.sessions.get(parent);
-    if (here) return here.rec.spec.project;
-    const { sessions } = await limited(k.clock, k.call(fleetList, { machine: machineOf(parent)! }), READ_MS, () => new Refusal("timeout", `проект родителя ${parent} не прочитан: флот не ответил за ${READ_MS / 1000} с`));
-    return (sessions.find((x) => x.callsign === parent) as SessionBrief | undefined)?.project;
+    if (here) return here.rec.spec;
+    const { sessions } = await limited(k.clock, k.call(fleetList, { machine: machineOf(parent)!, full: true }), READ_MS, () => new Refusal("timeout", `документ родителя ${parent} не прочитан: флот не ответил за ${READ_MS / 1000} с`));
+    return (sessions.find((x) => x.callsign === parent) as SessionRow | undefined)?.spec;
   }
 
   /** Открыть ведомого: та же папка и набор, что у ведущего; задачи ему даёт ведущий. */
@@ -114,11 +114,11 @@ export function coreModule(k: Kernel): Module {
     async "session.open"({ spec, prompt, mkdir, number, resume, fork, pair }: { spec: Spec; prompt?: string; mkdir?: boolean; number?: boolean; resume?: string; fork?: boolean; pair?: boolean }, ctx) {
       if (fork && !resume) throw new Refusal("bad_spec", "fork — копия разговора: нужен resume с его id");
       if (spec.wing && pair) throw new Refusal("bad_spec", "pair открывает нового ведомого: wing в документе при этом не называют");
-      // сессия, открытая сессией, — её дочь: итог хода уйдёт родителю; проект не назван — дочь встаёт в проект родителя, выдумывать его модели не приходится
+      // сессия, открытая сессией, — её дочь: итог хода уйдёт родителю. Чего дочери не назвали, ставят хозяева ключей по документу родителя:
+      // проект — ядро, кусочки — их модуль; выдумывать проект модели не приходится
       const bySession = kindOf(ctx.from) === "session";
-      const inherited = bySession && !spec.project ? await projectOf(ctx.from) : undefined;
-      const child = { ...spec, ...(bySession && !spec.parent ? { parent: ctx.from } : {}), ...(inherited ? { project: inherited } : {}) };
-      const s = await k.open(child, { by: ctx.from, title: prompt, mkdir, number, resume, fork });
+      const child = { ...spec, ...(bySession && !spec.parent ? { parent: ctx.from } : {}) };
+      const s = await k.open(child, { by: ctx.from, title: prompt, mkdir, number, resume, fork, ...(bySession ? { parent: () => docOf(ctx.from) } : {}) });
       ledger("session.opened", s.callsign, `${s.callsign} открыта · ${spec.cwd}`);
       // первая задача идёт тем же путём, что любое сообщение: от родителя — видом task, от человека — без тега; она видна в ленте
       if (prompt) await k.call(message, { to: s.callsign, text: prompt }, { from: ctx.from, trace: ctx.trace });
@@ -317,6 +317,9 @@ export function coreModule(k: Kernel): Module {
     wing: () => {},
     project,
   };
+
+  /** Проект не назван — дочь встаёт в проект сессии, которая её открыла. */
+  self.fill = { project: (_doc, parent) => parent?.project };
 
   /** «Изменилось» от служб — всем модулям: каждый перечитывает своё. */
   self.frames = {

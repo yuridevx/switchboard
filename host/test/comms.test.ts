@@ -167,8 +167,8 @@ describe("проект сессии", () => {
     expect(st.kernel.sessions.get(KID)!.rec.spec.project).toBe("pmwhtprlq");
     await st.request("session.open", { to: "@laptop", spec: { name: "solo", cwd: st.dir } }, PULT);
     expect(st.kernel.sessions.get("solo@laptop")!.rec.spec.project).toBeUndefined();
-    // родитель на другой машине — проект из картины флота
-    st.services.handlers["fleet.list"] = (f) => ({ machines: [], people: [], sessions: (f as { machine?: string }).machine === "server" ? [{ callsign: "lead@server", state: "idle", cwd: "~", project: "q7k2" }] : [] });
+    // родитель на другой машине — проект из его документа: полная строка картины флота
+    st.services.handlers["fleet.list"] = (f) => ({ machines: [], people: [], sessions: (f as { machine?: string }).machine === "server" ? [{ callsign: "lead@server", state: "idle", spec: { name: "lead", cwd: "~", project: "q7k2" }, by: PULT, since: 1 }] : [] });
     await st.request("session.open", { to: "@laptop", spec: { name: "far", cwd: st.dir } }, "lead@server");
     expect(st.kernel.sessions.get("far@laptop")!.rec.spec).toMatchObject({ project: "q7k2", parent: "lead@server" });
   });

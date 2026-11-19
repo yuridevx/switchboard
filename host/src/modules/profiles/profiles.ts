@@ -5,7 +5,7 @@ import { join, resolve, sep } from "node:path";
 import { githubToken, prefsGet, READ_MS, Refusal, sessionCall, within, type Piece as PieceOut, type RepoClone } from "@sb/protocol";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
 import { splitId } from "./folder.ts";
-import { assemble, BadPieces, namesIn, nearMemory, readPiece, valuesOf, type Assembly } from "./pieces.ts";
+import { assemble, BadPieces, indexMeasure, namesIn, nearMemory, readPiece, valuesOf, type Assembly } from "./pieces.ts";
 import { realGit, syncRepo, type Git, type RepoState } from "./sync.ts";
 import { FILE_MAX, insideFile, viewOf } from "./view.ts";
 
@@ -14,6 +14,18 @@ export type { Git, RepoState };
 const SYNC_MS = 60_000;
 /** Ключ настроек флота: список репозиториев кусочков вида team/profiles. */
 export const PROFILE_REPOS = "profiles.repos";
+
+/** Модели, которым открыта запись в память кусочков (слово пользователя 19 нояб. 2026: «Opus 5.5 и более сильные»). Любая другая и неизвестная модель память читает.
+ *  Список один, здесь: справка флота называет правило без имён, свою модель сессия узнаёт из причины отказа. */
+const WRITERS = new Set(["claude-opus-5-5", "claude-fable-5", "claude-fable-5-1", "claude-fable-5-2"]);
+/** Пометка окна в имени ([1m]) модель не меняет. */
+const writes = (model: string | undefined) => !!model && WRITERS.has(model.replace(/\[1m\]$/, ""));
+/** Без кусочка с памятью встроенная память Claude Code выключена: память одна — общая, в папку машины сессия не пишет. */
+const NO_MEMORY: QueryPart = { settings: { autoMemoryEnabled: false } };
+/** Индекс памяти кусочка: путь внутри его папки. */
+const INDEX = "memory/MEMORY.md";
+/** Сравнение путей: у Windows регистр букв в пути не значит ничего. */
+const same = (p: string) => (process.platform === "win32" ? p.toLowerCase() : p);
 
 /** gone — репозитория больше нет в списке: сведение отправит последнее и уберёт клон. */
 type Repo = { state: RepoState; running?: Promise<void>; again?: boolean; gone?: boolean };
@@ -109,14 +121,41 @@ export function make(o: { git?: Git } = {}): Module {
     await Promise.all([...repos.keys()].map(kick));
   }
 
-  function part(a: Assembly): QueryPart {
+  function part(a: Assembly, s: SessionApi): QueryPart {
+    const fileOf = (input: unknown) => (input as { tool_input?: { file_path?: unknown } }).tool_input?.file_path;
+    /** Запись памяти по пути файла. Память кусочка — всё в папке memory любого кусочка набора сессии: домашняя и соседние; память кусочка вне набора сюда не входит. */
+    const recordOf = (file: unknown): { piece: string; record: string } | null => {
+      if (typeof file !== "string") return null;
+      const path = resolve(file);
+      for (const p of a.pieces) {
+        const dir = join(p.dir, "memory") + sep;
+        if (p.memory && same(path).startsWith(same(dir))) return { piece: p.id, record: path.slice(dir.length).replaceAll("\\", "/").replace(/\.md$/, "") };
+      }
+      return null;
+    };
+    /** След: строка журнала машины на чтение записи, запись и отказ. Уровень «инфо»: в ленту сессии она не идёт — отказ там уже виден ответом инструмента. */
+    const trace = (hit: { piece: string; record: string }, op: "read" | "write" | "refused") => host.log.info("memory", { callsign: s.callsign, model: s.spec.model, ...hit, op });
+    // замок: запись в память кусочка — только модели из списка пишущих. Модель читается из документа на каждом вызове: смена модели действует со следующей записи
+    const lock = async (input: unknown) => {
+      const hit = recordOf(fileOf(input));
+      if (!hit || writes(s.spec.model)) return {};
+      trace(hit, "refused");
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `Память только для чтения: модель ${s.spec.model ?? "без имени"} не из пишущих память. Важное для памяти скажи в ответе тому, кто дал задачу.` } };
+    };
     // сессия записала файл в клон кусочка — сведение сразу
     const written = async (input: unknown) => {
-      const file = (input as { tool_input?: { file_path?: unknown } }).tool_input?.file_path;
+      const file = fileOf(input);
       if (typeof file === "string") {
         const path = resolve(file);
         for (const repo of new Set(a.pieces.map((p) => splitId(p.id)!.repo))) if (path.startsWith(cloneOf(repo) + sep)) void kick(repo);
+        const hit = recordOf(file);
+        if (hit) trace(hit, "write");
       }
+      return {};
+    };
+    const read = async (input: unknown) => {
+      const hit = recordOf(fileOf(input));
+      if (hit) trace(hit, "read");
       return {};
     };
     const dirs = a.pieces.filter((p) => p.instructions).map((p) => p.dir);
@@ -124,10 +163,11 @@ export function make(o: { git?: Git } = {}): Module {
     return {
       plugins: a.pieces.map((p) => ({ type: "local", path: p.dir })),
       ...(dirs.length ? { additionalDirectories: dirs, env: { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1" } } : {}),
-      ...(a.home ? { settings: { autoMemoryDirectory: join(a.home.dir, "memory") } } : {}),
+      // опции запуска от модели не зависят: папка памяти — память последнего кусочка с памятью; нет такого — встроенная память выключена
+      settings: a.home ? { autoMemoryDirectory: join(a.home.dir, "memory") } : NO_MEMORY.settings,
       ...(append ? { append } : {}),
       defaults: { env: valuesOf(a.env) as Record<string, string>, settings: valuesOf(a.settings) },
-      hooks: { PostToolUse: [{ matcher: "Write|Edit|MultiEdit", hooks: [written] }] },
+      hooks: { PreToolUse: [{ matcher: "Write|Edit|MultiEdit", hooks: [lock] }], PostToolUse: [{ matcher: "Write|Edit|MultiEdit", hooks: [written] }, { matcher: "Read", hooks: [read] }] },
     };
   }
 
@@ -182,19 +222,21 @@ export function make(o: { git?: Git } = {}): Module {
       // новый набор вступает в силу с новым процессом
       if (s.state !== "stopped" && s.state !== "failed") void s.restart();
     },
+    /** Сессия, открытая сессией без названных кусочков, берёт кусочки родителя — с ними память, инструкции и скилы. Пустой список назван: дочь без кусочков. */
+    fill: { pieces: (_doc, parent) => parent?.pieces },
     compose(s) {
       const list = piecesOf(s);
-      if (!list.length) return {};
+      if (!list.length) return NO_MEMORY;
       try {
         const a = assemble(list, folderOf);
         broken.delete(s.callsign);
-        return part(a);
+        return part(a, s);
       } catch (e) {
         if (!(e instanceof BadPieces)) throw e;
         // причина появилась в git после открытия: отказ в сборке не дал бы сессии подняться, и заменить список стало бы нельзя
         broken.add(s.callsign);
         host.log.error("profile", { word: e.word, callsign: s.callsign, why: `${e.message} — сессия без кусочков` });
-        return {};
+        return NO_MEMORY;
       }
     },
     requests: {
@@ -236,6 +278,8 @@ export function make(o: { git?: Git } = {}): Module {
           settings: v.settings,
           files: v.files,
           other: v.other,
+          // мера индекса каждой памяти набора: считает машина, страница своих пределов не держит
+          memory: [...(v.memory.home ? [v.memory.home] : []), ...v.memory.near].filter((m) => v.files[m.from]?.some((f) => f.path === INDEX)).map((m) => ({ piece: m.from, path: INDEX, ...indexMeasure(m.indexLines, m.indexBytes) })),
           items: [
             ...v.skills.map((x) => ({ kind: "skill", name: x.name, piece: x.from, path: x.path, about: x.description })),
             ...v.agents.map((x) => ({ kind: "agent", name: x.name, piece: x.from, path: x.path, about: x.description })),

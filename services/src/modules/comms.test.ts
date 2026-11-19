@@ -66,15 +66,25 @@ describe("знание о флоте", () => {
   });
 
   // чьё: слово пользователя 15 нояб. — «MCP API с докой, архитектурой и best practice»
-  it("справка: страниц две — практики и архитектура; каждый названный инструмент есть в договоре; незнакомая страница — отказ со списком", async () => {
+  it("справка: страниц три — практики, архитектура и память; каждый названный инструмент есть в договоре; незнакомая страница — отказ со списком", async () => {
     const s = stand();
     const list = (await rpc(s, "resources/list", {}, "klaptop", SESSION)).result.resources as { uri: string; name: string }[];
-    expect(list.map((r) => r.uri)).toEqual(["fleet://guide/practices", "fleet://guide/architecture"]);
+    expect(list.map((r) => r.uri)).toEqual(["fleet://guide/practices", "fleet://guide/architecture", "fleet://guide/memory"]);
     const page = (await rpc(s, "resources/read", { uri: "fleet://guide/practices" }, "klaptop", SESSION)).result.contents[0];
     expect(page).toMatchObject({ uri: "fleet://guide/practices", mimeType: "text/markdown", text: GUIDES[0]!.text });
     expect((await rpc(s, "resources/read", { uri: "fleet://guide/tools" }, "klaptop", SESSION)).error?.message).toContain("fleet://guide/architecture");
     const all = known();
     for (const g of GUIDES) for (const n of names(g.text)) expect(all.has(n), `${g.uri}: ${n}`).toBe(true);
+  });
+
+  // чьё: слово пользователя 19 нояб. — память пишут сильные модели; список моделей один, у машины: справка называет правило без имён.
+  // Правил записи в справке нет: их даёт сам Claude Code (дизайн «Память флота»)
+  it("страница «Память»: три слоя, пути к сырью и правило «пишут сильные модели» без имён моделей; инструкции ведут на неё одной строкой", async () => {
+    const page = (await rpc(stand(), "resources/read", { uri: "fleet://guide/memory" }, "klaptop", SESSION)).result.contents[0].text as string;
+    for (const word of ["Ядро", "Записи", "Сырьё", "session_history", "machine_conversations", "points_list", "сильные модели", "не состояние работы"]) expect(page, word).toContain(word);
+    expect(page).not.toMatch(/claude-|opus|fable|sonnet|haiku/i);
+    expect(RULES.split("\n").filter((l) => l.includes("fleet://guide/memory"))).toHaveLength(1);
+    expect(RULES.length).toBeLessThanOrEqual(4096);
   });
 });
 
