@@ -14,6 +14,7 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildPage } from "../build/page.mjs";
+import { definition } from "./factory.mjs";
 import * as github from "./github.mjs";
 import { killHolders, killTree } from "./holders.mjs";
 import { MODELS, serve } from "./model.mjs";
@@ -141,8 +142,9 @@ async function up() {
   await call("reach.bot", { token: telegram.TOKEN }, admin);
   human = `http://127.0.0.1:${pTelegram}`;
   // GitHub: токены приложения выдаёт двойник, репозиторий кусочков — настоящий git на диске коробки (tools/box/github.mjs)
-  githubApi = await github.serve(pGithub, (line) => fs.appendFileSync(path.join(state, "github.log"), line + "\n"));
-  const gitconfig = github.seed(state);
+  githubApi = await github.serve(pGithub, (line) => fs.appendFileSync(path.join(state, "github.log"), line + "\n"), state);
+  // в том же репозитории — определение фабрики проекта коробки: его применяет проверка «конвейер»
+  const gitconfig = github.seed(state, { "factory.json": JSON.stringify(definition({ state, key: KEY, model: MODELS[0].id, machines: MACHINES }), null, 2) });
   await call("github.setup", { code: "box" }, admin);
   await call("prefs.set", { scope: "fleet", name: "profiles.repos", value: [github.REPO] }, admin);
   // сборка идёт в каталог флота тем же шагом, которым её доводит выкладка; машины ставит и держит служба машины из этой сборки

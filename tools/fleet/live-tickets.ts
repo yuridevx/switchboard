@@ -16,7 +16,7 @@ const SEAT = process.env.SB2_KEY ?? "muse";
 const DOC = { key: SEAT, model: process.env.SB2_MODEL ?? (await api.call(keysModels, { name: SEAT })).models[0]!.id };
 const tag = newTag();
 /** Проект проверки: один на флот, тикеты в нём копятся — номер своего тикета проверка узнаёт из ответа. */
-const PROJECT = "tickets";
+const PROJECT = "tk";
 
 let bad = 0;
 async function step(label: string, fn: () => Promise<string>) {

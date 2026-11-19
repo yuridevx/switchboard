@@ -23,11 +23,15 @@ const FILES = {
   "base/CLAUDE.md": "Отвечай коротко.\n",
 };
 
-/** Голый репозиторий на диске и файл общих настроек git с подменой адреса. Ответ — путь к файлу настроек: его получают машины в GIT_CONFIG_GLOBAL. */
-export function seed(state) {
+/** Голый репозиторий коробки на её диске. */
+const bare = (state) => path.join(state, "git", REPO + ".git");
+
+/** Голый репозиторий на диске и файл общих настроек git с подменой адреса. Ответ — путь к файлу настроек: его получают машины в GIT_CONFIG_GLOBAL.
+ *  extra — файлы сверх кусочков: определение фабрики проекта коробки, его собирает сама коробка. */
+export function seed(state, extra = {}) {
   const git = (cwd, ...args) => execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, GIT_AUTHOR_NAME: "box", GIT_AUTHOR_EMAIL: "box@switchboard", GIT_COMMITTER_NAME: "box", GIT_COMMITTER_EMAIL: "box@switchboard" } });
   const work = path.join(state, "git-seed"), served = path.join(state, "git");
-  for (const [file, body] of Object.entries(FILES)) {
+  for (const [file, body] of Object.entries({ ...FILES, ...extra })) {
     fs.mkdirSync(path.dirname(path.join(work, file)), { recursive: true });
     fs.writeFileSync(path.join(work, file), body);
   }
@@ -41,8 +45,10 @@ export function seed(state) {
   return config;
 }
 
-/** Двойник API GitHub: создание приложения, установки, токены. log — строка на запрос. */
-export function serve(port, log = () => {}) {
+/** Двойник API GitHub: создание приложения, установки, токены; голова основной ветки и файл на ней — из настоящего репозитория коробки (state — её папка).
+ *  log — строка на запрос. */
+export function serve(port, log = () => {}, state = "") {
+  const git = (...args) => execFileSync("git", ["--git-dir", bare(state), ...args], { stdio: ["ignore", "pipe", "pipe"] }).toString();
   const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
   const APP = 1, INSTALL = 7;
   /** Подпись приложения в Authorization: Bearer <JWT RS256> — сверяется ключом, который двойник выдал при создании приложения. */
@@ -58,6 +64,16 @@ export function serve(port, log = () => {}) {
     if (req.method === "POST" && /^\/app-manifests\/[\w-]+\/conversions$/.test(url.pathname)) return send(201, { id: APP, slug: "switchboard-box", owner: { login: "box" }, pem: privateKey.export({ type: "pkcs1", format: "pem" }) });
     const token = /^token (.+)$/.exec(req.headers.authorization ?? "")?.[1];
     if (req.method === "GET" && url.pathname === "/installation/repositories") return token?.startsWith("ghs_box_") ? send(200, { repositories: [{ full_name: REPO }] }) : send(401, { message: "Bad credentials" });
+    // чтение репозитория токеном установки: голова основной ветки и файл на названном коммите
+    if (req.method === "GET" && url.pathname.startsWith(`/repos/${REPO}/commits/`) && token?.startsWith("ghs_box_")) return send(200, { sha: git("rev-parse", url.pathname.split("/").pop()).trim() });
+    if (req.method === "GET" && url.pathname.startsWith(`/repos/${REPO}/contents/`) && token?.startsWith("ghs_box_")) {
+      const file = decodeURIComponent(url.pathname.slice(`/repos/${REPO}/contents/`.length));
+      try {
+        return send(200, { path: file, encoding: "base64", content: Buffer.from(git("show", `${url.searchParams.get("ref") ?? "HEAD"}:${file}`)).toString("base64") });
+      } catch {
+        return send(404, { message: "Not Found" });
+      }
+    }
     if (!signedByApp(req)) return send(401, { message: "A JSON web token could not be decoded" });
     if (req.method === "GET" && url.pathname === "/app/installations") return send(200, [{ id: INSTALL }]);
     if (req.method === "GET" && url.pathname === `/repos/${REPO}/installation`) return send(200, { id: INSTALL });
