@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit", "dev": "wrangler dev", "deploy": "wrangler deploy" },
-  "dependencies": { "@sb/protocol": "*", "@sb/platform": "*", "aws4fetch": "1.0.20" },
+  "dependencies": { "@sb/protocol": "*", "@sb/platform": "*", "aws4fetch": "1.0.20", "croner": "9.1.0" },
   "devDependencies": { "wrangler": "4.159.0", "@cloudflare/vitest-pool-workers": "0.23.0", "@cloudflare/workers-types": "5.20261109.1" }
 }

@@ -1,8 +1,9 @@
 // Наблюдение: одна строка на каждый запрос флота с исходом и временем по частям; ошибки страницы и Host; сводка здоровья;
 // оповещение админам о сбоях частей и о высокой доле отказов. Хранится 7 дней.
-import { errFields, type HostMetrics, type LedgerEvent, type Logger, machineOf, newId, type ObsRow, personOf, Refusal, type Who } from "@sb/protocol";
-import type { Env, Module, Platform } from "../../env.ts";
+import { errFields, type HostMetrics, type LedgerEvent, machineOf, newId, type ObsRow, personOf, Refusal, type Who } from "@sb/protocol";
+import type { Env, Module, Outside } from "../../env.ts";
 import { records } from "../../records.ts";
+import { ensure, on } from "../clock/contract.ts";
 import { fleetPref } from "../prefs/contract.ts";
 import { sendTo } from "../reach/contract.ts";
 
@@ -35,18 +36,16 @@ export const PART_FAILS = ["host.failed", "keeper.failed", "analytics.failed"];
 type AlertPrefs = { off?: boolean; rate?: number; min?: number; to?: string[]; /** машина без связи дольше стольких минут — звать; 0 — не звать */ offline?: number; /** звать о сессии со сбоем; false — не звать */ failed?: boolean };
 /** Машина без связи дольше этого — оповещение, если настройка не говорит иначе. */
 const OFFLINE_MIN = 10;
-/** Картину на сбои служба сверяет не чаще этого. */
+/** Картину на сбои служба сверяет с этим периодом: срок держат часы флота. */
 const WATCH_MS = 60_000;
+/** Имя правила часов и его вид. */
+const WATCH = "obs.watch";
 const RATE = 0.25, MIN = 20;
 const WINDOW_MS = 5 * 60_000;
 /** Одна причина — одно оповещение за этот промежуток. */
 const GAP_MS = 30 * 60_000;
 
-export interface Watch {
-  platform: Platform;
-  fetch: typeof fetch;
-  log: Logger;
-}
+export type Watch = Outside;
 
 /** Позвать админов (или названных в настройке) о сбое. Та же причина в пределах получаса — молчит. */
 async function alert(env: Env, fleet: string, w: Watch, kind: string, title: string, text: string, prefs?: AlertPrefs | null): Promise<number> {
@@ -93,6 +92,9 @@ export async function partFailed(env: Env, fleet: string, w: Watch, e: { what: s
   await alert(env, fleet, w, `${e.what}/${e.machine ?? ""}`, `${part}${e.machine ? ` машины ${e.machine}` : ""}: сбой`, e.text ?? e.what);
 }
 
+// сверка картины идёт по сроку часов: ни запросов людей, ни чисел машин ей не нужно
+on(WATCH, async (env, fleet, _input, w) => void (await watchFleet(env, fleet, w)));
+
 /** Строка запроса: пишет вход после ответа. Заодно убирает строки старше недели. Отказ — повод проверить долю отказов. */
 export async function note(env: Env, fleet: string, r: ObsRow, w?: Watch): Promise<void> {
   const got = await db(env, fleet).batch([
@@ -103,13 +105,9 @@ export async function note(env: Env, fleet: string, r: ObsRow, w?: Watch): Promi
     ["DELETE FROM req WHERE at < ?", r.at - KEEP_MS],
     ["DELETE FROM reports WHERE at < ?", r.at - KEEP_MS],
     ["SELECT count(*) AS n, coalesce(sum(ok = 0), 0) AS failed FROM req WHERE at >= ? AND type != ?", r.at - WINDOW_MS, REPORT],
-    // сверка картины — не чаще раза в минуту на флот
-    ["INSERT INTO alerts (kind, at) VALUES ('watch', ?1) ON CONFLICT (kind) DO UPDATE SET at = excluded.at WHERE alerts.at < ?2 RETURNING kind", r.at, r.at - WATCH_MS],
     ["DELETE FROM alerts WHERE at < ?", r.at - KEEP_MS],
   ]);
-  if (!w) return;
-  if (got[4]!.length) await watchFleet(env, fleet, w).catch((e) => w.log.error("сверка картины не прошла", { module: NAME, fleet, ...errFields(e) }));
-  if (r.ok) return;
+  if (!w || r.ok) return;
   const { n, failed } = got[3]![0] as { n: number; failed: number };
   const p = await fleetPref<AlertPrefs>(env, fleet, "obs.alerts");
   if (n >= (p?.min ?? MIN) && failed / n >= (p?.rate ?? RATE))
@@ -214,15 +212,14 @@ export const obs: Module = {
       };
     },
 
-    /** Числа Host за минуту от машины: строка ряда; старше недели — убрать. Заодно сверка картины: это единственный такт, который идёт и без запросов людей. */
+    /** Числа Host за минуту от машины: строка ряда; старше недели — убрать. Первое число машины заводит сверку картины на часах флота: дальше она идёт сама. */
     async "obs.metrics"(i: HostMetrics, ctx) {
       const machine = machineOf(ctx.who.addr)!;
       await db(ctx.env, ctx.fleet).batch([
         ["INSERT OR REPLACE INTO hosts (machine, at, data) VALUES (?, ?, ?)", machine, i.at, JSON.stringify(i)],
         ["DELETE FROM hosts WHERE at < ?", Date.now() - KEEP_MS],
       ]);
-      const due = await db(ctx.env, ctx.fleet).all("INSERT INTO alerts (kind, at) VALUES ('watch', ?1) ON CONFLICT (kind) DO UPDATE SET at = excluded.at WHERE alerts.at < ?2 RETURNING kind", Date.now(), Date.now() - WATCH_MS);
-      if (due.length) await watchFleet(ctx.env, ctx.fleet, { platform: ctx.platform, fetch: ctx.fetch, log: ctx.log });
+      await ensure(ctx.env, ctx.fleet, { id: WATCH, kind: WATCH, every: WATCH_MS });
       return {};
     },
 

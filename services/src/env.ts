@@ -56,6 +56,13 @@ export interface Ctx {
   origin: string;
 }
 
+/** Что получает работа вне запроса — срок часов, сверка картины: платформа, сеть и журнал. */
+export interface Outside {
+  platform: Platform;
+  fetch: typeof fetch;
+  log: Logger;
+}
+
 export type Handler = (input: any, ctx: Ctx) => Promise<unknown>;
 
 /** Модуль служб: имя, схема своих записей и обработчики своих имён договора. */
