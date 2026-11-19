@@ -9,7 +9,7 @@
 // Сама Фабрика ничего не чинит и не повторяет: отказ машины, второй возврат и вышедший срок ставят тикет в «стоп» с причиной.
 import {
   CALL_MS, canReach, checkOutcome, checkRun, errFields, FACTORY, FACTORY_FILE, FactoryDef, type FactoryState, type FileIn, kindOf, type LineDef, machineOf, newId, type Project, Refusal,
-  RULE_CHECK_MS, type RuleDef, sessionName, type Spec, type StepDef, termMs, type Ticket, type TicketAct, type TicketNote, type TicketState, type Verdict, within,
+  RULE_CHECK_MS, type RuleDef, sessionName, type Spec, splitPiece, type StepDef, termMs, type Ticket, type TicketAct, type TicketNote, type TicketState, type Verdict, within,
 } from "@sb/protocol";
 import type { Ctx, Env, Module, Outside } from "../../env.ts";
 import { type Op, records } from "../../records.ts";
@@ -624,7 +624,7 @@ async function check(ctx: Ctx, project: string, text: string): Promise<FactoryDe
     else if (!canReach(ctx.who, m)) errors.push(`${path}: до машины ${m} вы не достаёте`);
   };
   const roles = (path: string, pieces?: string[]) => {
-    for (const p of pieces ?? []) if (!repos.includes(p.split("/").slice(0, 2).join("/"))) errors.push(`${path}: роли ${p} нет в репозиториях флота (${REPOS})`);
+    for (const p of pieces ?? []) if (!repos.includes(splitPiece(p)?.repo ?? "")) errors.push(`${path}: роли ${p} нет в репозиториях флота (${REPOS})`);
   };
   for (const [name, post] of Object.entries(def.posts)) {
     place(`posts.${name}.at`, post.at);
@@ -799,8 +799,11 @@ export const factory: Module = {
       let def: FactoryDef;
       let commit: string;
       try {
-        if (!((await fleetPref<string[]>(ctx.env, ctx.fleet, REPOS)) ?? []).includes(i.repo)) throw new Refusal("bad_factory", `репозитория ${i.repo} нет в настройке флота ${REPOS}: роли из него сессии не получат`);
-        const got = await file(ctx, i.repo, FACTORY_FILE);
+        // где лежит файл: репозиторий ролей — в корне; кусочек в нём — в папке кусочка
+        const piece = splitPiece(i.repo);
+        const from = piece ? { repo: piece.repo, path: `${piece.folder}/${FACTORY_FILE}` } : { repo: i.repo, path: FACTORY_FILE };
+        if (!((await fleetPref<string[]>(ctx.env, ctx.fleet, REPOS)) ?? []).includes(from.repo)) throw new Refusal("bad_factory", `репозитория ${from.repo} нет в настройке флота ${REPOS}: роли из него сессии не получат`);
+        const got = await file(ctx, from.repo, from.path);
         commit = got.commit;
         def = await check(ctx, i.project, got.text);
       } catch (e) {
