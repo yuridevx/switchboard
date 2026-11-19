@@ -4,6 +4,8 @@
 // 3. Модуль (`src/modules/<имя>/`) зовёт соседний модуль только через его `contract.ts`.
 // 5. Колец импортов между файлами пакета нет (импорт только типов кольцом не считается; тесты, мок и стенд не в счёт).
 // 4. У имени договора один хозяин — это правило исполняет сам `@sb/protocol` при загрузке (второе объявление бросает).
+// 6. Живая проверка не ждёт времени сама: таймер, сон и своё число предела — только у обвязки (tools/fleet/harness.mjs).
+//    Проверка ждёт сигнал системы или перечитанный факт, предел один — бюджет обвязки. Правило читает TypeScript и JavaScript.
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -64,8 +66,41 @@ function cycles(base, pkg) {
   return [...found].map((c) => `кольцо импортов: ${c}`);
 }
 
-export function check(base = root) {
+/** Файлы, которые не ждут времени сами: живые проверки флота. Обвязка и её эталоны в правило не входят: таймер — их дело. */
+const TIMELESS = [/^tools\/fleet\/live-[^/]+\.(mjs|ts)$/, /^tools\/fleet\/smoke\.ts$/, /^tools\/telegram\/live\.mjs$/];
+
+/** Вызовы таймера и свои числа предела в файлах, которые ждут только сигнал: каждое место — строкой с файлом и номером строки. */
+function timers(base) {
   const bad = [];
+  const walk = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      const rel = path.relative(base, p).replaceAll(path.sep, "/");
+      if (!e.isFile() || !TIMELESS.some((re) => re.test(rel))) continue;
+      const sf = ts.createSourceFile(p, fs.readFileSync(p, "utf8"), ts.ScriptTarget.Latest, true, p.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.JS);
+      const at = (n) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`;
+      const visit = (n) => {
+        if (ts.isCallExpression(n)) {
+          const c = n.expression;
+          const name = ts.isIdentifier(c) ? c.text : ts.isPropertyAccessExpression(c) ? c.name.text : "";
+          const owner = ts.isPropertyAccessExpression(c) && ts.isIdentifier(c.expression) ? c.expression.text : "";
+          const timer = (ts.isIdentifier(c) && (name === "setTimeout" || name === "setInterval")) || name === "waitForTimeout" || (owner === "Atomics" && name === "wait") || (owner === "AbortSignal" && name === "timeout");
+          if (timer) bad.push(`${at(n)}: таймер в проверке (${owner ? owner + "." : ""}${name}) — ждите сигнал через обвязку`);
+        }
+        if (ts.isPropertyAssignment(n) && ts.isIdentifier(n.name) && n.name.text === "timeout" && ts.isNumericLiteral(n.initializer)) bad.push(`${at(n)}: своё число предела (timeout: ${n.initializer.text}) — предел один, бюджет обвязки`);
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+    }
+  };
+  walk(path.join(base, "tools"));
+  return bad;
+}
+
+export function check(base = root) {
+  const bad = [...timers(base)];
   for (const pkg of Object.keys(ALLOWED)) bad.push(...cycles(base, pkg));
   for (const pkg of Object.keys(ALLOWED)) {
     const dir = path.join(base, pkg);
