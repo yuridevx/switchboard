@@ -3,7 +3,7 @@
 // (tools/fleet/live-lines.ts). Шаг сессии — сценарий хода: вердикт с номером тикета. Второй конвейер — с шагом-ожиданием: сессия называет PR,
 // слияние сообщает двойник GitHub коробки событием с подписью.
 import { say, tool, turn } from "../fleet/turn.mjs";
-import { REPO } from "./github.mjs";
+import { REPO, UPSTREAM } from "./github.mjs";
 
 /** Проект коробки, у которого применяется определение, имя его конвейера и поста. */
 export const PROJECT = "box", LINE = "three", POST = "watch";
@@ -15,6 +15,8 @@ export const DOOR = "door", DOOR_NOTE = "событие разобрано";
 export const MODEL = "model";
 /** Конвейер с шагом-ожиданием и PR, который называет его первый шаг: слияние приходит событием GitHub. */
 export const MERGE = "merge", MERGE_PR = `${REPO}#7`;
+/** Правило опроса чужого апстрима: голова его ветки сдвинулась — тикет сторожу. */
+export const MOVED = "moved";
 
 /** Сторож зовёт человека: тикет встаёт и остаётся открытым — следующие события с тем же ключом ложатся в него заметками. */
 const human = turn(tool("mcp__fleet__ticket_set", { ticket: "{id}", verdict: "stop", note: "нужен человек" }), say("передано человеку"));
@@ -27,7 +29,7 @@ export function definition({ state, key, model, machines }) {
   return {
     project: PROJECT, limit: 2,
     posts: { [POST]: { title: "Сторож", at, cwd: dir + "/post", key, model, for: "5m" } },
-    repos: { pieces: { repo: REPO } },
+    repos: { pieces: { repo: REPO, upstream: UPSTREAM } },
     lines: {
       [LINE]: {
         title: "Три шага", limit: 2, for: "10m", at: machines.map((m) => "@" + m), cwd: dir + "/line/{id}", key, model,
@@ -50,6 +52,7 @@ export function definition({ state, key, model, machines }) {
       { name: FOUND, every: RULE_EVERY_S + "s", to: POST, title: "Находка сторожа", text: human, check: { at, run: `node -e "console.log('${FOUND_OUT}'); process.exit(1)"`, for: "30s" } },
       { name: DOOR, hook: true, to: POST, title: "Событие снаружи", text: step(DOOR_NOTE) },
       { name: MODEL, to: POST, title: "Ответила не та модель", text: human },
+      { name: MOVED, github: "upstream.moved", repo: "pieces", every: RULE_EVERY_S + "s", to: POST, title: "Апстрим сдвинулся", text: human },
     ],
   };
 }

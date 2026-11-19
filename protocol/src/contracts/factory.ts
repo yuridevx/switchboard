@@ -74,9 +74,12 @@ export type RuleCheck = z.infer<typeof RuleCheck>;
 /** Правило входа — то, что заводит тикеты само. Вход у правила не больше чем один: срок — every («каждые 10m») или cron (строка расписания,
  *  tz — часовой пояс, без него UTC) — либо адрес с секретом (hook: true; адрес выдаёт hook_url). По имени зовётся любое правило — ticket_new {on}.
  *  У правила со сроком бывает проверка: тогда тикет заводит только её находка, без неё — каждый срок. to — конвейер или пост;
- *  key — ключ события (нет — имя правила): пока тикет с этим правилом и ключом открыт, следующее событие дописывается в него заметкой. */
+ *  key — ключ события (нет — имя правила): пока тикет с этим правилом и ключом открыт, следующее событие дописывается в него заметкой.
+ *  github: "upstream.moved" — правило со сроком опрашивает чужой апстрим репозитория repo (имя из repos): голова его основной ветки сдвинулась —
+ *  событие; тем же сроком спрашивается ответ по PR в апстриме, которых ждут тикеты проекта. */
 export const RuleDef = z.strictObject({
   name: Name, every: Term.optional(), cron: z.string().min(1).optional(), tz: z.string().min(1).optional(), check: RuleCheck.optional(), hook: z.literal(true).optional(),
+  github: z.literal("upstream.moved").optional(), repo: Name.optional(),
   to: z.string().min(1), title: z.string().optional(), text: z.string().optional(), key: z.string().optional(),
 });
 export type RuleDef = z.infer<typeof RuleDef>;
@@ -84,8 +87,10 @@ export type RuleDef = z.infer<typeof RuleDef>;
  *  не принят (ключ события — имя аккаунта); model — ответила не та модель, что в документе сессии (ключ — позывной). Правила у проекта нет —
  *  событие остаётся строкой журнала машины. */
 export const MACHINE_RULES = { account: "account", model: "model" } as const;
-/** Репозиторий проекта: repo — свой, о его PR GitHub сообщает флоту событием с подписью (приложение GitHub флота должно быть к нему допущено). */
-export const RepoDef = z.strictObject({ repo: RepoName });
+/** Репозиторий проекта: repo — свой, о его PR GitHub сообщает флоту событием с подписью (приложение GitHub флота должно быть к нему допущено).
+ *  upstream — чужой оригинал, от которого он ответвлён: прав там нет, события оттуда не приходят — голову его ветки и наши PR в нём
+ *  флот опрашивает по сроку правила с github: "upstream.moved". */
+export const RepoDef = z.strictObject({ repo: RepoName, upstream: RepoName.optional() });
 export type RepoDef = z.infer<typeof RepoDef>;
 /** Имя конвейера — слово исполнителя тикета: без пробелов и без @, чтобы не спутать с позывным. */
 const LineName = z.string().regex(/^[^\s@]+$/, "имя конвейера — одно слово без @");

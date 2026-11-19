@@ -7,11 +7,12 @@
 // Третье правило — с адресом: POST на адрес с секретом заводит тикет сторожу, сторож его сдаёт; чужой секрет — 404. Четвёртое — без входа:
 // им машина сообщает «ответила не та модель»; три таких события с одним ключом ложатся в один тикет. В конце фабрика проекта ставится
 // на паузу: правила больше не срабатывают. Второй конвейер кончается шагом-ожиданием: сессия называет PR, двойник GitHub коробки шлёт событие
-// слияния с подписью — шаг сдан; событие с чужой подписью получает 401.
+// слияния с подписью — шаг сдан; событие с чужой подписью получает 401. Пятое правило опрашивает чужой апстрим: двойник двигает голову его
+// ветки — следующий срок правила заводит тикет сторожу.
 import fs from "node:fs";
 import path from "node:path";
 import { CallError, createApi, factoryApply, factoryGet, factoryPause, fleetList, hookUrl, httpTransport, logQuery, sessionRemove, ticketList, ticketNew, ticketSet } from "@sb/protocol";
-import { DOOR, DOOR_NOTE, FOUND, FOUND_OUT, LINE, MERGE, MERGE_PR, MODEL, POST, PROJECT, QUIET, RULE_EVERY_S } from "../box/factory.mjs";
+import { DOOR, DOOR_NOTE, FOUND, FOUND_OUT, LINE, MERGE, MERGE_PR, MODEL, MOVED, POST, PROJECT, QUIET, RULE_EVERY_S } from "../box/factory.mjs";
 import { REPO } from "../box/github.mjs";
 import { dev, fleetEnv } from "../dev.mjs";
 import { lacks, newTag } from "./harness.mjs";
@@ -41,7 +42,7 @@ await step("определение проекта применено из реп
   const f = (await api.call(factoryGet, { project: PROJECT })).factory!;
   const line = f.def.lines[LINE];
   if (f.commit !== r.commit || line?.limit !== LIMIT || line.steps.length !== STEPS) throw new Error(`применено не то: ${JSON.stringify({ commit: f.commit, line })}`);
-  if (r.rules !== 4 || !f.next[QUIET] || !f.next[FOUND] || f.next[DOOR] || f.next[MODEL]) throw new Error(`правила входа не встали на часы: ${JSON.stringify({ rules: r.rules, next: f.next })}`);
+  if (r.rules !== 5 || !f.next[QUIET] || !f.next[FOUND] || !f.next[MOVED] || f.next[DOOR] || f.next[MODEL]) throw new Error(`правила входа не встали на часы: ${JSON.stringify({ rules: r.rules, next: f.next })}`);
   // прошлый прогон оставил фабрику на паузе
   await api.call(factoryPause, { project: PROJECT, on: false });
   return `коммит ${r.commit.slice(0, 7)}, конвейер «${line.title}»: шагов ${line.steps.length}, потолок ${line.limit}; правил входа ${r.rules}`;
@@ -156,6 +157,31 @@ await step("слияние PR сдаёт шаг-ожидание: событие
   if (verdict.by !== ".github" || verdict.verdict !== "done") throw new Error(`последний вердикт не от события: ${JSON.stringify(verdict)}`);
   return `тикет ${id}: PR ${MERGE_PR} слит — шаг сдан событием; чужая подпись — 401`;
 });
+let moved = "";
+await step("апстрим сдвинулся — тикет посту: голову чужой ветки флот спрашивает по сроку правила", async () => {
+  const hub = process.env.SB2_GITHUB;
+  if (!hub) throw new Error("нужен SB2_GITHUB — адрес двойника GitHub: его ставит флот в коробке");
+  const due = async () => (await api.call(factoryGet, { project: PROJECT })).factory!.next[MOVED]!;
+  const pass = async (what: string) => {
+    const was = await due();
+    for (const end = Date.now() + 4 * RULE_EVERY_S * 1000; (await due()) === was; await sleep(2000)) if (Date.now() > end) throw new Error(`${what}: правило опроса не сработало за ${4 * RULE_EVERY_S} с`);
+  };
+  // один срок с начала шага: прежняя голова точно запомнена — и тикета по ней нет
+  await pass("первая сверка");
+  if ((await byRule(MOVED)).length) throw new Error("тикет заведён без сдвига апстрима");
+  const { sha } = (await (await fetch(hub + "/box/upstream", { method: "POST" })).json()) as { sha: string };
+  for (const end = Date.now() + 5 * RULE_EVERY_S * 1000; ; await sleep(2000)) {
+    const made = await byRule(MOVED);
+    if (made.length === 1 && made[0]!.text.includes(sha.slice(0, 7))) {
+      moved = made[0]!.id;
+      // ещё один срок на прежней голове — тикет один
+      await pass("сверка после сдвига");
+      if ((await byRule(MOVED)).length !== 1) throw new Error("прежняя голова завела второй тикет");
+      return `тикет ${moved} посту «${POST}»: голова ${sha.slice(0, 7)}; на прежнюю голову тикетов не прибавилось`;
+    }
+    if (made.length > 1 || Date.now() > end) throw new Error(`после сдвига тикетов правила ${made.length}${made[0] ? `: ${made[0].text.slice(-60)}` : ""}`);
+  }
+});
 let secret = "";
 await step("событие на адрес с секретом — тикет посту, пост его сдаёт; чужой секрет — 404", async () => {
   const { url } = await api.call(hookUrl, { project: PROJECT, name: DOOR });
@@ -227,7 +253,7 @@ if (!lacks("clickhouse"))
     return `тихое правило: «тихо» ${count(q, "quiet")}, «пауза» ${count(q, "paused")}; находка: «тикет» 1, «заметка» ${count(f, "note")}; вход по адресу: строк ${hooks.length}, путь без секрета`;
   });
 await step("тикеты событий сняты, пост-сторож убран", async () => {
-  for (const id of [found, drift]) if (id) await api.call(ticketSet, { ticket: id, drop: true, note: "живая проверка кончена" });
+  for (const id of [found, drift, moved]) if (id) await api.call(ticketSet, { ticket: id, drop: true, note: "живая проверка кончена" });
   const post = ((await api.call(fleetList, {})).sessions as { callsign: string }[]).map((x) => x.callsign).find((c) => c.startsWith(POST + "@"));
   if (post) await api.call(sessionRemove, { to: post });
   return post ? `сессия ${post} убрана` : "сессии поста нет";

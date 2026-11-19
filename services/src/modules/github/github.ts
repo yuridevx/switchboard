@@ -15,7 +15,9 @@ const SCHEMA = [
 const db = (env: Env, fleet: string) => records(env, fleet, NAME, SCHEMA);
 
 type App = { id: number; slug: string; owner: string; pem: string };
-type Answer = { ok: boolean; status: number; text: string };
+/** Чем модуль ходит в сеть и в свои записи: запрос человека (Ctx) или срок часов — у обоих окружение, флот и сеть. */
+export type Net = Pick<Ctx, "env" | "fleet" | "fetch">;
+type Answer = { ok: boolean; status: number; text: string; etag?: string };
 
 const PAGE = 100;
 const REPO = /^[A-Za-z0-9-]+\/(?!\.\.?$)[\w.-]+$/;
@@ -23,14 +25,16 @@ const ORG = /^[A-Za-z0-9-]+$/;
 const CODE = /^[\w-]+$/;
 
 /** Запрос к API с пределом. Тело читается здесь же: обрыв на нём — тот же отказ, что обрыв на запросе. */
-async function api(ctx: Ctx, method: "GET" | "POST", path: string, auth?: string, body?: object): Promise<Answer> {
+async function api(ctx: Net, method: "GET" | "POST", path: string, auth?: string, body?: object, etag?: string): Promise<Answer> {
   const headers: Record<string, string> = { "user-agent": "switchboard-github", accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
   if (auth) headers.authorization = auth;
+  // условный запрос: ответ «не изменилось» (304) в предел запросов GitHub не идёт
+  if (etag) headers["if-none-match"] = etag;
   if (body) headers["content-type"] = "application/json";
   try {
     // адрес API GitHub: по умолчанию — сам GitHub; GITHUB_API — другой сервер с тем же API
     const r = await ctx.fetch(`${(ctx.env.GITHUB_API ?? "https://api.github.com").replace(/\/+$/, "")}${path}`, { method, headers, body: body && JSON.stringify(body), signal: AbortSignal.timeout(CALL_MS) });
-    return { ok: r.ok, status: r.status, text: await r.text() };
+    return { ok: r.ok, status: r.status, text: await r.text(), ...(r.headers.get("etag") ? { etag: r.headers.get("etag")! } : {}) };
   } catch (e) {
     throw new Refusal("github_failed", `GitHub недоступен: ${e}`);
   }
@@ -42,7 +46,7 @@ function json<T>({ ok, status, text }: Answer): T {
 }
 
 /** Все страницы по 100, пока страница не короче. */
-async function pages<P, T>(ctx: Ctx, path: string, auth: string, items: (page: P) => T[]): Promise<T[]> {
+async function pages<P, T>(ctx: Net, path: string, auth: string, items: (page: P) => T[]): Promise<T[]> {
   const all: T[] = [];
   for (let page = 1; ; page++) {
     const got = items(json<P>(await api(ctx, "GET", `${path}?per_page=${PAGE}&page=${page}`, auth)));
@@ -60,8 +64,36 @@ function jwt({ id, pem }: App): string {
 }
 
 const installUrl = (slug: string) => `https://github.com/apps/${slug}/installations/new`;
-const readApp = (ctx: Ctx) => db(ctx.env, ctx.fleet).first<App>("SELECT id, slug, owner, pem FROM app WHERE one = 1");
-const issue = async (ctx: Ctx, installation: number, auth: string, body: object) => json<{ token: string; expires_at: string }>(await api(ctx, "POST", `/app/installations/${installation}/access_tokens`, auth, body));
+const readApp = (ctx: Net) => db(ctx.env, ctx.fleet).first<App>("SELECT id, slug, owner, pem FROM app WHERE one = 1");
+const issue = async (ctx: Net, installation: number, auth: string, body: object) => json<{ token: string; expires_at: string }>(await api(ctx, "POST", `/app/installations/${installation}/access_tokens`, auth, body));
+
+/** Доступ на чтение чужого репозитория: токен установки приложения в своём репозитории проекта — публичное видно любому токену.
+ *  Токен живёт час и не хранится: на каждый опрос — свой. */
+export async function reader(ctx: Net, own: string): Promise<string> {
+  const app = await readApp(ctx);
+  if (!app) throw new Refusal("no_app", "приложения ещё нет: github.setup не делали");
+  const auth = jwt(app);
+  const found = await api(ctx, "GET", `/repos/${own}/installation`, auth);
+  if (found.status === 404) throw new Refusal("not_installed", `приложение не допущено к ${own}: ${installUrl(app.slug)}`);
+  return `token ${(await issue(ctx, json<{ id: number }>(found).id, auth, { repositories: [own.split("/")[1]], permissions: { metadata: "read" } })).token}`;
+}
+
+/** Голова основной ветки репозитория. etag — отпечаток прошлого ответа: голова прежняя — null, и запрос в предел GitHub не идёт. */
+export async function head(ctx: Net, auth: string, repo: string, etag?: string): Promise<{ sha: string; etag?: string } | null> {
+  const got = await api(ctx, "GET", `/repos/${repo}/commits/HEAD`, auth, undefined, etag);
+  if (got.status === 304) return null;
+  return { sha: json<{ sha: string }>(got).sha, ...(got.etag ? { etag: got.etag } : {}) };
+}
+
+/** PR чужого репозитория глазами флота: открыт, слит или закрыт; review — последнее ревью с просьбой правок: его номер и слова. */
+export async function pull(ctx: Net, auth: string, pr: string): Promise<{ state: "open" | "merged" | "closed"; review?: { id: number; text: string; by: string } }> {
+  const [repo, n] = pr.split("#");
+  const p = json<{ state: string; merged?: boolean }>(await api(ctx, "GET", `/repos/${repo}/pulls/${n}`, auth));
+  if (p.merged) return { state: "merged" };
+  if (p.state === "closed") return { state: "closed" };
+  const asked = (await pages(ctx, `/repos/${repo}/pulls/${n}/reviews`, auth, (list: { id: number; state: string; body?: string | null; user?: { login?: string } }[]) => list)).findLast((r) => r.state === "CHANGES_REQUESTED");
+  return { state: "open", ...(asked ? { review: { id: asked.id, text: asked.body ?? "", by: asked.user?.login ?? "" } } : {}) };
+}
 
 /** Адрес, на который GitHub шлёт события приложения флота. */
 export const eventsPath = (fleet: string) => `/github/${fleet}`;
@@ -106,7 +138,7 @@ export async function received(env: Env, fleet: string, headers: Headers, raw: s
 
 /** Файл репозитория на голове его основной ветки — соседнему модулю служб: текст и коммит, с которого он прочитан.
  *  Приложение флота должно быть допущено к репозиторию; файла нет — no_file. */
-export async function file(ctx: Ctx, repo: string, path: string): Promise<{ text: string; commit: string }> {
+export async function file(ctx: Net, repo: string, path: string): Promise<{ text: string; commit: string }> {
   if (!REPO.test(repo)) throw new Refusal("bad_input", "repo — не вида владелец/имя");
   const app = await readApp(ctx);
   if (!app) throw new Refusal("no_app", "приложения ещё нет: github.setup не делали");
