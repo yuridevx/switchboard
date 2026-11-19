@@ -81,7 +81,7 @@ const short = (v) => (v === undefined || v === null || v === false ? "ещё н�
 const textOf = (events) => events.filter((e) => e.type === "assistant").flatMap((e) => (Array.isArray(e.message?.content) ? e.message.content : [])).filter((c) => c.type === "text").map((c) => c.text).join("\n");
 
 /** Обвязка одной проверки. o: title — название; transport — провод общего клиента; clock — часы; budgetMs; lane — дорожка; part — часть (SB2_PART);
- *  tag — метка; machine, second — машины; seat — { key, model } пробных сессий; away — человек проверки не на связи: без соединения картины;
+ *  tag — метка; machine, second — машины; base и key — адрес флота и пропуск устройства (серверу инструментов, странице); seat — { key, model } пробных сессий; away — человек проверки не на связи: без соединения картины;
  *  out — куда печатать строки; journal — куда отдать строку шага. */
 export function kit(o) {
   const clock = o.clock ?? realClock;
@@ -138,6 +138,20 @@ export function kit(o) {
     const r = await call(type, fields);
     if (!r.ok) throw new Refused(typeof type === "string" ? type : type.name, r.error, r.why);
     return r.result;
+  }
+
+  /** Запрос мимо флота (сервер инструментов, хранилище по ссылке, двойник службы): тот же fetch, предел — остаток бюджета. */
+  const get = (url, init) => within((o.fetch ?? fetch)(url, init), `ответ ${String(url).split("?")[0]}`);
+  /** Файл в хранилище флота по хэшу содержимого: запись { name, hash, size } для поля files сообщения. */
+  async function put(name, bytes) {
+    const hash = crypto.createHash("sha256").update(bytes).digest("hex");
+    const link = (await must("files.put", { files: [{ hash, size: bytes.length }] })).upload[hash];
+    // ссылки нет — такое содержимое в хранилище уже лежит
+    if (link) {
+      const r = await get(link, { method: "PUT", body: bytes });
+      if (!r.ok) throw new Error(`загрузка ${name}: HTTP ${r.status}`);
+    }
+    return { name, hash, size: bytes.length };
   }
 
   /* --- ожидание --- */
@@ -346,7 +360,8 @@ export function kit(o) {
 
   const t = {
     title: o.title, tag, lane, fleet: o.fleet, device: o.device, machine: o.machine, second: o.second,
-    call, must, wait, step, only, defer, node, tmp, session, own, lacks: o.lacks ?? lacks,
+    base: o.base, key: o.key,
+    call, must, fetch: get, put, wait, step, only, defer, node, tmp, session, own, lacks: o.lacks ?? lacks,
     /** Картина флота на сейчас. */
     get picture() { return picture; },
   };
@@ -373,7 +388,7 @@ export async function check(body, more = {}) {
   const file = path.basename(process.argv[1] ?? "check").replace(/^live-|\.(mjs|ts)$/g, "");
   const steps = process.env.SB2_STEPS;
   const t = kit({
-    title: process.env.SB2_CHECK ?? file, slug: file, transport: httpTransport({ base: fleetEnv.SB2_BASE, key }), fleet, device, machine, second,
+    title: process.env.SB2_CHECK ?? file, slug: file, transport: httpTransport({ base: fleetEnv.SB2_BASE, key }), base: fleetEnv.SB2_BASE, key, fleet, device, machine, second,
     lane: process.env.SB2_LANE, part: process.env.SB2_PART, tag: process.env.SB2_TAG, away: process.env.SB2_AWAY === "1", keep: process.env.KEEP === "1",
     seat: { key: process.env.SB2_KEY, model: process.env.SB2_MODEL }, journal: steps ? (line) => appendSteps(steps, [line]) : undefined, ...more,
   });
