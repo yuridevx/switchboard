@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { type ArchSession, type HostMetrics, type SessionRow, sha256hex } from "@sb/protocol";
 import { around, blockKey } from "./archive/archive.ts";
+import { drop, fire } from "./clock/clock.ts";
 import { gzip } from "../r2.ts";
 import { b64u } from "./reach/webpush.ts";
 import { type Stand, stand } from "../../test/stand.ts";
@@ -142,6 +143,7 @@ describe("наблюдение: числа Host", () => {
     // Аня не достаёт до машины Олега: его чисел в её сводке нет
     const anya = (await s.ask("obs.health", {}, "kanya1")).result as typeof h;
     expect(anya.hosts.map((x) => x.machine)).toEqual(["laptop"]);
+    await drop(s.env, s.fleet, { id: "obs.watch" });
   });
 });
 
@@ -155,7 +157,7 @@ describe("наблюдение: оповещения о машине и сесс
     await s.ask("obs.metrics", metrics(Date.now()), "klaptop");
     expect(pushes(s)).toBe(0);
     s.machines[3]!.since = Date.now() - 11 * 60_000;
-    await s.ask("ledger.read", {}); // сверка картины — не чаще раза в минуту: первая уже была
+    await s.ask("ledger.read", {}); // запросы людей картину не сверяют: её срок держат часы
     expect(pushes(s)).toBe(0);
     await s.ask("prefs.set", { scope: "fleet", name: "obs.alerts", value: { offline: 5 } });
     const { watchFleet } = await import("./obs/obs.ts");
@@ -172,6 +174,7 @@ describe("наблюдение: оповещения о машине и сесс
     await s.ask("prefs.set", { scope: "fleet", name: "obs.alerts", value: { offline: 0 } });
     s.machines[3]!.since = Date.now() - 60 * 60_000;
     expect(await watchFleet(s.env, s.fleet, watch)).toBe(0);
+    await drop(s.env, s.fleet, { id: "obs.watch" });
   });
 
   it("сессия со сбоем — одно оповещение за этот сбой; сессия машины без связи и выключатель — молчат", async () => {
@@ -193,21 +196,22 @@ describe("наблюдение: оповещения о машине и сесс
     expect(await watchFleet(s.env, s.fleet, watch)).toBe(0);
   });
 
-  it("числа Host от машины — такт сверки картины: оповещение уходит и без запросов людей", async () => {
+  it("первое число машины заводит сверку картины на часах флота; срок пришёл — оповещение уходит без единого запроса", async () => {
     const s = stand(undefined, { env: { VAPID_PRIVATE: await vapid() } });
     await subscribe(s, "kyura1");
     const before = pushes(s);
     s.state.sessions = [failed("a@laptop")];
-    // подписка уже сверила картину в эту минуту — такт не идёт; через минуту идёт
     await s.ask("obs.metrics", metrics(Date.now()), "klaptop");
+    // само число картину не сверяет: оно только ставит правило
     expect(pushes(s)).toBe(before);
-    const real = Date.now;
-    Date.now = () => real() + 61_000;
-    try {
-      await s.ask("obs.metrics", metrics(Date.now()), "klaptop");
-    } finally {
-      Date.now = real;
-    }
+    const timers = ((await s.ask("clock.list", { prefix: "obs." })).result as { timers: { id: string; every?: number }[] }).timers;
+    expect(timers).toMatchObject([{ id: "obs.watch", every: 60_000 }]);
+    const watch = { platform: s.platform, fetch: s.deps.fetch!, log: { info() {}, warn() {}, error() {}, with() { return this; } } as never };
+    // срок ещё не пришёл — тихо; пришёл — сверка и оповещение, запросов во флот между ними нет
+    expect(await fire(s.env, s.fleet, watch, Date.now() + 30_000)).toBe(0);
+    expect(pushes(s)).toBe(before);
+    expect(await fire(s.env, s.fleet, watch, Date.now() + 61_000)).toBe(1);
     expect(pushes(s)).toBe(before + 1);
+    await drop(s.env, s.fleet, { id: "obs.watch" });
   });
 });

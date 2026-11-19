@@ -342,7 +342,7 @@ export const obsHealth = request("obs.health", {
     hosts: z.array(HostMetrics.extend({ machine: z.string() })).optional(),
   }),
 });
-/** Числа Host за минуту: шлёт машина своим пропуском. Заодно служба сверяет картину: машина без связи дольше порога и сессия со сбоем — оповещение админам. */
+/** Числа Host за минуту: шлёт машина своим пропуском. Первое число машины заводит на часах флота сверку картины: машина без связи дольше порога и сессия со сбоем — оповещение админам. */
 export const obsMetrics = request("obs.metrics", { owner: "obs", target: "service", machineOnly: true, input: HostMetrics, output: Done });
 /** Ряд чисел Host одной машины за период (хранится 7 дней), старые первыми. */
 export const obsSeries = request("obs.series", {
@@ -354,6 +354,19 @@ export const obsSeries = request("obs.series", {
 export const obsReport = request("obs.report", {
   owner: "obs", target: "service",
   input: z.object({ part: z.string(), level: z.enum(["warn", "error"]), msg: z.string(), stack: z.string().optional(), data: z.unknown().optional() }), output: Done,
+});
+
+/* ===== Часы (clock) ===== */
+
+/** Правило времени флота: имя, вид (чей срок), ближайший срок; every — период в мс, cron и tz — строка расписания и часовой пояс. */
+export const TimerRow = z.object({ id: z.string(), kind: z.string(), at: z.number(), every: z.number().optional(), cron: z.string().optional(), tz: z.string().optional() });
+export type TimerRow = z.infer<typeof TimerRow>;
+export const clockList = request("clock.list", {
+  owner: "clock", target: "service",
+  tool: "Правила времени флота: что сработает само и когда. Бери, чтобы узнать, стоит ли правило и когда его ближайший срок. prefix — начало имени правила. Ответ: timers — имя, вид, at (ближайший срок, мс), every (период, мс) или cron с поясом tz; ближайшие первыми.",
+  example: {}, reads: true,
+  input: z.object({ prefix: z.string().optional() }),
+  output: z.object({ timers: z.array(TimerRow) }),
 });
 
 /* ===== Файлы (files) ===== */

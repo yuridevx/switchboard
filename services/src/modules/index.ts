@@ -2,6 +2,7 @@
 export { analytics, consume } from "./analytics/analytics.ts";
 export { archive } from "./archive/archive.ts";
 export { builds } from "./builds/builds.ts";
+export { clock } from "./clock/clock.ts";
 export { files, site } from "./files/files.ts";
 export { github } from "./github/github.ts";
 export { keys } from "./keys/keys.ts";
