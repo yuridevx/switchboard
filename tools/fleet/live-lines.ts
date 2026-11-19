@@ -6,11 +6,12 @@
 // сессиям, в истории шесть строк «тихо». Проверка второго возвращает 1: первая находка — тикет сторожу, следующие — заметки в тот же тикет.
 // Третье правило — с адресом: POST на адрес с секретом заводит тикет сторожу, сторож его сдаёт; чужой секрет — 404. Четвёртое — без входа:
 // им машина сообщает «ответила не та модель»; три таких события с одним ключом ложатся в один тикет. В конце фабрика проекта ставится
-// на паузу: правила больше не срабатывают.
+// на паузу: правила больше не срабатывают. Второй конвейер кончается шагом-ожиданием: сессия называет PR, двойник GitHub коробки шлёт событие
+// слияния с подписью — шаг сдан; событие с чужой подписью получает 401.
 import fs from "node:fs";
 import path from "node:path";
 import { CallError, createApi, factoryApply, factoryGet, factoryPause, fleetList, hookUrl, httpTransport, logQuery, sessionRemove, ticketList, ticketNew, ticketSet } from "@sb/protocol";
-import { DOOR, DOOR_NOTE, FOUND, FOUND_OUT, LINE, MODEL, POST, PROJECT, QUIET, RULE_EVERY_S } from "../box/factory.mjs";
+import { DOOR, DOOR_NOTE, FOUND, FOUND_OUT, LINE, MERGE, MERGE_PR, MODEL, POST, PROJECT, QUIET, RULE_EVERY_S } from "../box/factory.mjs";
 import { REPO } from "../box/github.mjs";
 import { dev, fleetEnv } from "../dev.mjs";
 import { lacks, newTag } from "./harness.mjs";
@@ -128,6 +129,32 @@ await step(`находка правила — тикет посту; следу�
     if (Date.now() > end) throw new Error(`не дождался: ${t ? `тикет ${t.id} — ${t.state}${t.why ? ` (${t.why})` : ""}, заметок ${notes.length}` : "тикета правила нет"}`);
     await sleep(2000);
   }
+});
+await step("слияние PR сдаёт шаг-ожидание: событие GitHub с чужой подписью — 401, тикет ждёт; с подписью приложения — тикет закрыт", async () => {
+  const hub = process.env.SB2_GITHUB;
+  if (!hub) throw new Error("нужен SB2_GITHUB — адрес двойника GitHub: его ставит флот в коробке");
+  const id = (await api.call(ticketNew, { project: PROJECT, to: MERGE, title: `Живая проверка слияния ${tag}` })).id;
+  const one = async () => (await api.call(ticketList, { ticket: id })).tickets[0]!;
+  const until = async (what: string, ok: (t: Awaited<ReturnType<typeof one>>) => boolean) => {
+    for (const end = Date.now() + 90_000; ; await sleep(1500)) {
+      const t = await one();
+      if (ok(t)) return t;
+      if (t.state === "stop" || Date.now() > end) throw new Error(`${what}: тикет ${id} — ${t.state}${t.why ? `: ${t.why}` : ""}, шаг ${t.step + 1}`);
+    }
+  };
+  // первый шаг сдан сессией с PR — тикет ждёт события
+  await until("шаг-ожидание не начат", (t) => t.state === "wait" && t.pr === MERGE_PR);
+  const url = `${fleetEnv.SB2_BASE}/github/${fleet}`;
+  const [repo, number] = MERGE_PR.split("#");
+  const payload = { action: "closed", repository: { full_name: repo }, sender: { login: "box" }, pull_request: { number: Number(number), merged: true } };
+  const forged = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-hub-signature-256": "sha256=" + "0".repeat(64) }, body: JSON.stringify(payload) });
+  if (forged.status !== 401 || (await one()).state !== "wait") throw new Error(`чужая подпись: ответ ${forged.status}, тикет ${(await one()).state}`);
+  const sent = (await (await fetch(hub + "/box/deliver", { method: "POST", body: JSON.stringify({ url, event: "pull_request", payload }) })).json()) as { status: number; body: string };
+  if (sent.status !== 200 || !sent.body.includes(id)) throw new Error(`событие слияния: ответ ${sent.status} ${sent.body.slice(0, 120)}`);
+  const done = await until("шаг-ожидание не сдан", (t) => t.state === "done");
+  const verdict = done.notes!.at(-1)!;
+  if (verdict.by !== ".github" || verdict.verdict !== "done") throw new Error(`последний вердикт не от события: ${JSON.stringify(verdict)}`);
+  return `тикет ${id}: PR ${MERGE_PR} слит — шаг сдан событием; чужая подпись — 401`;
 });
 let secret = "";
 await step("событие на адрес с секретом — тикет посту, пост его сдаёт; чужой секрет — 404", async () => {

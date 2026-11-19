@@ -1,11 +1,17 @@
 // GitHub: приложение флота и токен на один репозиторий на час — для кусочков профилей. Ключ приложения — только в записях модуля; токенов модуль не хранит.
-import { createSign } from "node:crypto";
+// Приложение подписано на события своих репозиториев: секрет подписи лежит здесь же, подпись сверяет и событие разбирает этот модуль —
+// второго владельца секретов и формата GitHub нет.
+import { createHmac, createSign, timingSafeEqual } from "node:crypto";
 import { CALL_MS, Refusal } from "@sb/protocol";
 import type { Ctx, Env, Module } from "../../env.ts";
-import { records } from "../../records.ts";
+import { type Op, records } from "../../records.ts";
 
 const NAME = "github";
-const SCHEMA = ["CREATE TABLE IF NOT EXISTS app (one INTEGER PRIMARY KEY CHECK (one = 1), id INTEGER, slug TEXT, owner TEXT, pem TEXT, at INTEGER, by TEXT)"];
+const SCHEMA = [
+  "CREATE TABLE IF NOT EXISTS app (one INTEGER PRIMARY KEY CHECK (one = 1), id INTEGER, slug TEXT, owner TEXT, pem TEXT, at INTEGER, by TEXT)",
+  // секрет подписи событий приложения: его называет GitHub при создании приложения
+  "CREATE TABLE IF NOT EXISTS hook (one INTEGER PRIMARY KEY CHECK (one = 1), secret TEXT NOT NULL)",
+];
 const db = (env: Env, fleet: string) => records(env, fleet, NAME, SCHEMA);
 
 type App = { id: number; slug: string; owner: string; pem: string };
@@ -57,17 +63,46 @@ const installUrl = (slug: string) => `https://github.com/apps/${slug}/installati
 const readApp = (ctx: Ctx) => db(ctx.env, ctx.fleet).first<App>("SELECT id, slug, owner, pem FROM app WHERE one = 1");
 const issue = async (ctx: Ctx, installation: number, auth: string, body: object) => json<{ token: string; expires_at: string }>(await api(ctx, "POST", `/app/installations/${installation}/access_tokens`, auth, body));
 
-/** Форма для браузера: закрытое приложение с записью содержимого, без вебхуков. */
-const manifestForm = (redirect: string, org?: string) => ({
+/** Адрес, на который GitHub шлёт события приложения флота. */
+export const eventsPath = (fleet: string) => `/github/${fleet}`;
+
+/** Форма для браузера: закрытое приложение с записью содержимого и чтением PR; события о PR и ревью идут на адрес флота hook. */
+const manifestForm = (redirect: string, hook: string, org?: string) => ({
   action: org ? `https://github.com/organizations/${org}/settings/apps/new` : "https://github.com/settings/apps/new",
   manifest: {
     name: org ? `Switchboard ${org}` : "Switchboard",
     url: redirect, public: false, redirect_url: redirect, setup_url: redirect,
-    hook_attributes: { url: redirect, active: false },
-    default_permissions: { contents: "write", metadata: "read" },
-    default_events: [],
+    hook_attributes: { url: hook, active: true },
+    default_permissions: { contents: "write", metadata: "read", pull_requests: "read" },
+    default_events: ["pull_request", "pull_request_review"],
   },
 });
+
+/** Событие GitHub о PR глазами флота: PR (владелец/имя#номер) и чем кончилось — слит, закрыт без слияния или ревью просит правок (text — его слова). */
+export type PrEvent = { pr: string; outcome: "merged" | "closed" | "changes"; text: string; by: string };
+
+/** Принятое событие приложения: подпись сверена секретом приложения флота. Ответ — событие о PR или null, если флоту оно ни о чём не говорит.
+ *  Секрета нет (приложение создано без событий) или подпись не та — отказ bad_signature. */
+export async function received(env: Env, fleet: string, headers: Headers, raw: string): Promise<PrEvent | null> {
+  const secret = (await db(env, fleet).first<{ secret: string }>("SELECT secret FROM hook WHERE one = 1"))?.secret;
+  if (!secret) throw new Refusal("bad_signature", "приложение GitHub флота не подписано на события");
+  const want = Buffer.from("sha256=" + createHmac("sha256", secret).update(raw).digest("hex"));
+  const got = Buffer.from(headers.get("x-hub-signature-256") ?? "");
+  if (got.length !== want.length || !timingSafeEqual(got, want)) throw new Refusal("bad_signature", "подпись события не сошлась");
+  let x: { action?: string; repository?: { full_name?: string }; sender?: { login?: string }; pull_request?: { number?: number; merged?: boolean }; review?: { state?: string; body?: string | null; user?: { login?: string } } };
+  try {
+    x = JSON.parse(raw) as typeof x;
+  } catch {
+    throw new Refusal("bad_frame", "тело события — не JSON");
+  }
+  const repo = x.repository?.full_name, n = x.pull_request?.number;
+  if (!repo || !n) return null;
+  const pr = `${repo}#${n}`;
+  const kind = headers.get("x-github-event");
+  if (kind === "pull_request" && x.action === "closed") return { pr, outcome: x.pull_request!.merged ? "merged" : "closed", text: "", by: x.sender?.login ?? "" };
+  if (kind === "pull_request_review" && x.action === "submitted" && x.review?.state === "changes_requested") return { pr, outcome: "changes", text: x.review.body ?? "", by: x.review.user?.login ?? "" };
+  return null;
+}
 
 /** Файл репозитория на голове его основной ветки — соседнему модулю служб: текст и коммит, с которого он прочитан.
  *  Приложение флота должно быть допущено к репозиторию; файла нет — no_file. */
@@ -98,7 +133,8 @@ export const github: Module = {
         const { token } = await issue(ctx, id, auth, { permissions: { metadata: "read" } });
         repos.push(...(await pages(ctx, "/installation/repositories", `token ${token}`, (p: { repositories: { full_name: string }[] }) => p.repositories.map((r) => r.full_name))));
       }
-      return { installed: true, name: app.slug, url: installUrl(app.slug), repos: repos.sort() };
+      const events = !!(await db(ctx.env, ctx.fleet).first("SELECT one FROM hook WHERE one = 1"));
+      return { installed: true, name: app.slug, url: installUrl(app.slug), repos: repos.sort(), events };
     },
 
     /** Без code — форма создания приложения для браузера; с code из возврата GitHub — приложение с ключом. */
@@ -107,12 +143,17 @@ export const github: Module = {
       if (!i.code) {
         if (had && !i.replace) return { installed: true, url: installUrl(had.slug) };
         if (i.org !== undefined && !ORG.test(i.org)) throw new Refusal("bad_input", "org — не имя организации");
-        return { installed: false, form: manifestForm(i.redirect ?? ctx.origin, i.org) };
+        return { installed: false, form: manifestForm(i.redirect ?? ctx.origin, ctx.origin + eventsPath(ctx.fleet), i.org) };
       }
       if (!CODE.test(i.code)) throw new Refusal("bad_input", "code — не из возврата GitHub");
       if (had && !i.replace) throw new Refusal("app_exists", "приложение уже есть; заменить — replace: true");
-      const { id, slug, owner, pem } = json<{ id: number; slug: string; owner: { login: string }; pem: string }>(await api(ctx, "POST", `/app-manifests/${i.code}/conversions`));
-      await db(ctx.env, ctx.fleet).run("INSERT OR REPLACE INTO app (one, id, slug, owner, pem, at, by) VALUES (1, ?, ?, ?, ?, ?, ?)", id, slug, owner.login, pem, Date.now(), ctx.who.addr);
+      const { id, slug, owner, pem, webhook_secret } = json<{ id: number; slug: string; owner: { login: string }; pem: string; webhook_secret?: string | null }>(await api(ctx, "POST", `/app-manifests/${i.code}/conversions`));
+      // ключ приложения и секрет подписи его событий — одной пачкой: прежний секрет не переживает замену приложения
+      await db(ctx.env, ctx.fleet).batch([
+        ["INSERT OR REPLACE INTO app (one, id, slug, owner, pem, at, by) VALUES (1, ?, ?, ?, ?, ?, ?)", id, slug, owner.login, pem, Date.now(), ctx.who.addr],
+        ["DELETE FROM hook"],
+        ...(webhook_secret ? [["INSERT INTO hook (one, secret) VALUES (1, ?)", webhook_secret] satisfies Op] : []),
+      ]);
       ctx.log.info("приложение GitHub заведено", { from: ctx.who.addr, app: id, slug, replaced: !!had });
       return { installed: true, url: installUrl(slug) };
     },

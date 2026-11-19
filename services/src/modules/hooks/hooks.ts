@@ -1,12 +1,14 @@
 // Входы: адрес с секретом для событий снаружи. Дело одно — удостовериться в отправителе и отдать событие «Фабрике».
 // Секрет — 32 случайных байта в самом адресе /h/<флот>/<секрет>; в записях — только его хэш. У правила один действующий адрес:
 // новый отзывает прежний. Правил модуль не знает: есть ли у проекта правило с таким именем, отвечает «Фабрика».
+// События приложения GitHub флота приходят сюда же — на /github/<флот>: подпись сверяет и событие разбирает служба GitHub, вердикт тикетам даёт «Фабрика».
 import { errFields, type FileIn, MAX_FRAME, newId, Refusal, sha256hex } from "@sb/protocol";
 import { log, outbound, type Deps, type Env, type Module, type Outside } from "../../env.ts";
 import { records } from "../../records.ts";
 import { line } from "../analytics/contract.ts";
-import { event, hookable } from "../factory/contract.ts";
+import { event, hookable, prEvent } from "../factory/contract.ts";
 import { store } from "../files/contract.ts";
+import { eventsPath, received } from "../github/contract.ts";
 
 const NAME = "hooks";
 /** От чьего имени событие встаёт в тикет. */
@@ -79,6 +81,32 @@ export async function hook(req: Request, env: Env, deps: Deps): Promise<Response
     if (e instanceof Refusal) return done(e.word === "no_rule" ? 404 : 400, { error: e.word, why: e.why }, `${e.word}: ${e.why ?? ""}`);
     w.log.error("вход: событие не принято", { path, ...errFields(e) });
     return done(500, { error: "module_failed" }, errFields(e).why);
+  }
+}
+
+/** Событие приложения GitHub флота: POST /github/<флот>. Подпись не сошлась — 401, тикеты на месте; событие о PR — вердикт тикетам, которые его ждут.
+ *  Строка истории «hook» — у события с верной подписью: что пришло и скольким тикетам дан вердикт. */
+export async function githubHook(req: Request, env: Env, deps: Deps): Promise<Response> {
+  const fleet = /^\/github\/([a-z0-9][a-z0-9_-]{0,62})$/i.exec(new URL(req.url).pathname)?.[1];
+  if (!fleet || req.method !== "POST") return Response.json({ error: "not_found" }, { status: 404 });
+  const path = eventsPath(fleet);
+  const w: Outside = { platform: deps.platform ?? env.PLATFORM, fetch: deps.fetch ?? outbound, log: log.with({ module: NAME, fleet }) };
+  const kind = req.headers.get("x-github-event") ?? "";
+  try {
+    const raw = await req.text();
+    if (raw.length > MAX_FRAME) throw new Refusal("too_large", `тело больше ${MAX_FRAME} байт`);
+    const e = await received(env, fleet, req.headers, raw);
+    const tickets = e ? await prEvent(env, w, fleet, e, newId("t")) : [];
+    await line(env, w.fetch, fleet, { file: NAME, msg: "hook", kind: "200", text: e ? `${e.pr}: ${e.outcome}` : "", data: { path, event: kind, status: 200, ...(e ? { pr: e.pr, outcome: e.outcome, tickets } : {}) } }).catch((x: unknown) => w.log.warn("строка истории входа не записалась", errFields(x)));
+    return Response.json({ tickets });
+  } catch (e) {
+    if (e instanceof Refusal) {
+      // флота с таким адресом может и не быть: строка — в журнал служб, а не в историю флота
+      w.log.warn("вход: событие GitHub не принято", { path, event: kind, word: e.word, why: e.why });
+      return Response.json({ error: e.word }, { status: e.word === "bad_signature" ? 401 : 400 });
+    }
+    w.log.error("вход: событие GitHub не разобрано", { path, event: kind, ...errFields(e) });
+    return Response.json({ error: "module_failed" }, { status: 500 });
   }
 }
 
