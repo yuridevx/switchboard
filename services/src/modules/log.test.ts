@@ -28,7 +28,8 @@ function clickhouse(s: Stand) {
       (!q.includes("account = ") || r.account === p.get("param_account")) && (!q.includes("{levels:") || list("param_levels").includes(String(r.level))) &&
       (!q.includes("{since:") || Number(r.at) * 1000 >= Number(p.get("param_since"))) && (!q.includes("{before:") || Number(r.at) * 1000 < Number(p.get("param_before")));
     const data = [...rows.values()].filter(fits).sort((a, b) => Number(b.at) - Number(a.at)).slice(0, Number(p.get("param_limit")))
-      .map((r) => ({ ...r, at: String(Math.round(Number(r.at) * 1000)) }));
+      // время строки запрос отдаёт под именем ms: одноимённый с колонкой псевдоним at настоящий ClickHouse подставил бы и в условие отбора
+      .map((r) => ({ ...r, ms: String(Math.round(Number(r.at) * 1000)) }));
     return Response.json({ data });
   };
   return { rows, queries };
