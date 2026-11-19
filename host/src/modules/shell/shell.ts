@@ -12,7 +12,7 @@ import { argsOf, killTree, pathOf, scriptOf, SHELLS, versionOf, WIN, type Shell 
 /** Сутки от конца запуска итог хранится. */
 const TTL_MS = 24 * 60 * 60 * 1000;
 /** Предел жизни запуска. */
-const RUN_MS = 6 * 60 * 60 * 1000;
+export const RUN_MS = 6 * 60 * 60 * 1000;
 /** Сколько вывода уходит в ответ: хвост. */
 const OUT_MAX = 200_000;
 /** Сколько после выхода шелла ждём остаток его вывода. */

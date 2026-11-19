@@ -9,13 +9,14 @@ import { checkOutcome, checkRun, FACTORY, type FileIn, Refusal, shellRun, type S
 import type { Ctx, HostApi, Module } from "../../core/contract.ts";
 import { type ChatApi, envelope } from "../chat/contract.ts";
 import type { FilesApi } from "../files/contract.ts";
+import { RUN_MS } from "../shell/contract.ts";
 
 /** Работу сессии даёт только служба «Фабрика». */
 const FROM = FACTORY;
 /** Инструмент вердикта у процесса сессии. */
 const SET_TOOL = TICKET_SET_TOOL;
 /** Предел хука проверки шага у Claude Code, секунды: сама проверка ограничена сроком из определения, он не больше предела запуска скрипта машины. */
-const CHECK_HOOK_S = 6 * 3600;
+const CHECK_HOOK_S = RUN_MS / 1000;
 /** Шаг на руках у сессии: set — вердикт по нему в этом ходе уже ушёл. */
 type Step = { ticket: string; step?: string; set?: boolean };
 
