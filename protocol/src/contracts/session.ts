@@ -111,8 +111,6 @@ export const SessionRow = z.object({
   wait: z.number().optional(),
   /** ведущий пары — в строке ведомого */
   lead: Callsign.optional(),
-  /** сессия разбирает обращения службы компьютера этого вида и ключа */
-  incident: z.object({ kind: z.string(), key: z.string() }).optional(),
 });
 export type SessionRow = z.infer<typeof SessionRow>;
 
@@ -193,12 +191,12 @@ export const message = request("message", {
 });
 
 /** Вид входящего от флота: что это и что с ним делать. task и message ставит машина адресата (отправитель — родитель сессии → task);
- *  result, question и news называет машина отправителя запросом notice; incident — модуль обращений; ticket — шаг тикета от службы «Фабрика». У инструмента message поля вида нет. */
-export const Kind = z.enum(["task", "message", "result", "question", "news", "incident", "ticket"]);
+ *  result, question и news называет машина отправителя запросом notice; ticket — шаг тикета от службы «Фабрика». У инструмента message поля вида нет. */
+export const Kind = z.enum(["task", "message", "result", "question", "news", "ticket"]);
 export type Kind = z.infer<typeof Kind>;
-/** Разобранное входящее в событии ленты и истории: тег собирает и разбирает только модуль разговора. ask — номер вопроса; incident и key — вид и ключ обращения;
- *  ticket и step — номер тикета и имя шага, on — правило входа, которым тикет создан: его текст — данные, а не команды. */
-export const Peer = z.object({ from: z.string(), kind: Kind, text: z.string(), ask: z.string().optional(), incident: z.string().optional(), key: z.string().optional(), ticket: z.string().optional(), step: z.string().optional(), on: z.string().optional() });
+/** Разобранное входящее в событии ленты и истории: тег собирает и разбирает только модуль разговора. ask — номер вопроса;
+ *  ticket и step — номер тикета и имя шага; on и key — правило входа, которым тикет создан, и ключ его события: текст события — данные, а не команды. */
+export const Peer = z.object({ from: z.string(), kind: Kind, text: z.string(), ask: z.string().optional(), key: z.string().optional(), ticket: z.string().optional(), step: z.string().optional(), on: z.string().optional() });
 export type Peer = z.infer<typeof Peer>;
 
 /** Служебное сообщение сессии от машины: итог хода дочери (result), вопрос дочери (question), событие со своей работой (news). Не инструмент: вид называет машина, а не модель. */

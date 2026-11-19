@@ -4,12 +4,13 @@
 // Одновременно в работе — не больше потолка: это видно по загрузке конвейера во время прогона и по истории флота после него.
 // В том же определении — пост-сторож и два правила входа раз в 10 секунд. Проверка первого возвращает 0: шесть сроков — ни тикета, ни работы
 // сессиям, в истории шесть строк «тихо». Проверка второго возвращает 1: первая находка — тикет сторожу, следующие — заметки в тот же тикет.
-// Третье правило — с адресом: POST на адрес с секретом заводит тикет сторожу, сторож его сдаёт; чужой секрет — 404. То же правило зовётся
-// по имени: три события с одним ключом ложатся в один тикет. В конце фабрика проекта ставится на паузу: правила больше не срабатывают.
+// Третье правило — с адресом: POST на адрес с секретом заводит тикет сторожу, сторож его сдаёт; чужой секрет — 404. Четвёртое — без входа:
+// им машина сообщает «ответила не та модель»; три таких события с одним ключом ложатся в один тикет. В конце фабрика проекта ставится
+// на паузу: правила больше не срабатывают.
 import fs from "node:fs";
 import path from "node:path";
 import { CallError, createApi, factoryApply, factoryGet, factoryPause, fleetList, hookUrl, httpTransport, logQuery, sessionRemove, ticketList, ticketNew, ticketSet } from "@sb/protocol";
-import { DOOR, DOOR_NOTE, FOUND, FOUND_OUT, LINE, POST, PROJECT, QUIET, RULE_EVERY_S } from "../box/factory.mjs";
+import { DOOR, DOOR_NOTE, FOUND, FOUND_OUT, LINE, MODEL, POST, PROJECT, QUIET, RULE_EVERY_S } from "../box/factory.mjs";
 import { REPO } from "../box/github.mjs";
 import { dev, fleetEnv } from "../dev.mjs";
 import { lacks, newTag } from "./harness.mjs";
@@ -39,7 +40,7 @@ await step("определение проекта применено из реп
   const f = (await api.call(factoryGet, { project: PROJECT })).factory!;
   const line = f.def.lines[LINE];
   if (f.commit !== r.commit || line?.limit !== LIMIT || line.steps.length !== STEPS) throw new Error(`применено не то: ${JSON.stringify({ commit: f.commit, line })}`);
-  if (r.rules !== 3 || !f.next[QUIET] || !f.next[FOUND] || f.next[DOOR]) throw new Error(`правила входа не встали на часы: ${JSON.stringify({ rules: r.rules, next: f.next })}`);
+  if (r.rules !== 4 || !f.next[QUIET] || !f.next[FOUND] || f.next[DOOR] || f.next[MODEL]) throw new Error(`правила входа не встали на часы: ${JSON.stringify({ rules: r.rules, next: f.next })}`);
   // прошлый прогон оставил фабрику на паузе
   await api.call(factoryPause, { project: PROJECT, on: false });
   return `коммит ${r.commit.slice(0, 7)}, конвейер «${line.title}»: шагов ${line.steps.length}, потолок ${line.limit}; правил входа ${r.rules}`;
@@ -149,16 +150,18 @@ await step("событие на адрес с секретом — тикет п
     await sleep(1500);
   }
 });
-await step("правило зовут по имени: три события с одним ключом — один тикет", async () => {
-  if (!found) throw new Error("тикета находки нет: звать не в кого");
-  const was = (await api.call(ticketList, { ticket: found })).tickets[0]!.notes!.length;
-  // ключ — тот же, что у находки по времени: её тикет открыт, события ложатся в него заметками
+let drift = "";
+await step("событие «ответила не та модель» по имени правила: три события с одним ключом — один тикет", async () => {
+  // то же событие шлёт сама машина: правило model, ключ — позывной сессии
+  const key = `live-${tag}@${POST}`, text = `${key}: в документе модель box-1, ответила box-2`;
   const ids: string[] = [];
-  for (let i = 1; i <= 3; i++) ids.push((await api.call(ticketNew, { project: PROJECT, on: FOUND, text: `событие по имени ${tag} · ${i}` })).id);
-  const t = (await api.call(ticketList, { ticket: found })).tickets[0]!;
-  const mine = t.notes!.filter((n) => n.text.includes(`событие по имени ${tag}`)).length;
-  if (ids.some((id) => id !== found) || mine !== 3 || (await byRule(FOUND)).length !== 1) throw new Error(`события ушли не туда: ${ids.join(", ")}; заметок с событием ${mine}, тикетов правила ${(await byRule(FOUND)).length}`);
-  return `три события — тикет ${found}, заметок ${was} → ${t.notes!.length}, тикетов правила 1`;
+  for (let i = 1; i <= 3; i++) ids.push((await api.call(ticketNew, { project: PROJECT, on: MODEL, key, text })).id);
+  drift = ids[0]!;
+  const made = await byRule(MODEL);
+  const t = (await api.call(ticketList, { ticket: drift })).tickets[0]!;
+  const notes = t.notes!.filter((n) => !n.verdict && n.text === text).length;
+  if (new Set(ids).size !== 1 || made.length !== 1 || notes !== 2 || t.key !== key || t.to !== POST || !t.text.includes(text)) throw new Error(`события ушли не туда: ${ids.join(", ")}; тикетов правила ${made.length}, заметок ${notes}`);
+  return `три события — тикет ${drift} посту «${POST}», заметок 2, тикетов правила 1`;
 });
 await step("пауза: правила входа не срабатывают — срок тихого правила идёт, тикетов и заметок не прибавилось", async () => {
   await api.call(factoryPause, { project: PROJECT, on: true });
@@ -196,8 +199,8 @@ if (!lacks("clickhouse"))
     if (!hooks.some((l) => (l.data as { status?: number }).status === 202) || (secret && paths.some((p) => p.includes(secret)))) throw new Error(`строки входа: ${JSON.stringify(hooks.map((l) => l.data))}`);
     return `тихое правило: «тихо» ${count(q, "quiet")}, «пауза» ${count(q, "paused")}; находка: «тикет» 1, «заметка» ${count(f, "note")}; вход по адресу: строк ${hooks.length}, путь без секрета`;
   });
-await step("тикет находки снят, пост-сторож убран", async () => {
-  if (found) await api.call(ticketSet, { ticket: found, drop: true, note: "живая проверка кончена" });
+await step("тикеты событий сняты, пост-сторож убран", async () => {
+  for (const id of [found, drift]) if (id) await api.call(ticketSet, { ticket: id, drop: true, note: "живая проверка кончена" });
   const post = ((await api.call(fleetList, {})).sessions as { callsign: string }[]).map((x) => x.callsign).find((c) => c.startsWith(POST + "@"));
   if (post) await api.call(sessionRemove, { to: post });
   return post ? `сессия ${post} убрана` : "сессии поста нет";

@@ -1,7 +1,7 @@
 // Мок флота — запросы экранов (кроме разговора): пропуска и люди, аккаунты, профили, архив, инциденты, правила прокси, связь с людьми, наблюдение.
 // Формы — те же, что в договоре после первой волны итерации. Подключается одной строкой в fleet.ts: обработчики ложатся поверх прежних.
 import {
-  type Account, type ArchPoint, type ArchSession, type DeviceRow, type Frame, type Incident, type KeyRow, type LedgerEvent, type LogRow, type MachineRow, type ObsRow, type PassRow,
+  type Account, type ArchPoint, type ArchSession, type DeviceRow, type Frame, type KeyRow, type LedgerEvent, type LogRow, type MachineRow, type ObsRow, type PassRow,
   type PersonRow, type Piece, type Project, type ProxyRule, type RepoClone, type SessionRow, CLAUDE, machineOf, newId, Refusal,
 } from "@sb/protocol";
 
@@ -9,7 +9,7 @@ type Ev = Record<string, any>;
 export type MockCtx = {
   now: () => number; T: number; ME: string; MY_ADDR: string;
   machines: Record<string, MachineRow>; sessions: Record<string, SessionRow>; people: PersonRow[]; projects: Project[]; passes: PassRow[]; devices: DeviceRow[];
-  keys: KeyRow[]; accounts: Record<string, Account[]>; catalogs: Record<string, { models: Array<{ id: string; name?: string; family?: string; window?: number }> }>; moves: LogRow[]; pieces: Piece[]; archive: ArchSession[]; incidents: Record<string, Incident[]>;
+  keys: KeyRow[]; accounts: Record<string, Account[]>; catalogs: Record<string, { models: Array<{ id: string; name?: string; family?: string; window?: number }> }>; moves: LogRow[]; pieces: Piece[]; archive: ArchSession[];
   prefs: Record<"me" | "fleet", Record<string, unknown>>; ledger: LedgerEvent[]; obs: ObsRow[];
   archPoints: (s: ArchSession) => ArchPoint[]; journal: (machine: string) => Array<{ t: number; part: string; level: "info" | "warn" | "error"; msg: string; machine: string; trace: string }>;
   talk: (c: string) => Ev[]; talks: Map<string, Ev[]>;
@@ -51,7 +51,7 @@ export function applyRules(text: string, rules: Array<Partial<ProxyRule> & { nam
 }
 
 export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> {
-  const { now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, catalogs, moves, pieces, archive, incidents, prefs, ledger, obs } = c;
+  const { now, T, ME, MY_ADDR, machines, sessions, people, projects, passes, devices, keys, accounts, catalogs, moves, pieces, archive, prefs, ledger, obs } = c;
   const online = (m: string) => machines[m]?.online === true;
 
   /* ===== Данные в формах договора ===== */
@@ -62,7 +62,6 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
   const devicesOf = (person: string) => passes.filter((p) => p.person === person).map((p) => ({ kid: p.kid, addr: p.addr, wait: p.wait, online: !!p.online, at: p.at, ...(p.seen ? { seen: p.seen } : {}) }));
   for (const k of keys) k.sessions = Object.values(sessions).filter((s) => (k.protocol === CLAUDE ? s.account === k.name : s.spec.key === k.name)).length;
   for (const a of archive) Object.assign(a, { live: !!sessions[a.callsign] && sessions[a.callsign].state !== "stopped", owner: machines[a.machine]?.owner ?? ME });
-  incidents.server.push({ id: "i4", kind: "backup", key: "nightly", text: "Ночная копия не снята: том /backup не подключён", at: T - 70 * MIN, state: "pending", why: "вида backup нет в правилах: сессию открыть некому", files: [{ name: "backup.log", hash: "c".repeat(64), size: 18_204 }] });
   const repos: Record<string, RepoClone[]> = {
     laptop: [
       { repo: "example/sb-base", state: "ok", dir: "~/.switchboard2/home/host/data/profiles/example--sb-base", at: T - 40_000 },
@@ -77,10 +76,6 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
       { name: "Имена клиентов", on: true, scopes: ["user", "assistant", "tool_result"], kind: "regex", unit: "match", action: "replace", pattern: "ООО «[^»]+»", replacement: "ООО «Клиент»" },
       { name: "Номера карт", on: false, scopes: ["user", "tool_result"], kind: "regex", unit: "line", action: "delete", pattern: "\\b\\d{4} \\d{4} \\d{4} \\d{4}\\b", models: ["glm-*"] },
     ] satisfies ProxyRule[],
-    "incidents.kinds": {
-      disk: { cwd: "~/ops", pieces: ["base", "ops"], prompt: "Разберись, что заняло место, и предложи, что убрать.", notify: [ME] },
-      cert: { cwd: "~/ops", pieces: ["base", "ops"], machines: ["server"] },
-    },
     "profiles.repos": ["example/sb-base", "example/sb-web", "example/sb-ops", "example/sb-research"],
     prices: { "claude-fable": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 }, "claude-sonnet": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }, glm: { input: 0.6, output: 2.2 } },
     "obs.alerts": { rate: 0.25, min: 20 },
@@ -296,8 +291,7 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
       return {};
     },
 
-    /* инциденты, журналы */
-    "incident.list": (f) => ({ incidents: incidents[c.mach(f)] ?? [], port: 4890 }),
+    /* журналы */
     "machine.journal": (f) => {
       const kindOf = (l: { level: string; msg: string }) => (/сбой|вышел|failed/.test(l.msg) ? "stop" : /отказ|устарел/.test(l.msg) ? "refuse" : "note");
       const name = f.session ? String(f.session).split("@")[0] : "";

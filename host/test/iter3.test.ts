@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HostMetrics } from "@sb/protocol";
 import { make as chat } from "../src/modules/chat/chat.ts";
-import { make as incidents } from "../src/modules/incidents/incidents.ts";
 import { make as machine } from "../src/modules/machine/machine.ts";
 import { make as points, projectDir } from "../src/modules/points/points.ts";
 import { stand, until, type Stand } from "../stand/index.ts";
@@ -115,16 +114,6 @@ describe("точки: предел повторов, остановленная 
     // архив вернули — остановленная сессия сохраняется снова
     expect((await st!.request("session.update", { to: "site@laptop", patch: { backup: true } })).ok).toBe(true);
     await until(() => state.puts.length > saved, 5000, "точка после возврата архива");
-  });
-});
-
-describe("инциденты", () => {
-  it("порт 0: в журнале машины и в списке — настоящий порт сервера", async () => {
-    st = await stand({ modules: [chat(), incidents()], config: { "host-incidents": { port: 0 } } });
-    const port = ((await st.request("incident.list", { to: "@laptop" })).result as any).port as number;
-    expect(port).toBeGreaterThan(0);
-    const line = st.journal().find((l) => l.msg === "incident_listen");
-    expect(line).toMatchObject({ port, why: expect.stringContaining(`127.0.0.1:${port}/incident`) });
   });
 });
 

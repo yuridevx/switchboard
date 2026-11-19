@@ -148,7 +148,6 @@ a.pcard-from:hover, a.pcard-from:focus-visible { color: var(--mantine-color-text
 .pk-result { --pk: var(--st-idle); }
 .pk-question { --pk: var(--st-waiting); }
 .pk-news { --pk: var(--mantine-color-text); }
-.pk-incident { --pk: var(--st-failed); }
 .pk-ticket { --pk: var(--st-busy); }
 .peer-clamp { max-height: 9.5em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
 .think-body .md { white-space: normal; }

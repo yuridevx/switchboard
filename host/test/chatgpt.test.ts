@@ -3,7 +3,6 @@
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { Refusal } from "@sb/protocol";
-import type { Module } from "../src/core/contract.ts";
 import { make as accounts } from "../src/modules/accounts/accounts.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
 import { stand, tick, type Stand } from "../stand/index.ts";
@@ -22,8 +21,8 @@ afterEach(async () => {
 const KEY = "gpt", MODEL = "gpt-6.2-astra";
 const DAY = 86_400_000;
 type Hit = { path: string; headers: IncomingHttpHeaders; body: any };
-const raised: Array<{ kind: string; key: string; text: string }> = [];
-const incidents = (): Module => ({ name: "host-incidents", requests: { "incident.raise": (i: { kind: string; key: string; text: string }) => (raised.push(i), { id: String(raised.length) }) } });
+/** События машины правилам входа: запросы ticket.new службам. */
+const raised: Array<{ project: string; on: string; key: string; text: string }> = [];
 
 /** Флот на стенде: аккаунт ChatGPT ключом флота; бэкенд подписки — локальный сервер, отвечает 503. value — что служба ключей отвечает на keys.value. */
 async function fleet(value: (base: string) => Record<string, unknown>) {
@@ -41,13 +40,15 @@ async function fleet(value: (base: string) => Record<string, unknown>) {
   await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
   // адрес бэкенда подписки — с путём и без версии API, как у настоящего
   const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}/backend-api/codex`;
-  st = await stand({ modules: [accounts(), proxy(), incidents()], start: false });
+  st = await stand({ modules: [accounts(), proxy()], start: false });
+  st.services.handlers["people.list"] = () => ({ people: [], projects: [{ id: "site", name: "Сайт", members: [] }] });
+  st.services.handlers["ticket.new"] = (f: any) => (raised.push(f), { id: "site-1" });
   st.services.handlers["keys.list"] = () => ({ keys: [{ name: KEY, protocol: "chatgpt", at: 1, tail: "tail", base }] });
   st.services.handlers["keys.value"] = () => value(base);
   st.services.handlers["keys.models"] = () => ({ models: [{ id: MODEL, window: 272_000, protocol: "chatgpt" }] });
   st.services.handlers["prefs.get"] = () => ({ values: { "proxy.rules": [] } });
   await st.kernel.start();
-  const { s } = await st.open("site", { key: KEY, model: MODEL });
+  const { s } = await st.open("site", { key: KEY, model: MODEL, project: "site" });
   return { hits, sid: s.rec.sessionId as string };
 }
 const journal = (msg: string) => st!.journal().filter((l) => l.msg === msg) as any[];
@@ -109,7 +110,7 @@ describe("аккаунт ChatGPT: вход умер", () => {
   const T_OPEN = Date.UTC(2026, 9, 30, 14, 0, 0);
 
   // эталон 8 — чьё: факт опыта 18 нояб. — на 401 claude делает 2 вызова за 3 с, на 529 — 11 за 185 с; код — негодный аккаунт Claude выбывает после первого отказа
-  it("8 · отказ bad_token — сессии 401 со словами отказа, а не «перегружено»; строка account.token и обращение «аккаунт» — одни; второй вызов — тот же 401 без запроса к службам", async () => {
+  it("8 · отказ bad_token — сессии 401 со словами отказа, а не «перегружено»; строка account.token и событие правилу «account» — одни; второй вызов — тот же 401 без запроса к службам", async () => {
     const api = await dying();
     st!.clock.advance(9 * DAY);
     const before = taken();
@@ -122,7 +123,7 @@ describe("аккаунт ChatGPT: вход умер", () => {
     // служб спросили один раз; бэкенду не ушло ничего
     expect([taken() - before, api.hits.length]).toEqual([1, 0]);
     expect(journal("account.token")).toMatchObject([{ level: "error", account: KEY, word: "bad_token" }]);
-    expect(raised).toMatchObject([{ kind: "account", key: KEY, text: expect.stringContaining("refresh_token_expired") }]);
+    expect(raised).toMatchObject([{ project: "site", on: "account", key: KEY, text: expect.stringContaining("refresh_token_expired") }]);
   });
 
   // эталон 9 — чьё: код — «ключи изменились» сбрасывает значения ключей в памяти машины

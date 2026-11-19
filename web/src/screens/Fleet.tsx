@@ -3,7 +3,6 @@ import { Select, Tabs } from "@mantine/core";
 import { useNavigate, useParams } from "react-router";
 import { useWide } from "../common.tsx";
 import { Accounts } from "./fleet/Accounts.tsx";
-import { Incidents } from "./fleet/Incidents.tsx";
 import { Machines } from "./fleet/Machines.tsx";
 import { Profiles } from "./fleet/Profiles.tsx";
 import { Releases } from "./fleet/Releases.tsx";
@@ -32,5 +31,5 @@ export function TabsPage({ title, base, tabs }: { title: string; base: string; t
 }
 
 export function Fleet() {
-  return <TabsPage title="Флот" base="/fleet" tabs={[["accounts", "Аккаунты", () => <Accounts />], ["machines", "Машины", () => <Machines />], ["profiles", "Профили", () => <Profiles />], ["releases", "Выпуски", () => <Releases />], ["incidents", "Инциденты", () => <Incidents />]]} />;
+  return <TabsPage title="Флот" base="/fleet" tabs={[["accounts", "Аккаунты", () => <Accounts />], ["machines", "Машины", () => <Machines />], ["profiles", "Профили", () => <Profiles />], ["releases", "Выпуски", () => <Releases />]]} />;
 }

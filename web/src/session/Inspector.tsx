@@ -80,7 +80,6 @@ function Overview({ s, other }: { s: SessionRow; other?: SessionRow }) {
         {!other && <><dt>Открыта</dt><dd>{ago(s.since)}</dd></>}
         {s.spec.parent && !s.lead && <><dt>Задачу дала</dt><dd><Link className="mono" to={`/work/${s.spec.parent}`}>{labels.name(s.spec.parent)}</Link></dd></>}
         {s.lead && !other && <><dt>Ведущий</dt><dd><Link className="mono" to={`/work/${s.lead}`}>{labels.name(s.lead)}</Link></dd></>}
-        {s.incident && <><dt>Разбирает</dt><dd>{s.incident.kind} · <span className="mono">{s.incident.key}</span></dd></>}
         {/* у пары кусочки стоят в её двух колонках выше */}
         {!other && <><dt>Кусочки</dt><dd>{(s.spec.pieces ?? []).join(", ") || "нет"}</dd></>}
       </dl>

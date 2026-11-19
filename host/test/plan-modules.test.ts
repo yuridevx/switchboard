@@ -8,7 +8,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { make as accounts } from "../src/modules/accounts/accounts.ts";
 import { make as chat } from "../src/modules/chat/chat.ts";
-import { make as incidents } from "../src/modules/incidents/incidents.ts";
 import { make as machine } from "../src/modules/machine/machine.ts";
 import { make as points, projectDir } from "../src/modules/points/points.ts";
 import { make as profiles } from "../src/modules/profiles/profiles.ts";
@@ -197,45 +196,6 @@ describe("план v2: точки", () => {
     expect(r).toMatchObject({ ok: true, result: { callsign: "docs@laptop" } });
     expect(asked).not.toContain("start");
     expect(st.journal().some((l) => l.msg === "raise_release" && l.word === "offline")).toBe(true);
-  });
-});
-
-describe("план v2: обращения", () => {
-  const post = (port: number, body: unknown) => fetch(`http://127.0.0.1:${port}/incident`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const portOf = async () => ((await st!.request("incident.list", { to: "@laptop" })).result as { port: number }).port;
-
-  it("POST /incident с незаданным видом — 400 со словом и причиной; обращение не записано", async () => {
-    st = await stand({ modules: [chat(), incidents()], config: { "host-incidents": { port: 0, kinds: {} } } });
-    const res = await post(await portOf(), { kind: "far", text: "диск" });
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ error: "unknown_kind", why: expect.any(String) });
-    expect(((await st.request("incident.list", { to: "@laptop" })).result as { incidents: unknown[] }).incidents).toHaveLength(0);
-    expect(st.journal().some((l) => l.msg === "incident" && l.word === "unknown_kind")).toBe(true);
-  });
-
-  // чьё: код — «отказ доставки остаётся в записи: обращение ждёт следующего прохода»
-  it("сессия вида не открылась — отказ open_failed; обращение записано и ждёт с той же причиной; у доставленного причины нет", async () => {
-    const home = mkdtempSync(join(tmpdir(), "sb2-host-"));
-    const work = join(home, "work");
-    mkdirSync(work, { recursive: true });
-    st = await stand({ home, modules: [chat(), incidents()], config: { "host-incidents": { port: 0, kinds: { disk: { cwd: work }, lost: { cwd: join(home, "нет-такой") } } } } });
-    const good = await st.request("incident.raise", { to: "@laptop", kind: "disk", key: "c:", text: "место" }, "@laptop");
-    expect(good).toMatchObject({ ok: true, result: { callsign: "disk-1@laptop" } });
-    const bad = await st.request("incident.raise", { to: "@laptop", kind: "lost", key: "", text: "беда" }, "@laptop");
-    expect(bad).toMatchObject({ ok: false, error: "open_failed" });
-    const list = (await st.request("incident.list", { to: "@laptop" })).result as { incidents: Array<Record<string, unknown>> };
-    expect(list.incidents.map((a) => a.kind)).toEqual(["lost", "disk"]);
-    expect(list.incidents[0]).toMatchObject({ state: "pending", why: (bad as any).why });
-    expect(list.incidents[1]).toMatchObject({ callsign: "disk-1@laptop" });
-    expect(list.incidents[1]!.why).toBeUndefined();
-  });
-
-  // устав: graceful shutdown — «не принимает новое»
-  it("штатная остановка Host: сервер обращений закрыт — новый POST не принят", async () => {
-    st = await stand({ modules: [chat(), incidents()], config: { "host-incidents": { port: 0, kinds: {} } } });
-    const port = await portOf();
-    await st.kernel.shutdown("SIGTERM");
-    await expect(post(port, { kind: "disk", text: "x" })).rejects.toThrow();
   });
 });
 
