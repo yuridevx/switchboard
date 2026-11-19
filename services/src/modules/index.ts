@@ -6,6 +6,7 @@ export { clock } from "./clock/clock.ts";
 export { factory } from "./factory/factory.ts";
 export { files, site } from "./files/files.ts";
 export { github } from "./github/github.ts";
+export { hook, hooks } from "./hooks/hooks.ts";
 export { keys } from "./keys/keys.ts";
 export { ledger } from "./ledger/ledger.ts";
 export { mcp } from "./mcp/mcp.ts";

@@ -5,9 +5,10 @@
 // Записей о шагах модуль не держит: что шаг у сессии и что вердикт дан, записано в тикете. В памяти — только ввод, который дан,
 // пока ход его не взял и не кончился; после перезапуска Host восстанавливать нечего.
 import { randomUUID } from "node:crypto";
-import { checkOutcome, checkRun, FACTORY, Refusal, shellRun, type Spec, TICKET_SET_TOOL, ticketList, ticketSet } from "@sb/protocol";
+import { checkOutcome, checkRun, FACTORY, type FileIn, Refusal, shellRun, type Spec, TICKET_SET_TOOL, ticketList, ticketSet } from "@sb/protocol";
 import type { Ctx, HostApi, Module } from "../../core/contract.ts";
 import { envelope } from "../chat/contract.ts";
+import type { FilesApi } from "../files/contract.ts";
 
 /** Работу сессии даёт только служба «Фабрика». */
 const FROM = FACTORY;
@@ -41,7 +42,7 @@ export function make(): Module {
       host = h;
     },
     requests: {
-      async "work.give"(i: { name: string; spec?: Spec; ticket: string; step?: string; on?: string; key?: string; text: string }, ctx: Ctx) {
+      async "work.give"(i: { name: string; spec?: Spec; ticket: string; step?: string; on?: string; key?: string; text: string; files?: FileIn[] }, ctx: Ctx) {
         if (ctx.from !== FROM) throw new Refusal("forbidden", "работу сессии даёт служба «Фабрика»: создайте тикет — ticket.new");
         const callsign = `${i.name}@${host.machine}`;
         let s = host.session(callsign);
@@ -52,11 +53,18 @@ export function make(): Module {
         } else if (s.state === "failed") throw new Refusal("failed", `${callsign}: ${s.info.error ?? "сессия остановилась со сбоем"}`);
         else if (s.state === "stopping") throw new Refusal("stopped", `${callsign} останавливается`);
         else if (s.state === "stopped") await s.start();
+        // файлы тикета встают в папку сессии тем же шагом, что файлы сообщения: сессии — строка уведомления о них
+        let text = i.text;
+        if (i.files?.length) {
+          const files = host.module<FilesApi>("host-files");
+          if (!files) throw new Refusal("no_files", "модуля файлов нет в этом Host");
+          text = await files.attach(s, i.text, i.files, host.signal);
+        }
         const uuid = randomUUID();
         given.set(uuid, { callsign, ticket: i.ticket, ...(i.step ? { step: i.step } : {}) });
         // шаг — новым ходом: ввод ждёт конца идущего хода, а не вклинивается в него. Иначе следующий шаг той же сессии
         // приходил бы посреди хода, которым она сдаёт прошлый, и напоминание о вердикте относилось бы не к тому ходу
-        s.input(envelope(FROM, "ticket", i.text, { ticket: i.ticket, step: i.step, on: i.on, key: i.key }), { priority: "later", uuid });
+        s.input(envelope(FROM, "ticket", text, { ticket: i.ticket, step: i.step, on: i.on, key: i.key }), { priority: "later", uuid });
         host.log.info("work", { callsign, kind: "given", why: word(i) });
         return { callsign };
       },
