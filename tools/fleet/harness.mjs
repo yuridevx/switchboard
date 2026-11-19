@@ -49,6 +49,8 @@ export const lacks = (what) => (process.env.SB2_WITHOUT ?? "").split(" ").includ
 export const BUDGET_MS = 210_000;
 /** Шаг перечитывания факта, о котором флот кадров не шлёт: файл на диске машины, запись истории, строка архива. */
 const REREAD_MS = 1000;
+/** Страница сдаётся на секунду раньше бюджета: красный шаг называет элемент, которого она ждала, а не один только бюджет. */
+const PAGE_EDGE_MS = 1000;
 
 export const QUIET = "тихая", NOISY = "шумная", ALONE = "одна";
 /** Запросы, которые задевают общее. fleet — общее для флота: такой проверке нужна дорожка «одна»; machine — программу машины: «шумная» или «одна». */
@@ -90,6 +92,7 @@ export function kit(o) {
   const tag = o.tag ?? newTag();
   const lane = o.lane ?? QUIET;
   const budgetMs = o.budgetMs ?? BUDGET_MS;
+  const deadline = clock.now() + budgetMs;
   const slug = String(o.slug ?? "check").replace(/[^a-z0-9-]/gi, "").slice(0, 12) || "check";
   let picture = emptyPicture, link = null, linkWhy = null, frames = 0;
   let ok = 0, bad = 0, current = null, over = false, stopped = false;
@@ -183,6 +186,8 @@ export function kit(o) {
   /* --- шаг --- */
   const words = (e) => (e instanceof Waited ? `${e.message} · бюджет ${Math.round(budgetMs / 1000)} с вышел` : String(e?.message ?? e).split("\n")[0]);
   const red = (label, e) => {
+    if (stopped) return;
+    stopped = true;
     bad++;
     const why = words(e);
     out(`✗ ${label} · ${why}`);
@@ -194,6 +199,8 @@ export function kit(o) {
     if (over) throw new Waited(`шаг «${label}»`, "бюджет вышел до шага");
     const t0 = clock.now();
     current = label;
+    // ожидания страницы — без своих чисел: предел каждого — остаток бюджета на начало шага
+    for (const p of pages) (p.setDefaultTimeout(left()), p.setDefaultNavigationTimeout(left()));
     try {
       const note = await fn();
       // бюджет вышел, пока шаг стоял вне ожиданий обвязки: его красная строка уже напечатана
@@ -204,7 +211,8 @@ export function kit(o) {
       journal({ t: clock.now(), level: "info", part: "check", module: o.title, msg: label, ok: true, ms });
     } catch (e) {
       if (e === STOP) throw e;
-      stopped = true;
+      // красный шаг со страницей — снимок каждой страницы рядом со снимками проверки
+      if (!stopped) for (const [i, p] of pages.entries()) await p.screenshot({ path: path.join(shots(), `fail-${i + 1}.png`) }).catch(() => {});
       red(label, e);
       throw STOP;
     } finally {
@@ -330,6 +338,32 @@ export function kit(o) {
     return s;
   }
 
+  /* --- страница --- */
+  const pages = [], pageErrors = [];
+  let browser = null, shotDir = null;
+  const left = () => Math.max(1, deadline - clock.now() - PAGE_EDGE_MS);
+  /** Папка снимков проверки. */
+  const shots = () => (shotDir ??= (fs.mkdirSync(path.join(root, "dist", "live", slug), { recursive: true }), path.join(root, "dist", "live", slug)));
+  /** Страница флота в браузере: своё устройство по приглашению, вход принят. У ожиданий страницы своих чисел нет: предел — остаток бюджета.
+   *  Ошибка страницы — красный в конце проверки; console: true — ошибкой считается и строка error консоли. */
+  async function page({ width = 1440, height = 900, console: logs = false, ...context } = {}) {
+    browser ??= await (o.launch ?? launchBrowser)();
+    const me = await must("whoami", {});
+    const inv = await must("invite", { addr: `${slug.replaceAll("-", "")}${tag}${pages.length || ""}${me.person}` });
+    defer(`приглашение ${inv.kid}`, (go) => go("revoke", { kid: inv.kid }));
+    const p = await (await browser.newContext({ viewport: { width, height }, ...context })).newPage();
+    pages.push(p);
+    p.setDefaultTimeout(left());
+    p.setDefaultNavigationTimeout(left());
+    p.on("pageerror", (e) => pageErrors.push(e.message));
+    if (logs) p.on("console", (m) => m.type() === "error" && pageErrors.push(m.text()));
+    await p.goto(`${o.base}/#invite=${encodeURIComponent(inv.invite)}`);
+    // вход принят: навигация приложения на месте и адрес от приглашения очищен — переход, начатый раньше, страница перебила бы своим
+    await p.locator("nav a").first().waitFor();
+    await p.waitForFunction(() => !location.hash.includes("invite="));
+    return p;
+  }
+
   /* --- начало и конец --- */
   /** Соединение картины: первый кадр — снимок. Человеку проверки нельзя быть на связи (away) — картины нет, строки читаются запросом. */
   async function ready() {
@@ -345,6 +379,7 @@ export function kit(o) {
   async function cleanup() {
     clock.clearTimeout(timer);
     // KEEP=1 — оставить своё для разбора: что осталось, названо строкой
+    await browser?.close().catch(() => {});
     if (o.keep) return void (out(`оставлено для разбора: ${cleanups.map((c) => c.what).join(", ") || "ничего"}`), link?.close());
     const done = await Promise.allSettled(cleanups.splice(0).reverse().map(async (c) => {
       const r = await c.fn(raw);
@@ -361,7 +396,7 @@ export function kit(o) {
   const t = {
     title: o.title, tag, lane, fleet: o.fleet, device: o.device, machine: o.machine, second: o.second,
     base: o.base, key: o.key,
-    call, must, fetch: get, put, wait, step, only, defer, node, tmp, session, own, lacks: o.lacks ?? lacks,
+    call, must, fetch: get, put, wait, step, only, defer, node, tmp, session, own, page, shots, lacks: o.lacks ?? lacks,
     /** Картина флота на сейчас. */
     get picture() { return picture; },
   };
@@ -372,8 +407,10 @@ export function kit(o) {
     } catch (e) {
       // красный мимо шагов: до первого шага — проверка не запустилась; бюджет вышел посреди шага — красный этот шаг
       if (e !== STOP) red(current ?? (ok + bad ? "проверка дошла до конца" : "проверка не запустилась"), e);
-      stopped = true;
     }
+    // страница, которая бросила ошибку, — красный, даже когда все шаги зелёные
+    if (pageErrors.length) red("страница без ошибок", new Error([...new Set(pageErrors)].slice(0, 3).join(" | ").slice(0, 400)));
+    stopped = true;
     await cleanup();
     return bad ? 1 : 0;
   };
