@@ -228,10 +228,15 @@ export function kit(o) {
   /* --- свои ресурсы --- */
   /** Убрать за собой при любом исходе: fn(raw) зовёт флот мимо бюджета — он к уборке уже мог выйти. */
   const defer = (what, fn) => cleanups.push({ what, fn });
-  /** Скрипт node на машине: что напечатал. Запуск дольше ответа — дожидается его конца. */
-  async function node(machine, code) {
-    let r = await must("shell.run", { to: "@" + machine, shell: "node", script: `import fs from "node:fs";import os from "node:os";${code}`, wait: 30 });
+  /** Запуск скрипта на машине до его конца: fields — поля shell.run (script, shell, cwd…). Запуск дольше ответа — дожидается; ответ — запись запуска. */
+  async function shell(machine, fields) {
+    let r = await must("shell.run", { to: "@" + machine, wait: 30, ...fields });
     while (r.state === "running") r = await must("shell.wait", { to: "@" + machine, run: r.run, wait: 30 });
+    return r;
+  }
+  /** Скрипт node на машине: что напечатал. */
+  async function node(machine, code) {
+    const r = await shell(machine, { shell: "node", script: `import fs from "node:fs";import os from "node:os";${code}` });
     if (r.state !== "done") throw new Error(`скрипт на ${machine}: ${r.state} ${String(r.stderr ?? r.out ?? "").slice(0, 200)}`);
     return String(r.out ?? r.stdout ?? "");
   }
@@ -293,7 +298,7 @@ export function kit(o) {
     let seen = "строки сессии нет";
     const row = async () => {
       const x = await rowOf(cs);
-      if (x?.state === "failed") throw new Error(`${cs}: сессия упала — ${x.why ?? "причина не названа"}`);
+      if (x?.state === "failed") throw new Error(`${cs}: сессия упала — ${x.error ?? "причина не названа"}`);
       return x;
     };
     /** Итог хода за своим сообщением: записи хода и текст ответа. find — где в истории это сообщение; нет find — первый итог в разговоре. */
@@ -421,7 +426,7 @@ export function kit(o) {
   const t = {
     title: o.title, tag, lane, fleet: o.fleet, device: o.device, machine: o.machine, second: o.second,
     base: o.base, key: o.key,
-    call, must, fetch: get, put, wait, step, only, defer, node, tmp, gate, session, own, page, shots, lacks: o.lacks ?? lacks,
+    call, must, fetch: get, put, wait, step, only, defer, shell, node, tmp, gate, session, own, page, shots, lacks: o.lacks ?? lacks,
     /** Картина флота на сейчас. */
     get picture() { return picture; },
   };
