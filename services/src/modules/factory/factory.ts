@@ -5,6 +5,7 @@
 // идёт проверка-скрипт на машине, код 0 — тихо, иначе её вывод — находка: новый тикет или заметка в открытый с тем же ключом.
 // Тем же событием правила приходит зов по имени (ticket.new {on}) и запрос на адрес с секретом (модуль «Входы»).
 // Шаг-ожидание сдаёт событие GitHub о PR тикета: слит — «сдал», замечания ревью — «вернул», закрыт — «стоп».
+// Чужой апстрим событий не шлёт: правило со сроком опрашивает голову его ветки и PR, которых ждут тикеты.
 // Сама Фабрика ничего не чинит и не повторяет: отказ машины, второй возврат и вышедший срок ставят тикет в «стоп» с причиной.
 import {
   CALL_MS, canReach, checkOutcome, checkRun, errFields, FACTORY, FACTORY_FILE, FactoryDef, type FactoryState, type FileIn, kindOf, type LineDef, machineOf, newId, type Project, Refusal,
@@ -15,7 +16,7 @@ import { type Op, records } from "../../records.ts";
 import type { PrEvent } from "../github/contract.ts";
 import { line as historyLine } from "../analytics/contract.ts";
 import { drop, list as timers, next, on, set } from "../clock/contract.ts";
-import { file } from "../github/contract.ts";
+import { file, head, pull, reader } from "../github/contract.ts";
 import { fleetPref } from "../prefs/contract.ts";
 import { sendTo } from "../reach/contract.ts";
 
@@ -42,6 +43,8 @@ const SCHEMA = [
   "CREATE INDEX IF NOT EXISTS notes_n ON notes (n, at)",
   // применённое определение: откуда и с какого коммита; пауза — рядом с ним
   "CREATE TABLE IF NOT EXISTS def (one INTEGER PRIMARY KEY CHECK (one = 1), repo TEXT NOT NULL, sha TEXT NOT NULL, at INTEGER NOT NULL, by TEXT NOT NULL, json TEXT NOT NULL, paused INTEGER NOT NULL DEFAULT 0)",
+  // что опрос помнит о прошлом ответе GitHub: голова апстрима правила и её отпечаток (head:<правило>), последнее ревью PR, по которому уже дан возврат (review:<PR>)
+  "CREATE TABLE IF NOT EXISTS polls (name TEXT PRIMARY KEY, etag TEXT, value TEXT)",
 ];
 const db = (env: Env, fleet: string, project: string) => records(env, fleet, NAME, SCHEMA, project);
 /** Записи на флот: событие GitHub приходит флоту, а тикеты лежат по проектам — какой проект слушает какой свой репозиторий, пишет применение определения. */
@@ -398,20 +401,64 @@ export async function prEvent(env: Env, w: Outside, fleet: string, e: PrEvent, t
     : { verdict: "stop" as const, note: `PR ${e.pr} закрыт без слияния` };
   for (const { project } of projects) {
     const def = (await applied(env, fleet, project))?.def ?? null;
-    for (const was of await db(env, fleet, project).all<Stored>("SELECT * FROM tickets WHERE state = 'wait' AND pr = ?", e.pr)) {
-      if (!stepOf(def, was)?.step.wait) continue;
-      try {
-        const { s, word } = await decide(env, fleet, project, def, was, { ...v, by: GITHUB }, Date.now());
-        await settle(env, w, fleet, project, def, was, s, word, GITHUB, v.note, trace);
-        moved.push(idOf(project, was.n));
-      } catch (x) {
-        // тикет ушёл с шага раньше события: вердикт уже дал человек или срок
-        if (!(x instanceof Refusal)) throw x;
-        w.log.warn("событие PR тикету не дано", { module: NAME, fleet, ticket: idOf(project, was.n), pr: e.pr, word: x.word, why: x.why });
-      }
-    }
+    for (const was of await db(env, fleet, project).all<Stored>("SELECT * FROM tickets WHERE state = 'wait' AND pr = ?", e.pr)) if (await prVerdict(env, w, fleet, project, def, was, v, trace)) moved.push(idOf(project, was.n));
   }
   return moved;
+}
+
+/** Вердикт события о PR тикету на шаге-ожидании. Ответ — дан ли: тикет мог уйти с шага раньше — вердикт уже дал человек или срок. */
+async function prVerdict(env: Env, w: Outside, fleet: string, project: string, def: FactoryDef | null, was: Stored, v: { verdict: Verdict; note: string }, trace: string): Promise<boolean> {
+  if (!stepOf(def, was)?.step.wait) return false;
+  try {
+    const { s, word } = await decide(env, fleet, project, def, was, { ...v, by: GITHUB }, Date.now());
+    await settle(env, w, fleet, project, def, was, s, word, GITHUB, v.note, trace);
+    return true;
+  } catch (x) {
+    if (!(x instanceof Refusal)) throw x;
+    w.log.warn("событие PR тикету не дано", { module: NAME, fleet, ticket: idOf(project, was.n), pr: was.pr, word: x.word, why: x.why });
+    return false;
+  }
+}
+
+/** Срок правила «апстрим сдвинулся». Голова чужой ветки спрашивается условным запросом: прежняя — тихо; новая — событие правила (первая сверка
+ *  голову только запоминает). Тем же сроком — ответ по PR в апстриме, которых ждут тикеты проекта: слит — «сдал», новое ревью с замечаниями —
+ *  «вернул», закрыт — «стоп». GitHub не ответил — строка истории с причиной, следующий срок спросит снова. */
+async function upstream(env: Env, w: Outside, fleet: string, project: string, def: FactoryDef, rule: RuleDef, trace: string, now: number): Promise<void> {
+  const repo = def.repos[rule.repo!]!;
+  const net = { env, fleet, fetch: w.fetch };
+  const d = db(env, fleet, project);
+  const line = (outcome: string, data: Record<string, unknown> = {}, text = "") => ruleLine(env, w, fleet, project, rule.name, "github", outcome, { text, data: { repo: repo.upstream, ...data } });
+  try {
+    const auth = await reader(net, repo.repo);
+    const name = `head:${rule.name}`;
+    const seen = await d.first<{ etag: string | null; value: string | null }>("SELECT etag, value FROM polls WHERE name = ?", name);
+    const h = await head(net, auth, repo.upstream!, seen?.etag ?? undefined);
+    if (!h || h.sha === seen?.value) await line("quiet");
+    else {
+      await d.run("INSERT OR REPLACE INTO polls (name, etag, value) VALUES (?, ?, ?)", name, h.etag ?? null, h.sha);
+      if (!seen?.value) await line("quiet", { sha: h.sha });
+      else {
+        const text = `Апстрим ${repo.upstream} сдвинулся: ${seen.value.slice(0, 7)} → ${h.sha.slice(0, 7)}`;
+        const f = await found(env, w, fleet, project, def, rule, { text, by: FACTORY }, trace, now);
+        await line(f.note ? "note" : "ticket", { ticket: f.id, sha: h.sha }, text);
+      }
+    }
+    // PR в апстриме, которых ждут тикеты проекта
+    for (const was of await d.all<Stored>("SELECT * FROM tickets WHERE state = 'wait' AND substr(pr, 1, length(?1)) = ?1", repo.upstream + "#")) {
+      const p = await pull(net, auth, was.pr!);
+      const key = `review:${was.pr}`;
+      if (p.state === "merged") await prVerdict(env, w, fleet, project, def, was, { verdict: "done", note: `PR ${was.pr} слит` }, trace);
+      else if (p.state === "closed") await prVerdict(env, w, fleet, project, def, was, { verdict: "stop", note: `PR ${was.pr} закрыт без слияния` }, trace);
+      else if (p.review && String(p.review.id) !== (await d.first<{ value: string }>("SELECT value FROM polls WHERE name = ?", key))?.value) {
+        // по одному ревью — один возврат: его номер запомнен раньше, чем тикет вернётся ждать тот же PR
+        await d.run("INSERT OR REPLACE INTO polls (name, value) VALUES (?, ?)", key, String(p.review.id));
+        await prVerdict(env, w, fleet, project, def, was, { verdict: "back", note: `замечания ревью PR ${was.pr} от ${p.review.by}: ${p.review.text}`.trim() }, trace);
+      }
+    }
+  } catch (e) {
+    if (!(e instanceof Refusal)) throw e;
+    await line("failed", {}, `${e.word}: ${e.why ?? ""}`);
+  }
 }
 
 /* ===== Новый тикет и правила входа ===== */
@@ -440,7 +487,7 @@ async function create(env: Env, fleet: string, project: string, def: FactoryDef 
 on(START, async (env, fleet, input, w) => run(env, w, fleet, (input as { project: string }).project, newId("t"), w.now));
 
 /** Откуда событие правила входа: срок часов, зов по имени или запрос на адрес с секретом. */
-type Source = "time" | "name" | "hook";
+type Source = "time" | "name" | "hook" | "github";
 /** Что принесло событие: ключ (нет — ключ правила или его имя), текст, файлы и кто его прислал. */
 type Found = { key?: string; text: string; files?: FileIn[]; by: string };
 
@@ -497,6 +544,7 @@ on(RULE, async (env, fleet, input, w) => {
   const line = (outcome: string, data: Record<string, unknown> = {}, text = "") => ruleLine(env, w, fleet, project, name, "time", outcome, { machine: rule.check?.at, text, data });
   if (a.row.paused) return line("paused");
   const trace = newId("t");
+  if (rule.github) return upstream(env, w, fleet, project, a.def, rule, trace, w.now);
   let out = "";
   let ran: Record<string, unknown> = {};
   if (rule.check) {
@@ -587,6 +635,12 @@ async function check(ctx: Ctx, project: string, text: string): Promise<FactoryDe
     // вход у правила не больше чем один: срок или адрес; без входа правило зовут по имени
     if ([rule.every, rule.cron, rule.hook].filter((x) => x !== undefined).length > 1) errors.push(`${path}: у правила не больше одного входа — every, cron или hook`);
     if (rule.check && rule.every === undefined && rule.cron === undefined) errors.push(`${path}.check: проверка бывает у правила со сроком`);
+    if (rule.github) {
+      // опрос апстрима: срок — как часто спрашивать, репозиторий — тот, у которого назван апстрим; своей проверки у правила нет
+      if (rule.every === undefined && rule.cron === undefined) errors.push(`${path}: опросу апстрима нужен срок — every или cron`);
+      if (rule.check) errors.push(`${path}.check: у опроса апстрима своей проверки нет`);
+      if (!rule.repo || !def.repos[rule.repo]?.upstream) errors.push(`${path}.repo: опросу апстрима нужен репозиторий из repos, у которого назван upstream`);
+    } else if (rule.repo !== undefined) errors.push(`${path}.repo: репозиторий называют правилу с github`);
     if (rule.tz && !rule.cron) errors.push(`${path}.tz: часовой пояс бывает у cron`);
     if (rule.cron)
       try {

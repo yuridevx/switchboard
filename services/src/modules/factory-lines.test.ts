@@ -1,5 +1,5 @@
 // Эталоны «Фабрики»: определение проекта из git, посты, конвейер с шагами пяти видов, два потолка, обязательный срок, пауза;
-// правила входа по времени с проверкой-скриптом и отложенный тикет.
+// правила входа по времени с проверкой-скриптом и отложенный тикет; опрос чужого апстрима.
 import { describe, expect, it } from "vitest";
 import { fail, type FactoryState, type Frame, ok, type Ticket } from "@sb/protocol";
 import type { Env, Outside } from "../env.ts";
@@ -357,6 +357,8 @@ describe("фабрика: правила входа", () => {
         { name: "d", every: "10m", tz: "Europe/Kyiv", to: "solo" },
         { name: "e", hook: true, every: "10m", to: "cto" },
         { name: "f", hook: true, to: "cto", check: { at: "@laptop", run: "node check.mjs", for: "30s" } },
+        { name: "g", github: "upstream.moved", repo: "ghost", to: "cto" },
+        { name: "h", every: "5m", repo: "ghost", to: "cto" },
       ],
     });
     file.sha = "c2";
@@ -365,6 +367,7 @@ describe("фабрика: правила входа", () => {
     for (const part of [
       "on[0]: у правила не больше одного входа", "on[1].cron: расписание «каждый день»", "on[2].to: исполнителя nowhere нет", "on[3].check.at: машины nowhere нет",
       "on[3].check.for: предел проверки правила — не больше 90s", "on[4].name: правило d уже есть", "on[4].tz: часовой пояс бывает у cron", "on[5]: у правила не больше одного входа", "on[6].check: проверка бывает у правила со сроком",
+      "on[7]: опросу апстрима нужен срок", "on[7].repo: опросу апстрима нужен репозиторий из repos, у которого назван upstream", "on[8].repo: репозиторий называют правилу с github",
     ]) expect(r.why).toContain(part);
     expect(await list(s.env, s.fleet, "factory/site/on/")).toEqual([]);
     expect(((await s.ask("factory.get", { project: "site" })).result as { factory: FactoryState }).factory).toMatchObject({ commit: "c1", next: {} });
@@ -386,6 +389,112 @@ describe("фабрика: правила входа", () => {
     expect(await one(s, later)).toMatchObject({ state: "work" });
     expect(await s.ask("ticket.new", { project: "site", title: "Некому", in: "20m" })).toMatchObject({ ok: false, error: "bad_input" });
     await close(s);
+  });
+});
+
+/* ===== Чужой апстрим ===== */
+
+/** Проект ведёт форк team/site чужого author/site: правило раз в 5 минут спрашивает голову апстрима; конвейер fix кончается ожиданием PR. */
+const FORK = {
+  ...DEF,
+  repos: { site: { repo: "team/site", upstream: "author/site" } },
+  lines: { ...DEF.lines, fix: { limit: 2, for: "2h", at: ["@laptop"], cwd: "~/work/{id}", key: "claude", model: "claude-opus-5-5", steps: [{ name: "серия", session: "new" }, { name: "ответ апстрима", wait: "pr.merged", for: "14d" }] } },
+  on: [{ name: "upstream", github: "upstream.moved", repo: "site", every: "5m", to: "cto", title: "Апстрим сдвинулся" }],
+};
+/** GitHub с чужим репозиторием author/site: голова ветки с отпечатком (условный запрос на прежнюю — 304) и PR с ревью. */
+function fork(s: Stand) {
+  const base = s.state.net;
+  const hub = {
+    sha: "a".repeat(40), down: false,
+    pulls: {} as Record<number, { state: string; merged?: boolean; reviews?: { id: number; state: string; body: string; user: { login: string } }[] }>,
+    /** ответы на запросы головы: код и отпечаток, с которым спросили */
+    heads: [] as { status: number; etag?: string }[],
+  };
+  s.state.net = (url, init) => {
+    const at = new URL(url).pathname;
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    if (at === "/repos/team/site/installation") return Response.json({ id: 5 });
+    if (at === "/repos/author/site/commits/HEAD") {
+      if (hub.down) return new Response("{}", { status: 502 });
+      const etag = `"${hub.sha.slice(0, 8)}"`;
+      const same = headers["if-none-match"] === etag;
+      hub.heads.push({ status: same ? 304 : 200, ...(headers["if-none-match"] ? { etag: headers["if-none-match"] } : {}) });
+      return same ? new Response(null, { status: 304 }) : Response.json({ sha: hub.sha }, { headers: { etag } });
+    }
+    const pr = /^\/repos\/author\/site\/pulls\/(\d+)(\/reviews)?$/.exec(at);
+    if (pr) return pr[2] ? Response.json(hub.pulls[Number(pr[1])]?.reviews ?? []) : hub.pulls[Number(pr[1])] ? Response.json(hub.pulls[Number(pr[1])]) : new Response("{}", { status: 404 });
+    return base(url, init);
+  };
+  return hub;
+}
+
+describe("фабрика: чужой апстрим", () => {
+  // эталон 12 — чьё: слово пользователя («оригинал репо + наш форк: ребейзимся на апстрим»)
+  it("12 · апстрим сдвинулся — один тикет: первая сверка запоминает голову; новая голова — тикет посту; трижды прежняя — тикетов не прибавилось, запросы условные", async () => {
+    const { s, result } = await applied(FORK, CH);
+    expect(result.rules).toBe(1);
+    const hub = fork(s);
+    // первая сверка: голова запомнена, сдвига ещё не было
+    await ring(s, "upstream");
+    expect(await tickets(s)).toEqual([]);
+    hub.sha = "b".repeat(40);
+    await ring(s, "upstream");
+    expect(await tickets(s)).toMatchObject([{ id: "site-1", to: "cto", on: "upstream", title: "Апстрим сдвинулся", text: "Апстрим author/site сдвинулся: aaaaaaa → bbbbbbb", state: "work", by: ".factory" }]);
+    for (let i = 0; i < 3; i++) await ring(s, "upstream");
+    expect(await tickets(s)).toHaveLength(1);
+    expect((await one(s, "site-1")).notes).toEqual([]);
+    expect(gives(s)).toHaveLength(1);
+    // три запроса на прежнюю голову — условные, с её отпечатком: ответ «не изменилось» в предел GitHub не идёт
+    expect(hub.heads).toEqual([{ status: 200 }, { status: 200, etag: '"aaaaaaaa"' }, { status: 304, etag: '"bbbbbbbb"' }, { status: 304, etag: '"bbbbbbbb"' }, { status: 304, etag: '"bbbbbbbb"' }]);
+    expect(ruleLines(s).map((l) => [l.source, l.outcome, l.repo, l.ticket])).toEqual([
+      ["github", "quiet", "author/site", undefined], ["github", "ticket", "author/site", "site-1"], ["github", "quiet", "author/site", undefined], ["github", "quiet", "author/site", undefined], ["github", "quiet", "author/site", undefined],
+    ]);
+    // сдвиг при открытом тикете дописывается в него; GitHub не ответил — строка с причиной, тикетов не прибавилось
+    hub.sha = "c".repeat(40);
+    await ring(s, "upstream");
+    expect((await one(s, "site-1")).notes!.map((n) => n.text)).toEqual(["Апстрим author/site сдвинулся: bbbbbbb → ccccccc"]);
+    hub.down = true;
+    await ring(s, "upstream");
+    expect(ruleLines(s).at(-1)).toMatchObject({ outcome: "failed", source: "github" });
+    expect(await tickets(s)).toHaveLength(1);
+    await close(s);
+    await drop(s.env, s.fleet, { prefix: "factory/site/" });
+  });
+
+  it("PR в апстриме опрашивается, пока тикет ждёт: ревью с замечаниями возвращает шаг автору один раз; слит — шаг сдан; закрыт — «стоп»", async () => {
+    const { s } = await applied(FORK);
+    const hub = fork(s);
+    const wait = async (title: string, pr: string) => {
+      const id = await make(s, "fix", title);
+      expect(await as(s, (await one(s, id)).session!, "ticket.set", { ticket: id, verdict: "done", note: "PR открыт", pr })).toMatchObject({ ok: true, result: { state: "wait", step: 1 } });
+      return id;
+    };
+    const a = await wait("Патч обхода", "author/site#12");
+    hub.pulls[12] = { state: "open" };
+    await ring(s, "upstream");
+    expect(await one(s, a)).toMatchObject({ state: "wait", step: 1 });
+    // ревью просит правок: шаг возвращён автору с его словами
+    hub.pulls[12] = { state: "open", reviews: [{ id: 501, state: "COMMENTED", body: "гляну", user: { login: "author" } }, { id: 502, state: "CHANGES_REQUESTED", body: "разбей патч на два", user: { login: "author" } }] };
+    await ring(s, "upstream");
+    expect(await one(s, a)).toMatchObject({ state: "work", step: 0, returns: 1 });
+    expect(String(gives(s).at(-1)!.text)).toContain("Вернули с замечанием: замечания ревью PR author/site#12 от author: разбей патч на два");
+    // автор поправил и снова ждёт тот же PR: то же ревью второй раз шаг не возвращает
+    expect(await as(s, (await one(s, a)).session!, "ticket.set", { ticket: a, verdict: "done", note: "разбил" })).toMatchObject({ ok: true, result: { state: "wait", step: 1 } });
+    await ring(s, "upstream");
+    expect(await one(s, a)).toMatchObject({ state: "wait", step: 1, returns: 1 });
+    // апстрим принял: шаг сдан событием
+    hub.pulls[12] = { state: "closed", merged: true };
+    await ring(s, "upstream");
+    const done = await one(s, a);
+    expect(done).toMatchObject({ state: "done" });
+    expect(done.notes!.at(-1)).toMatchObject({ by: ".github", verdict: "done", text: "PR author/site#12 слит" });
+    // закрыт без слияния — «стоп»
+    const b = await wait("Патч карты", "author/site#13");
+    hub.pulls[13] = { state: "closed", merged: false };
+    await ring(s, "upstream");
+    expect(await one(s, b)).toMatchObject({ state: "stop", why: "PR author/site#13 закрыт без слияния" });
+    await close(s);
+    await drop(s.env, s.fleet, { prefix: "factory/site/" });
   });
 });
 

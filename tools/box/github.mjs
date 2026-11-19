@@ -12,6 +12,8 @@ import { pathToFileURL } from "node:url";
 
 /** Репозиторий кусочков коробки: владелец/имя, как на GitHub. */
 export const REPO = "box/pieces";
+/** Чужой репозиторий, от которого «ответвлён» репозиторий коробки: у него есть только голова основной ветки — её двигает POST /box/upstream. */
+export const UPSTREAM = "box/upstream";
 /** Что в нём лежит: кусочек reviewer — ставит модель и несёт один скил; его ищут проверки «Новой сессии» и второй машины.
  *  Кусочек notes — с памятью: индекс и одна запись; его ищет проверка «память флота». */
 const FILES = {
@@ -55,6 +57,8 @@ export function serve(port, log = () => {}, state = "") {
   const APP = 1, INSTALL = 7;
   /** Секрет подписи событий приложения: GitHub называет его один раз — в ответе на создание приложения. */
   const SECRET = crypto.randomBytes(20).toString("hex");
+  /** Голова основной ветки чужого репозитория. */
+  let upstream = crypto.randomBytes(20).toString("hex");
   /** Доставка события флоту: тело подписано секретом приложения. */
   const deliver = async ({ url, event, payload }) => {
     const raw = JSON.stringify(payload);
@@ -72,6 +76,13 @@ export function serve(port, log = () => {}, state = "") {
     const url = new URL(req.url, "http://github.box");
     const send = (status, body) => (log(`${req.method} ${url.pathname} → ${status}`), res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body)));
     if (req.method === "POST" && /^\/app-manifests\/[\w-]+\/conversions$/.test(url.pathname)) return send(201, { id: APP, slug: "switchboard-box", owner: { login: "box" }, pem: privateKey.export({ type: "pkcs1", format: "pem" }), webhook_secret: SECRET });
+    // чужой репозиторий: сдвинуть голову ветки; голова — с отпечатком, условный запрос на прежнюю получает 304
+    if (req.method === "POST" && url.pathname === "/box/upstream") return (upstream = crypto.randomBytes(20).toString("hex")), send(200, { sha: upstream });
+    if (req.method === "GET" && url.pathname === `/repos/${UPSTREAM}/commits/HEAD` && /^token ghs_box_/.test(req.headers.authorization ?? "")) {
+      const etag = `"${upstream.slice(0, 16)}"`;
+      if (req.headers["if-none-match"] === etag) return (log(`GET ${url.pathname} → 304`), res.writeHead(304, { etag }).end());
+      return (log(`GET ${url.pathname} → 200`), res.writeHead(200, { "content-type": "application/json", etag }).end(JSON.stringify({ sha: upstream })));
+    }
     if (req.method === "POST" && url.pathname === "/box/deliver") {
       const parts = [];
       req.on("data", (d) => parts.push(d));
