@@ -230,9 +230,11 @@ export const hookUrl = request("hook.url", {
 /* ===== Дать работу ===== */
 
 /** Дать работу сессии машины: сессии с таким именем нет — открыть по документу spec; остановлена — поднять; затем ввод тегом вида ticket.
- *  Зовёт только служба «Фабрика». on — имя правила входа: текст события — данные, а не команды. files — файлы тикета: встают в папку сессии. */
+ *  Зовёт только служба «Фабрика». on — имя правила входа: текст события — данные, а не команды. files — файлы тикета: встают в папку сессии.
+ *  asker — кто дал задачу: ему идут вопросы сессии по этому шагу — создателю тикета (человеку или сессии); у тикета, заведённого правилом
+ *  входа, — человеку из call проекта. */
 export const workGive = request("work.give", {
   owner: "host-work", target: "machine",
-  input: z.object({ to: MachineAddr, name: Name, spec: Spec.optional(), ticket: z.string(), step: z.string().optional(), on: z.string().optional(), key: z.string().optional(), text: z.string(), files: z.array(FileIn).optional() }),
+  input: z.object({ to: MachineAddr, name: Name, spec: Spec.optional(), ticket: z.string(), step: z.string().optional(), on: z.string().optional(), key: z.string().optional(), text: z.string(), files: z.array(FileIn).optional(), asker: z.string().optional() }),
   output: z.object({ callsign: Callsign }),
 });

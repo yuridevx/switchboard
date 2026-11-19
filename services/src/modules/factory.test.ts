@@ -137,6 +137,16 @@ describe("фабрика: тикет сессии", () => {
     await s.ask("ticket.set", { ticket: "site-1", drop: true });
   });
 
+  // чьё: дизайн «Фабрика», принят словом пользователя 19 нояб. («делай»): вопрос сессии шага идёт создателю тикета — как вопрос дочери идёт родителю
+  it("кто дал задачу тикетом: создатель — человек или сессия — назван машине вместе с шагом; сессия самой себе — нет", async () => {
+    const s = fleet();
+    await s.ask("ticket.new", { project: "site", to: "coder@laptop", for: "2h", title: "От человека" });
+    await as(s, "review@laptop", "ticket.new", { to: "ops@server", for: "2h", title: "От сессии" });
+    await as(s, "review@laptop", "ticket.new", { to: "review@laptop", for: "1h", title: "Самой себе" });
+    expect(gives(s).map((g) => [g.name, g.asker])).toEqual([["coder", "pult~yuri@example.com"], ["ops", "review@laptop"], ["review", undefined]]);
+    for (const id of ["site-1", "site-2", "site-3"]) await s.ask("ticket.set", { ticket: id, drop: true });
+  });
+
   // чьё: гейт архитектора (слово пользователя 31 окт.) — одно правило не считается и службой, и страницей: что можно сделать с тикетом, называет служба
   it("что можно сделать с тикетом, называет служба — тем же правилом, каким отказывает запись: по состоянию тикета и по тому, кто спросил", async () => {
     const s = fleet();
