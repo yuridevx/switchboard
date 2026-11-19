@@ -92,6 +92,14 @@ jobs:
           SB2_BOX_CH: http://default:box@127.0.0.1:8123
           SB2_SHARD: ${{ matrix.shard }}
           SB2_INSTALL: 1
+          SB2_STEPS: ${{ runner.temp }}/steps.jsonl
+      # журнал шагов — строка на шаг: по файлам прогонов разбор истории (tools/test/history.mjs) называет плавающие шаги
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: steps-box-linux-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/steps.jsonl
+          if-no-files-found: ignore
 
   # тот же список на Windows: пути, процессы, оболочки. Контейнеров Linux на раннере Windows нет — шаги с историей флота там не идут
   # Идёт после слияния, на push в main: с подготовкой раннера Windows доля занимает 3,5–5 минут и слияние не держит (путь до слияния — не дольше 5 минут).
@@ -135,6 +143,13 @@ jobs:
         env:
           SB2_SHARD: ${{ matrix.shard }}
           SB2_INSTALL: 1
+          SB2_STEPS: ${{ runner.temp }}/steps.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: steps-box-windows-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/steps.jsonl
+          if-no-files-found: ignore
 
   # одна обязательная проверка ветки main: зелёная, когда зелёные все части и коробка
   check:

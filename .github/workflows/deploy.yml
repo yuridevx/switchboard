@@ -67,6 +67,7 @@ jobs:
           SB2_KEY: ${{ vars.SB2_PROD_KEY }}
           SB2_MODEL: ${{ vars.SB2_PROD_MODEL }}
           MACHINES: ${{ vars.SB2_PROD_MACHINES }}
+          SB2_STEPS: ${{ runner.temp }}/steps.jsonl
         run: node tools/fleet/live.mjs $FLEET ci $MACHINES
       - name: метка fleet/${{ inputs.fleet || 'test' }}
         # метка — указатель на выложенный коммит: ставится как есть. Раннер берёт один последний коммит, и обычный push
@@ -80,4 +81,12 @@ jobs:
           SB2_MODEL: ${{ vars.SB2_MODEL }}
           SB2_SWITCH: ${{ vars.SB2_SWITCH }}
           MACHINES: ${{ vars.SB2_MACHINES }}
+          SB2_STEPS: ${{ runner.temp }}/steps.jsonl
         run: node tools/fleet/live.mjs $FLEET ci $MACHINES
+      # журнал шагов живого списка — строка на шаг: читает разбор истории (tools/test/history.mjs)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: steps-fleet
+          path: ${{ runner.temp }}/steps.jsonl
+          if-no-files-found: ignore

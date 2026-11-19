@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { lacks, local } from "./harness.mjs";
+import { appendSteps, stepLines } from "./steps.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
@@ -81,6 +82,11 @@ const LIST = [
   ["аккаунты: негодный токен", "live-accounts.ts", [fleet, device, machine], { SB2_PART: "token" }, false, ALONE, ["claude"]],
 ].filter((c) => (!prod || c[4]) && !(c[6] ?? []).some(lacks)).filter((_, i) => i % shards === shard - 1);
 
+// журнал шагов: строка общей формы на каждый шаг — в файл SB2_STEPS; работа CI сохраняет его при прогоне, читает tools/test/history.mjs
+const STEPS = process.env.SB2_STEPS;
+const place = local() ? `коробка ${process.platform === "win32" ? "windows" : "linux"}` : `флот ${fleet}`;
+const journal = { place, commit: process.env.GITHUB_SHA, run: Number(process.env.GITHUB_RUN_ID) || undefined, bare: prod };
+
 const t00 = Date.now();
 const rows = [];
 let failed = 0, okAll = 0, badAll = 0;
@@ -88,7 +94,9 @@ let failed = 0, okAll = 0, badAll = 0;
 async function check([title, file, args, env]) {
   const r = await run(file, args, env);
   // слова ошибки упавшей проверки — без строк стека: слова идут первыми, стек — последним
-  const out = r.stdout + (r.status !== 0 && r.stderr ? "\n" + r.stderr.split("\n").filter((l) => l.trim() && !/^\s+at /.test(l)).slice(-6).join("\n") : "");
+  const words = r.status !== 0 && r.stderr ? r.stderr.split("\n").filter((l) => l.trim() && !/^\s+at /.test(l)).slice(-6).join("\n") : "";
+  const out = r.stdout + (words ? "\n" + words : "");
+  if (STEPS) appendSteps(STEPS, stepLines(title, r.stdout, r.status, words, { ...journal, t: Date.now() }));
   const lines = out.split("\n").filter((l) => /^[✓✗…]/.test(l));
   const ok = lines.filter((l) => l.startsWith("✓")).length, bad = lines.filter((l) => l.startsWith("✗")).length, wait = lines.filter((l) => l.startsWith("…")).length;
   const sec = (r.ms / 1000).toFixed(0);
