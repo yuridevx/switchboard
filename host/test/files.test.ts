@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { make as chat } from "../src/modules/chat/chat.ts";
 import { make as files } from "../src/modules/files/files.ts";
 import { make as incidents } from "../src/modules/incidents/incidents.ts";
+import { make as work } from "../src/modules/work/work.ts";
 import { stand, tick, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
@@ -278,6 +279,21 @@ describe("файлы: обращение службы компьютера, ис
     const bad = await fetch(`http://127.0.0.1:${port}/incident`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "disk", key: "d:", text: "ещё", files: [{ name: "x.txt", base64: Buffer.from("новое").toString("base64") }] }) });
     expect([bad.status, ((await bad.json()) as { error: string }).error]).toEqual([400, "store_failed"]);
     expect(((await st.request("incident.list", { to: "@laptop" })).result as any).incidents).toHaveLength(1);
+  });
+
+  // чьё: дизайн «Фабрика», принят словом пользователя 19 нояб. («делай»): событие идёт тикетом, его файлы встают в папку сессии тем же шагом, что файлы сообщения
+  it("файлы тикета: шаг приходит сессии со строкой уведомления о них, файл — в папке сессии, хэш сверен", async () => {
+    st = await stand({ modules: [chat(), files(), work()] });
+    const store = await storage(st);
+    const { proc } = await st.open("site");
+    const f = uploaded(store, "df.txt", "/ 99%");
+    expect((await st.request("work.give", { to: "@laptop", name: "site", ticket: "site-7", on: "disk", key: "c:", text: "Тикет site-7: место кончается", files: [f] }, ".factory")).ok).toBe(true);
+    await until(() => proc.inputs.length === 1, 5000, "шаг во вводе");
+    expect(proc.inputs[0]!.message.content).toBe(`<fleet from=".factory" kind="ticket" ticket="site-7" on="disk" key="c:">\nТикет site-7: место кончается\n\nЗагружены файлы в папку сессии:\n- uploads/df.txt · 5 байт · sha256 ${f.hash}\n</fleet>`);
+    expect(readFileSync(join(st.dir, "uploads", "df.txt"), "utf8")).toBe("/ 99%");
+    // содержимого в хранилище нет — работа не дана, отказ словом: служба поставит тикет в «стоп»
+    expect(await st.request("work.give", { to: "@laptop", name: "site", ticket: "site-8", text: "Тикет site-8", files: [{ name: "нет.txt", hash: "f".repeat(64), size: 3 }] }, ".factory")).toMatchObject({ ok: false });
+    expect(proc.inputs).toHaveLength(1);
   });
 
   it("эталон 23 · история разговора: сообщение человека с файлом — текст человека без строки уведомления и те же имя, хэш, размер, что в ленте", async () => {

@@ -3,15 +3,9 @@
 import { describe, expect, it } from "vitest";
 import { fail, type FactoryState, type Frame, ok, type Ticket } from "@sb/protocol";
 import type { Env, Outside } from "../env.ts";
-import { type Stand, stand } from "../../test/stand.ts";
+import { appliedFleet } from "../../test/factory.ts";
+import type { Stand } from "../../test/stand.ts";
 import { drop, fire, list } from "./clock/clock.ts";
-
-/** Ключ приложения GitHub в PEM. */
-async function pem(): Promise<string> {
-  const pair = (await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign"])) as CryptoKeyPair;
-  const der = new Uint8Array((await crypto.subtle.exportKey("pkcs8", pair.privateKey)) as ArrayBuffer);
-  return `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...der)).replace(/(.{64})/g, "$1\n")}\n-----END PRIVATE KEY-----\n`;
-}
 
 const POST = (at: string, extra: Record<string, unknown> = {}) => ({ at, cwd: "~/work/post", key: "claude", model: "claude-opus-5-5", for: "1d", ...extra });
 /** Определение проекта «site»: два поста и конвейеры — полный (пять видов шагов), одношаговый, с потолком один и с ожиданием. */
@@ -35,32 +29,7 @@ const DEF = {
   },
 };
 
-/** Флот с проектом «site», приложением GitHub и репозиторием ролей team/roles; file — что сейчас лежит в factory.json и на каком коммите. */
-async function fleet(file: { text: string; sha: string }, env?: Partial<Env>): Promise<Stand> {
-  const s = stand(undefined, env ? { env } : {});
-  s.state.fleetAnswer = (f) =>
-    f.type === "people.list" ? ok(f.id!, { people: [], projects: [{ id: "site", name: "Сайт", members: ["~yuri@example.com", "~anya@example.com"] }] }) : ok(f.id!, { called: f.type });
-  const key = await pem();
-  s.state.net = (url) => {
-    const path = new URL(url).pathname;
-    if (path === "/app-manifests/code123/conversions") return Response.json({ id: 42, slug: "switchboard-test", owner: { login: "team" }, pem: key });
-    if (path === "/repos/team/roles/installation") return Response.json({ id: 5 });
-    if (path === "/app/installations/5/access_tokens") return Response.json({ token: "ghs_token", expires_at: "2027-01-01T00:00:00Z" });
-    if (path === "/repos/team/roles/commits/HEAD") return Response.json({ sha: file.sha });
-    if (path === "/repos/team/roles/contents/factory.json") return file.text ? Response.json({ content: Buffer.from(file.text).toString("base64"), encoding: "base64" }) : new Response("{}", { status: 404 });
-    return new Response(null, { status: 201 });
-  };
-  expect((await s.ask("github.setup", { code: "code123" })).ok).toBe(true);
-  await s.ask("prefs.set", { scope: "fleet", name: "profiles.repos", value: ["team/roles"] });
-  return s;
-}
-const applied = async (def: unknown = DEF, env?: Partial<Env>) => {
-  const file = { text: JSON.stringify(def), sha: "c1" };
-  const s = await fleet(file, env);
-  const r = await s.ask("factory.apply", { project: "site", repo: "team/roles" });
-  expect(r).toMatchObject({ ok: true });
-  return { s, file, result: r.result as { commit: string; posts: number; lines: number; rules: number; opened: string[]; failed: unknown[] } };
-};
+const applied = (def: unknown = DEF, env?: Partial<Env>) => appliedFleet(def, env);
 const sent = (s: Stand, type: string) => s.seen.delivered.filter((f) => f.type === type);
 const gives = (s: Stand) => sent(s, "work.give");
 const one = async (s: Stand, id: string) => ((await s.ask("ticket.list", { ticket: id })).result as { tickets: Ticket[] }).tickets[0]!;
@@ -376,7 +345,7 @@ describe("фабрика: правила входа", () => {
     await drop(s.env, s.fleet, { prefix: "factory/site/" });
   });
 
-  it("битое правило входа не применяется: срок не один, негодное расписание, исполнителя нет, машины нет, предел проверки больше запроса, имя дважды", async () => {
+  it("битое правило входа не применяется: входов больше одного, негодное расписание, исполнителя нет, машины нет, предел проверки больше запроса, имя дважды, проверка без срока", async () => {
     const { s, file } = await applied();
     file.text = JSON.stringify({
       ...DEF,
@@ -386,15 +355,16 @@ describe("фабрика: правила входа", () => {
         { name: "c", every: "10m", to: "nowhere" },
         { name: "d", every: "10m", to: "cto", check: { at: "@nowhere", run: "node check.mjs", for: "5m" } },
         { name: "d", every: "10m", tz: "Europe/Kyiv", to: "solo" },
-        { name: "e", to: "cto" },
+        { name: "e", hook: true, every: "10m", to: "cto" },
+        { name: "f", hook: true, to: "cto", check: { at: "@laptop", run: "node check.mjs", for: "30s" } },
       ],
     });
     file.sha = "c2";
     const r = await s.ask("factory.apply", { project: "site", repo: "team/roles" });
     expect(r).toMatchObject({ ok: false, error: "bad_factory" });
     for (const part of [
-      "on[0]: у правила один срок", "on[1].cron: расписание «каждый день»", "on[2].to: исполнителя nowhere нет", "on[3].check.at: машины nowhere нет",
-      "on[3].check.for: предел проверки правила — не больше 90s", "on[4].name: правило d уже есть", "on[4].tz: часовой пояс бывает у cron", "on[5]: у правила один срок",
+      "on[0]: у правила не больше одного входа", "on[1].cron: расписание «каждый день»", "on[2].to: исполнителя nowhere нет", "on[3].check.at: машины nowhere нет",
+      "on[3].check.for: предел проверки правила — не больше 90s", "on[4].name: правило d уже есть", "on[4].tz: часовой пояс бывает у cron", "on[5]: у правила не больше одного входа", "on[6].check: проверка бывает у правила со сроком",
     ]) expect(r.why).toContain(part);
     expect(await list(s.env, s.fleet, "factory/site/on/")).toEqual([]);
     expect(((await s.ask("factory.get", { project: "site" })).result as { factory: FactoryState }).factory).toMatchObject({ commit: "c1", next: {} });

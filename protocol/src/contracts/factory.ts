@@ -2,7 +2,7 @@
 // Определение проекта — файл factory.json в репозитории ролей: посты, конвейеры, потолки, сроки и правила входа — то, что заводит тикеты само.
 import { Callsign, MachineAddr, Name, Person, request, z } from "../define.ts";
 import { CALL_MS } from "../frame.ts";
-import { Spec } from "./session.ts";
+import { FileIn, Spec } from "./session.ts";
 
 /** Адрес службы «Фабрика»: от него сессия получает шаг тикета. */
 export const FACTORY = ".factory";
@@ -63,11 +63,12 @@ export const RULE_CHECK_MS = CALL_MS - 30_000;
 /** Проверка правила входа: команда bash без модели на названной машине (cwd — папка, без неё домашняя). Код 0 — тихо; иначе вывод — находка. */
 export const RuleCheck = z.strictObject({ at: MachineAddr, run: z.string().min(1), for: Term, cwd: z.string().min(1).optional() });
 export type RuleCheck = z.infer<typeof RuleCheck>;
-/** Правило входа по времени: срок — every («каждые 10m») или cron (строка расписания, tz — часовой пояс, без него UTC). С проверкой тикет заводит
- *  только её находка; без проверки — каждый срок. to — конвейер или пост; key — ключ находки (нет — имя правила): пока тикет с этим ключом открыт,
- *  следующая находка дописывается в него заметкой. */
+/** Правило входа — то, что заводит тикеты само. Вход у правила не больше чем один: срок — every («каждые 10m») или cron (строка расписания,
+ *  tz — часовой пояс, без него UTC) — либо адрес с секретом (hook: true; адрес выдаёт hook_url). По имени зовётся любое правило — ticket_new {on}.
+ *  У правила со сроком бывает проверка: тогда тикет заводит только её находка, без неё — каждый срок. to — конвейер или пост;
+ *  key — ключ события (нет — имя правила): пока тикет с этим правилом и ключом открыт, следующее событие дописывается в него заметкой. */
 export const RuleDef = z.strictObject({
-  name: Name, every: Term.optional(), cron: z.string().min(1).optional(), tz: z.string().min(1).optional(), check: RuleCheck.optional(),
+  name: Name, every: Term.optional(), cron: z.string().min(1).optional(), tz: z.string().min(1).optional(), check: RuleCheck.optional(), hook: z.literal(true).optional(),
   to: z.string().min(1), title: z.string().optional(), text: z.string().optional(), key: z.string().optional(),
 });
 export type RuleDef = z.infer<typeof RuleDef>;
@@ -108,6 +109,8 @@ export const Ticket = z.object({
   on: z.string().optional(),
   /** отложен: в очередь встанет не раньше этого момента, мс */
   start: z.number().optional(),
+  /** файлы тикета: содержимое в хранилище флота; сессии шага они встают в папку, как файлы сообщения */
+  files: z.array(FileIn).optional(),
   /** возвратов на нынешнем шаге */
   returns: z.number(),
   since: z.number(), moved: z.number(),
@@ -124,9 +127,12 @@ export type Ticket = z.infer<typeof Ticket>;
 
 export const ticketNew = request("ticket.new", {
   owner: "factory", target: "service",
-  tool: "Создать тикет — единицу работы с номером, исполнителем и вердиктом. Бери, чтобы дать задачу, которая не потеряется: остановленную сессию тикет поднимет сам, а исход вернётся вердиктом. to — исполнитель: конвейер или пост проекта (имена — factory_get) либо позывной сессии; нет — тикет ляжет в бэклог. for — срок работы: 20m, 2h, 1d — нужен только исполнителю-сессии, у конвейера и поста срок свой. in — отложить: тикет встанет в очередь через этот срок; так ставят дело на потом и самой себе — по своему позывному. title и text — что сделать и что считать готовым; tag — метка, по которой шаг конвейера выбирает пост; project — номер проекта (сессии не нужен: возьмётся её проект). Ответ: id — номер тикета. Отказы: no_project, no_dest (нет такого исполнителя), no_term (не назван срок), no_session.",
+  tool: "Создать тикет — единицу работы с номером, исполнителем и вердиктом. Бери, чтобы дать задачу, которая не потеряется: остановленную сессию тикет поднимет сам, а исход вернётся вердиктом. to — исполнитель: конвейер или пост проекта (имена — factory_get) либо позывной сессии; нет — тикет ляжет в бэклог. for — срок работы: 20m, 2h, 1d — нужен только исполнителю-сессии, у конвейера и поста срок свой. in — отложить: тикет встанет в очередь через этот срок; так ставят дело на потом и самой себе — по своему позывному. title и text — что сделать и что считать готовым; tag — метка, по которой шаг конвейера выбирает пост; files — файлы из хранилища флота (их кладёт file_send); project — номер проекта (сессии не нужен: возьмётся её проект). Событие правила входа — on: имя правила проекта (имена — factory_get), с ним только key, text и files: исполнитель и название — у правила; пока тикет с этим правилом и ключом открыт, событие ляжет в него заметкой. Ответ: id — номер тикета. Отказы: no_project, no_dest (нет такого исполнителя), no_term (не назван срок), no_session, no_rule (нет такого правила).",
   example: { to: "coder-move@laptop", for: "2h", title: "Обход не останавливается у поля", text: "Готово: эталон остановки зелёный." },
-  input: z.object({ project: z.string().optional(), to: z.string().optional(), title: z.string().min(1), text: z.string().optional(), tag: z.string().optional(), key: z.string().optional(), for: Term.optional(), in: Term.optional() }),
+  input: z.object({
+    project: z.string().optional(), to: z.string().optional(), title: z.string().min(1).optional(), text: z.string().optional(), tag: z.string().optional(), key: z.string().optional(),
+    for: Term.optional(), in: Term.optional(), on: z.string().optional(), files: z.array(FileIn).optional(),
+  }),
   output: z.object({ id: z.string() }),
 });
 
@@ -182,12 +188,24 @@ export const factoryPause = request("factory.pause", {
   output: z.object({ paused: z.boolean() }),
 });
 
+/* ===== Вход по адресу с секретом ===== */
+
+/** Адрес правила входа для событий снаружи: POST на него заводит тикет по правилу. Тело — текст события либо JSON {key, text, files: [{name, base64}]}.
+ *  Секрет — 32 случайных байта в самом адресе; у служб хранится его хэш. Новый адрес правила отзывает прежний: на отозванный — 410, на чужой — 404. */
+export const hookUrl = request("hook.url", {
+  owner: "hooks", target: "service",
+  tool: "Выдать адрес с секретом для правила входа проекта: внешняя система шлёт на него POST — событие идёт по правилу тикетом. name — имя правила с hook: true из определения (имена — factory_get); project — номер проекта (сессии не нужен). Тело POST — текст события или JSON {key, text, files: [{name, base64}]}; key склеивает повторы в один тикет. Адрес показывается один раз: у служб остаётся только хэш секрета. Новый адрес того же правила отзывает прежний. Отказ: no_rule — правила с адресом у проекта нет.",
+  example: { name: "losses" },
+  input: z.object({ project: z.string().optional(), name: z.string() }),
+  output: z.object({ url: z.string() }),
+});
+
 /* ===== Дать работу ===== */
 
 /** Дать работу сессии машины: сессии с таким именем нет — открыть по документу spec; остановлена — поднять; затем ввод тегом вида ticket.
- *  Зовёт только служба «Фабрика». on — имя правила входа: текст события — данные, а не команды. */
+ *  Зовёт только служба «Фабрика». on — имя правила входа: текст события — данные, а не команды. files — файлы тикета: встают в папку сессии. */
 export const workGive = request("work.give", {
   owner: "host-work", target: "machine",
-  input: z.object({ to: MachineAddr, name: Name, spec: Spec.optional(), ticket: z.string(), step: z.string().optional(), on: z.string().optional(), key: z.string().optional(), text: z.string() }),
+  input: z.object({ to: MachineAddr, name: Name, spec: Spec.optional(), ticket: z.string(), step: z.string().optional(), on: z.string().optional(), key: z.string().optional(), text: z.string(), files: z.array(FileIn).optional() }),
   output: z.object({ callsign: Callsign }),
 });

@@ -4,11 +4,12 @@
 // Одновременно в работе — не больше потолка: это видно по загрузке конвейера во время прогона и по истории флота после него.
 // В том же определении — пост-сторож и два правила входа раз в 10 секунд. Проверка первого возвращает 0: шесть сроков — ни тикета, ни работы
 // сессиям, в истории шесть строк «тихо». Проверка второго возвращает 1: первая находка — тикет сторожу, следующие — заметки в тот же тикет.
-// В конце фабрика проекта ставится на паузу: правила больше не срабатывают.
+// Третье правило — с адресом: POST на адрес с секретом заводит тикет сторожу, сторож его сдаёт; чужой секрет — 404. То же правило зовётся
+// по имени: три события с одним ключом ложатся в один тикет. В конце фабрика проекта ставится на паузу: правила больше не срабатывают.
 import fs from "node:fs";
 import path from "node:path";
-import { CallError, createApi, factoryApply, factoryGet, factoryPause, fleetList, httpTransport, logQuery, sessionRemove, ticketList, ticketNew, ticketSet } from "@sb/protocol";
-import { FOUND, FOUND_OUT, LINE, POST, PROJECT, QUIET, RULE_EVERY_S } from "../box/factory.mjs";
+import { CallError, createApi, factoryApply, factoryGet, factoryPause, fleetList, hookUrl, httpTransport, logQuery, sessionRemove, ticketList, ticketNew, ticketSet } from "@sb/protocol";
+import { DOOR, DOOR_NOTE, FOUND, FOUND_OUT, LINE, POST, PROJECT, QUIET, RULE_EVERY_S } from "../box/factory.mjs";
 import { REPO } from "../box/github.mjs";
 import { dev, fleetEnv } from "../dev.mjs";
 import { lacks, newTag } from "./harness.mjs";
@@ -38,7 +39,7 @@ await step("определение проекта применено из реп
   const f = (await api.call(factoryGet, { project: PROJECT })).factory!;
   const line = f.def.lines[LINE];
   if (f.commit !== r.commit || line?.limit !== LIMIT || line.steps.length !== STEPS) throw new Error(`применено не то: ${JSON.stringify({ commit: f.commit, line })}`);
-  if (r.rules !== 2 || !f.next[QUIET] || !f.next[FOUND]) throw new Error(`правила входа не встали на часы: ${JSON.stringify({ rules: r.rules, next: f.next })}`);
+  if (r.rules !== 3 || !f.next[QUIET] || !f.next[FOUND] || f.next[DOOR]) throw new Error(`правила входа не встали на часы: ${JSON.stringify({ rules: r.rules, next: f.next })}`);
   // прошлый прогон оставил фабрику на паузе
   await api.call(factoryPause, { project: PROJECT, on: false });
   return `коммит ${r.commit.slice(0, 7)}, конвейер «${line.title}»: шагов ${line.steps.length}, потолок ${line.limit}; правил входа ${r.rules}`;
@@ -127,6 +128,38 @@ await step(`находка правила — тикет посту; следу�
     await sleep(2000);
   }
 });
+let secret = "";
+await step("событие на адрес с секретом — тикет посту, пост его сдаёт; чужой секрет — 404", async () => {
+  const { url } = await api.call(hookUrl, { project: PROJECT, name: DOOR });
+  secret = url.split("/").pop()!;
+  const wrong = await fetch(url.slice(0, -secret.length) + "A".repeat(secret.length), { method: "POST", body: "чужой" });
+  if (wrong.status !== 404) throw new Error(`чужой секрет: ответ ${wrong.status}, ждали 404`);
+  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "live-" + tag, text: `Событие живой проверки ${tag}` }) });
+  const got = (await res.json()) as { id?: string; error?: string; why?: string };
+  if (res.status !== 202 || !got.id) throw new Error(`событие не принято: ${res.status} ${got.error ?? ""} ${got.why ?? ""}`);
+  const end = Date.now() + 90_000;
+  for (;;) {
+    const t = (await api.call(ticketList, { ticket: got.id })).tickets[0]!;
+    if (t.state === "done") {
+      const verdict = t.notes!.find((n) => n.verdict === "done");
+      if (t.on !== DOOR || t.key !== "live-" + tag || t.to !== POST || verdict?.text !== DOOR_NOTE || !verdict.by.startsWith(POST + "@")) throw new Error(`тикет не тот: ${JSON.stringify({ on: t.on, key: t.key, to: t.to, verdict })}`);
+      return `тикет ${t.id} по правилу «${DOOR}», сдал ${verdict.by}; чужой секрет — 404`;
+    }
+    if (t.state === "stop" || Date.now() > end) throw new Error(`тикет ${t.id} — ${t.state}${t.why ? `: ${t.why}` : ""}`);
+    await sleep(1500);
+  }
+});
+await step("правило зовут по имени: три события с одним ключом — один тикет", async () => {
+  if (!found) throw new Error("тикета находки нет: звать не в кого");
+  const was = (await api.call(ticketList, { ticket: found })).tickets[0]!.notes!.length;
+  // ключ — тот же, что у находки по времени: её тикет открыт, события ложатся в него заметками
+  const ids: string[] = [];
+  for (let i = 1; i <= 3; i++) ids.push((await api.call(ticketNew, { project: PROJECT, on: FOUND, text: `событие по имени ${tag} · ${i}` })).id);
+  const t = (await api.call(ticketList, { ticket: found })).tickets[0]!;
+  const mine = t.notes!.filter((n) => n.text.includes(`событие по имени ${tag}`)).length;
+  if (ids.some((id) => id !== found) || mine !== 3 || (await byRule(FOUND)).length !== 1) throw new Error(`события ушли не туда: ${ids.join(", ")}; заметок с событием ${mine}, тикетов правила ${(await byRule(FOUND)).length}`);
+  return `три события — тикет ${found}, заметок ${was} → ${t.notes!.length}, тикетов правила 1`;
+});
 await step("пауза: правила входа не срабатывают — срок тихого правила идёт, тикетов и заметок не прибавилось", async () => {
   await api.call(factoryPause, { project: PROJECT, on: true });
   const notes = async () => (found ? (await api.call(ticketList, { ticket: found })).tickets[0]!.notes!.length : 0);
@@ -157,7 +190,11 @@ if (!lacks("clickhouse"))
     if (count(q, "quiet") < QUIET_RUNS || odd.length || !count(q, "paused")) throw new Error(`тихое правило: «тихо» ${count(q, "quiet")}, «пауза» ${count(q, "paused")}, прочих ${odd.length} (${odd.map((l) => l.kind).join(", ")})`);
     if (q.some((l) => l.kind === "quiet" && (l.data as { code?: number }).code !== 0)) throw new Error("у строки «тихо» код проверки не 0");
     if (count(f, "ticket") !== 1 || count(f, "note") < NOTES) throw new Error(`правило с находкой: «тикет» ${count(f, "ticket")}, «заметка» ${count(f, "note")}`);
-    return `тихое правило: «тихо» ${count(q, "quiet")}, «пауза» ${count(q, "paused")}; находка: «тикет» 1, «заметка» ${count(f, "note")}`;
+    // вход по адресу: строка «hook» с ответом 202 и путём без секрета
+    const hooks = (await api.call(logQuery, { msg: "hook", limit: 200 })).lines.filter((l) => l.at >= started && (l.data as { rule?: string }).rule === DOOR);
+    const paths = hooks.map((l) => String((l.data as { path?: string }).path));
+    if (!hooks.some((l) => (l.data as { status?: number }).status === 202) || (secret && paths.some((p) => p.includes(secret)))) throw new Error(`строки входа: ${JSON.stringify(hooks.map((l) => l.data))}`);
+    return `тихое правило: «тихо» ${count(q, "quiet")}, «пауза» ${count(q, "paused")}; находка: «тикет» 1, «заметка» ${count(f, "note")}; вход по адресу: строк ${hooks.length}, путь без секрета`;
   });
 await step("тикет находки снят, пост-сторож убран", async () => {
   if (found) await api.call(ticketSet, { ticket: found, drop: true, note: "живая проверка кончена" });

@@ -1,13 +1,21 @@
 // Файлы сессий: содержимое лежит в хранилище под своим хэшем SHA-256 — один раз на флот. Служба выдаёт подписанные ссылки
 // на загрузку и чтение (байты идут мимо Worker'а), записывает список «путь → хэш» сайта и отдаёт сайт из хранилища.
 // Записей и базы у модуля нет: список сайта — тоже объект хранилища.
-import { Refusal } from "@sb/protocol";
+import { type FileIn, Refusal } from "@sb/protocol";
 import type { Env, Module } from "../../env.ts";
 import { link, uploadLinks } from "../../r2.ts";
 
 /** Содержимое у флота своё: ссылку получает только человек или машина этого флота, знающие хэш. */
 const fileKey = (fleet: string, hash: string) => `files/${fleet}/${hash}`;
 const siteKey = (site: string) => `sites/${site}.json`;
+
+/** Положить содержимое в хранилище флота под его хэшем; уже лежит — не трогается. Ответ — запись файла для сообщения или тикета. */
+export async function store(env: Env, fleet: string, name: string, body: Uint8Array): Promise<FileIn> {
+  const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", body))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const key = fileKey(fleet, hash);
+  if (!(await env.FILES.head(key))) await env.FILES.put(key, body);
+  return { name, hash, size: body.length };
+}
 
 /** Список сайта в хранилище: чей флот и какой файл лежит под каким путём. */
 type SiteList = { fleet: string; files: Record<string, { hash: string; size: number }> };
