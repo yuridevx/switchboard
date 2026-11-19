@@ -11,7 +11,7 @@ const invite = must("invite", { addr: "bar" + newTag() + me.person });
 const session = must("fleet.list", {}).sessions?.[0]?.callsign;
 // «Расход» и «Аккаунты» (с них открывается «Флот») читают историю флота — она в ClickHouse
 const history = lacks("clickhouse") ? [] : ["/spend", "/fleet", "/fleet/accounts"];
-const routes = ["/work", ...(session ? ["/work/" + session] : []), "/archive", ...history, "/fleet/profiles", "/fleet/releases", "/observe", "/observe/journal", "/observe/analytics", "/settings", "/settings/alerts", "/settings/people", "/settings/passes", "/settings/proxy", "/new", ...machines.map((m) => "/machine/" + m)];
+const routes = ["/work", ...(session ? ["/work/" + session] : []), "/archive", ...history, "/fleet/profiles", "/fleet/releases", "/factory", "/observe", "/observe/journal", "/observe/analytics", "/settings", "/settings/alerts", "/settings/people", "/settings/passes", "/settings/proxy", "/new", ...machines.map((m) => "/machine/" + m)];
 
 const browser = await launchBrowser();
 const errors = [];
