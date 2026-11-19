@@ -137,6 +137,32 @@ describe("фабрика: тикет сессии", () => {
     await s.ask("ticket.set", { ticket: "site-1", drop: true });
   });
 
+  // чьё: гейт архитектора (слово пользователя 31 окт.) — одно правило не считается и службой, и страницей: что можно сделать с тикетом, называет служба
+  it("что можно сделать с тикетом, называет служба — тем же правилом, каким отказывает запись: по состоянию тикета и по тому, кто спросил", async () => {
+    const s = fleet();
+    await s.ask("ticket.new", { project: "site", title: "В бэклог" });
+    await s.ask("ticket.new", { project: "site", to: "coder@laptop", for: "2h", title: "В работу" });
+    const acts = async (id: string, who = "kyura1", sayAs?: string) => ((await s.ask("ticket.list", { ticket: id }, who, sayAs)).result as { tickets: Ticket[] }).tickets[0]!.acts;
+    // бэклог: вердикта нет — шаг никто не ведёт; человек назначает или снимает
+    expect(await acts("site-1")).toEqual(["drop", "assign"]);
+    // в работе: человек даёт вердикт любому шагу; сессия — только своему; исполнителя у идущего шага не меняют
+    expect(await acts("site-2")).toEqual(["verdict", "drop"]);
+    expect(await acts("site-2", "klaptop", "coder@laptop")).toEqual(["verdict", "drop"]);
+    expect(await acts("site-2", "klaptop", "review@laptop")).toEqual(["drop"]);
+    expect(await as(s, "review@laptop", "ticket.set", { ticket: "site-2", verdict: "done" })).toMatchObject({ ok: false, error: "not_yours" });
+    // встал: вернуть в очередь, снять или назначить другому
+    await as(s, "coder@laptop", "ticket.set", { ticket: "site-2", verdict: "stop", note: "нужен человек" });
+    expect(await acts("site-2")).toEqual(["resume", "drop", "assign"]);
+    // закрыт: ничего; запись отказывает тем же словом
+    await s.ask("ticket.set", { ticket: "site-2", drop: true });
+    expect(await acts("site-2")).toEqual([]);
+    expect(await s.ask("ticket.set", { ticket: "site-2", to: "ops@server", for: "1d" })).toMatchObject({ ok: false, error: "bad_state" });
+    expect(await s.ask("ticket.set", { ticket: "site-2", resume: true })).toMatchObject({ ok: false, error: "bad_state" });
+    // список тикетов действий не несёт: их спрашивают у тикета по номеру
+    expect(((await s.ask("ticket.list", { project: "site" })).result as { tickets: Ticket[] }).tickets.every((t) => t.acts === undefined)).toBe(true);
+    await s.ask("ticket.set", { ticket: "site-1", drop: true });
+  });
+
   it("проект и права: сессия создаёт тикет в своём проекте; не участник — отказ; нет проекта, сессии или срока — отказ словом", async () => {
     const s = fleet();
     // сессия проект не называет: берётся её проект

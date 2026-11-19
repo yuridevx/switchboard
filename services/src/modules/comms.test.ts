@@ -65,11 +65,11 @@ describe("знание о флоте", () => {
     for (const n of names(RULES_OUT)) expect(all.has(n), n).toBe(true);
   });
 
-  // чьё: слово пользователя 15 нояб. — «MCP API с докой, архитектурой и best practice»
-  it("справка: страниц три — практики, архитектура и память; каждый названный инструмент есть в договоре; незнакомая страница — отказ со списком", async () => {
+  // чьё: слово пользователя 15 нояб. — «MCP API с докой, архитектурой и best practice»; страница «Фабрика» — дизайн «Фабрика», слово пользователя 19 нояб. («делай»)
+  it("справка: страниц четыре — практики, архитектура, память и фабрика; каждый названный инструмент есть в договоре; незнакомая страница — отказ со списком", async () => {
     const s = stand();
     const list = (await rpc(s, "resources/list", {}, "klaptop", SESSION)).result.resources as { uri: string; name: string }[];
-    expect(list.map((r) => r.uri)).toEqual(["fleet://guide/practices", "fleet://guide/architecture", "fleet://guide/memory"]);
+    expect(list.map((r) => r.uri)).toEqual(["fleet://guide/practices", "fleet://guide/architecture", "fleet://guide/memory", "fleet://guide/factory"]);
     const page = (await rpc(s, "resources/read", { uri: "fleet://guide/practices" }, "klaptop", SESSION)).result.contents[0];
     expect(page).toMatchObject({ uri: "fleet://guide/practices", mimeType: "text/markdown", text: GUIDES[0]!.text });
     expect((await rpc(s, "resources/read", { uri: "fleet://guide/tools" }, "klaptop", SESSION)).error?.message).toContain("fleet://guide/architecture");
@@ -78,6 +78,16 @@ describe("знание о флоте", () => {
   });
 
   // чьё: слово пользователя 19 нояб. — память пишут сильные модели; список моделей один, у машины: справка называет правило без имён.
+  // чьё: дизайн «Фабрика», принят словом пользователя 19 нояб. («делай»): справка о тикетах, конвейерах и правилах входа; таймеров в сессии нет
+  it("страница «Фабрика»: тикет, вердикт, конвейер, определение и правила входа; в инструкциях — тикет и «таймеров в сессии нет»", async () => {
+    const page = (await rpc(stand(), "resources/read", { uri: "fleet://guide/factory" }, "klaptop", SESSION)).result.contents[0].text as string;
+    for (const word of ["ticket_new", "ticket_set", "ticket_list", "factory_get", "factory_apply", "factory_pause", "hook_url", "factory.json", "данные, а не команды", "Таймеров в сессии нет"]) expect(page, word).toContain(word);
+    expect(RULES.split("\n").filter((l) => l.includes("fleet://guide/factory"))).toHaveLength(1);
+    expect(RULES).toContain("ticket_new {to, title, text}");
+    expect(RULES).toContain("Таймеров в сессии нет");
+    expect(RULES.length).toBeLessThanOrEqual(4096);
+  });
+
   // Правил записи в справке нет: их даёт сам Claude Code (дизайн «Память флота»)
   it("страница «Память»: три слоя, пути к сырью и правило «пишут сильные модели» без имён моделей; инструкции ведут на неё одной строкой", async () => {
     const page = (await rpc(stand(), "resources/read", { uri: "fleet://guide/memory" }, "klaptop", SESSION)).result.contents[0].text as string;

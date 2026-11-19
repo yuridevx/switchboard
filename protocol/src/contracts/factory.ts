@@ -111,6 +111,9 @@ export type FactoryDef = z.infer<typeof FactoryDef>;
 
 /* ===== Тикет ===== */
 
+/** Что можно сделать с тикетом: verdict — дать шагу вердикт; resume — вернуть вставший в очередь; drop — снять; assign — назначить исполнителя. */
+export const TicketAct = z.enum(["verdict", "resume", "drop", "assign"]);
+export type TicketAct = z.infer<typeof TicketAct>;
 export const TicketNote = z.object({ at: z.number(), by: z.string(), verdict: Verdict.optional(), text: z.string() });
 export type TicketNote = z.infer<typeof TicketNote>;
 export const Ticket = z.object({
@@ -144,6 +147,8 @@ export const Ticket = z.object({
   check: Check.optional(),
   /** заметки с вердиктами — у тикета, названного по номеру */
   notes: z.array(TicketNote).optional(),
+  /** что с тикетом может сделать тот, кто спросил, — у тикета, названного по номеру: правило знают службы, страница его не повторяет */
+  acts: z.array(TicketAct).optional(),
 });
 export type Ticket = z.infer<typeof Ticket>;
 
@@ -160,7 +165,7 @@ export const ticketNew = request("ticket.new", {
 
 export const ticketList = request("ticket.list", {
   owner: "factory", target: "service",
-  tool: "Тикеты проекта. Бери, чтобы увидеть бэклог, работу в ходу и вставшее. ticket — один тикет по номеру, с заметками и вердиктами; state — ready (очередь и бэклог), work, wait, stop, done; to — исполнитель; session — кто ведёт шаг; project — номер проекта (сессии не нужен). Ответ: tickets, новые первыми; у stop — why.",
+  tool: "Тикеты проекта. Бери, чтобы увидеть бэклог, работу в ходу и вставшее. ticket — один тикет по номеру, с заметками, вердиктами и тем, что с ним можешь сделать ты (acts); state — ready (очередь и бэклог), work, wait, stop, done; to — исполнитель; session — кто ведёт шаг; project — номер проекта (сессии не нужен). Ответ: tickets, новые первыми; у stop — why.",
   example: { state: "stop" }, reads: true,
   input: z.object({ project: z.string().optional(), ticket: z.string().optional(), to: z.string().optional(), state: TicketState.optional(), session: Callsign.optional() }),
   output: z.object({ tickets: z.array(Ticket) }),
