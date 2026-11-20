@@ -1,7 +1,7 @@
 /// <reference types="node" />
 // Сценарии плана тестов страницы — «Работа»: доска не открывает сессию сама, пара открывается последней стороной, перенос строки в проект.
 // Жест перетаскивания подменён: тест зовёт то, что «Работа» делает, когда строка упала (сам жест держат тесты lib/drag и живой сценарий).
-import { sessionUpdate } from "@sb/protocol";
+import { prefsSet, sessionUpdate } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act as flush, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -40,9 +40,10 @@ const groupOf = (callsign: string) => document.querySelector(`[aria-label="Ра�
 beforeEach(async () => {
   apiModule.connect();
   mock = apiModule.mock!;
-  await new Promise<void>((done) => {
+  // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+  await waitFor(() => new Promise<void>((done) => {
     link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), done()) });
-  });
+  }));
   localStorage.clear();
   for (const [k, v] of [["work.filter", "all"], ["work.view", "list"], ["work.closed", []], ["work.group", "project"], ["work.nested", true]] as const) setLocal(k, v as never);
 });
@@ -53,7 +54,8 @@ describe("«Работа»", () => {
     // источник: слово пользователя «работа сразу должна открывать последнюю сессию»; доска — чьё: код
     setLocal("work.view", "board" as never);
     work();
-    await flush(() => new Promise((r) => setTimeout(r, 120)));
+    // барьер: доска показала картину флота — решение «открыть ли сессию» принято тем же показом
+    await waitFor(() => expect(document.querySelector(".board .tile")).toBeTruthy());
     expect(screen.getByTestId("at").textContent).toBe("/work");
     cleanup();
     setLocal("work.view", "list" as never);
@@ -104,7 +106,8 @@ describe("«Работа»", () => {
     // в ту же группу — запроса на документ нет
     spy.mockClear();
     flush(() => dragged.drop!({ id: "docs@laptop", before: null, group: "infra" }));
-    await flush(() => new Promise((r) => setTimeout(r, 60)));
+    // барьер: тот же сброс записал порядок строк — запрос на документ, будь он, ушёл бы рядом
+    await waitFor(() => expect(spy.mock.calls.filter(([def]) => def === prefsSet)).toHaveLength(1));
     expect(spy.mock.calls.filter(([def]) => def === sessionUpdate)).toHaveLength(0);
   });
 });

@@ -827,7 +827,8 @@ export function createMock(o: MockOptions = {}) {
 
   const SPANS: Record<string, string[]> ={ session: ["services", "platform", "host"], machine: ["services", "platform", "host"], fleet: ["services", "platform"] };
   const call = async (f: Frame): Promise<Reply> => {
-    await new Promise((r) => setTimeout(r, latency));
+    // latency: 0 — тихий мок тестов: ответ без таймера, ждать его часам теста не нужно
+    if (latency) await new Promise((r) => setTimeout(r, latency));
     const t0 = now();
     const h = H[f.type];
     const kind = typeof f.to === "string" ? (f.to.startsWith("@") || f.to.startsWith(".") ? "machine" : f.to.includes("@") && !f.to.includes("~") ? "session" : "fleet") : "service";

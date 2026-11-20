@@ -33,7 +33,8 @@ function talkAt(callsign: string, extra?: ReactNode) {
     </MemoryRouter></QueryClientProvider></MantineProvider>,
   );
 }
-const history = async (c: string) => (await apiModule.api.call(sessionHistory, { to: c, limit: 200 })).events;
+// разговор из мока: waitFor двигает часы теста, пока не придёт ответ
+const history = (c: string) => waitFor(async () => (await apiModule.api.call(sessionHistory, { to: c, limit: 200 })).events);
 const box = () => screen.getByLabelText("Сообщение сессии") as HTMLTextAreaElement;
 /** Открыть шаг отката у последнего сообщения человека в ленте. */
 async function openRewind() {
@@ -50,13 +51,14 @@ function stubRewind(on: "dry" | "real", reply: () => unknown) {
 beforeEach(async () => {
   apiModule.connect();
   mock = apiModule.mock!;
-  await new Promise<void>((done) => {
+  // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+  await waitFor(() => new Promise<void>((done) => {
     const link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), link.close(), done()) });
-  });
+  }));
   usePending.setState({ items: {} });
   localStorage.clear();
 });
-afterEach(() => (cleanup(), vi.restoreAllMocks(), vi.useRealTimers(), mock.stop()));
+afterEach(() => (cleanup(), vi.restoreAllMocks(), mock.stop()));
 
 describe("шаг отката", () => {
   it("1 · откат идёт в том же окне: адрес прежний, записей после выбранного сообщения нет, в ленте строка отката, текст — в поле ввода", async () => {
@@ -142,9 +144,11 @@ describe("шаг отката", () => {
     const before = (await history("docs@laptop")).length;
     await openRewind();
     await screen.findByText(/Из разговора уйдёт записей/);
-    stubRewind("real", () => { throw new CallError("busy", "ход не прервался за 30 с"); });
+    const spy = stubRewind("real", () => { throw new CallError("busy", "ход не прервался за 30 с"); });
     fireEvent.click(screen.getByRole("button", { name: "Откатить" }));
-    await flush(() => new Promise((r) => setTimeout(r, 60)));
+    // барьер: отказ отката дошёл до страницы
+    const rewound = spy.mock.calls.findIndex(([def, input]) => def === sessionRewind && !(input as { dry?: boolean }).dry);
+    await flush(() => (spy.mock.results[rewound]!.value as Promise<unknown>).catch(() => undefined));
     expect(screen.getByRole("radiogroup", { name: "Что откатить" })).toBeTruthy();
     expect(box().value).toBe("");
     expect((await history("docs@laptop")).length).toBe(before);
@@ -207,7 +211,6 @@ describe("карточка вопроса", () => {
 
   it("13 · на вопрос уже ответили в другом месте — отказ словом на странице", async () => {
     // источник: устав «первый ответ выигрывает», «ошибки — словами»
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     const real = apiModule.api.call.bind(apiModule.api);
     vi.spyOn(apiModule.api, "call").mockImplementation(((def: any, input: any) => (def === answer ? Promise.reject(new CallError("already_answered", "на вопрос ответил phone~yuri")) : real(def, input))) as never);
     const ask = mock.state.sessions["site-tests@laptop"]!.ask!;
@@ -219,7 +222,6 @@ describe("карточка вопроса", () => {
 
   it("10 · ответ уходит не сразу: до срока его отменяют — запрос не ушёл; без отмены уходит по сроку", async () => {
     // источник: чьё: код (UNDO_MS)
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     const spy = vi.spyOn(apiModule.api, "call");
     const answers = () => spy.mock.calls.filter(([def]) => (def as { name: string }).name === "answer");
     const ask = mock.state.sessions["site-tests@laptop"]!.ask!;

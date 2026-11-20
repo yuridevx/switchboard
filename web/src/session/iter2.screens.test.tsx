@@ -36,9 +36,10 @@ function page(ui: ReactNode, at = "/") {
 beforeEach(async () => {
   apiModule.connect();
   mock = apiModule.mock!;
-  await new Promise<void>((done) => {
+  // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+  await waitFor(() => new Promise<void>((done) => {
     const link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), link.close(), done()) });
-  });
+  }));
   usePending.setState({ items: {} });
   localStorage.clear();
   // настройки устройства — как у нового человека
@@ -125,7 +126,7 @@ describe("вопрос: кто видит и кто ответил", () => {
     page(<Conversation callsign="site-tests@laptop" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "main" })).toBeTruthy());
     const id = session("site-tests@laptop").ask!.id;
-    await flush(async () => void (await mock.transport.call({ type: "answer", id: "r1", to: "site-tests@laptop", ask: id, answer: { answers: { "Какую ветку выкладывать на тестовый стенд?": "main" } } })));
+    await waitFor(() => mock.transport.call({ type: "answer", id: "r1", to: "site-tests@laptop", ask: id, answer: { answers: { "Какую ветку выкладывать на тестовый стенд?": "main" } } }));
     const card = await screen.findByRole("group", { name: "Отвеченный вопрос" });
     expect(card.textContent).toContain("Какую ветку выкладывать на тестовый стенд?");
     const chosen = [...card.querySelectorAll(".asked-opt[aria-current]")].map((e) => e.textContent);

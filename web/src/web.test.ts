@@ -1,5 +1,5 @@
 import { accountList, analyticsQuery, answer, buildsDeploy, buildsList, contract, createApi, type Frame, invite, keeperState, keysList, ledgerRead, machineDirs, machineJournal, message, messageCancel, obsRecent, obsStats, passes, peopleList, peopleSet, pointsHistory, pointsList, pointsRaise, prefsGet, prefsSet, profileList, profileView, reachDevices, revoke, sessionCall, sessionHistory, sessionOpen, sessionUpdate, sessionWatch, whoami } from "@sb/protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fold } from "./chat/fold.ts";
 import { nPoints, nTools, nTurns } from "./lib/time.ts";
 import { toolLook } from "./chat/tools.ts";
@@ -88,11 +88,13 @@ describe("свёртка разговора", () => {
 });
 
 describe("картина флота", () => {
-  const snap = (): Picture => {
+  const snap = async (): Promise<Picture> => {
     const m = quiet();
     let got: Frame | null = null;
     m.transport.open("page", { onFrame: (f) => (got ??= f) });
-    return new Promise<Picture>((res) => setTimeout(() => res(applyFrame(emptyPicture, got!)), 60)) as never;
+    // первый кадр мока — по часам теста
+    await vi.runAllTimersAsync();
+    return applyFrame(emptyPicture, got!);
   };
   it("снимок заменяет картину; изменение правит строку; null убирает сессию", async () => {
     const p = await snap();
@@ -198,7 +200,8 @@ describe("мок флота", () => {
     const api = createApi(m.transport);
     const deltas: Frame[] = [];
     m.transport.open("page", { onFrame: (f) => deltas.push(f) });
-    await new Promise((r) => setTimeout(r, 60));
+    // первый кадр мока — по часам теста
+    await vi.runAllTimersAsync();
     const { callsign } = await api.call(sessionOpen, { to: "@server", spec: { name: "probe", cwd: "~/projects/infra", key: "claude", model: "claude-fable-5-2" }, prompt: "Проверь диск" });
     expect(callsign).toBe("probe@server");
     expect(deltas.at(-1)).toMatchObject({ type: "roster.delta", sessions: [{ callsign: "probe@server" }] });

@@ -23,9 +23,10 @@ vi.hoisted(() => {
 });
 
 let mock: Mock;
+// Mantine в режиме тестов (его штатный способ): без переходов; выпадающий список не прячется оттого, что в DOM без раскладки опорная кнопка «не видна»
 function page(ui: ReactNode, at = "/") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<MantineProvider><Notifications /><QueryClientProvider client={qc}><MemoryRouter initialEntries={[at]}><Steps /><Routes><Route path="*" element={ui} /></Routes></MemoryRouter></QueryClientProvider></MantineProvider>);
+  return render(<MantineProvider env="test"><Notifications /><QueryClientProvider client={qc}><MemoryRouter initialEntries={[at]}><Steps /><Routes><Route path="*" element={ui} /></Routes></MemoryRouter></QueryClientProvider></MantineProvider>);
 }
 /** Строка сессии в картине страницы: как её прислала бы машина. */
 const setRow = (callsign: string, patch: object) => flush(() => useFleet.getState().apply({ type: "roster.delta", rev: 1e6 + Math.random(), sessions: [{ callsign, row: { ...useFleet.getState().sessions[callsign]!, ...patch } }] } as never));
@@ -34,13 +35,14 @@ const calls = (spy: { mock: { calls: unknown[][] } }, name: string, method?: str
 beforeEach(async () => {
   apiModule.connect();
   mock = apiModule.mock!;
-  await new Promise<void>((done) => {
+  // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+  await waitFor(() => new Promise<void>((done) => {
     const link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), link.close(), done()) });
-  });
+  }));
   localStorage.clear();
   useUi.setState({ inspector: false });
 });
-afterEach(() => (cleanup(), vi.useRealTimers(), vi.restoreAllMocks(), mock.stop()));
+afterEach(() => (cleanup(), vi.restoreAllMocks(), mock.stop()));
 
 describe("эталоны страницы «Связь сессий»", () => {
   it("входящее от флота — карточка своего вида: слово вида, отправитель-ссылка на его разговор; у тикета — номер и правило входа; у вопроса видно, чем на него ответили", async () => {
@@ -78,7 +80,7 @@ describe("эталоны страницы «Связь сессий»", () => {
     // чьё: дизайн — итог, вопрос и весть шлёт машина отправителя запросом notice; у инструмента message поля вида нет
     page(<Conversation callsign="lead@laptop" />, "/work/lead@laptop");
     await screen.findByText(/старый клиент вызывается из/);
-    await apiModule.api.call(notice, { to: "lead@laptop", kind: "news", text: "Ждёт ответа человека: разрешение — Bash: git push origin main." });
+    await waitFor(() => apiModule.api.call(notice, { to: "lead@laptop", kind: "news", text: "Ждёт ответа человека: разрешение — Bash: git push origin main." }));
     const news = (await screen.findByText(/git push origin main/)).closest(".pcard") as HTMLElement;
     expect(news.className).toBe("pcard pk-news");
     expect(news.getAttribute("aria-label")).toBe("Весть от @laptop");
@@ -96,9 +98,7 @@ describe("эталоны страницы «Связь сессий»", () => {
     await waitFor(() => expect(ring.getAttribute("aria-label")).toBe("Контекст 87% · сжать"));
     expect(ring.className).toContain("bad");
     // две минуты страница открыта: о занятости контекста у сессии она не спросила ни разу
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     await flush(() => vi.advanceTimersByTimeAsync(120_000));
-    vi.useRealTimers();
     expect(calls(spy, "session.call", "contextUsage")).toHaveLength(0);
     // нажатие по-прежнему сжимает разговор
     fireEvent.click(ring);
@@ -107,7 +107,7 @@ describe("эталоны страницы «Связь сессий»", () => {
 
   it("окно подъёма: поле модели есть всегда; у точки без провайдера и модели оно пустое, с выбранной моделью подъём называет key и model", async () => {
     // чьё: факт — перенос 15 нояб., подъём такой точки отказывает key_required; устав — поля формы не прячутся
-    const sessions = (await apiModule.api.call(pointsList, {})).sessions as ArchSession[];
+    const sessions = (await waitFor(() => apiModule.api.call(pointsList, {}))).sessions as ArchSession[];
     const fresh = sessions.find((s) => s.key && s.model)!, old = sessions.find((s) => !s.key)!;
     const spy = vi.spyOn(apiModule.api, "call");
     const first = page(<Raise kind="copy" s={fresh} onDone={() => {}} onClose={() => {}} />);

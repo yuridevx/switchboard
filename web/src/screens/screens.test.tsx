@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   accountList, consent, createApi, fleetList, invite, keysRemove, ledgerRead, obsHealth, obsRecent, obsReport, passes, peopleList, pointsCalls, pointsDelete, pointsHistory, pointsList,
-  pointsRaise, profileList, profileSync, profileView, ProxyRule, reachBot, reachSubscribe, rulesTest, sessionStop, sessionUpdate, CLAUDE, keysList, keysModels, keysSet, logQuery, type Account, type ArchSession, type KeyRow, type SessionRow,
+  pointsRaise, profileList, profileSync, profileView, ProxyRule, reachBot, reachSubscribe, rulesTest, sessionStop, sessionUpdate, CLAUDE, keysList, keysModels, keysSet, logQuery, type Account, type ArchSession, type Frame, type KeyRow, type SessionRow,
 } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { Steps } from "../shell/Page.tsx";
@@ -52,9 +52,13 @@ vi.hoisted(() => {
 
 const T = 1_800_000_000_000;
 const quiet = () => createMock({ now: () => T, live: false, latency: 0 });
-const snap = async (m = quiet()): Promise<Picture> => new Promise((res) => {
-  const l = m.transport.open("page", { onFrame: (f) => (l.close(), res(applyFrame(emptyPicture, f))) });
-});
+const snap = async (m = quiet()): Promise<Picture> => {
+  let got: Frame | null = null;
+  const l = m.transport.open("page", { onFrame: (f) => (l.close(), (got = f)) });
+  // первый кадр мока — по часам теста
+  await vi.runAllTimersAsync();
+  return applyFrame(emptyPicture, got!);
+};
 const ask = (m: Mock) => createApi(m.transport);
 
 describe("слова отказов", () => {
@@ -563,9 +567,10 @@ describe("экраны в отрисовке", () => {
     setLocal("work.view", "list");
     apiModule.connect();
     mock = apiModule.mock!;
-    await new Promise<void>((done) => {
+    // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+    await waitFor(() => new Promise<void>((done) => {
       const link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), link.close(), done()) });
-    });
+    }));
   });
   afterEach(() => cleanup());
 

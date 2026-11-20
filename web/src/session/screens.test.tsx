@@ -33,9 +33,10 @@ function page(ui: ReactNode) {
 beforeEach(async () => {
   apiModule.connect();
   mock = apiModule.mock!;
-  await new Promise<void>((done) => {
+  // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+  await waitFor(() => new Promise<void>((done) => {
     const link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), link.close(), done()) });
-  });
+  }));
   usePending.setState({ items: {} });
   localStorage.clear();
 });
@@ -123,7 +124,7 @@ describe("ввод", () => {
 describe("разговор на моке", () => {
   it("лента, действующая модель в шапке, список дел и своё сообщение со статусом «в очереди» и отменой", async () => {
     page(<Conversation callsign="site@laptop" />);
-    await waitFor(() => expect(screen.getByText(/Шапка больше не ломается/)).toBeTruthy(), { timeout: 4000 });
+    await waitFor(() => expect(screen.getByText(/Шапка больше не ломается/)).toBeTruthy());
     await waitFor(() => expect(screen.getByLabelText("Модель").textContent).toContain("Fable 5.2"));
     const box = screen.getByLabelText("Сообщение сессии");
     fireEvent.change(box, { target: { value: "И подвал тоже" } });
