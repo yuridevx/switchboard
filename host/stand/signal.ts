@@ -1,7 +1,6 @@
 // Сигнал стенда: стенд видит всё, что проходит через границу ядра, — кадр в соединение, сообщение SDK, взятое ядром, запись процессу,
 // запуск и «убей» держателя, вызов служб и функций SDK. На каждое такое событие ожидания теста перепроверяют свои условия.
 // Своего предела у ожидания нет: предел один — предел теста; не дождался — после теста ошибка называет, чего ждали.
-import { afterEach } from "vitest";
 
 type Wait = { what: string; check: () => boolean };
 const waits = new Set<Wait>();
@@ -37,9 +36,9 @@ export function until<T>(cond: () => T | undefined | null | false, what = "ус�
 /** Метки барьера, дошедшие до конца своего пути. */
 export const marks = new Set<string>();
 
-afterEach(() => {
-  if (!waits.size) return;
-  const what = [...waits].map((w) => w.what).join("; ");
+/** Конец теста: ожидания, которые не дождались, — сняты; ответ — чего они ждали. */
+export function unmet(): string[] {
+  const what = [...waits].map((w) => w.what);
   waits.clear();
-  throw new Error(`стенд: не дождался — ${what}`);
-});
+  return what;
+}

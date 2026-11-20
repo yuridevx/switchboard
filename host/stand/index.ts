@@ -2,6 +2,7 @@
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach } from "vitest";
 import { fail, isReply, newId, ok, type Frame, type Link, type LinkState, type LogLine, type Reply, type Transport } from "@sb/protocol";
 import type { Module } from "../src/core/contract.ts";
 import { Kernel, StartError } from "../src/core/kernel.ts";
@@ -10,10 +11,16 @@ import type { CoreRecord } from "../src/core/store.ts";
 import { FakeClock } from "./clock.ts";
 import { FakeHolders, type FakeProc } from "./holders.ts";
 import { FakeSdk, type FakeQuery } from "./sdk.ts";
-import { signal, until } from "./signal.ts";
+import { signal, unmet, until } from "./signal.ts";
 
 export { FakeClock, FakeHolders, FakeSdk, StartError, signal, until };
 export type { FakeProc, FakeQuery };
+
+// ожидание без своего предела кончается пределом теста: после теста ошибка называет, чего ждали
+afterEach(() => {
+  const what = unmet();
+  if (what.length) throw new Error(`стенд: не дождался — ${what.join("; ")}`);
+});
 
 export const tick = async (n = 5) => {
   while (n-- > 0) await new Promise((r) => setImmediate(r));
