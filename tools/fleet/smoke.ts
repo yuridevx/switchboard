@@ -1,45 +1,23 @@
 // Живая проверка флота: node tools/fleet/smoke.ts <флот> [устройство]
-// Зовёт по одному запросу каждого вида цели и открывает соединение страницы; печатает исход и путь запроса по частям.
-import fs from "node:fs";
-import path from "node:path";
-import { createApi, httpTransport, ledgerRead, obsRecent, passes, peopleList, prefsGet, prefsSet, whoami, type Frame, type RequestDef } from "@sb/protocol";
-import { dev, fleetEnv } from "../dev.mjs";
+// Зовёт по одному запросу каждого вида цели и сверяет картину флота, пришедшую по соединению страницы; шаг — имя запроса.
+import { ledgerRead, obsRecent, passes, peopleList, prefsGet, prefsSet, whoami, type InputOf, type OutputOf, type RequestDef } from "@sb/protocol";
+import { check } from "./harness.mjs";
 
-const dir = dev;
-const env = fleetEnv;
-const [fleet = "test", device = "cli"] = process.argv.slice(2);
-const key = fs.readFileSync(path.join(dir, `v2-${fleet}-${device}.pass`), "utf8").trim();
-const transport = httpTransport({ base: env.SB2_BASE!, key });
-const api = createApi(transport);
-
-let bad = 0;
-async function step<I, O>(def: RequestDef<I, O>, input: I, show: (o: O) => string) {
-  const t0 = Date.now();
-  try {
-    const o = await api.call(def, input as never);
-    console.log(`✓ ${def.name} · ${Date.now() - t0} мс · ${show(o as O)}`);
-  } catch (e) {
-    bad++;
-    console.log(`✗ ${def.name} · ${(e as Error).message}`);
-  }
-}
-
-await step(whoami, {}, (o) => `${o.addr}, админ: ${o.admin}, машин: ${o.machines.length}`);
-await step(peopleList, {}, (o) => `людей ${o.people.length}, проектов ${o.projects.length}`);
-await step(passes, {}, (o) => `пропусков ${o.passes.length}`);
-await step(prefsSet, { scope: "me", name: "smoke", value: { at: Date.now() } }, () => "записано");
-await step(prefsGet, { scope: "me", prefix: "smoke" }, (o) => `ключей ${Object.keys(o.values).length}`);
-await step(ledgerRead, { limit: 5 }, (o) => `событий ${o.events.length}`);
-await step(obsRecent, { limit: 5 }, (o) => `строк ${o.rows.length}; последняя: ${o.rows[0]?.type} ${JSON.stringify(o.rows[0]?.spans ?? [])}`);
-
-const roster = await new Promise<Frame | null>((res) => {
-  const timer = setTimeout(() => (link.close(), res(null)), 10_000);
-  const link = transport.open("page", { onFrame: (f) => f.type === "roster" && (clearTimeout(timer), link.close(), res(f)) });
+await check(async (t) => {
+  /** Шаг — один запрос договора: его имя, ввод и что сказать об ответе. */
+  const ask = <D extends RequestDef<any, any>>(def: D, input: InputOf<D>, show: (o: OutputOf<D>) => string) => t.step(def.name, async () => show(await t.must(def, input)));
+  let me = "";
+  await ask(whoami, {}, (o) => ((me = o.addr), `${o.addr}, админ: ${o.admin}, машин: ${o.machines.length}`));
+  await ask(peopleList, {}, (o) => `людей ${o.people.length}, проектов ${o.projects.length}`);
+  await ask(passes, {}, (o) => `пропусков ${o.passes.length}`);
+  await ask(prefsSet, { scope: "me", name: "smoke", value: { at: Date.now() } }, () => "записано");
+  await ask(prefsGet, { scope: "me", prefix: "smoke" }, (o) => `ключей ${Object.keys(o.values).length}`);
+  await ask(ledgerRead, { limit: 5 }, (o) => `событий ${o.events.length}`);
+  await ask(obsRecent, { limit: 5 }, (o) => `строк ${o.rows.length}; последняя: ${o.rows[0]?.type} ${JSON.stringify(o.rows[0]?.spans ?? [])}`);
+  // картину проверке уже отдало соединение страницы — его держит обвязка; чьё: код — снимок картины называет, кому он пришёл
+  await t.step("картина", async () => {
+    const p = t.picture;
+    if (p.you?.addr !== me) throw new Error(`картина пришла не этому устройству: ${p.you?.addr ?? "никому"}, запросы шли от ${me}`);
+    return `машин ${Object.keys(p.machines).length}, сессий ${Object.keys(p.sessions).length}`;
+  });
 });
-if (roster) console.log(`✓ картина · машин ${(roster.machines as unknown[]).length}, сессий ${(roster.sessions as unknown[]).length}`);
-else {
-  bad++;
-  console.log("✗ картина не пришла за 10 с");
-}
-console.log(bad ? `сбоев: ${bad}` : "флот отвечает");
-process.exit(bad ? 1 : 0);

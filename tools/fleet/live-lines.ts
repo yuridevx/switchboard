@@ -9,268 +9,277 @@
 // на паузу: правила больше не срабатывают. Второй конвейер кончается шагом-ожиданием: сессия называет PR, двойник GitHub коробки шлёт событие
 // слияния с подписью — шаг сдан; событие с чужой подписью получает 401. Пятое правило опрашивает чужой апстрим: двойник двигает голову его
 // ветки — следующий срок правила заводит тикет сторожу.
-import fs from "node:fs";
-import path from "node:path";
-import { CallError, createApi, factoryApply, factoryGet, factoryPause, fleetList, hookUrl, httpTransport, logQuery, sessionRemove, ticketList, ticketNew, ticketSet } from "@sb/protocol";
-import { DOOR, DOOR_NOTE, FOUND, FOUND_OUT, LINE, MERGE, MERGE_PR, MODEL, MOVED, POST, PROJECT, QUIET, RULE_EVERY_S } from "../box/factory.mjs";
+// Время здесь — вход проверки: срок правил задан определением, проверка ждёт факт срабатывания, а не спит срок с запасом.
+import { DOOR, DOOR_NOTE, FOUND, FOUND_OUT, LINE, MERGE, MERGE_PR, MODEL, MOVED, POST, PROJECT, QUIET } from "../box/factory.mjs";
 import { REPO } from "../box/github.mjs";
-import { dev, fleetEnv } from "../dev.mjs";
-import { lacks, newTag } from "./harness.mjs";
+import { check } from "./harness.mjs";
 
-const [fleet = "box", device = "cli"] = process.argv.slice(2);
-const key = fs.readFileSync(path.join(dev, `v2-${fleet}-${device}.pass`), "utf8").trim();
-const wire = httpTransport({ base: fleetEnv.SB2_BASE!, key });
-const api = createApi({ ...wire, call: async (f) => { for (let i = 0; ; i++) { const r = await wire.call(f); if (r.ok || r.error !== "offline" || i >= 4) return r; await new Promise((x) => setTimeout(x, 3000)); } } });
-const tag = newTag();
 const TICKETS = 5, LIMIT = 2, STEPS = 3, QUIET_RUNS = 6, NOTES = 3;
+type Note = { verdict?: string; by: string; text: string };
+type Ticket = { id: string; state: string; step: number; why?: string; to?: string; on?: string; key?: string; pr?: string; text: string; since: number; notes?: Note[] };
+type Reply = { ok: boolean; error?: string; result?: any };
+type Go = (type: string, fields: unknown) => Promise<Reply>;
 
-let bad = 0;
-async function step(label: string, fn: () => Promise<string>) {
-  const t0 = Date.now();
-  try {
-    console.log(`✓ ${label} · ${await fn()} · ${Date.now() - t0} мс`);
-  } catch (e) {
-    bad++;
-    console.log(`✗ ${label} · ${e instanceof CallError ? `${e.word}: ${e.why ?? ""}` : (e as Error).message.split("\n")[0]}`);
-  }
-}
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-let ids: string[] = [];
-await step("определение проекта применено из репозитория ролей", async () => {
-  const r = await api.call(factoryApply, { project: PROJECT, repo: REPO });
-  const f = (await api.call(factoryGet, { project: PROJECT })).factory!;
-  const line = f.def.lines[LINE];
-  if (f.commit !== r.commit || line?.limit !== LIMIT || line.steps.length !== STEPS) throw new Error(`применено не то: ${JSON.stringify({ commit: f.commit, line })}`);
-  if (r.rules !== 5 || !f.next[QUIET] || !f.next[FOUND] || !f.next[MOVED] || f.next[DOOR] || f.next[MODEL]) throw new Error(`правила входа не встали на часы: ${JSON.stringify({ rules: r.rules, next: f.next })}`);
-  // прошлый прогон оставил фабрику на паузе
-  await api.call(factoryPause, { project: PROJECT, on: false });
-  return `коммит ${r.commit.slice(0, 7)}, конвейер «${line.title}»: шагов ${line.steps.length}, потолок ${line.limit}; правил входа ${r.rules}`;
-});
-const started = Date.now();
-/** Тикеты, которые завело правило входа с начала этого прогона. */
-const byRule = async (rule: string) => (await api.call(ticketList, { project: PROJECT })).tickets.filter((t) => t.on === rule && t.since >= started);
-// сроки правила считаются по его ближайшему сроку: каждое срабатывание ставит следующий. Идёт рядом с конвейером — правила времени работу не ждут
-const quiet = (async () => {
-  const seen = new Set<number>();
-  const end = Date.now() + (QUIET_RUNS + 6) * RULE_EVERY_S * 1000;
-  while (seen.size <= QUIET_RUNS) {
-    if (Date.now() > end) throw new Error(`за ${(QUIET_RUNS + 6) * RULE_EVERY_S} с правило сработало ${Math.max(0, seen.size - 1)} раз из ${QUIET_RUNS}`);
-    seen.add((await api.call(factoryGet, { project: PROJECT })).factory!.next[QUIET]!);
-    await sleep(2000);
-  }
-  return seen.size - 1;
-})();
-quiet.catch(() => {});
-await step(`конвейер из ${STEPS} шагов при потолке ${LIMIT} проводит ${TICKETS} тикетов: одновременно в работе не больше ${LIMIT}`, async () => {
-  for (let i = 1; i <= TICKETS; i++) ids.push((await api.call(ticketNew, { project: PROJECT, to: LINE, title: `Живая проверка конвейера ${tag} · ${i}` })).id);
-  let peak = 0;
-  const end = Date.now() + 200_000;
-  for (;;) {
-    const load = (await api.call(factoryGet, { project: PROJECT })).factory!.load.lines[LINE]!;
-    peak = Math.max(peak, load.work);
-    const mine = (await Promise.all(ids.map(async (id) => (await api.call(ticketList, { ticket: id })).tickets[0]!)));
-    const stopped = mine.find((t) => t.state === "stop");
-    if (stopped) throw new Error(`тикет ${stopped.id} встал на шаге ${stopped.step + 1}: ${stopped.why}`);
-    if (mine.every((t) => t.state === "done")) {
-      const verdicts = mine.map((t) => t.notes!.filter((n) => n.verdict === "done").length);
-      if (verdicts.some((n) => n !== STEPS)) throw new Error(`вердиктов «сдал» у тикетов: ${verdicts.join(", ")}, ждали по ${STEPS}`);
-      // шаг «довести» вела та же сессия, что «сделать»; «принять» — другая
-      const sessions = mine.map((t) => t.notes!.filter((n) => n.verdict === "done").map((n) => n.by));
-      if (sessions.some((s) => s[0] !== s[1] || s[2] === s[0])) throw new Error(`сессии шагов не те: ${JSON.stringify(sessions[0])}`);
-      break;
-    }
-    if (Date.now() > end) throw new Error(`не дождался: закрыто ${mine.filter((t) => t.state === "done").length} из ${TICKETS}`);
-    await sleep(1500);
-  }
-  if (peak > LIMIT || peak < 1) throw new Error(`в работе одновременно было ${peak}, потолок ${LIMIT}`);
-  return `закрыто ${TICKETS} из ${TICKETS}, шагов сдано ${TICKETS * STEPS}, в работе одновременно до ${peak}`;
-});
-if (!lacks("clickhouse"))
-  await step("история флота: по строкам «ticket» одновременно в работе не больше потолка", async () => {
-    const mine = new Set(ids);
-    let lines: { at: number; kind?: string }[] = [];
-    // строки доходят не сразу: ждём все «дан» и «сдан» своих тикетов
-    for (let i = 0; i < 20; i++) {
-      lines = (await api.call(logQuery, { msg: "ticket", limit: 1000 })).lines.filter((l) => mine.has(String((l.data as { ticket?: string } | undefined)?.ticket)));
-      if (lines.filter((l) => l.kind === "given").length >= TICKETS * STEPS && lines.filter((l) => l.kind === "done").length >= TICKETS * STEPS) break;
-      await sleep(2000);
-    }
-    const given = lines.filter((l) => l.kind === "given").length, done = lines.filter((l) => l.kind === "done").length;
-    if (given !== TICKETS * STEPS || done !== TICKETS * STEPS) throw new Error(`строк «дан» ${given}, «сдан» ${done}, ждали по ${TICKETS * STEPS}`);
-    // в один момент сначала считается «сдан», потом «дан»: место освобождается раньше, чем его берут
-    let now = 0, peak = 0;
-    for (const l of lines.filter((x) => x.kind === "given" || x.kind === "done").sort((a, b) => a.at - b.at || (a.kind === "done" ? -1 : 1))) {
-      now += l.kind === "given" ? 1 : -1;
-      peak = Math.max(peak, now);
-    }
-    if (peak > LIMIT) throw new Error(`по истории в работе одновременно было ${peak}, потолок ${LIMIT}`);
-    // отбор истории по времени: since отсекает старое, before — новое
-    const mid = lines.map((l) => l.at).sort((a, b) => a - b)[Math.floor(lines.length / 2)]!;
-    const late = (await api.call(logQuery, { msg: "ticket", since: mid, limit: 1000 })).lines, early = (await api.call(logQuery, { msg: "ticket", before: mid, limit: 1000 })).lines;
-    if (!late.length || !early.length || late.some((l) => l.at < mid) || early.some((l) => l.at >= mid)) throw new Error(`отбор по времени: после середины ${late.length} (старше её ${late.filter((l) => l.at < mid).length}), до середины ${early.length} (новее её ${early.filter((l) => l.at >= mid).length})`);
-    return `строк «дан» ${given}, «сдан» ${done}; одновременно в работе до ${peak}; отбор по времени: после середины ${late.length}, до неё ${early.length}`;
-  });
-await step(`тихая проверка не будит: правило сработало ${QUIET_RUNS} раз — тикетов 0`, async () => {
-  const runs = await quiet;
-  const made = await byRule(QUIET);
-  if (made.length) throw new Error(`тихое правило завело тикеты: ${made.map((t) => t.id).join(", ")}`);
-  return `срабатываний ${runs}, тикетов 0`;
-});
-let found = "";
-await step(`находка правила — тикет посту; следующие ${NOTES} находки — заметки в тот же тикет`, async () => {
-  const end = Date.now() + (NOTES + 8) * RULE_EVERY_S * 1000;
-  for (;;) {
-    const made = await byRule(FOUND);
-    if (made.length > 1) throw new Error(`правило завело ${made.length} тикета: ${made.map((t) => t.id).join(", ")}`);
-    const t = made[0] && (await api.call(ticketList, { ticket: made[0].id })).tickets[0]!;
-    const notes = (t?.notes ?? []).filter((n) => !n.verdict && n.text.includes(FOUND_OUT));
-    // сторож позвал человека: тикет встал и открыт — находки идут в него
-    if (t?.state === "stop" && t.why === "нужен человек" && notes.length >= NOTES) {
-      if (t.to !== POST || !t.text.includes(FOUND_OUT)) throw new Error(`тикет не тот: ${JSON.stringify({ to: t.to, text: t.text.slice(-80) })}`);
-      found = t.id;
-      return `тикет ${t.id} посту «${POST}»: сторож поднят и позвал человека; заметок с находкой ${notes.length}, тикетов правила 1`;
-    }
-    if (Date.now() > end) throw new Error(`не дождался: ${t ? `тикет ${t.id} — ${t.state}${t.why ? ` (${t.why})` : ""}, заметок ${notes.length}` : "тикета правила нет"}`);
-    await sleep(2000);
-  }
-});
-await step("слияние PR сдаёт шаг-ожидание: событие GitHub с чужой подписью — 401, тикет ждёт; с подписью приложения — тикет закрыт", async () => {
+await check(async (t) => {
   const hub = process.env.SB2_GITHUB;
   if (!hub) throw new Error("нужен SB2_GITHUB — адрес двойника GitHub: его ставит флот в коробке");
-  const id = (await api.call(ticketNew, { project: PROJECT, to: MERGE, title: `Живая проверка слияния ${tag}` })).id;
-  const one = async () => (await api.call(ticketList, { ticket: id })).tickets[0]!;
-  const until = async (what: string, ok: (t: Awaited<ReturnType<typeof one>>) => boolean) => {
-    for (const end = Date.now() + 90_000; ; await sleep(1500)) {
-      const t = await one();
-      if (ok(t)) return t;
-      if (t.state === "stop" || Date.now() > end) throw new Error(`${what}: тикет ${id} — ${t.state}${t.why ? `: ${t.why}` : ""}, шаг ${t.step + 1}`);
-    }
+  const { tag } = t;
+
+  /** Фабрика проекта; вопросы о ней, заданные разом, делят один запрос. */
+  let asking: Promise<any> | undefined;
+  const factory = () => (asking ??= t.must("factory.get", { project: PROJECT }).then((r: { factory: any }) => r.factory).finally(() => (asking = undefined)));
+  const one = async (id: string): Promise<Ticket> => (await t.must("ticket.list", { ticket: id })).tickets[0];
+  const all = async (): Promise<Ticket[]> => (await t.must("ticket.list", { project: PROJECT })).tickets;
+  /** Момент, когда этот прогон применил определение, — по часам флота: с него считаются тикеты правил и строки истории. */
+  let started = 0;
+  /** Тикеты, которые завело правило входа с начала этого прогона. */
+  const byRule = async (rule: string) => (await all()).filter((x) => x.on === rule && x.since >= started);
+  /** Тикет проверки: при любом её исходе снимается; закрытый снимать нечего. Ответ — его номер. */
+  const tickets: string[] = [];
+  const mine = (id: string) => {
+    if (tickets.includes(id)) return id;
+    tickets.push(id);
+    t.defer(`тикет ${id}`, async (go: Go) => {
+      const r = await go("ticket.set", { ticket: id, drop: true, note: "живая проверка кончена" });
+      return r.error === "bad_state" ? undefined : r;
+    });
+    return id;
   };
-  // первый шаг сдан сессией с PR — тикет ждёт события
-  await until("шаг-ожидание не начат", (t) => t.state === "wait" && t.pr === MERGE_PR);
-  const url = `${fleetEnv.SB2_BASE}/github/${fleet}`;
-  const [repo, number] = MERGE_PR.split("#");
-  const payload = { action: "closed", repository: { full_name: repo }, sender: { login: "box" }, pull_request: { number: Number(number), merged: true } };
-  const forged = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-hub-signature-256": "sha256=" + "0".repeat(64) }, body: JSON.stringify(payload) });
-  if (forged.status !== 401 || (await one()).state !== "wait") throw new Error(`чужая подпись: ответ ${forged.status}, тикет ${(await one()).state}`);
-  const sent = (await (await fetch(hub + "/box/deliver", { method: "POST", body: JSON.stringify({ url, event: "pull_request", payload }) })).json()) as { status: number; body: string };
-  if (sent.status !== 200 || !sent.body.includes(id)) throw new Error(`событие слияния: ответ ${sent.status} ${sent.body.slice(0, 120)}`);
-  const done = await until("шаг-ожидание не сдан", (t) => t.state === "done");
-  const verdict = done.notes!.at(-1)!;
-  if (verdict.by !== ".github" || verdict.verdict !== "done") throw new Error(`последний вердикт не от события: ${JSON.stringify(verdict)}`);
-  return `тикет ${id}: PR ${MERGE_PR} слит — шаг сдан событием; чужая подпись — 401`;
-});
-let moved = "";
-await step("апстрим сдвинулся — тикет посту: голову чужой ветки флот спрашивает по сроку правила", async () => {
-  const hub = process.env.SB2_GITHUB;
-  if (!hub) throw new Error("нужен SB2_GITHUB — адрес двойника GitHub: его ставит флот в коробке");
-  const due = async () => (await api.call(factoryGet, { project: PROJECT })).factory!.next[MOVED]!;
-  const pass = async (what: string) => {
-    const was = await due();
-    for (const end = Date.now() + 4 * RULE_EVERY_S * 1000; (await due()) === was; await sleep(2000)) if (Date.now() > end) throw new Error(`${what}: правило опроса не сработало за ${4 * RULE_EVERY_S} с`);
+  /** Правило по времени сработало times раз, считая отсюда: срабатывание первым делом ставит свой следующий срок — он и виден.
+   *  Часы флота ведут срабатывания по одному: началось новое — работа прежних кончена. Поэтому два срабатывания — барьер:
+   *  что первое из них должно было сделать, уже сделано. Ответ — сколько срабатываний увидено. */
+  const fired = async (rule: string, times: number) => {
+    const seen = new Set<number>();
+    return t.wait(`правило «${rule}» сработало ${times} раз`, async () => (seen.add((await factory()).next[rule]), seen.size > times && seen.size - 1), () => `срабатываний ${seen.size - 1}`);
   };
-  // один срок с начала шага: прежняя голова точно запомнена — и тикета по ней нет
-  await pass("первая сверка");
-  if ((await byRule(MOVED)).length) throw new Error("тикет заведён без сдвига апстрима");
-  const { sha } = (await (await fetch(hub + "/box/upstream", { method: "POST" })).json()) as { sha: string };
-  for (const end = Date.now() + 5 * RULE_EVERY_S * 1000; ; await sleep(2000)) {
-    const made = await byRule(MOVED);
-    if (made.length === 1 && made[0]!.text.includes(sha.slice(0, 7))) {
-      moved = made[0]!.id;
-      // ещё один срок на прежней голове — тикет один
-      await pass("сверка после сдвига");
-      if ((await byRule(MOVED)).length !== 1) throw new Error("прежняя голова завела второй тикет");
-      return `тикет ${moved} посту «${POST}»: голова ${sha.slice(0, 7)}; на прежнюю голову тикетов не прибавилось`;
-    }
-    if (made.length > 1 || Date.now() > end) throw new Error(`после сдвига тикетов правила ${made.length}${made[0] ? `: ${made[0].text.slice(-60)}` : ""}`);
-  }
-});
-let secret = "";
-await step("событие на адрес с секретом — тикет посту, пост его сдаёт; чужой секрет — 404", async () => {
-  const { url } = await api.call(hookUrl, { project: PROJECT, name: DOOR });
-  secret = url.split("/").pop()!;
-  const wrong = await fetch(url.slice(0, -secret.length) + "A".repeat(secret.length), { method: "POST", body: "чужой" });
-  if (wrong.status !== 404) throw new Error(`чужой секрет: ответ ${wrong.status}, ждали 404`);
-  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "live-" + tag, text: `Событие живой проверки ${tag}` }) });
-  const got = (await res.json()) as { id?: string; error?: string; why?: string };
-  if (res.status !== 202 || !got.id) throw new Error(`событие не принято: ${res.status} ${got.error ?? ""} ${got.why ?? ""}`);
-  const end = Date.now() + 90_000;
-  for (;;) {
-    const t = (await api.call(ticketList, { ticket: got.id })).tickets[0]!;
-    if (t.state === "done") {
-      const verdict = t.notes!.find((n) => n.verdict === "done");
-      if (t.on !== DOOR || t.key !== "live-" + tag || t.to !== POST || verdict?.text !== DOOR_NOTE || !verdict.by.startsWith(POST + "@")) throw new Error(`тикет не тот: ${JSON.stringify({ on: t.on, key: t.key, to: t.to, verdict })}`);
-      return `тикет ${t.id} по правилу «${DOOR}», сдал ${verdict.by}; чужой секрет — 404`;
-    }
-    if (t.state === "stop" || Date.now() > end) throw new Error(`тикет ${t.id} — ${t.state}${t.why ? `: ${t.why}` : ""}`);
-    await sleep(1500);
-  }
-});
-let drift = "";
-await step("событие «ответила не та модель» по имени правила: три события с одним ключом — один тикет", async () => {
-  // то же событие шлёт сама машина: правило model, ключ — позывной сессии
-  const key = `live-${tag}@${POST}`, text = `${key}: в документе модель box-1, ответила box-2`;
-  const ids: string[] = [];
-  for (let i = 1; i <= 3; i++) ids.push((await api.call(ticketNew, { project: PROJECT, on: MODEL, key, text })).id);
-  drift = ids[0]!;
-  const made = await byRule(MODEL);
-  const t = (await api.call(ticketList, { ticket: drift })).tickets[0]!;
-  const notes = t.notes!.filter((n) => !n.verdict && n.text === text).length;
-  if (new Set(ids).size !== 1 || made.length !== 1 || notes !== 2 || t.key !== key || t.to !== POST || !t.text.includes(text)) throw new Error(`события ушли не туда: ${ids.join(", ")}; тикетов правила ${made.length}, заметок ${notes}`);
-  return `три события — тикет ${drift} посту «${POST}», заметок 2, тикетов правила 1`;
-});
-await step("пауза: правила входа не срабатывают — срок тихого правила идёт, тикетов и заметок не прибавилось", async () => {
-  await api.call(factoryPause, { project: PROJECT, on: true });
-  const notes = async () => (found ? (await api.call(ticketList, { ticket: found })).tickets[0]!.notes!.length : 0);
-  // срабатывание, которое уже шло в момент паузы, дописывает свою заметку
-  await sleep(3000);
-  const was = await notes();
-  const due = (await api.call(factoryGet, { project: PROJECT })).factory!.next[QUIET]!;
-  await sleep(Math.max(0, due - Date.now()) + RULE_EVERY_S * 1000 + 3000);
-  const now = await notes();
-  const moved = (await api.call(factoryGet, { project: PROJECT })).factory!.next[QUIET]! > due;
-  const made = (await byRule(FOUND)).length + (await byRule(QUIET)).length;
-  if (!moved || now !== was || made !== (found ? 1 : 0)) throw new Error(`на паузе: срок ушёл вперёд — ${moved}, заметок ${was} → ${now}, тикетов правил ${made}`);
-  return `заметок ${was} → ${now}, тикетов правил ${made}`;
-});
-if (!lacks("clickhouse"))
-  await step(`история флота: строк «rule» тихого правила — не меньше ${QUIET_RUNS}, все «тихо» до паузы; у правила с находкой — один «тикет» и заметки`, async () => {
-    type Line = { at: number; kind?: string; data?: unknown };
-    const of = (lines: Line[], rule: string) => lines.filter((l) => l.at >= started && (l.data as { rule?: string; project?: string } | undefined)?.rule === rule && (l.data as { project?: string }).project === PROJECT);
-    let lines: Line[] = [];
-    for (let i = 0; i < 20; i++) {
-      lines = (await api.call(logQuery, { msg: "rule", limit: 1000 })).lines;
-      if (of(lines, QUIET).filter((l) => l.kind === "quiet").length >= QUIET_RUNS && of(lines, QUIET).some((l) => l.kind === "paused")) break;
-      await sleep(2000);
-    }
-    const q = of(lines, QUIET), f = of(lines, FOUND);
-    const count = (ls: Line[], kind: string) => ls.filter((l) => l.kind === kind).length;
-    const odd = q.filter((l) => l.kind !== "quiet" && l.kind !== "paused");
-    if (count(q, "quiet") < QUIET_RUNS || odd.length || !count(q, "paused")) throw new Error(`тихое правило: «тихо» ${count(q, "quiet")}, «пауза» ${count(q, "paused")}, прочих ${odd.length} (${odd.map((l) => l.kind).join(", ")})`);
-    if (q.some((l) => l.kind === "quiet" && (l.data as { code?: number }).code !== 0)) throw new Error("у строки «тихо» код проверки не 0");
-    if (count(f, "ticket") !== 1 || count(f, "note") < NOTES) throw new Error(`правило с находкой: «тикет» ${count(f, "ticket")}, «заметка» ${count(f, "note")}`);
-    // вход по адресу: строка «hook» с ответом 202 и путём без секрета
-    const hooks = (await api.call(logQuery, { msg: "hook", limit: 200 })).lines.filter((l) => l.at >= started && (l.data as { rule?: string }).rule === DOOR);
-    const paths = hooks.map((l) => String((l.data as { path?: string }).path));
-    if (!hooks.some((l) => (l.data as { status?: number }).status === 202) || (secret && paths.some((p) => p.includes(secret)))) throw new Error(`строки входа: ${JSON.stringify(hooks.map((l) => l.data))}`);
-    return `тихое правило: «тихо» ${count(q, "quiet")}, «пауза» ${count(q, "paused")}; находка: «тикет» 1, «заметка» ${count(f, "note")}; вход по адресу: строк ${hooks.length}, путь без секрета`;
+  /** Тикет дошёл до нужного состояния; встал — отказ сразу, ждать нечего. */
+  const reach = (id: string, what: string, ok: (x: Ticket) => boolean) => {
+    let last: Ticket | undefined;
+    return t.wait(what, async () => {
+      const x = (last = await one(id));
+      if (x.state === "stop") throw new Error(`${what}: тикет ${id} встал${x.why ? `: ${x.why}` : ""}, шаг ${x.step + 1}`);
+      return ok(x) && x;
+    }, () => (last ? `тикет ${last.state}, шаг ${last.step + 1}` : "тикета нет"));
+  };
+
+  let ids: string[] = [];
+  await t.step("определение проекта применено из репозитория ролей", async () => {
+    const r = await t.must("factory.apply", { project: PROJECT, repo: REPO });
+    // правила пошли по часам: при любом исходе проверки фабрика проекта остаётся на паузе, а сессии её шагов и пост-сторож убраны
+    t.defer("фабрика проекта — на паузу", (go: Go) => go("factory.pause", { project: PROJECT, on: true }));
+    t.defer("сессии шагов и пост-сторож", async (go: Go) => {
+      const list = await go("fleet.list", {});
+      if (!list.ok) return list;
+      const gone = (list.result.sessions as { callsign: string }[]).map((x) => x.callsign).filter((c) => c.startsWith(POST + "@") || tickets.some((id) => c.startsWith(id + "-s")));
+      return (await Promise.all(gone.map((to) => go("session.remove", { to })))).find((x) => !x.ok && x.error !== "not_found");
+    });
+    const f = await factory();
+    started = f.at;
+    const line = f.def.lines[LINE];
+    if (f.commit !== r.commit || line?.limit !== LIMIT || line.steps.length !== STEPS) throw new Error(`применено не то: ${JSON.stringify({ commit: f.commit, line })}`);
+    if (r.rules !== 5 || !f.next[QUIET] || !f.next[FOUND] || !f.next[MOVED] || f.next[DOOR] || f.next[MODEL]) throw new Error(`правила входа не встали на часы: ${JSON.stringify({ rules: r.rules, next: f.next })}`);
+    // прошлый прогон оставил фабрику на паузе
+    await t.must("factory.pause", { project: PROJECT, on: false });
+    return `коммит ${r.commit.slice(0, 7)}, конвейер «${line.title}»: шагов ${line.steps.length}, потолок ${line.limit}; правил входа ${r.rules}`;
   });
-await step("тикеты событий сняты, пост-сторож убран", async () => {
-  for (const id of [found, drift, moved]) if (id) await api.call(ticketSet, { ticket: id, drop: true, note: "живая проверка кончена" });
-  const post = ((await api.call(fleetList, {})).sessions as { callsign: string }[]).map((x) => x.callsign).find((c) => c.startsWith(POST + "@"));
-  if (post) await api.call(sessionRemove, { to: post });
-  return post ? `сессия ${post} убрана` : "сессии поста нет";
+  // сроки правила считаются по его ближайшему сроку: каждое срабатывание ставит следующий. Идёт рядом с конвейером — правила времени работу не ждут
+  const quiet = fired(QUIET, QUIET_RUNS);
+  quiet.catch(() => {});
+
+  await t.step(`конвейер из ${STEPS} шагов при потолке ${LIMIT} проводит ${TICKETS} тикетов: одновременно в работе не больше ${LIMIT}`, async () => {
+    for (let i = 1; i <= TICKETS; i++) ids.push(mine((await t.must("ticket.new", { project: PROJECT, to: LINE, title: `Живая проверка конвейера ${tag} · ${i}` })).id));
+    let peak = 0, closed = 0;
+    await t.wait(`закрыты ${TICKETS} тикетов конвейера`, async () => {
+      // загрузка конвейера — проходящее число: её ловит каждое чтение, пока тикеты идут; точный счёт одновременной работы — по истории флота, следующим шагом
+      peak = Math.max(peak, (await factory()).load.lines[LINE].work);
+      const now = (await all()).filter((x) => ids.includes(x.id));
+      const stopped = now.find((x) => x.state === "stop");
+      if (stopped) throw new Error(`тикет ${stopped.id} встал на шаге ${stopped.step + 1}: ${stopped.why}`);
+      closed = now.filter((x) => x.state === "done").length;
+      return closed === TICKETS;
+    }, () => `закрыто ${closed} из ${TICKETS}`);
+    const done = await Promise.all(ids.map(one));
+    const verdicts = done.map((x) => x.notes!.filter((n) => n.verdict === "done").length);
+    if (verdicts.some((n) => n !== STEPS)) throw new Error(`вердиктов «сдал» у тикетов: ${verdicts.join(", ")}, ждали по ${STEPS}`);
+    // шаг «довести» вела та же сессия, что «сделать»; «принять» — другая
+    const sessions = done.map((x) => x.notes!.filter((n) => n.verdict === "done").map((n) => n.by));
+    if (sessions.some((s) => s[0] !== s[1] || s[2] === s[0])) throw new Error(`сессии шагов не те: ${JSON.stringify(sessions[0])}`);
+    if (peak > LIMIT || peak < 1) throw new Error(`в работе одновременно было ${peak}, потолок ${LIMIT}`);
+    return `закрыто ${TICKETS} из ${TICKETS}, шагов сдано ${TICKETS * STEPS}, в работе одновременно до ${peak}`;
+  });
+
+  if (!t.lacks("clickhouse"))
+    await t.step("история флота: по строкам «ticket» одновременно в работе не больше потолка", async () => {
+      const own = new Set(ids);
+      let given = 0, done = 0;
+      // строки доходят не сразу: ждём все «дан» и «сдан» своих тикетов
+      const lines: { at: number; kind?: string }[] = await t.wait("строки «дан» и «сдан» своих тикетов в истории", async () => {
+        const got = (await t.must("log.query", { msg: "ticket", limit: 1000 })).lines.filter((l: { data?: { ticket?: string } }) => own.has(String(l.data?.ticket)));
+        given = got.filter((l: { kind?: string }) => l.kind === "given").length;
+        done = got.filter((l: { kind?: string }) => l.kind === "done").length;
+        return given >= TICKETS * STEPS && done >= TICKETS * STEPS && got;
+      }, () => `строк «дан» ${given}, «сдан» ${done}, ждали по ${TICKETS * STEPS}`);
+      if (given !== TICKETS * STEPS || done !== TICKETS * STEPS) throw new Error(`строк «дан» ${given}, «сдан» ${done}, ждали по ${TICKETS * STEPS}`);
+      // в один момент сначала считается «сдан», потом «дан»: место освобождается раньше, чем его берут
+      let now = 0, peak = 0;
+      for (const l of lines.filter((x) => x.kind === "given" || x.kind === "done").sort((a, b) => a.at - b.at || (a.kind === "done" ? -1 : 1))) {
+        now += l.kind === "given" ? 1 : -1;
+        peak = Math.max(peak, now);
+      }
+      if (peak > LIMIT) throw new Error(`по истории в работе одновременно было ${peak}, потолок ${LIMIT}`);
+      // отбор истории по времени: since отсекает старое, before — новое
+      const mid = lines.map((l) => l.at).sort((a, b) => a - b)[Math.floor(lines.length / 2)]!;
+      const late: { at: number }[] = (await t.must("log.query", { msg: "ticket", since: mid, limit: 1000 })).lines, early: { at: number }[] = (await t.must("log.query", { msg: "ticket", before: mid, limit: 1000 })).lines;
+      if (!late.length || !early.length || late.some((l) => l.at < mid) || early.some((l) => l.at >= mid)) throw new Error(`отбор по времени: после середины ${late.length} (старше её ${late.filter((l) => l.at < mid).length}), до середины ${early.length} (новее её ${early.filter((l) => l.at >= mid).length})`);
+      return `строк «дан» ${given}, «сдан» ${done}; одновременно в работе до ${peak}; отбор по времени: после середины ${late.length}, до неё ${early.length}`;
+    });
+
+  await t.step(`тихая проверка не будит: правило сработало ${QUIET_RUNS} раз — тикетов 0`, async () => {
+    const runs = await quiet;
+    const made = await byRule(QUIET);
+    if (made.length) throw new Error(`тихое правило завело тикеты: ${made.map((x) => x.id).join(", ")}`);
+    return `срабатываний ${runs}, тикетов 0`;
+  });
+
+  let found = "";
+  await t.step(`находка правила — тикет посту; следующие ${NOTES} находки — заметки в тот же тикет`, async () => {
+    let seen = "тикета правила нет";
+    const x: Ticket = await t.wait("тикет правила с находкой: сторож позвал человека, заметки идут в него", async () => {
+      const made = await byRule(FOUND);
+      if (made.length > 1) throw new Error(`правило завело ${made.length} тикета: ${made.map((m) => m.id).join(", ")}`);
+      if (!made[0]) return false;
+      found = mine(made[0].id);
+      const tk = await one(found);
+      const notes = (tk.notes ?? []).filter((n) => !n.verdict && n.text.includes(FOUND_OUT));
+      seen = `тикет ${tk.id} — ${tk.state}${tk.why ? ` (${tk.why})` : ""}, заметок ${notes.length}`;
+      // сторож позвал человека: тикет встал и открыт — находки идут в него
+      return tk.state === "stop" && tk.why === "нужен человек" && notes.length >= NOTES && tk;
+    }, () => seen);
+    if (x.to !== POST || !x.text.includes(FOUND_OUT)) throw new Error(`тикет не тот: ${JSON.stringify({ to: x.to, text: x.text.slice(-80) })}`);
+    return `тикет ${x.id} посту «${POST}»: сторож поднят и позвал человека; заметок с находкой ${(x.notes ?? []).filter((n) => !n.verdict && n.text.includes(FOUND_OUT)).length}, тикетов правила 1`;
+  });
+
+  await t.step("слияние PR сдаёт шаг-ожидание: событие GitHub с чужой подписью — 401, тикет ждёт; с подписью приложения — тикет закрыт", async () => {
+    const id = mine((await t.must("ticket.new", { project: PROJECT, to: MERGE, title: `Живая проверка слияния ${tag}` })).id);
+    // первый шаг сдан сессией с PR — тикет ждёт события
+    await reach(id, "шаг-ожидание начат", (x) => x.state === "wait" && x.pr === MERGE_PR);
+    const url = `${t.base}/github/${t.fleet}`;
+    const [repo, number] = MERGE_PR.split("#");
+    const payload = { action: "closed", repository: { full_name: repo }, sender: { login: "box" }, pull_request: { number: Number(number), merged: true } };
+    const forged = await t.fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-hub-signature-256": "sha256=" + "0".repeat(64) }, body: JSON.stringify(payload) });
+    // отказ — ответ на сам запрос: событие с чужой подписью до тикета не дошло, он ждёт как ждал
+    const still = (await one(id)).state;
+    if (forged.status !== 401 || still !== "wait") throw new Error(`чужая подпись: ответ ${forged.status}, тикет ${still}`);
+    const sent = (await (await t.fetch(hub + "/box/deliver", { method: "POST", body: JSON.stringify({ url, event: "pull_request", payload }) })).json()) as { status: number; body: string };
+    if (sent.status !== 200 || !sent.body.includes(id)) throw new Error(`событие слияния: ответ ${sent.status} ${sent.body.slice(0, 120)}`);
+    const done = await reach(id, "шаг-ожидание сдан", (x) => x.state === "done");
+    const verdict = done.notes!.at(-1)!;
+    if (verdict.by !== ".github" || verdict.verdict !== "done") throw new Error(`последний вердикт не от события: ${JSON.stringify(verdict)}`);
+    return `тикет ${id}: PR ${MERGE_PR} слит — шаг сдан событием; чужая подпись — 401`;
+  });
+
+  let moved = "";
+  await t.step("апстрим сдвинулся — тикет посту: голову чужой ветки флот спрашивает по сроку правила", async () => {
+    // два срока с начала шага: работа первого кончена — прежняя голова точно запомнена, и тикета по ней нет
+    await fired(MOVED, 2);
+    if ((await byRule(MOVED)).length) throw new Error("тикет заведён без сдвига апстрима");
+    const { sha } = (await (await t.fetch(hub + "/box/upstream", { method: "POST" })).json()) as { sha: string };
+    let seen = "тикета правила нет";
+    const made: Ticket = await t.wait("тикет правила о сдвиге апстрима", async () => {
+      const got = await byRule(MOVED);
+      if (got.length > 1) throw new Error(`после сдвига тикетов правила ${got.length}: ${got[0]!.text.slice(-60)}`);
+      if (got[0]) moved = mine(got[0].id);
+      seen = got[0] ? `тикет ${got[0].id}: ${got[0].text.slice(-60)}` : "тикета правила нет";
+      return got[0]?.text.includes(sha.slice(0, 7)) && got[0];
+    }, () => seen);
+    // ещё два срока на прежней голове: работа первого кончена — тикет один
+    await fired(MOVED, 2);
+    if ((await byRule(MOVED)).length !== 1) throw new Error("прежняя голова завела второй тикет");
+    return `тикет ${made.id} посту «${POST}»: голова ${sha.slice(0, 7)}; на прежнюю голову тикетов не прибавилось`;
+  });
+
+  let secret = "";
+  await t.step("событие на адрес с секретом — тикет посту, пост его сдаёт; чужой секрет — 404", async () => {
+    const { url } = await t.must("hook.url", { project: PROJECT, name: DOOR });
+    secret = url.split("/").pop()!;
+    const wrong = await t.fetch(url.slice(0, -secret.length) + "A".repeat(secret.length), { method: "POST", body: "чужой" });
+    if (wrong.status !== 404) throw new Error(`чужой секрет: ответ ${wrong.status}, ждали 404`);
+    const res = await t.fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "live-" + tag, text: `Событие живой проверки ${tag}` }) });
+    const got = (await res.json()) as { id?: string; error?: string; why?: string };
+    if (res.status !== 202 || !got.id) throw new Error(`событие не принято: ${res.status} ${got.error ?? ""} ${got.why ?? ""}`);
+    const x = await reach(mine(got.id), `тикет ${got.id} сдан постом`, (y) => y.state === "done");
+    const verdict = x.notes!.find((n) => n.verdict === "done");
+    if (x.on !== DOOR || x.key !== "live-" + tag || x.to !== POST || verdict?.text !== DOOR_NOTE || !verdict.by.startsWith(POST + "@")) throw new Error(`тикет не тот: ${JSON.stringify({ on: x.on, key: x.key, to: x.to, verdict })}`);
+    return `тикет ${x.id} по правилу «${DOOR}», сдал ${verdict.by}; чужой секрет — 404`;
+  });
+
+  let drift = "";
+  await t.step("событие «ответила не та модель» по имени правила: три события с одним ключом — один тикет", async () => {
+    // то же событие шлёт сама машина: правило model, ключ — позывной сессии
+    const key = `live-${tag}@${POST}`, text = `${key}: в документе модель box-1, ответила box-2`;
+    const got: string[] = [];
+    for (let i = 1; i <= 3; i++) got.push((await t.must("ticket.new", { project: PROJECT, on: MODEL, key, text })).id);
+    drift = mine(got[0]!);
+    const made = await byRule(MODEL);
+    const x = await one(drift);
+    const notes = x.notes!.filter((n) => !n.verdict && n.text === text).length;
+    if (new Set(got).size !== 1 || made.length !== 1 || notes !== 2 || x.key !== key || x.to !== POST || !x.text.includes(text)) throw new Error(`события ушли не туда: ${got.join(", ")}; тикетов правила ${made.length}, заметок ${notes}`);
+    return `три события — тикет ${drift} посту «${POST}», заметок 2, тикетов правила 1`;
+  });
+
+  await t.step("пауза: правила входа не срабатывают — срок тихого правила идёт, тикетов и заметок не прибавилось", async () => {
+    await t.must("factory.pause", { project: PROJECT, on: true });
+    const notes = async () => (found ? (await one(found)).notes!.length : 0);
+    const due = (await factory()).next[QUIET];
+    // срабатывание, которое уже шло в момент паузы, дописывает свою заметку: началось следующее — оно кончено
+    await fired(FOUND, 1);
+    const was = await notes();
+    // это следующее шло уже на паузе; началось ещё одно — кончено и оно: заметок и тикетов от него нет
+    await fired(FOUND, 1);
+    const now = await notes();
+    await t.wait("срок тихого правила ушёл вперёд", async () => (await factory()).next[QUIET] > due, () => "срок тихого правила прежний");
+    const made = (await byRule(FOUND)).length + (await byRule(QUIET)).length;
+    if (now !== was || made !== (found ? 1 : 0)) throw new Error(`на паузе: заметок ${was} → ${now}, тикетов правил ${made}`);
+    return `заметок ${was} → ${now}, тикетов правил ${made}`;
+  });
+
+  if (!t.lacks("clickhouse"))
+    await t.step(`история флота: строк «rule» тихого правила — не меньше ${QUIET_RUNS}, все «тихо» до паузы; у правила с находкой — один «тикет» и заметки`, async () => {
+      type Line = { at: number; kind?: string; data?: { rule?: string; project?: string; code?: number; path?: string; status?: number } };
+      const of = (lines: Line[], rule: string) => lines.filter((l) => l.at >= started && l.data?.rule === rule && l.data.project === PROJECT);
+      const count = (ls: Line[], kind: string) => ls.filter((l) => l.kind === kind).length;
+      let said = "строк правила нет";
+      // строки доходят не сразу: ждём шесть «тихо» и «паузу» тихого правила
+      const lines: Line[] = await t.wait("строки «rule» тихого правила в истории", async () => {
+        const got: Line[] = (await t.must("log.query", { msg: "rule", limit: 1000 })).lines;
+        const q = of(got, QUIET);
+        said = `«тихо» ${count(q, "quiet")}, «пауза» ${count(q, "paused")}`;
+        return count(q, "quiet") >= QUIET_RUNS && count(q, "paused") > 0 && got;
+      }, () => said);
+      const q = of(lines, QUIET), f = of(lines, FOUND);
+      const odd = q.filter((l) => l.kind !== "quiet" && l.kind !== "paused");
+      if (odd.length) throw new Error(`тихое правило: «тихо» ${count(q, "quiet")}, «пауза» ${count(q, "paused")}, прочих ${odd.length} (${odd.map((l) => l.kind).join(", ")})`);
+      if (q.some((l) => l.kind === "quiet" && l.data?.code !== 0)) throw new Error("у строки «тихо» код проверки не 0");
+      if (count(f, "ticket") !== 1 || count(f, "note") < NOTES) throw new Error(`правило с находкой: «тикет» ${count(f, "ticket")}, «заметка» ${count(f, "note")}`);
+      // вход по адресу: строка «hook» с ответом 202 и путём без секрета
+      const hooks: Line[] = (await t.must("log.query", { msg: "hook", limit: 200 })).lines.filter((l: Line) => l.at >= started && l.data?.rule === DOOR);
+      const paths = hooks.map((l) => String(l.data?.path));
+      if (!hooks.some((l) => l.data?.status === 202) || (secret && paths.some((p) => p.includes(secret)))) throw new Error(`строки входа: ${JSON.stringify(hooks.map((l) => l.data))}`);
+      return `тихое правило: «тихо» ${count(q, "quiet")}, «пауза» ${count(q, "paused")}; находка: «тикет» 1, «заметка» ${count(f, "note")}; вход по адресу: строк ${hooks.length}, путь без секрета`;
+    });
+
+  await t.step("тикеты событий сняты, пост-сторож убран", async () => {
+    for (const id of [found, drift, moved]) if (id) await t.must("ticket.set", { ticket: id, drop: true, note: "живая проверка кончена" });
+    const post = ((await t.must("fleet.list", {})).sessions as { callsign: string }[]).map((x) => x.callsign).find((c) => c.startsWith(POST + "@"));
+    if (post) await t.must("session.remove", { to: post });
+    return post ? `сессия ${post} убрана` : "сессии поста нет";
+  });
+
+  await t.step("тикеты закрыты — свежие сессии шагов убраны", async () => {
+    const fresh = (n: string) => ids.some((id) => n.startsWith(id + "-s"));
+    let left: string[] = [];
+    // сессии шагов уходят вслед за закрытием тикета: картина флота приходит кадрами — ждём, пока в ней не останется ни одной
+    await t.wait("сессии шагов убраны", () => ((left = Object.keys(t.picture.sessions).filter(fresh)), !left.length), () => `остались сессии шагов: ${left.join(", ")}`);
+    return `сессий шагов осталось 0 из ${TICKETS * 2}`;
+  });
 });
-await step("тикеты закрыты — свежие сессии шагов убраны", async () => {
-  const mine = (n: string) => ids.some((id) => n.startsWith(id + "-s"));
-  let left: string[] = [];
-  for (let i = 0; i < 20; i++) {
-    left = ((await api.call(fleetList, {})).sessions as { callsign: string }[]).map((s) => s.callsign).filter(mine);
-    if (!left.length) break;
-    await sleep(2000);
-  }
-  if (left.length) throw new Error(`остались сессии шагов: ${left.join(", ")}`);
-  return `сессий шагов осталось 0 из ${TICKETS * 2}`;
-});
-process.exit(bad ? 1 : 0);
