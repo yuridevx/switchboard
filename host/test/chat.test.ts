@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { make as chat } from "../src/modules/chat/chat.ts";
+import { make as chat, WINDOW_MS } from "../src/modules/chat/chat.ts";
 import { stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
@@ -42,13 +42,16 @@ describe("chat", () => {
     expect(await st.request("session.watch", { to: "site@laptop" }, PULT)).toMatchObject({ ok: true, result: { seq: expect.any(Number) } });
     proc.send({ type: "assistant", uuid: "a1", message: { content: [] } });
     proc.send({ type: "assistant", uuid: "a2", message: { content: [] } });
-    const f = await until(() => st!.link.of("session.events")[0], "пачка");
+    await proc.settle();
+    await st.clock.due(WINDOW_MS);
+    const f = st.link.of("session.events")[0]!;
     expect(f).toMatchObject({ to: [PULT], callsign: "site@laptop" });
     expect((f.events as any[]).map((e) => e.uuid)).toEqual(["a1", "a2"]);
     st.link.deliver({ type: "watcher.gone", from: PULT });
     const n = st.link.of("session.events").length;
     proc.send({ type: "assistant", uuid: "a3", message: { content: [] } });
-    await new Promise((r) => setTimeout(r, 150));
+    await proc.settle();
+    st.clock.advance(WINDOW_MS);
     expect(st.link.of("session.events")).toHaveLength(n);
   });
 

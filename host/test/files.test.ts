@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { make as chat } from "../src/modules/chat/chat.ts";
+import { make as chat, WINDOW_MS } from "../src/modules/chat/chat.ts";
 import { make as files } from "../src/modules/files/files.ts";
 import { make as work } from "../src/modules/work/work.ts";
 import { signal, stand, until, type Stand } from "../stand/index.ts";
@@ -131,7 +131,8 @@ describe("файлы: человек загружает файл", () => {
     await until(() => proc.inputs.length === 1, "ввод");
     expect(proc.inputs[0]!.message.content).toBe(`Вот макет, сверь с ним шапку.\n\nЗагружены файлы в папку сессии:\n- uploads/maket.png · ${f.size} байт · sha256 ${f.hash}`);
     // лента получает разобранное: текст человека без строки уведомления и файлы полем
-    const said = await until(() => feed().find((e) => e.type === "user"), "событие ленты");
+    await st.clock.due(WINDOW_MS);
+    const said = feed().find((e) => e.type === "user");
     expect(said).toMatchObject({ from: PULT, message: { content: "Вот макет, сверь с ним шапку." }, files: [f] });
     expect(journal("file_upload")).toMatchObject([{ callsign: CS, name: "uploads/maket.png", hash: f.hash, size: f.size }]);
     // из хранилища пришло не то содержимое — в папку не записано, сообщение не принято
@@ -143,7 +144,8 @@ describe("файлы: человек загружает файл", () => {
     await st.request("message", { to: CS, text: "держи", files: [g] }, "docs@server");
     await until(() => proc.inputs.length === 2, "ввод от сессии");
     expect(proc.inputs[1]!.message.content).toBe(`<fleet from="docs@server" kind="message">\nдержи\n\nЗагружены файлы в папку сессии:\n- uploads/notes.md · ${g.size} байт · sha256 ${g.hash}\n</fleet>`);
-    expect(await until(() => feed().find((e) => e.peer), "входящее в ленте")).toMatchObject({ peer: { from: "docs@server", kind: "message", text: "держи" }, files: [g] });
+    await st.clock.due(WINDOW_MS);
+    expect(feed().find((e) => e.peer)).toMatchObject({ peer: { from: "docs@server", kind: "message", text: "держи" }, files: [g] });
   });
 
   it("эталон 9 · имя занято другим содержимым — файл встаёт рядом, с номером; то же содержимое — один файл", async () => {
@@ -284,7 +286,8 @@ describe("файлы: тикет, история, предел", () => {
     const history = ((await st.request("session.history", { to: CS }, PULT)).result as { events: any[] }).events;
     expect(history[0]).toMatchObject({ uuid: "u1", message: { content: "Вот макет." }, files: [f] });
     expect(history[1]).toEqual(said[1]);
-    const live = await until(() => feed().find((e) => e.type === "user"), "событие ленты");
+    await st.clock.due(WINDOW_MS);
+    const live = feed().find((e) => e.type === "user")!;
     expect({ text: history[0].message.content, files: history[0].files }).toEqual({ text: live.message.content, files: live.files });
   });
 

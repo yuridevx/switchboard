@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { CALL_MS } from "@sb/protocol";
+import type { Clock } from "./clock.ts";
 
 const req = createRequire(import.meta.url);
 
@@ -24,15 +25,15 @@ export function claudePath(): string | undefined {
   return undefined;
 }
 
-/** Команда claude: вывод вместе, предел ms — потом убита. */
+/** Команда claude: вывод вместе, предел ms по часам ядра — потом убита. */
 export const claudeCli =
-  (bin: string | undefined, ms = CALL_MS) =>
+  (bin: string | undefined, clock: Clock, ms = CALL_MS) =>
   (args: string[], env: Record<string, string | undefined>, input?: string): Promise<{ code: number | null; out: string }> => {
     if (!bin) return Promise.resolve({ code: null, out: "claude не найден в пакете SDK" });
     return new Promise((resolve) => {
       const p = spawn(bin, args, { env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       let out = "";
-      const timer = setTimeout(() => {
+      const timer = clock.setTimeout(() => {
         p.kill("SIGKILL");
         // ответ сейчас: close ждёт и потомков, которые держат вывод
         resolve({ code: null, out: `${out}claude не ответил за ${ms / 1000} с` });
@@ -42,11 +43,11 @@ export const claudeCli =
       p.stdin.on("error", () => {});
       p.stdin.end(input);
       p.on("error", (e) => {
-        clearTimeout(timer);
+        clock.clearTimeout(timer);
         resolve({ code: null, out: String(e) });
       });
       p.on("close", (code) => {
-        clearTimeout(timer);
+        clock.clearTimeout(timer);
         resolve({ code, out });
       });
     });

@@ -1,6 +1,6 @@
 // Эталоны второй итерации: остаток сверки в Host.
 import { afterEach, describe, expect, it } from "vitest";
-import { make as chat } from "../src/modules/chat/chat.ts";
+import { make as chat, WINDOW_MS } from "../src/modules/chat/chat.ts";
 import { stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
@@ -25,7 +25,8 @@ describe("вопрос человеку", () => {
     expect(row).toMatchObject({ id: "q-1", to: PULT, seen: [PULT, PHONE] });
     expect((await st.request("answer", { to: "site@laptop", ask: "q-1", answer: "main" }, PHONE)).ok).toBe(true);
     await asked;
-    const done = await until(() => events(st!).find((e) => e.type === "ask.answered"), "итог вопроса в ленте");
+    await st.clock.due(WINDOW_MS);
+    const done = events(st).find((e) => e.type === "ask.answered");
     expect(done).toMatchObject({ type: "ask.answered", ask: "q-1", kind: "question", by: PHONE, answer: "main" });
   });
 });

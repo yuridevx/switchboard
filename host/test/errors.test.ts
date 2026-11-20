@@ -6,11 +6,11 @@ import { dirname, join } from "node:path";
 import { TROUBLE_SAMPLES } from "@sb/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Module } from "../src/core/contract.ts";
-import { make as chat } from "../src/modules/chat/chat.ts";
+import { make as chat, WINDOW_MS } from "../src/modules/chat/chat.ts";
 import { make as machine } from "../src/modules/machine/machine.ts";
 import { kindOf, named, troubles } from "../src/modules/machine/troubles.ts";
 import { toMetaRequest } from "../src/modules/proxy/muse/request.ts";
-import { stand, tick, until, type Stand } from "../stand/index.ts";
+import { stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 afterEach(async () => {
@@ -38,7 +38,7 @@ describe("беда сессии — в её ленту", () => {
     st.kernel.log.warn("call", { callsign: "ghost@laptop", why: "такой сессии нет" });
     st.kernel.log.warn("call", { callsign: CS, status: 400, why: REFUSED });
     // строки журнала написаны разом: в ленту они ушли одной пачкой — пришла она, пришло бы и лишнее
-    await until(() => logs().length, "событие log в ленте");
+    await st.clock.due(WINDOW_MS);
     expect(logs()).toEqual([{ type: "log", uuid: expect.any(String), level: "warn", msg: "call", why: REFUSED, at: expect.any(Number) }]);
     // журнал — тот же: строка в ленте ничего в нём не меняет
     expect(journal("call").map((l) => l.callsign)).toEqual(["ghost@laptop", CS]);
@@ -50,10 +50,12 @@ describe("беда сессии — в её ленту", () => {
     const { proc } = await st.open("site");
     await st.request("session.watch", { to: CS }, PULT);
     proc.send(say("a1", "Сверил: 260 адресов."));
-    await until(() => feed().some((e) => e.uuid === "a1"), "ответ в ленте");
+    await proc.settle();
+    await st.clock.due(WINDOW_MS);
     st.kernel.log.warn("call", { callsign: CS, status: 400, why: REFUSED });
     proc.send(say("a2", "Продолжаю."));
-    await until(() => feed().some((e) => e.uuid === "a2"), "второй ответ в ленте");
+    await proc.settle();
+    await st.clock.due(WINDOW_MS);
     const live = feed().filter((e) => e.type === "log" || e.type === "assistant");
     expect(live.map((e) => e.uuid ?? e.type)).toEqual(["a1", logs()[0]!.uuid, "a2"]);
     // файл разговора строки не хранит: её отдаёт лента, за записью a1
@@ -90,7 +92,7 @@ describe("беда сессии — в её ленту", () => {
     await st.open("site");
     await st.request("session.watch", { to: CS }, PULT);
     st.kernel.log.warn("call", { callsign: CS, why: REFUSED });
-    await until(() => logs().length, "событие log в ленте");
+    await st.clock.due(WINDOW_MS);
     expect([seen, logs().length]).toEqual([1, 1]);
     expect(st.journal().filter((l) => l.word === "module_failed")).toMatchObject([{ level: "error", module: "host-broken", callsign: CS, why: "не смог показать" }]);
   });
@@ -146,8 +148,11 @@ describe("беды Claude — одна таблица на машине", () => 
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
     await until(() => st!.kernel.sessions.get(CS)!.state === "busy", "ход идёт");
     await st.request("session.call", { to: CS, method: "interrupt" }, PULT);
-    // строка беды о прерванном ходе пошла бы в ленту той же пачкой, что итог хода
-    await until(() => feed().some((e) => e.type === "result"), "итог хода в ленте");
+    // процесс отвечает на прерывание итогом хода сразу: метка после прерывания идёт за итогом
+    await until(() => proc.interrupts === 1, "прерывание у процесса");
+    await proc.settle();
+    st.clock.advance(WINDOW_MS);
+    expect(feed().some((e) => e.type === "result")).toBe(true);
     expect(journal("sdk.result")).toMatchObject([{ callsign: CS, level: "info", word: "interrupted" }]);
     expect(logs()).toEqual([]);
   });
@@ -161,8 +166,8 @@ describe("беды Claude — одна таблица на машине", () => 
     proc.send(init);
     proc.send({ type: "result", subtype: "success", is_error: true, result: "API Error: Request rejected (429) · Subscription quota exhausted." });
     proc.send(init);
-    await until(() => logs().length === 2, "две строки беды в ленте");
-    await tick(20);
+    await proc.settle();
+    st.clock.advance(WINDOW_MS);
     expect(logs().map((e) => [e.level, e.msg, e.why])).toEqual([
       ["error", "sdk.init", "серверы инструментов не поднялись: ida"],
       ["error", "sdk.result", "ход остановлен: API Error: Request rejected (429) · Subscription quota exhausted."],

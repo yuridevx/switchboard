@@ -8,8 +8,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { Socket } from "node:net";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { PROXY_RULES, prefsGet, READ_MS, Refusal, within } from "@sb/protocol";
-import type { Clock } from "../../core/clock.ts";
+import { PROXY_RULES, prefsGet, READ_MS, Refusal } from "@sb/protocol";
+import { limited, type Clock } from "../../core/clock.ts";
 import type { HostApi, Module } from "../../core/contract.ts";
 import type { AccountsApi, Answered, Route } from "../accounts/contract.ts";
 import { compile, editRequest, type Rule, type Scope } from "./rules.ts";
@@ -103,7 +103,7 @@ export function make(): Module {
   function loadRules(): Promise<ReturnType<typeof compile>> {
     loading ??= (async () => {
       try {
-        const r = await within(host.call(prefsGet, { scope: "fleet", prefix: RULES }), READ_MS).catch((e: unknown) => {
+        const r = await limited(host.clock, host.call(prefsGet, { scope: "fleet", prefix: RULES }), READ_MS, () => new Refusal("timeout", "нет ответа")).catch((e: unknown) => {
           const x = e as Refusal;
           throw refuse("rules_unavailable", `prefs.get ${RULES}: ${x.word ?? "offline"}${x.why ? ` — ${x.why}` : ""}`);
         });
@@ -222,7 +222,7 @@ export function make(): Module {
           const label = meta ? "Meta" : (route.name ?? "провайдер");
           if (!anth) return say(404, "not_found_error", "not_supported", `${req.method} ${path}: у ${label} только /v1/messages`);
           const creds = { key: route.key ?? "", base: chatgpt ? route.to.replace(/\/+$/, "") : versioned(route.to), version: meta ? await muse(route.to) : "", dialect: meta ? ("meta" as const) : chatgpt ? ("chatgpt" as const) : ("openai" as const), author: `${route.name ?? ""}/${route.model ?? ""}`, label, ...(route.window ? { window: route.window } : {}) };
-          const refused = await messages(res, anth, creds, ac.signal, (why) => host.log.info("gap", { why: `${sid}: ${why}` }));
+          const refused = await messages(res, anth, creds, ac.signal, (why) => host.log.info("gap", { why: `${sid}: ${why}` }), host.clock);
           seen(res.statusCode, {}, Date.now() - t0, refused);
           return;
         }
@@ -320,7 +320,7 @@ export function make(): Module {
       server.close();
       server.closeIdleConnections();
       const idle = new Promise<void>((done) => server.once("close", () => done()));
-      await within(idle, STOP_MS, "вызовы не кончились").catch(() => {
+      await limited(host.clock, idle, STOP_MS, () => new Refusal("timeout", "вызовы не кончились")).catch(() => {
         host.log.info("proxy_stop", { why: `незаконченных вызовов ${calls.size}: оборваны — claude повторит их` });
       });
       for (const c of calls) c.abort();

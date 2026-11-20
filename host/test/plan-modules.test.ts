@@ -13,7 +13,7 @@ import { make as points, projectDir } from "../src/modules/points/points.ts";
 import { make as profiles } from "../src/modules/profiles/profiles.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
 import { make as shell } from "../src/modules/shell/shell.ts";
-import { stand, tick, until, type Stand } from "../stand/index.ts";
+import { stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 afterEach(async () => {
@@ -63,8 +63,8 @@ describe("план v2: запуски оболочки", () => {
   it("остановка Host: идущий запуск снят, ждущий его получает снимок killed", async () => {
     st = await stand({ modules: [shell({ root: shellRoot() })] });
     const started = (await st.request("shell.run", { to: "@laptop", shell: "node", script: "setTimeout(() => {}, 60000)" })).result as { run: string };
+    // запрос ждёт с того же шага: обработчик вызван сразу
     const waiting = st.request("shell.wait", { to: "@laptop", run: started.run, wait: 60 });
-    await tick();
     void st.kernel.shutdown("SIGTERM");
     expect((await waiting).result).toMatchObject({ state: "killed" });
   }, 40_000);
@@ -76,7 +76,8 @@ describe("план v2: запуски оболочки", () => {
     await st.open("site");
     const started = (await st.request("shell.run", { to: "@laptop", shell: "node", script: "setTimeout(() => {}, 300)" }, CS)).result as { run: string };
     expect((await st.request("shell.wait", { to: "@laptop", run: started.run, wait: 20 }, CS)).result).toMatchObject({ state: "done" });
-    await new Promise((r) => setTimeout(r, 200));
+    // весть о конце запуска решается в конце запуска и встаёт во ввод сессии в том же шаге: метка ввода пришла — вести нет
+    await st.settle(CS);
     expect(st.proc(CS).inputs.some((i) => String(i.message.content).includes("кончился"))).toBe(false);
   }, 40_000);
 });
@@ -407,12 +408,15 @@ describe("план v2: прокси модели", () => {
     const res = await a.call();
     expect(res.status).toBe(200);
     const home = st!.home;
-    await st!.kernel.shutdown("SIGTERM");
+    // предел остановки прокси — по часам машины: пять секунд проходят, когда их двигает тест
+    const down = st!.kernel.shutdown("SIGTERM");
+    await st!.clock.due(5_000);
+    await down;
     expect(st!.journal().some((l) => l.msg === "proxy_stop")).toBe(true);
     await st!.stop();
     const again = await session(hanging, home);
     expect(again.url).toBe(a.url);
-  }, 30_000);
+  });
 });
 
 describe("план v2: точки сами", () => {
@@ -435,8 +439,9 @@ describe("план v2: точки сами", () => {
     await until(() => puts === 1, "точка после хода");
     writeFileSync(file, line(1) + line(2));
     await st.turn(CS);
-    await new Promise((r) => setTimeout(r, 150));
-    expect(puts).toBe(1);
+    // барьер — та же очередь точек сессии: точка по запросу записана — точка конца хода, будь она, записана раньше неё
+    expect((await st.request("points.save", { to: CS })).ok).toBe(true);
+    expect(st.journal().filter((l) => l.msg === "point")).toHaveLength(2);
   });
 
   // чьё: код — «не чаще раза в 2 мин»: такт идёт по часам ядра
@@ -472,11 +477,10 @@ describe("план v2: точки сами", () => {
     await until(() => puts === 2, "точка на двадцатой минуте");
     proc.send({ type: "system", subtype: "session_state_changed", state: "idle" });
     await until(() => s.state === "idle", "ход кончился");
-    await new Promise((r) => setTimeout(r, 100));
-    const after = puts;
     st.clock.advance(10 * 60_000);
-    await new Promise((r) => setTimeout(r, 100));
-    expect(puts).toBe(after);
+    // барьер — та же очередь точек сессии: точка по запросу записана — точка такта, будь она, записана раньше неё
+    expect((await st.request("points.save", { to: CS })).ok).toBe(true);
+    expect(st.journal().filter((l) => l.msg === "point")).toHaveLength(3);
   });
 
   // устав: graceful shutdown — «доводит или отдаёт текущее»

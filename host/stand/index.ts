@@ -22,11 +22,6 @@ afterEach(() => {
   if (what.length) throw new Error(`стенд: не дождался — ${what.join("; ")}`);
 });
 
-/** Подождать n оборотов цикла событий: уходит вместе с таймерами модулей мимо часов ядра. */
-export const tick = async (n = 5) => {
-  while (n-- > 0) await new Promise((r) => setImmediate(r));
-};
-
 /** Поддельное соединение с объектом машины. */
 export class FakeLink {
   sent: Frame[] = [];

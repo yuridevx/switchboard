@@ -1,9 +1,11 @@
-// Часы ядра: время журнала и все пределы. На стенде их двигает тест.
-export type Clock = { now(): number; setTimeout(fn: () => void, ms: number): unknown; clearTimeout(h: unknown): void };
+// Часы ядра: время журнала, все пределы и такты. На стенде их двигает тест.
+/** clearTimeout снимает и таймер, и такт. */
+export type Clock = { now(): number; setTimeout(fn: () => void, ms: number): unknown; setInterval(fn: () => void, ms: number): unknown; clearTimeout(h: unknown): void };
 
 export const realClock: Clock = {
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),
+  setInterval: (fn, ms) => setInterval(fn, ms),
   clearTimeout: (h) => clearTimeout(h as NodeJS.Timeout),
 };
 

@@ -122,7 +122,8 @@ describe("журнал машины → история флота", () => {
     for (let i = 1; i < sent.length; i++) expect(sent[i]!.pos).toBe((sent[i - 1]!.pos as number) + Buffer.byteLength((sent[i - 1]!.lines as string[]).join("\n") + "\n"));
     const before = sent.length;
     st.clock.advance(SHIP_MS);
-    await new Promise((r) => setTimeout(r, 50));
+    // такт кончается взведением следующего: пачка, будь она, ушла бы раньше
+    await until(() => st.clock.pending().includes(SHIP_MS), "такт отправки прошёл");
     expect(writes(st)).toHaveLength(before);
     st.kernel.log.info("probe", { why: "дописано" });
     await tickShip(st, SHIP_MS);

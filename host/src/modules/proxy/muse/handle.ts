@@ -2,6 +2,7 @@
 // модель просит поиск — результаты уходят ей, и то же сообщение Anthropic идёт дальше.
 import type { ServerResponse } from "node:http";
 import type { Readable } from "node:stream";
+import type { Clock } from "../../../core/clock.ts";
 import { responsesHeaders } from "./headers.ts";
 import { estimateTokens, toMetaRequest } from "./request.ts";
 import { runSearch, type Creds } from "./search.ts";
@@ -94,8 +95,8 @@ export function countTokens(res: ServerResponse, anth: Json, creds: Creds): void
   sendJson(res, 200, { input_tokens: estimateTokens(body) });
 }
 
-/** Вызов модели Meta. gap — что перевод не знает: строкой в журнал Host. Ответ — текст отказа, если вызов кончился отказом. */
-export async function messages(res: ServerResponse, anth: Json, creds: Creds, signal: AbortSignal, gap: (why: string) => void): Promise<string | undefined> {
+/** Вызов модели Meta. gap — что перевод не знает: строкой в журнал Host; clock — часы ядра для такта ping. Ответ — текст отказа, если вызов кончился отказом. */
+export async function messages(res: ServerResponse, anth: Json, creds: Creds, signal: AbortSignal, gap: (why: string) => void, clock: Clock): Promise<string | undefined> {
   /** Отказ — claude конвертом Anthropic; его текст — вызывающему, в строку журнала. */
   const refuse = (e: ReturnType<typeof anthropicError>, headers?: Record<string, string>): string => (sendJson(res, e.status, e.body, headers), e.body.error.message);
   let meta;
@@ -120,7 +121,7 @@ export async function messages(res: ServerResponse, anth: Json, creds: Creds, si
   const tr = new StreamTranslator(ctx);
   const reducer = streaming ? null : new MessageReducer();
   const id = messageId();
-  let ping: ReturnType<typeof setInterval> | undefined;
+  let ping: unknown;
   let started = false;
   const emit = (ev: Json) => {
     if (streaming) res.write(`event: ${ev.type}\ndata: ${JSON.stringify(ev)}\n\n`);
@@ -154,7 +155,7 @@ export async function messages(res: ServerResponse, anth: Json, creds: Creds, si
         started = true;
         if (streaming) {
           res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
-          ping = setInterval(() => res.write(`event: ping\ndata: {"type":"ping"}\n\n`), PING_MS);
+          ping = clock.setInterval(() => res.write(`event: ping\ndata: {"type":"ping"}\n\n`), PING_MS);
         }
         emit(messageStart(id, anth.model));
       }
@@ -185,7 +186,7 @@ export async function messages(res: ServerResponse, anth: Json, creds: Creds, si
       roundBody = { ...roundBody, input: [...roundBody.input, ...replayItems(tr.lastOutput), ...outputs] };
     }
   } finally {
-    clearInterval(ping);
+    clock.clearTimeout(ping);
     signal.removeEventListener("abort", abort);
   }
   if (res.destroyed) return;
