@@ -1,33 +1,8 @@
 // Журнал шагов живого списка: одна строка журнала общей формы (protocol/src/log.ts) на каждый шаг проверки.
-// Список (live.mjs) пишет строки в файл SB2_STEPS, работа CI сохраняет его при прогоне;
+// Проверка (вход check, harness.mjs) пишет свои строки в файл, который ей называет список (live.mjs); список ставит на них место и прогон
+// и дописывает в файл SB2_STEPS прогона, работа CI сохраняет его при прогоне;
 // по этим файлам разбор истории (tools/test/history.mjs) считает красные работы и плавающие шаги.
 import fs from "node:fs";
-
-/** Название шага — до первого « · »; у шага с шириной экрана («1440 · …») ширина входит в название. */
-export function labelOf(body) {
-  const first = body.indexOf(" · ");
-  if (first < 0) return body.trim();
-  const cut = /^\d{3,4} · /.test(body) ? body.indexOf(" · ", first + 3) : first;
-  return (cut < 0 ? body : body.slice(0, cut)).trim();
-}
-
-/** Шаги прежней проверки — из её вывода: строка на шаг ✓ или ✗. Проверка на входе check (harness.mjs) отдаёт свои шаги строками сама. */
-export function parseLines(title, stdout, t) {
-  const base = { t, part: "check", module: title };
-  const lines = [];
-  for (const raw of stdout.split("\n")) {
-    const l = raw.trimEnd();
-    // те же строки, что считает итог списка: отметка — первый знак строки
-    if (l[0] !== "✓" && l[0] !== "✗") continue;
-    const ok = l[0] === "✓";
-    const body = l.slice(1).trimStart();
-    const msg = labelOf(body);
-    const ms = / · (\d+) мс$/.exec(body);
-    const why = body.slice(msg.length).replace(/^[\s·:]+/, "").slice(0, 300);
-    lines.push({ ...base, level: ok ? "info" : "error", msg, ok, ...(ms ? { ms: Number(ms[1]) } : {}), ...(!ok && why ? { why } : {}) });
-  }
-  return lines;
-}
 
 /** Строки шагов одной проверки — в журнал прогона: к каждой место, коммит и прогон.
  *  status — код выхода процесса проверки (null — снята по пределу); tail — последние слова её ошибки.
@@ -43,9 +18,6 @@ export function stamp(title, steps, status, tail, ctx) {
   }
   return lines;
 }
-
-/** Строки журнала прежней проверки по её выводу. */
-export const stepLines = (title, stdout, status, tail, ctx) => stamp(title, parseLines(title, stdout, ctx.t), status, tail, ctx);
 
 /** Дописать строки в файл журнала шагов. */
 export function appendSteps(file, lines) {

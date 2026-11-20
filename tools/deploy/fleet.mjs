@@ -3,15 +3,13 @@
 // Собирает страницу, считает отпечатки трёх частей дерева, спрашивает флот об отпечатках того, что стоит, и выкладывает
 // только несовпавшее, в порядке: платформа, службы со страницей, машины. Повторный запуск доводит оборванную выкладку.
 // --plan — только назвать, что было бы выложено. Отказ любого шага — выход с кодом 1 и причиной; уже выложенное остаётся.
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { digests } from "../build/digest.mjs";
 import { buildPage } from "../build/page.mjs";
 import { fleetEnv } from "../dev.mjs";
-import { fleetCall } from "../fleet/harness.mjs";
-import { rollLine, rollMachines } from "./machines.mjs";
+import { exec, fleetMust, rollLine, rollMachines } from "./machines.mjs";
 import { plan } from "./plan.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -24,19 +22,19 @@ const prod = process.env.SB2_ENV === "prod";
 const base = fleetEnv.SB2_BASE;
 const STEP_MS = 15 * 60_000; // предел одной команды выкладки
 
-const sh = (cmd, cmdArgs, opts = {}) => {
-  const r = spawnSync(cmd, cmdArgs, { cwd: root, stdio: "inherit", timeout: STEP_MS, ...opts });
+const sh = async (cmd, cmdArgs, opts = {}) => {
+  const r = await exec(cmd, cmdArgs, { cwd: root, timeout: STEP_MS, ...opts });
   if (r.status !== 0) throw new Error(`${cmd} ${cmdArgs.slice(0, 3).join(" ")}: ${r.status === null ? "предел вышел" : "код " + r.status}`);
   return r;
 };
 const node = (file, fileArgs, opts) => sh(process.execPath, [path.join(root, file), ...fileArgs], opts);
 // запрос флоту пропуском устройства — общий вход инструментов: результат или отказ словом
-const call = fleetCall(fleet, device).must;
+const call = fleetMust(fleet, device);
 // до первой выкладки отсюда служба об отпечатке не отвечает: ответа-JSON нет — отпечатка нет, часть выкладывается
 const health = async (p) => (await (await fetch(base + p, { signal: AbortSignal.timeout(30_000) })).json().catch(() => ({}))).digest;
 /** Версия Worker'а, которая стоит сейчас: номер для отката. */
-const version = (part) => {
-  const r = spawnSync(process.execPath, [path.join(here, "wrangler.mjs"), part, "deployments", "status", "--json", ...(prod ? ["--env", "prod"] : [])], { cwd: root, encoding: "utf8", timeout: STEP_MS });
+const version = async (part) => {
+  const r = await exec(process.execPath, [path.join(here, "wrangler.mjs"), part, "deployments", "status", "--json", ...(prod ? ["--env", "prod"] : [])], { cwd: root, stdio: ["ignore", "pipe", "ignore"], timeout: STEP_MS });
   return /"version_id":\s*"([^"]+)"/.exec(r.stdout ?? "")?.[1] ?? "нет";
 };
 
@@ -60,9 +58,9 @@ for (const part of todo) {
     done.push(rollLine(r));
     if (r.lost.length || r.failed.length) throw new Error(`после подмены Host: пропало сессий ${r.lost.length}, новых сбоев ${r.failed.length}`);
   } else {
-    const back = version(part);
-    node("tools/deploy/wrangler.mjs", [part, "deploy", "--var", `DIGEST:${tree[part]}`, ...(prod ? ["--env", "prod"] : [])]);
-    done.push(`${part} — версия ${version(part)} (откат ${back})`);
+    const back = await version(part);
+    await node("tools/deploy/wrangler.mjs", [part, "deploy", "--var", `DIGEST:${tree[part]}`, ...(prod ? ["--env", "prod"] : [])]);
+    done.push(`${part} — версия ${await version(part)} (откат ${back})`);
   }
   console.log("✓ " + done.at(-1));
 }

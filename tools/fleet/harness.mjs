@@ -12,7 +12,6 @@
 //   — сессии, папки и устройства выдаёт обвязка и убирает их при любом исходе; запрос, задевающий общее, проходит только по объявленной дорожке;
 //   — первый красный шаг останавливает проверку: следующие шаги стоят на том, что создал упавший.
 // Название, дорожку и метку проверке даёт список (live.mjs) при запуске; одна своя проверка запускается через него же, по названию.
-import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -463,45 +462,3 @@ export async function check(body, more = {}) {
   process.exit(await t.run(body));
 }
 
-/* ===== Прежние помощники: уходят, когда проверки переведены на вход check ===== */
-
-/** Временная папка машины глазами самой машины, под настоящим именем (на Windows os.tmpdir() бывает коротким именем — RUNNER~1): проверка идёт с любого компьютера, в том числе с раннера CI. */
-export function machineTmp(fleet, device, machine) {
-  const run = fleetCall(fleet, device).must("shell.run", { to: "@" + machine, shell: "node", script: 'import fs from "node:fs";import os from "node:os";process.stdout.write(fs.realpathSync.native(os.tmpdir()))', wait: 30 });
-  return String(run.out).trim().replaceAll("\\", "/");
-}
-
-/** Файл в хранилище флота по хэшу содержимого. Ответ — запись {name, hash, size} для поля files сообщения. */
-export async function putFile(fleet, device, name, bytes) {
-  const hash = crypto.createHash("sha256").update(bytes).digest("hex");
-  const link = fleetCall(fleet, device).must("files.put", { files: [{ hash, size: bytes.length }] }).upload[hash];
-  // ссылки нет — такое содержимое в хранилище уже лежит
-  if (link) {
-    const put = await fetch(link, { method: "PUT", body: bytes, signal: AbortSignal.timeout(60_000) });
-    if (!put.ok) throw new Error(`загрузка ${name}: HTTP ${put.status}`);
-  }
-  return { name, hash, size: bytes.length };
-}
-
-/** Запросы флоту от устройства: call — ответ целиком; must — результат или ошибка со словом отказа.
- *  Сеть машины разработки моргает: запрос, не дошедший до флота (offline), повторяется до пяти раз. */
-export function fleetCall(fleet, device) {
-  const call = (type, fields = {}) => {
-    for (let i = 0; ; i++) {
-      let r;
-      try {
-        r = JSON.parse(execFileSync(process.execPath, [path.join(root, "tools/fleet/call.ts"), fleet, device, type, JSON.stringify(fields)], { cwd: root, stdio: ["ignore", "pipe", "pipe"] }).toString());
-      } catch (e) {
-        r = JSON.parse(e.stdout.toString());
-      }
-      if (r.ok || r.error !== "offline" || i >= 4) return r;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
-    }
-  };
-  const must = (type, fields) => {
-    const r = call(type, fields);
-    if (!r.ok) throw new Error(`${type}: ${r.error} ${r.why ?? ""}`);
-    return r.result;
-  };
-  return { call, must };
-}
