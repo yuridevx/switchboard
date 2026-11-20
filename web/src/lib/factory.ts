@@ -29,7 +29,8 @@ export function waitWord(def: FactoryDef, t: Ticket): string {
 }
 /** Тикет, которым занят пост помимо своей очереди: шаг конвейера, который ведёт его сессия. */
 export const postStep = (name: string, call: string, tickets: Ticket[]): Ticket | undefined => tickets.find((t) => t.state === "work" && t.session === call && t.to !== name);
-/** Тикеты шага в порядке показа: идущие и ждущие — первыми, очередь — после них, старые раньше. */
+/** Тикеты исполнителя на шаге в порядке показа: идущие и ждущие — первыми, очередь — после них, старые раньше.
+ *  У поста и у сессии, которой тикет отдан по позывному, шаг один — нулевой. */
 export function atStep(line: string, step: number, tickets: Ticket[]): Ticket[] {
   const rank = (t: Ticket) => (t.state === "ready" ? 1 : 0);
   return tickets.filter((t) => t.to === line && t.step === step && t.state !== "done").sort((a, b) => rank(a) - rank(b) || a.since - b.since);

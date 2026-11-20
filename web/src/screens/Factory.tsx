@@ -112,8 +112,6 @@ const toWord = (def: FactoryDef, to: string) => def.lines[to]?.title ?? def.post
 /** Место тикета словами: конвейер и шаг, пост или сессия. */
 const whereWord = (def: FactoryDef, t: Ticket) => (t.to ? (stepOf(def, t) ? `${toWord(def, t.to)} · ${stepOf(def, t)!.name}` : toWord(def, t.to)) : "бэклог");
 const old = (a: Ticket, b: Ticket) => a.since - b.since;
-/** Очередь исполнителя: тот, что идёт, — первым, дальше старые раньше. */
-const queue = (a: Ticket, b: Ticket) => (a.state === "work" ? -1 : b.state === "work" ? 1 : a.since - b.since);
 
 type View = { f: FactoryState; tickets: Ticket[]; open: (t: Ticket) => void };
 
@@ -175,14 +173,15 @@ function Floor({ f, tickets, open }: View) {
   // пост: его очередь и шаг конвейера, которым он занят; без того и другого он свободен и стоит в ряду свободных
   const posts = Object.entries(def.posts).map(([name, p]) => {
     const call = postCall(name, p.at);
-    return { name, call, title: `${p.title ?? name} · ${call}`, theirs: live.filter((t) => t.to === name).sort(queue), step: postStep(name, call, live) };
+    return { name, call, title: `${p.title ?? name} · ${call}`, theirs: atStep(name, 0, tickets), step: postStep(name, call, live) };
   });
   const idle = posts.filter((x) => !x.step && !x.theirs.length);
-  // сессия, которой тикет отдан по позывному, — тот же исполнитель с дорожкой, пока тикет открыт
+  // сессия, которой тикет отдан по позывному, — тот же исполнитель с дорожкой, пока тикет открыт; порядок тикетов у поста и сессии —
+  // тот же, что на шаге конвейера: одно правило
   const direct = live.filter((t) => t.to && !def.lines[t.to] && !def.posts[t.to]);
   const lanes = [
     ...posts.filter((x) => x.step || x.theirs.length).map((x) => ({ ...x, label: `Пост ${def.posts[x.name]!.title ?? x.name}`, post: x.name as string | undefined })),
-    ...[...new Set(direct.map((t) => t.to!))].map((call) => ({ name: call, call, title: call, theirs: direct.filter((t) => t.to === call).sort(queue), step: undefined as Ticket | undefined, label: `Сессия ${call}`, post: undefined as string | undefined })),
+    ...[...new Set(direct.map((t) => t.to!))].map((call) => ({ name: call, call, title: call, theirs: atStep(call, 0, tickets), step: undefined as Ticket | undefined, label: `Сессия ${call}`, post: undefined as string | undefined })),
   ];
   const lines = Object.entries(def.lines);
   const talk = (call: string) => () => go(`/work/${call}`);
