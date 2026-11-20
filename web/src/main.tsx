@@ -16,6 +16,7 @@ import { api, isMock, quietly } from "./api.ts";
 import { Boundary } from "./common.tsx";
 import { onOpenFromPush } from "./lib/push.ts";
 import { Work } from "./screens/Work.tsx";
+import { Loading } from "./shell/Busy.tsx";
 import { Consent } from "./shell/Consent.tsx";
 import { Gate } from "./shell/Gate.tsx";
 import { openFromQuery } from "./shell/open.ts";
@@ -34,7 +35,8 @@ const Machine = lazy(() => import("./screens/Machine.tsx").then((m) => ({ defaul
 const Observe = lazy(() => import("./screens/Observe.tsx").then((m) => ({ default: m.Observe })));
 const Settings = lazy(() => import("./screens/Settings.tsx").then((m) => ({ default: m.Settings })));
 const Spend = lazy(() => import("./screens/Spend.tsx").then((m) => ({ default: m.Spend })));
-const late = (el: React.ReactNode) => <Suspense fallback={null}>{el}</Suspense>;
+// пока кусок сборки грузится, экран занят: знак aria-busy у области экрана
+const late = (el: React.ReactNode) => <Suspense fallback={<Loading />}>{el}</Suspense>;
 
 const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000, refetchOnWindowFocus: false } } });
 
