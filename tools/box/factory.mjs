@@ -22,7 +22,8 @@ export const MOVED = "moved";
 const human = turn(tool("mcp__fleet__ticket_set", { ticket: "{id}", verdict: "stop", note: "нужен человек" }), say("передано человеку"));
 const step = (note) => turn(tool("mcp__fleet__ticket_set", { ticket: "{id}", verdict: "done", note }), say("шаг сдан"));
 
-/** Файл определения: папки сессий — в папке коробки, уходят вместе с ней. */
+/** Файл определения: папки сессий — в папке коробки, уходят вместе с ней. Всё — на первой машине: «конвейер» идёт на тихой дорожке,
+ *  вторая машина отдана шумной (её Host перезапускают). */
 export function definition({ state, key, model, machines }) {
   const dir = state.replaceAll("\\", "/");
   const at = "@" + machines[0];
@@ -32,7 +33,7 @@ export function definition({ state, key, model, machines }) {
     repos: { pieces: { repo: REPO, upstream: UPSTREAM } },
     lines: {
       [LINE]: {
-        title: "Три шага", limit: 2, for: "10m", at: machines.map((m) => "@" + m), cwd: dir + "/line/{id}", key, model,
+        title: "Три шага", limit: 2, for: "10m", at: [at], cwd: dir + "/line/{id}", key, model,
         steps: [
           { name: "сделать", session: "new", do: step("сделано") },
           { name: "довести", session: "same", do: step("доведено") },
