@@ -18,6 +18,7 @@ import (
 type journal struct {
 	dir, fleet, machine string
 	mu                  sync.Mutex
+	tap                 func([]byte) // записанные строки — ещё и сюда, в порядке записи; ставит только стенд
 }
 
 func newJournal(home, fleet, machine string) *journal {
@@ -60,6 +61,9 @@ func (j *journal) write(b []byte) {
 	}
 	f.Write(b)
 	f.Close()
+	if j.tap != nil {
+		j.tap(b)
+	}
 }
 
 // conf — keeper.json.

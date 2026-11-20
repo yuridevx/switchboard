@@ -33,10 +33,10 @@ const (
 // barWords — слова, после которых соединяться бессмысленно.
 var barWords = map[string]bool{"bad_key": true, "revoked": true, "forbidden": true, "proto": true}
 
-// bar — пропуск не принят: связь останавливается, одна строка журнала.
+// bar — пропуск не принят: связь останавливается; строку link_stopped пишет link, когда встала.
 func (k *Keeper) bar(word, why string) {
 	k.barOnce.Do(func() {
-		k.fault("link_stopped", "word", word, "why", "пропуск не принят — исполняю сохранённый план без связи: "+why)
+		k.barWord, k.barWhy = word, why
 		close(k.barred)
 	})
 }
@@ -71,6 +71,10 @@ func (k *Keeper) link() {
 		case <-time.After(pause):
 		}
 		pause = min(pause*2, k.o.PauseMax)
+	}
+	// строка — когда связь встала: после неё Keeper не стучится
+	if k.isBarred() {
+		k.fault("link_stopped", "word", k.barWord, "why", "пропуск не принят — исполняю сохранённый план без связи: "+k.barWhy)
 	}
 }
 
@@ -234,6 +238,7 @@ func (k *Keeper) askPlan(ctx context.Context) {
 	case p.Build <= 0:
 		k.warn("plan_refused", "word", "bad_frame", "why", "план без номера сборки", "trace", trace)
 	default:
+		p.trace = trace
 		k.offer(*p)
 	}
 }

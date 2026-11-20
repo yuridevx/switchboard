@@ -47,11 +47,13 @@ type planFile struct {
 	Sha256 string `json:"sha256"`
 }
 
-// plan — план машины: одна сборка, архив Host и файл Keeper.
+// plan — план машины: одна сборка, архив Host и файл Keeper. trace — вопроса builds.plan, который его принёс (в plan.json не идёт): строка
+// plan журнала связана с запросом.
 type plan struct {
 	Build  int      `json:"build"`
 	Host   planFile `json:"host"`
 	Keeper planFile `json:"keeper"`
+	trace  string
 }
 
 // host — Host глазами Keeper.
@@ -80,6 +82,7 @@ type Keeper struct {
 	wake                      chan struct{}
 	barred                    chan struct{} // закрыт: пропуск не принят — связи больше нет
 	barOnce                   sync.Once
+	barWord, barWhy           string // слово и причина отказа; пишутся до закрытия barred
 	selfSha                   string
 
 	mu      sync.Mutex
@@ -217,7 +220,11 @@ func (k *Keeper) execute(p plan) bool {
 	if err := writeFile(filepath.Join(k.home, "plan.json"), b); err != nil {
 		k.fault("plan", "why", "plan.json не записан — после перезапуска keeper исполнит прежний: "+err.Error())
 	}
-	k.note("plan", "build", p.Build)
+	kv := []any{"build", p.Build}
+	if p.trace != "" {
+		kv = append(kv, "trace", p.trace)
+	}
+	k.note("plan", kv...)
 	k.applyHost(p)
 	return k.ctx.Err() == nil && k.selfUpdate(p)
 }
@@ -242,7 +249,7 @@ func (k *Keeper) applyHost(p plan) {
 	if same {
 		return
 	}
-	defer k.locked(func() { k.host.updating = false })
+	// смена кончается запуском Host или сбоем: флаг снимают startHost и failHost вместе с состоянием, до строки журнала
 	dir, err := k.installHost(p)
 	if k.ctx.Err() != nil {
 		return
@@ -271,7 +278,7 @@ func (k *Keeper) applyHost(p plan) {
 // failHost — сбой Host: работающая сборка работает дальше с причиной, иначе failed; строка в журнале машины и в журнале флота.
 func (k *Keeper) failHost(build int, why string) {
 	k.locked(func() {
-		k.host.why = why
+		k.host.why, k.host.updating = why, false
 		if k.host.h == nil {
 			k.host.state, k.host.build, k.host.since = "failed", build, time.Now()
 		}
@@ -345,7 +352,7 @@ func (k *Keeper) startHost(build int, dir string, restart bool) error {
 	}
 	k.locked(func() {
 		x := &k.host
-		x.h, x.pid, x.build, x.state, x.why, x.stopping, x.since = h, h.pid, build, "running", "", false, time.Now()
+		x.h, x.pid, x.build, x.state, x.why, x.stopping, x.updating, x.since = h, h.pid, build, "running", "", false, false, time.Now()
 		if restart {
 			x.restarts++
 		} else {

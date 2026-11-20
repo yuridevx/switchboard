@@ -1,6 +1,8 @@
 package main
 
-// Эталоны Keeper v2: одно свойство на зафиксированном входе.
+// Эталоны Keeper v2: одно свойство на зафиксированном входе. Время среди входов только там, где оно — свойство (ping, «закрой ввод»):
+// тест его задаёт и ждёт факт. Остальное тест ждёт событием стенда — строкой журнала Keeper, запросом или соединением флоту, словом процесса,
+// выходом процесса; «ничего не случилось» — после барьера, а не после паузы.
 import (
 	"bufio"
 	"encoding/json"
@@ -17,7 +19,7 @@ func TestConnectAsksPlanAndRunsHost(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
 	k := s.start()
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
+	s.until("Host сборки 1 работает", func() bool { return running(k, 1)() && s.f.hellosN() > 0 })
 	if n := s.f.asksN(); n != 1 {
 		t.Fatalf("вопросов о плане %d, ждали 1", n)
 	}
@@ -33,7 +35,7 @@ func TestConnectAsksPlanAndRunsHost(t *testing.T) {
 	if hello["type"] != "hello" || hello["role"] != "keeper" || hello["proto"] != float64(2) || hello["key"] != testKey || hello["path"] != "/m/home/win" {
 		t.Fatalf("hello: %v", hello)
 	}
-	waitFor(t, "Host записал своё окружение", func() bool { return hostEnv(s.home) != nil })
+	s.until("Host записал своё окружение", func() bool { return s.f.saidHas("env") })
 	env := hostEnv(s.home)
 	data := filepath.Join(s.home, "host", "data")
 	if env["SB_HOME"] != s.home || env["SB_FLEET"] != "home" || env["SB_MACHINE"] != "win" || env["SB_BUILD"] != "1" || env["SB_DATA"] != data ||
@@ -53,15 +55,17 @@ func TestSavedPlanRunsWithoutNetwork(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
 	k := s.start()
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
+	s.until("Host сборки 1 работает", running(k, 1))
 	k.Stop()
 	old, _ := heldOf(s.home, "host")
-	killHolders(s.home)
-	waitFor(t, "Host снят", func() bool { return !alive(old.Pid) && !alive(old.Holder) })
+	killHolders(s.home) // возврат — когда Host и держатель вышли
 	asks := s.f.asksN()
 	s.conf("http://127.0.0.1:1") // флота нет
 	k2 := s.start()
-	waitFor(t, "Host сборки 1 поднят с диска", func() bool { h, ok := heldOf(s.home, "host"); return running(k2, 1)() && ok && h.Pid != old.Pid })
+	s.until("Host сборки 1 поднят с диска", func() bool { return s.n("host_start") == 2 })
+	if h, ok := heldOf(s.home, "host"); !running(k2, 1)() || !ok || h.Pid == old.Pid {
+		t.Fatalf("Host с диска: %+v, был pid %d", h, old.Pid)
+	}
 	if s.f.asksN() != asks {
 		t.Fatal("Keeper без сети дошёл до флота")
 	}
@@ -72,34 +76,38 @@ func TestPlanChangedLeadsToPlanRequest(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
 	k := s.start()
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
+	s.until("Host сборки 1 работает", running(k, 1))
 	old, _ := heldOf(s.home, "host")
 	s.f.setPlan(s.f.hostPlan(2, "ok", nil))
-	time.Sleep(200 * time.Millisecond)
-	if stateOf(k).Host.Build != 1 {
+	// план у флота другой, а вопрос о плане был один — при подключении
+	if stateOf(k).Host.Build != 1 || s.f.asksN() != 1 {
 		t.Fatal("Keeper узнал о плане без кадра plan.changed")
 	}
 	s.f.push(map[string]any{"type": "plan.changed", "from": ".builds"})
-	waitFor(t, "Host сборки 2 работает", running(k, 2))
+	s.until("Host сборки 2 работает", running(k, 2))
 	if n := s.f.asksN(); n != 2 {
 		t.Fatalf("вопросов о плане %d, ждали 2", n)
 	}
-	waitFor(t, "прежний Host вышел", func() bool { return !alive(old.Pid) })
-	waitFor(t, "host.updated в журнале флота", func() bool { return s.f.ledgerHas("host.updated", "1 → 2") })
+	// новый Host запускается после выхода прежнего
+	if alive(old.Pid) {
+		t.Fatal("прежний Host не вышел")
+	}
+	s.until("host.updated в журнале флота", func() bool { return s.f.ledgerHas("host.updated", "1 → 2") })
 	// прежняя сборка остаётся на диске до следующей смены
 	s.f.setPlan(s.f.hostPlan(3, "ok", nil))
 	s.f.push(map[string]any{"type": "plan.changed"})
-	waitFor(t, "Host сборки 3 работает", running(k, 3))
-	waitFor(t, "папка сборки 1 убрана, сборки 2 — на месте", func() bool {
-		return !fileExists(filepath.Join(s.home, "host", "1")) && fileExists(filepath.Join(s.home, "host", "2"))
-	})
+	s.until("Host сборки 3 работает", running(k, 3))
+	s.planned() // смена на 3 доделана: папки убраны
+	if fileExists(filepath.Join(s.home, "host", "1")) || !fileExists(filepath.Join(s.home, "host", "2")) {
+		t.Fatal("папка сборки 1 не убрана или убрана папка сборки 2")
+	}
 }
 
 // Сборка флоту не назначена (план null): Keeper ничего не ставит и не падает.
 func TestNullPlanDoesNothing(t *testing.T) {
 	s := newStand(t)
 	k := s.start()
-	waitFor(t, "строка plan_none", func() bool { return has(s.home, "plan_none") })
+	s.until("строка plan_none", func() bool { return s.n("plan_none") > 0 })
 	if v := stateOf(k); v.Host.State != "stopped" || v.Host.Build != 0 {
 		t.Fatalf("состояние: %+v", v)
 	}
@@ -110,8 +118,8 @@ func TestFirstCrashRestartsOnce(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "crashonce", nil))
 	k := s.start()
-	waitFor(t, "Host поднят после падения", func() bool { return running(k, 1)() && count(s.home, "host_start") == 2 })
-	if has(s.home, "host_failed") {
+	s.until("Host поднят после падения", func() bool { return s.n("host_start") == 2 })
+	if !running(k, 1)() || s.n("host_failed") > 0 {
 		t.Fatal("одно падение записано как failed")
 	}
 }
@@ -121,12 +129,12 @@ func TestSecondCrashFailsAndKeeperAnswers(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "crash", nil))
 	k := s.start()
-	waitFor(t, "Host failed", func() bool { return stateOf(k).Host.State == "failed" })
-	if n := count(s.home, "host_start"); n != 2 {
-		t.Fatalf("запусков Host %d, ждали 2", n)
+	s.until("Host failed", func() bool { return s.n("host_failed") > 0 })
+	if n := s.n("host_start"); n != 2 || stateOf(k).Host.State != "failed" {
+		t.Fatalf("запусков Host %d, ждали 2; состояние %+v", n, stateOf(k))
 	}
-	waitFor(t, "host.failed в журнале флота", func() bool { return s.f.ledgerHas("host.failed", "второе падение") })
-	if !has(s.home, "host_exit") {
+	s.until("host.failed в журнале флота", func() bool { return s.f.ledgerHas("host.failed", "второе падение") })
+	if s.n("host_exit") == 0 {
 		t.Fatal("падение Host не записано в журнал машины (host_exit)")
 	}
 	r := s.f.ask(map[string]any{"type": "keeper.state", "id": "q1", "trace": "t-77", "to": ".keeper@win", "from": "pult~a@b.c"})
@@ -143,15 +151,14 @@ func TestSecondCrashFailsAndKeeperAnswers(t *testing.T) {
 		t.Fatalf("состояние: %v", res)
 	}
 	// тот же план ещё раз — failed остаётся: решает новая сборка
-	s.f.push(map[string]any{"type": "plan.changed"})
-	waitFor(t, "план спрошен снова", func() bool { return s.f.asksN() == 2 })
-	time.Sleep(300 * time.Millisecond)
-	if stateOf(k).Host.State != "failed" || count(s.home, "host_start") != 2 {
+	s.planned() // тот же план
+	s.planned() // барьер: план выше исполнен
+	if stateOf(k).Host.State != "failed" || s.n("host_start") != 2 {
 		t.Fatal("тот же план поднял упавший Host")
 	}
 	s.f.setPlan(s.f.hostPlan(2, "ok", nil))
 	s.f.push(map[string]any{"type": "plan.changed"})
-	waitFor(t, "другая сборка работает", running(k, 2))
+	s.until("другая сборка работает", running(k, 2))
 }
 
 // Перезапуск Host по запросу: та же сборка, новый процесс; упавший Host поднимается тем же запросом; в состоянии — pid Host и сборка плана.
@@ -159,7 +166,7 @@ func TestHostRestartOnRequest(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
 	k := s.start()
-	waitFor(t, "Host работает", running(k, 1))
+	s.until("Host работает", running(k, 1))
 	st := s.f.ask(map[string]any{"type": "keeper.state", "id": "q0"})["result"].(map[string]any)
 	pid := st["host"].(map[string]any)["pid"]
 	if pid == nil || pid == float64(0) || st["plan"] != float64(1) {
@@ -168,19 +175,22 @@ func TestHostRestartOnRequest(t *testing.T) {
 	if r := s.f.ask(map[string]any{"type": "host.restart", "id": "q1"}); r["ok"] != true {
 		t.Fatalf("ответ: %v", r)
 	}
-	waitFor(t, "Host запущен заново", func() bool { return running(k, 1)() && count(s.home, "host_start") == 2 && has(s.home, "host_restart") })
+	s.until("Host запущен заново", func() bool { return s.n("host_restart") > 0 })
+	if !running(k, 1)() || s.n("host_start") != 2 {
+		t.Fatalf("после перезапуска: запусков %d, состояние %+v", s.n("host_start"), stateOf(k))
+	}
 	st = s.f.ask(map[string]any{"type": "keeper.state", "id": "q2"})["result"].(map[string]any)
 	if st["host"].(map[string]any)["pid"] == pid {
 		t.Fatal("процесс Host тот же после перезапуска")
 	}
-	waitFor(t, "host.restarted в журнале флота", func() bool { return s.f.ledgerHas("host.restarted", "перезапущен") })
+	s.until("host.restarted в журнале флота", func() bool { return s.f.ledgerHas("host.restarted", "перезапущен") })
 }
 
 // Незнакомый запрос — отказ словом.
 func TestUnknownRequestRefused(t *testing.T) {
 	s := newStand(t)
 	s.start()
-	waitFor(t, "на связи", s.f.online)
+	s.until("на связи", s.f.online)
 	r := s.f.ask(map[string]any{"type": "shell.run", "id": "q2"})
 	if r["ok"] != false || r["error"] != "unknown_request" {
 		t.Fatalf("ответ: %v", r)
@@ -192,14 +202,16 @@ func TestHostSwapKeepsSessionHolders(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "session", nil))
 	k := s.start()
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
-	var sess heldFile
-	waitFor(t, "держатель сессии", func() bool { h, ok := heldOf(s.home, "site@win"); sess = h; return ok })
+	s.until("Host сборки 1 работает", running(k, 1))
+	s.until("держатель сессии", func() bool { return s.f.saidHas("session") })
+	sess, _ := heldOf(s.home, "site@win")
 	old, _ := heldOf(s.home, "host")
 	s.f.setPlan(s.f.hostPlan(2, "session", nil))
 	s.f.push(map[string]any{"type": "plan.changed"})
-	waitFor(t, "Host сборки 2 работает", running(k, 2))
-	waitFor(t, "прежний Host вышел", func() bool { return !alive(old.Pid) })
+	s.until("Host сборки 2 работает", running(k, 2))
+	if alive(old.Pid) {
+		t.Fatal("прежний Host не вышел")
+	}
 	now, ok := heldOf(s.home, "site@win")
 	if !ok || now.Pid != sess.Pid || now.Holder != sess.Holder || !alive(sess.Pid) || !alive(sess.Holder) {
 		t.Fatalf("держатель сессии: был %+v, стал %+v", sess, now)
@@ -218,7 +230,7 @@ func TestStopLeavesHostAndNextKeeperAdopts(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
 	k := s.start()
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
+	s.until("Host сборки 1 работает", running(k, 1))
 	h, _ := heldOf(s.home, "host")
 	k.Stop()
 	if !alive(h.Pid) || !alive(h.Holder) {
@@ -234,10 +246,10 @@ func TestStopLeavesHostAndNextKeeperAdopts(t *testing.T) {
 		t.Fatalf("последняя строка Keeper в журнале: %v", last)
 	}
 	k2 := s.start()
-	waitFor(t, "новый Keeper видит Host", running(k2, 1))
-	waitFor(t, "план спрошен", func() bool { return s.f.asksN() == 2 })
-	time.Sleep(200 * time.Millisecond)
-	if now, _ := heldOf(s.home, "host"); now.Pid != h.Pid || count(s.home, "host_start") != 1 || !has(s.home, "adopt") {
+	s.until("новый Keeper видит Host", running(k2, 1))
+	s.until("план спрошен", func() bool { return s.f.asksN() == 2 })
+	s.planned() // барьер: сохранённый план и план флота исполнены
+	if now, _ := heldOf(s.home, "host"); now.Pid != h.Pid || s.n("host_start") != 1 || s.n("adopt") == 0 {
 		t.Fatalf("Host перезапущен: был pid %d, стал %d", h.Pid, now.Pid)
 	}
 }
@@ -256,34 +268,31 @@ func TestSelfUpdate(t *testing.T) {
 	tn := fast
 	tn.self = func() (string, error) { return target, nil }
 	k := s.startWith(tn)
-	select {
-	case <-k.Done():
-	case <-time.After(60 * time.Second):
-		t.Fatal("Keeper не вышел после подмены: " + journalText(s.home))
-	}
+	waitChan(t, "Keeper вышел после подмены", k.Done())
 	if got, _ := fileSha(target); got != sha(next) {
 		t.Fatal("свой файл не подменён")
 	}
 	if olds, _ := filepath.Glob(target + ".*.old"); len(olds) != 1 {
 		t.Fatalf("прежний файл: %v", olds)
 	}
-	if !has(s.home, "self_update") || !s.f.ledgerHas("keeper.updated", "→ 2") {
+	// остановка ждёт запись журнала флота: последняя перед выходом доходит
+	if s.n("self_update") == 0 || !s.f.ledgerHas("keeper.updated", "→ 2") {
 		t.Fatal("подмена не записана: " + journalText(s.home))
 	}
 	h, ok := heldOf(s.home, "host")
 	if !ok || !alive(h.Pid) {
 		t.Fatal("подмена Keeper сняла Host")
 	}
-	// новый Keeper: тот же файл — подмены нет, прежний файл убран, Host тот же
+	// новый Keeper: тот же файл — подмены нет, прежний файл убран на старте, Host тот же
 	k2 := s.startWith(tn)
-	waitFor(t, "новый Keeper видит Host", running(k2, 2))
-	waitFor(t, "план спрошен", func() bool { return s.f.asksN() == 2 })
-	waitFor(t, "прежний файл убран", func() bool { olds, _ := filepath.Glob(target + ".*.old"); return len(olds) == 0 })
-	time.Sleep(200 * time.Millisecond)
-	select {
-	case <-k2.Done():
+	if olds, _ := filepath.Glob(target + ".*.old"); len(olds) != 0 {
+		t.Fatalf("прежний файл не убран: %v", olds)
+	}
+	s.until("новый Keeper видит Host", running(k2, 2))
+	s.until("план спрошен", func() bool { return s.f.asksN() == 2 })
+	s.planned() // барьер: план исполнен, подмена — его последний шаг
+	if s.n("keeper_exit") != 1 {
 		t.Fatal("Keeper подменил себя тем же файлом")
-	default:
 	}
 }
 
@@ -301,7 +310,7 @@ func TestSelfUpdateRefusesWrongBuild(t *testing.T) {
 	tn := fast
 	tn.self = func() (string, error) { return target, nil }
 	k := s.startWith(tn)
-	waitFor(t, "keeper.failed в журнале флота", func() bool { return s.f.ledgerHas("keeper.failed", "check_failed") })
+	s.until("keeper.failed в журнале флота", func() bool { return s.f.ledgerHas("keeper.failed", "check_failed") })
 	if b, _ := os.ReadFile(target); string(b) != "прежний файл" {
 		t.Fatal("файл подменён сборкой, которая себя не подтвердила")
 	}
@@ -315,19 +324,17 @@ func TestRevokedPassStopsKnocking(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
 	k := s.start()
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
+	s.until("Host сборки 1 работает", running(k, 1))
 	k.Stop()
 	hellos := s.f.hellosN()
 	s.f.locked(func() { s.f.closeWith = "revoked" })
 	k2 := s.start()
-	waitFor(t, "связь остановлена", func() bool { return has(s.home, "link_stopped") })
-	time.Sleep(600 * time.Millisecond) // двадцать пауз переподключения
+	// link_stopped пишется, когда связь встала: после неё подключений нет
+	s.until("связь остановлена", func() bool { return s.n("link_stopped") > 0 || s.f.hellosN()-hellos > 1 })
 	if n := s.f.hellosN() - hellos; n != 1 {
 		t.Fatalf("подключений после отзыва %d, ждали 1", n)
 	}
-	if !running(k2, 1)() {
-		t.Fatal("Host сохранённого плана не работает")
-	}
+	s.until("Host сохранённого плана работает", running(k2, 1))
 }
 
 // Пропуск не принят на запросе плана — то же: связь остановлена.
@@ -335,11 +342,12 @@ func TestBadKeyOnPlanStopsLink(t *testing.T) {
 	s := newStand(t)
 	s.f.locked(func() { s.f.planRefuse = "bad_key" })
 	s.start()
-	waitFor(t, "связь остановлена", func() bool { return has(s.home, "link_stopped") })
-	hellos := s.f.hellosN()
-	time.Sleep(500 * time.Millisecond)
-	if s.f.hellosN() != hellos || s.f.asksN() != 1 {
-		t.Fatalf("Keeper стучится: подключений %d → %d, вопросов %d", hellos, s.f.hellosN(), s.f.asksN())
+	// link_stopped пишется, когда связь встала: после неё подключений и вопросов нет
+	s.until("связь остановлена", func() bool {
+		return s.n("link_stopped") > 0 && s.f.hellosN() > 0 || s.f.hellosN() > 1 || s.f.asksN() > 1
+	})
+	if s.f.hellosN() != 1 || s.f.asksN() != 1 {
+		t.Fatalf("Keeper стучится: подключений %d, вопросов %d", s.f.hellosN(), s.f.asksN())
 	}
 }
 
@@ -348,36 +356,43 @@ func TestReconnectAsksPlanAgain(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
 	k := s.start()
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
+	s.until("Host сборки 1 работает", running(k, 1))
 	s.f.setPlan(s.f.hostPlan(2, "ok", nil))
 	s.f.mu.Lock()
 	c := s.f.conn
 	s.f.conn = nil
 	s.f.mu.Unlock()
 	c.CloseNow()
-	waitFor(t, "Host сборки 2 после переподключения", running(k, 2))
+	s.until("Host сборки 2 после переподключения", func() bool { return running(k, 2)() && s.f.hellosN() >= 2 })
 	if s.f.hellosN() != 2 {
 		t.Fatalf("подключений %d, ждали 2", s.f.hellosN())
 	}
 }
 
 // Молчаливый обрыв (слово пользователя 16 нояб.: ping 10 с у всех компонентов): pong держит соединение; флот перестал отвечать pong,
-// хотя кадры шлёт, — до второго ping соединение признано мёртвым, Keeper подключается снова.
+// хотя кадры шлёт, — до второго ping соединение признано мёртвым, Keeper подключается снова. Срок — вход теста: ping задаёт тест, факт —
+// какой ping ушёл по соединению последним.
 func TestSilentLinkReconnects(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
-	k := s.start()
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
-	time.Sleep(2500 * time.Millisecond) // три ping при fast.ping = 1 с
-	if n := s.f.hellosN(); n != 1 {
-		t.Fatalf("соединение с ответами на ping переподключалось: подключений %d", n)
+	s.f.locked(func() { s.f.pongs = 1 }) // pong — на первый ping; на второй — кадр вместо pong
+	tn := fast
+	tn.ping = time.Second
+	s.startWith(tn)
+	s.until("новое подключение после молчания, прежнее дочитано", func() bool {
+		s.f.mu.Lock()
+		defer s.f.mu.Unlock()
+		return len(s.f.conns) > 0 && s.f.conns[0].pings > 2 || len(s.f.conns) >= 2 && s.f.conns[0].over
+	})
+	s.f.mu.Lock()
+	pings := s.f.conns[0].pings
+	s.f.mu.Unlock()
+	// второй ping ушёл — pong на первый держит соединение; третьего нет — ping без pong замечен к следующему ping, хотя кадр пришёл
+	if pings != 2 {
+		t.Fatalf("ping по первому соединению %d, ждали 2", pings)
 	}
-	s.f.locked(func() { s.f.mute = true })
-	t0 := time.Now()
-	// флот молчит на ping, но шлёт кадры: живость доказывает только pong
-	waitFor(t, "новое подключение после молчания", func() bool { s.f.push(map[string]any{"type": "noop"}); return s.f.hellosN() == 2 })
-	if d := time.Since(t0); d > 2*fast.ping+time.Second {
-		t.Fatalf("молчание замечено за %v, предел — два ping", d)
+	if !s.line("link_closed", "нет ответа на ping") {
+		t.Fatal("соединение закрыто не по молчанию: " + journalText(s.home))
 	}
 }
 
@@ -386,12 +401,12 @@ func TestBadArchiveKeepsRunningHost(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
 	k := s.start()
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
+	s.until("Host сборки 1 работает", running(k, 1))
 	p := s.f.hostPlan(2, "ok", nil)
 	p["host"].(map[string]any)["sha256"] = strings.Repeat("0", 64)
 	s.f.setPlan(p)
 	s.f.push(map[string]any{"type": "plan.changed"})
-	waitFor(t, "сбой записан", func() bool { return s.f.ledgerHas("host.failed", "sha256") })
+	s.until("сбой записан", func() bool { return s.f.ledgerHas("host.failed", "sha256") })
 	v := stateOf(k)
 	if v.Host.State != "running" || v.Host.Build != 1 || !strings.Contains(v.Host.Why, "download_failed") {
 		t.Fatalf("состояние: %+v", v)
@@ -417,13 +432,13 @@ func TestNpmCiWhenLockPresent(t *testing.T) {
 	os.WriteFile(filepath.Join(s.home, "keeper.json"), b, 0o600)
 	s.f.setPlan(s.f.hostPlan(1, "ok", map[string]string{"package-lock.json": "{}"}))
 	k := s.start()
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
+	s.until("Host сборки 1 работает", running(k, 1))
 	if got, _ := os.ReadFile(filepath.Join(s.home, "host", "1", "npm-ran")); string(got) != "ci" {
 		t.Fatalf("npm ci не запускался: %q", got)
 	}
 	s.f.setPlan(s.f.hostPlan(2, "ok", nil))
 	s.f.push(map[string]any{"type": "plan.changed"})
-	waitFor(t, "Host сборки 2 работает", running(k, 2))
+	s.until("Host сборки 2 работает", running(k, 2))
 	if fileExists(filepath.Join(s.home, "host", "2", "npm-ran")) {
 		t.Fatal("npm ci запущен без package-lock.json")
 	}
@@ -436,12 +451,12 @@ func TestDeafHostKilledOnSwap(t *testing.T) {
 	tn := fast
 	tn.stop = 500 * time.Millisecond
 	k := s.startWith(tn)
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
+	s.until("Host сборки 1 работает", running(k, 1))
 	old, _ := heldOf(s.home, "host")
 	s.f.setPlan(s.f.hostPlan(2, "ok", nil))
 	s.f.push(map[string]any{"type": "plan.changed"})
-	waitFor(t, "Host сборки 2 работает", running(k, 2))
-	if alive(old.Pid) || !has(s.home, "stop_late") {
+	s.until("Host сборки 2 работает", running(k, 2))
+	if alive(old.Pid) || s.n("stop_late") == 0 {
 		t.Fatal("глухой Host не убит")
 	}
 }
@@ -449,11 +464,11 @@ func TestDeafHostKilledOnSwap(t *testing.T) {
 // Журнал — строки одной формы с остальными частями: t в мс, level, part keeper, module, msg, флот и машина.
 func TestJournalLineForm(t *testing.T) {
 	s := newStand(t)
-	s.f.setPlan(s.f.hostPlan(1, "ok", nil))
-	k := s.start()
-	waitFor(t, "Host сборки 1 работает", running(k, 1))
-	waitFor(t, "вывод Host в журнале", func() bool { return has(s.home, "out") })
-	mods := map[string]bool{}
+	// Host печатает строку и падает: держатель пишет его вывод в журнал раньше, чем отдаёт выход, — строка host_exit идёт после
+	s.f.setPlan(s.f.hostPlan(1, "crashonce", nil))
+	s.start()
+	s.until("Host вышел", func() bool { return s.n("host_exit") > 0 })
+	mods, out := map[string]bool{}, false
 	for _, r := range records(s.home) {
 		ts, _ := r["t"].(float64)
 		lvl, _ := r["level"].(string)
@@ -461,9 +476,10 @@ func TestJournalLineForm(t *testing.T) {
 			t.Fatalf("строка журнала: %v", r)
 		}
 		mods[r["module"].(string)] = true
+		out = out || r["msg"] == "out"
 	}
-	if !mods["keeper"] || !mods["holder"] {
-		t.Fatalf("модули журнала: %v", mods)
+	if !mods["keeper"] || !mods["holder"] || !out {
+		t.Fatalf("модули журнала: %v, вывод Host: %v", mods, out)
 	}
 }
 
@@ -550,10 +566,12 @@ func TestInstallRefusals(t *testing.T) {
 func TestHolderProtocol(t *testing.T) {
 	home := t.TempDir()
 	t.Cleanup(func() { killHolders(home) })
-	h := holdApp(t, home, "site@win", "host")
-	time.Sleep(300 * time.Millisecond) // вывод до первого хозяина
+	f := newFleet(t)
+	h, exited := holdApp(t, home, "site@win", "host", "KEEPER_TEST_SAID="+f.srv.URL+"/said")
+	// вывод до первого хозяина: процесс записал больше трубы — держатель прочитал начало без хозяина
+	f.b.until(t, "процесс напечатал", func() bool { return f.saidHas("printed") })
 	o, hello := attachHeld(t, h)
-	if hello.Pid != h.Pid {
+	if hello.Pid != h.Pid || hello.Buffered == 0 {
 		t.Fatalf("hello: %+v, файл: %+v", hello, h)
 	}
 	if out, _ := o.read("app start"); !strings.Contains(out, "app start") {
@@ -569,20 +587,20 @@ func TestHolderProtocol(t *testing.T) {
 		t.Fatalf("выход: %+v, вывод %q", exit, out)
 	}
 	o.c.Close()
-	waitFor(t, "держатель вышел", func() bool { return !alive(h.Holder) })
+	waitChan(t, "держатель вышел", exited)
 }
 
 // Новый хозяин вытесняет прежнего; «убей» — выход с сигналом.
 func TestHolderOwnerReplacedAndKill(t *testing.T) {
 	home := t.TempDir()
 	t.Cleanup(func() { killHolders(home) })
-	h := holdApp(t, home, "site@win", "host")
+	h, _ := holdApp(t, home, "site@win", "host")
 	first, _ := attachHeld(t, h)
 	first.read("app start")
 	second, _ := attachHeld(t, h)
 	defer second.c.Close()
-	if _, err := first.c.Read(make([]byte, 1)); err == nil {
-		t.Fatal("прежний хозяин не вытеснен")
+	if _, err := first.c.Read(make([]byte, 1)); err == nil || os.IsTimeout(err) {
+		t.Fatalf("прежний хозяин не вытеснен: %v", err)
 	}
 	putFrame(second.c, 'k', nil)
 	_, exit := second.read("")
@@ -598,7 +616,7 @@ func TestHolderOwnerReplacedAndKill(t *testing.T) {
 func TestHolderRefusesBadKey(t *testing.T) {
 	home := t.TempDir()
 	t.Cleanup(func() { killHolders(home) })
-	h := holdApp(t, home, "site@win", "host")
+	h, _ := holdApp(t, home, "site@win", "host")
 	bad := h
 	bad.Key = "00"
 	c, err := dialHolder(bad)
@@ -606,6 +624,7 @@ func TestHolderRefusesBadKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
+	c.SetDeadline(testDeadline(t))
 	putFrame(c, 'a', []byte(bad.Key))
 	typ, b, _ := getFrame(c)
 	if typ != 'e' || string(b) != "bad_key" {
@@ -632,14 +651,16 @@ func TestHostRestartRaisesFailedAndResetsCrashCount(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "crash", nil))
 	k := s.start()
-	waitFor(t, "Host failed", func() bool { return stateOf(k).Host.State == "failed" && count(s.home, "host_start") == 2 })
+	s.until("Host failed", func() bool { return s.n("host_failed") == 1 })
+	if n := s.n("host_start"); n != 2 {
+		t.Fatalf("запусков Host до failed %d, ждали 2", n)
+	}
 	if r := s.f.ask(map[string]any{"type": "host.restart", "id": "q1"}); r["ok"] != true {
 		t.Fatalf("ответ: %v", r)
 	}
-	// запрос поднял Host (третий запуск); он упал — один перезапуск (четвёртый); упал снова — failed
-	waitFor(t, "после запроса — запуск и ещё один перезапуск", func() bool { return count(s.home, "host_start") == 4 && stateOf(k).Host.State == "failed" })
-	time.Sleep(300 * time.Millisecond)
-	if n := count(s.home, "host_start"); n != 4 {
+	// запрос поднял Host (третий запуск); он упал — один перезапуск (четвёртый); упал снова — failed: после этой строки актор ничего не ждёт
+	s.until("после запроса — запуск, перезапуск и failed", func() bool { return s.n("host_failed") == 2 || s.n("host_start") > 4 })
+	if n := s.n("host_start"); n != 4 || stateOf(k).Host.State != "failed" {
 		t.Fatalf("запусков Host %d, ждали 4: счёт падений не сброшен или перезапусков больше одного", n)
 	}
 }
@@ -650,15 +671,18 @@ func TestHostRestartKeepsSessionHolders(t *testing.T) {
 	s := newStand(t)
 	s.f.setPlan(s.f.hostPlan(1, "session", nil))
 	k := s.start()
-	waitFor(t, "Host работает", running(k, 1))
-	var sess heldFile
-	waitFor(t, "держатель сессии", func() bool { h, ok := heldOf(s.home, "site@win"); sess = h; return ok })
+	s.until("Host работает", running(k, 1))
+	s.until("держатель сессии", func() bool { return s.f.saidHas("session") })
+	sess, _ := heldOf(s.home, "site@win")
 	old, _ := heldOf(s.home, "host")
 	if r := s.f.ask(map[string]any{"type": "host.restart", "id": "q1"}); r["ok"] != true {
 		t.Fatalf("ответ: %v", r)
 	}
-	waitFor(t, "Host запущен заново", func() bool { return running(k, 1)() && count(s.home, "host_start") == 2 })
-	waitFor(t, "прежний Host вышел", func() bool { return !alive(old.Pid) })
+	s.until("Host запущен заново", func() bool { return s.n("host_restart") > 0 })
+	// новый Host запускается после выхода прежнего
+	if !running(k, 1)() || s.n("host_start") != 2 || alive(old.Pid) {
+		t.Fatalf("перезапуск: запусков %d, прежний pid %d жив: %v", s.n("host_start"), old.Pid, alive(old.Pid))
+	}
 	now, ok := heldOf(s.home, "site@win")
 	if !ok || now.Pid != sess.Pid || now.Holder != sess.Holder || !alive(sess.Pid) || !alive(sess.Holder) {
 		t.Fatalf("держатель сессии: был %+v, стал %+v", sess, now)

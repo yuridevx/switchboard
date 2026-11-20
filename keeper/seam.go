@@ -8,10 +8,11 @@ import (
 	"time"
 )
 
-// tuning — пределы стенда; ноль — как в работе.
+// tuning — пределы стенда; ноль — как в работе. tap — строки журнала keeper стенду, в порядке записи: стенд ждёт строку, а не читает файл.
 type tuning struct {
 	stop, planWait, ping, pauseFirst, pauseMax, download, holderWait time.Duration
 	self                                                             func() (string, error)
+	tap                                                              func([]byte)
 }
 
 // keeperHandle — запущенный keeper.
@@ -30,6 +31,7 @@ func bootKeeper(home string, t tuning) (keeperHandle, error) {
 	if err != nil {
 		return nil, err
 	}
+	k.j.tap = t.tap
 	k.Run()
 	return k, nil
 }

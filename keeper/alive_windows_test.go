@@ -12,3 +12,13 @@ func alive(pid int) bool {
 	var code uint32
 	return windows.GetExitCodeProcess(h, &code) == nil && code == 259 // STILL_ACTIVE
 }
+
+// waitGone — дождаться выхода процесса, и не своего потомка: описатель процесса срабатывает, когда процесс вышел.
+func waitGone(pid int) {
+	h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		return // процесса нет
+	}
+	defer windows.CloseHandle(h)
+	windows.WaitForSingleObject(h, windows.INFINITE)
+}
