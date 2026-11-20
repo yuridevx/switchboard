@@ -235,6 +235,12 @@ export function kit(o) {
     if (r.state !== "done") throw new Error(`скрипт на ${machine}: ${r.state} ${String(r.stderr ?? r.out ?? "").slice(0, 200)}`);
     return String(r.out ?? r.stdout ?? "");
   }
+  /** Ворота: команда сценария стоит, пока проверка их не откроет. command(word) — текст команды Bash: ждёт ворота и печатает слово;
+   *  ею проверка держит и ход (hold), и фоновую команду, и ход чужой задачи. dir — папка на машине, где встанет файл ворот. */
+  function gate(machine, dir) {
+    const id = newId("g"), file = `${dir}/gate-${id}`;
+    return { id, command: (word = "отпущено") => `until [ -f '${file}' ]; do sleep 0.2; done; echo ${word}`, open: () => node(machine, `fs.writeFileSync(${JSON.stringify(file)}, "")`) };
+  }
   const dirs = new Map();
   /** Своя папка на машине — во временной папке машины под её настоящим именем (на Windows os.tmpdir() бывает коротким: RUNNER~1). */
   async function tmp(machine = o.machine) {
@@ -266,7 +272,8 @@ export function kit(o) {
     const full = `${name}-${tag}`;
     const cwd = given ?? `${await tmp(machine)}/${full}`;
     const more = { ...(prompt ? { prompt } : {}), ...(pair ? { pair } : {}), ...(resume ? { resume } : {}), ...(fork ? { fork } : {}) };
-    const r = await must("session.open", { to: "@" + machine, spec: { name: full, cwd, ...(await doc()), ...extra }, mkdir: true, ...more });
+    const seated = extra.key && extra.model ? {} : await doc();
+    const r = await must("session.open", { to: "@" + machine, spec: { name: full, cwd, ...seated, ...extra }, mkdir: true, ...more });
     const s = own(r.callsign, cwd);
     // ведомый уходит вместе с ведущей: своей уборки у него нет
     if (r.wing) s.wing = handle(r.wing, cwd);
@@ -328,17 +335,16 @@ export function kit(o) {
       /** «Посреди хода»: ход стоит на первом шаге сценария, пока проверка его не отпустит; then — шаги после (по умолчанию ответ «готово»).
        *  Ответ — release(): отпустить и дождаться итога хода. */
       async hold(...then) {
-        const id = newId("g");
-        const gate = `${cwd}/gate-${id}`;
-        const uuid = await send(script(tool("Bash", { command: `until [ -f '${gate}' ]; do sleep 0.2; done; echo отпущено` }), ...(then.length ? then : [say("готово")])));
+        const g = gate(machine, cwd);
+        const uuid = await send(script(tool("Bash", { command: g.command() }), ...(then.length ? then : [say("готово")])));
         await wait(`${cs} стоит на шаге сценария`, async () => {
           const x = await row();
           seen = `строка сессии — ${x?.state ?? "нет"}`;
           const { events } = await must("session.history", { to: cs, limit: 200 });
           const at = events.findIndex((e) => e.uuid === uuid);
-          return at >= 0 && JSON.stringify(events.slice(at + 1).filter((e) => e.type === "assistant")).includes(id);
+          return at >= 0 && JSON.stringify(events.slice(at + 1).filter((e) => e.type === "assistant")).includes(g.id);
         }, () => seen);
-        return { uuid, release: async () => (await node(machine, `fs.writeFileSync(${JSON.stringify(gate)}, "")`), ended(uuid)) };
+        return { uuid, release: async () => (await g.open(), ended(uuid)) };
       },
     };
     return s;
@@ -415,7 +421,7 @@ export function kit(o) {
   const t = {
     title: o.title, tag, lane, fleet: o.fleet, device: o.device, machine: o.machine, second: o.second,
     base: o.base, key: o.key,
-    call, must, fetch: get, put, wait, step, only, defer, node, tmp, session, own, page, shots, lacks: o.lacks ?? lacks,
+    call, must, fetch: get, put, wait, step, only, defer, node, tmp, gate, session, own, page, shots, lacks: o.lacks ?? lacks,
     /** Картина флота на сейчас. */
     get picture() { return picture; },
   };
