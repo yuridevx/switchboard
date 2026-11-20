@@ -1,77 +1,48 @@
-// Живая проверка оповещения о сбое: node tools/fleet/live-alert.mjs <флот> <устройство с пропуском админа> [headless|window]
+// Живая проверка оповещения о сбое: node tools/fleet/live-alert.mjs <флот> <устройство с пропуском админа>
 // Настоящий Chrome подписывается на уведомления выложенной страницы; затем в журнал флота пишется сбой Host выдуманной машины —
-// служба наблюдения должна позвать админа, и пуш должен показаться сервис-воркером. Подписка и пропуск проверки в конце убираются.
-import { execFileSync } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-import { dev, fleetEnv } from "../dev.mjs";
-import { chromium, fleetCall, newTag } from "./harness.mjs";
+// служба наблюдения должна позвать админа, и пуш должен показаться сервис-воркером. Подписка и приглашение в конце убираются;
+// запись о сбое остаётся: журнал флота только дописывается.
+import { check } from "./harness.mjs";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const [fleet = "test", device = "cli", mode = "window"] = process.argv.slice(2);
-const dir = dev;
-const env = fleetEnv;
-const base = env.SB2_BASE;
-const { call } = fleetCall(fleet, device);
+await check(async (t) => {
+  let page, device = "";
 
-const steps = [];
-const say = (ok, label, note = "") => steps.push(`${ok ? "✓" : "✗"} ${label}${note ? ` · ${note}` : ""}`);
-const me = call("whoami", {}).result;
-const tag = newTag();
-const invite = call("invite", { addr: "alert" + tag + me.person }).result;
-
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sb2-alert-"));
-const ctx = await chromium.launchPersistentContext(profile, { channel: "chrome", headless: mode === "headless", viewport: { width: 1280, height: 800 }, permissions: ["notifications"] });
-await ctx.grantPermissions(["notifications"], { origin: base });
-const page = ctx.pages()[0] ?? (await ctx.newPage());
-let deviceId = "";
-try {
-  await page.goto(`${base}/#invite=${encodeURIComponent(invite.invite)}`);
-  await page.getByText("Работа", { exact: true }).first().waitFor({ timeout: 25_000 });
-  // подписка браузера ключом флота — запросами договора, без кода страницы: проверяется служба, а не кнопка
-  const sub = await page.evaluate(async () => {
-    const key = localStorage.getItem("sb2.key");
-    const ask = async (type, fields = {}) => (await (await fetch("/call", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + key }, body: JSON.stringify({ type, id: "r" + Math.random().toString(36).slice(2), ...fields }) })).json());
-    const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
-    const b64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    try {
+  await t.step("браузер подписан на уведомления флота", async () => {
+    // подписка на уведомления живёт только в окне настоящего Chrome со своим профилем
+    page = await t.page({ width: 1280, height: 800, profile: true, permissions: ["notifications"] });
+    // подписка браузера ключом флота — запросами договора, без кода страницы: проверяется служба, а не кнопка
+    const sub = await page.evaluate(async () => {
+      const key = localStorage.getItem("sb2.key");
+      const ask = async (type, fields = {}) => {
+        const r = await (await fetch("/call", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + key }, body: JSON.stringify({ type, id: "r" + Math.random().toString(36).slice(2), ...fields }) })).json();
+        if (!r.ok) throw new Error(`${type}: ${r.error} ${r.why ?? ""}`);
+        return r.result;
+      };
+      const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+      const b64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
       const reg = (await navigator.serviceWorker.getRegistration("/")) ?? (await navigator.serviceWorker.register("/sw.js", { scope: "/" }));
       await navigator.serviceWorker.ready;
-      const k = await ask("reach.key");
-      if (!k.ok) return { error: "reach.key: " + k.error };
-      const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: unb64u(k.result.key) });
-      const r = await ask("reach.subscribe", { kind: "webpush", endpoint: s.endpoint, p256dh: b64u(s.getKey("p256dh")), auth: b64u(s.getKey("auth")), label: "живая проверка оповещения" });
-      return r.ok ? { id: r.result.id } : { error: "reach.subscribe: " + r.error + " " + (r.why ?? "") };
-    } catch (e) {
-      return { error: String(e?.message ?? e) };
-    }
+      const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: unb64u((await ask("reach.key")).key) });
+      return ask("reach.subscribe", { kind: "webpush", endpoint: s.endpoint, p256dh: b64u(s.getKey("p256dh")), auth: b64u(s.getKey("auth")), label: "живая проверка оповещения" });
+    });
+    device = sub.id;
+    t.defer(`устройство уведомлений ${device}`, (go) => go("reach.remove", { device }));
+    return device;
   });
-  deviceId = sub.id ?? "";
-  say(!!sub.id, "браузер подписан на уведомления флота", sub.id ? "" : sub.error);
-  if (sub.id) {
-    // сбой Host выдуманной машины: причина новая при каждом запуске — получасовое молчание об одной причине не мешает
-    const text = "живая проверка оповещения " + tag;
-    const add = call("ledger.add", { what: "host.failed", machine: "probe-" + tag, text });
-    say(add.ok, "сбой части записан в журнал флота", add.ok ? "" : `${add.error}: ${add.why ?? ""}`);
-    let got = [];
-    // уведомление идёт через службу пушей браузера: когда рядом идут другие проверки, оно приходит позже — ждём до 45 с
-    for (let i = 0; i < 30 && !got.length; i++) {
-      await page.waitForTimeout(1500);
-      got = await page.evaluate(async () => (await (await navigator.serviceWorker.getRegistration("/")).getNotifications()).map((n) => n.title + " — " + n.body));
-    }
-    const mine = got.filter((n) => n.includes(tag));
-    say(mine.length > 0, "оповещение админу показано уведомлением", mine[0] ?? `уведомлений с меткой нет (всего ${got.length})`);
-  }
-} catch (e) {
-  say(false, "проверка оборвалась", String(e.message).split("\n")[0]);
-} finally {
-  await ctx.close().catch(() => {});
-  if (deviceId) call("reach.remove", { device: deviceId });
-  call("revoke", { kid: invite.kid });
-  fs.rmSync(profile, { recursive: true, force: true });
-}
-for (const s of steps) console.log(s);
-process.exit(steps.some((s) => s.startsWith("✗")) ? 1 : 0);
+
+  // сбой Host выдуманной машины: причина новая при каждом запуске — получасовое молчание об одной причине не мешает
+  const text = "живая проверка оповещения " + t.tag;
+  await t.step("сбой части записан в журнал флота", async () => {
+    await t.must("ledger.add", { what: "host.failed", machine: "probe-" + t.tag, text });
+  });
+
+  await t.step("оповещение админу показано уведомлением", async () => {
+    let shown = [];
+    // уведомление показывает сервис-воркер, когда служба пушей браузера донесла его: перечитываем показанные
+    const mine = await t.wait("уведомление с меткой проверки", async () => {
+      shown = await page.evaluate(async () => (await (await navigator.serviceWorker.getRegistration("/")).getNotifications()).map((n) => n.title + " — " + n.body));
+      return shown.find((n) => n.includes(t.tag));
+    }, () => `уведомлений с меткой нет (всего ${shown.length})`);
+    return mine;
+  });
+});

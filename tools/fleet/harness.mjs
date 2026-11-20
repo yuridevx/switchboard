@@ -24,7 +24,7 @@ import { appendSteps } from "./steps.mjs";
 import { say, tool, turn as script } from "./turn.mjs";
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-export const { chromium } = createRequire(path.join(root, "package.json"))("playwright-core");
+const { chromium } = createRequire(path.join(root, "package.json"))("playwright-core");
 
 /** Браузер живых сценариев — одна точка запуска. На Windows это свой chrome-headless-shell из Playwright: настоящий Chrome на свежем профиле
  *  проверяет, не пуст ли пароль Windows, входом с пустым паролем; каждый запуск — отказ входа, десять отказов за десять минут блокируют учётную запись. */
@@ -201,8 +201,8 @@ export function kit(o) {
     if (over) throw new Waited(`шаг «${label}»`, "бюджет вышел до шага");
     const t0 = clock.now();
     current = label;
-    // ожидания страницы — без своих чисел: предел каждого — остаток бюджета на начало шага
-    for (const p of pages) (p.setDefaultTimeout(left()), p.setDefaultNavigationTimeout(left()));
+    // ожидания страницы — без своих чисел: предел каждого — остаток бюджета на начало шага; предел стоит на всём окне: его наследуют и вкладки, открытые проверкой
+    for (const p of pages) (p.context().setDefaultTimeout(left()), p.context().setDefaultNavigationTimeout(left()));
     try {
       const note = await fn();
       // бюджет вышел, пока шаг стоял вне ожиданий обвязки: его красная строка уже напечатана
@@ -292,7 +292,7 @@ export function kit(o) {
     /** Итог хода за своим сообщением: записи хода и текст ответа. find — где в истории это сообщение; нет find — первый итог в разговоре. */
     const endOf = (find) => wait(`итог хода ${cs}`, async () => {
       const x = await row();
-      seen = `строка сессии — ${x?.state ?? "нет"}`;
+      seen = `строка сессии — ${x?.state ?? "нет"}${x?.wait ? `, годных аккаунтов Claude нет до ${new Date(x.wait).toISOString()}` : ""}`;
       // ход идёт: итога в истории ещё нет — историю не спрашиваем
       if (x?.state === "busy" || x?.state === "starting") return undefined;
       const { events } = await must("session.history", { to: cs, limit: 200 });
@@ -345,22 +345,33 @@ export function kit(o) {
   }
 
   /* --- страница --- */
-  const pages = [], pageErrors = [];
+  const pages = [], pageErrors = [], profiles = [];
   let browser = null, shotDir = null;
   const left = () => Math.max(1, deadline - clock.now() - PAGE_EDGE_MS);
   /** Папка снимков проверки. */
   const shots = () => (shotDir ??= (fs.mkdirSync(path.join(root, "dist", "live", slug), { recursive: true }), path.join(root, "dist", "live", slug)));
   /** Страница флота в браузере: своё устройство по приглашению, вход принят. У ожиданий страницы своих чисел нет: предел — остаток бюджета.
-   *  Ошибка страницы — красный в конце проверки; console: true — ошибкой считается и строка error консоли. */
-  async function page({ width = 1440, height = 900, console: logs = false, ...context } = {}) {
-    browser ??= await (o.launch ?? launchBrowser)();
+   *  Ошибка страницы — красный в конце проверки; console: true — ошибкой считается и строка error консоли.
+   *  profile: true — свой браузер настоящего Chrome с профилем на диске: подписка на уведомления живёт только в таком —
+   *  у окна без профиля службы пушей нет, у сборки Chromium нет её ключей. Профиль — временная папка Playwright, она уходит с закрытием.
+   *  На Windows настоящий Chrome на свежем профиле — отказ входа в систему (см. launchBrowser).
+   *  Остальные поля — поля окна браузера (colorScheme, permissions, acceptDownloads…). */
+  async function page({ width = 1440, height = 900, console: logs = false, profile = false, ...context } = {}) {
     const me = await must("whoami", {});
     const inv = await must("invite", { addr: `${slug.replaceAll("-", "")}${tag}${pages.length || ""}${me.person}` });
     defer(`приглашение ${inv.kid}`, (go) => go("revoke", { kid: inv.kid }));
-    const p = await (await browser.newContext({ viewport: { width, height }, ...context })).newPage();
+    let ctx;
+    if (profile) {
+      ctx = await chromium.launchPersistentContext("", { channel: "chrome", viewport: { width, height }, ...context });
+      profiles.push(ctx);
+    } else {
+      browser ??= await (o.launch ?? launchBrowser)();
+      ctx = await browser.newContext({ viewport: { width, height }, ...context });
+    }
+    ctx.setDefaultTimeout(left());
+    ctx.setDefaultNavigationTimeout(left());
+    const p = ctx.pages()[0] ?? (await ctx.newPage());
     pages.push(p);
-    p.setDefaultTimeout(left());
-    p.setDefaultNavigationTimeout(left());
     p.on("pageerror", (e) => pageErrors.push(e.message));
     if (logs) p.on("console", (m) => m.type() === "error" && pageErrors.push(m.text()));
     await p.goto(`${o.base}/#invite=${encodeURIComponent(inv.invite)}`);
@@ -384,8 +395,10 @@ export function kit(o) {
   /** Уборка: сначала сессии и прочее своё, потом папки — процессы сессий к тому времени папки отпустили. */
   async function cleanup() {
     clock.clearTimeout(timer);
-    // KEEP=1 — оставить своё для разбора: что осталось, названо строкой
+    // окна со своим профилем — каждое свой браузер: закрытие уносит и его временный профиль
+    for (const ctx of profiles.splice(0)) await ctx.close().catch(() => {});
     await browser?.close().catch(() => {});
+    // KEEP=1 — оставить своё для разбора: что осталось, названо строкой
     if (o.keep) return void (out(`оставлено для разбора: ${cleanups.map((c) => c.what).join(", ") || "ничего"}`), link?.close());
     const done = await Promise.allSettled(cleanups.splice(0).reverse().map(async (c) => {
       const r = await c.fn(raw);

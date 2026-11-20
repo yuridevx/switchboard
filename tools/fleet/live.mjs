@@ -52,7 +52,7 @@ const LIST = [
   ...(local() ? [["конвейер", "live-lines.ts", [fleet, device], {}, false, QUIET]] : []),
   ["страница в браузере", "live-page.mjs", [fleet, device, machine], {}, true, QUIET],
   ["разделы страницы", "live-bar.mjs", [fleet, device, machine], {}, true, QUIET],
-  ["оповещение о сбое", "live-alert.mjs", [fleet, device, "headless"], {}, false, QUIET, ["push"]],
+  ["оповещение о сбое", "live-alert.mjs", [fleet, device], {}, false, QUIET, ["push"]],
   ["флоу без окон", "live-flows.mjs", [fleet, device, machine], { SB2_PART: "rest" }, false, QUIET],
   ["комментарии к странице", "live-comments.mjs", [fleet, device], {}, false, QUIET],
   // длинные проверки идут частями (SB2_PART): у каждой части свои сессии, части идут разом
