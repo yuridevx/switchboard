@@ -25,9 +25,7 @@ await check(async (t) => {
   if (!hub) throw new Error("нужен SB2_GITHUB — адрес двойника GitHub: его ставит флот в коробке");
   const { tag } = t;
 
-  /** Фабрика проекта; вопросы о ней, заданные разом, делят один запрос. */
-  let asking: Promise<any> | undefined;
-  const factory = () => (asking ??= t.must("factory.get", { project: PROJECT }).then((r: { factory: any }) => r.factory).finally(() => (asking = undefined)));
+  const factory = async () => (await t.must("factory.get", { project: PROJECT })).factory;
   const one = async (id: string): Promise<Ticket> => (await t.must("ticket.list", { ticket: id })).tickets[0];
   const all = async (): Promise<Ticket[]> => (await t.must("ticket.list", { project: PROJECT })).tickets;
   /** Момент, когда этот прогон применил определение, — по часам флота: с него считаются тикеты правил и строки истории. */
@@ -45,6 +43,13 @@ await check(async (t) => {
     });
     return id;
   };
+  /** Сессии шагов своих тикетов и пост-сторож — свои: их открывает фабрика, а не запрос open; уборка — обвязки.
+   *  Картина называет их по позывному — каждое ожидание проверки берёт новые. */
+  const owned = new Set<string>();
+  const adopt = () => {
+    for (const [cs, row] of Object.entries(t.picture.sessions) as [string, { cwd: string }][])
+      if (!owned.has(cs) && (cs.startsWith(POST + "@") || tickets.some((id) => cs.startsWith(id + "-s")))) (owned.add(cs), t.own(cs, row.cwd));
+  };
   /** Правило по времени сработало times раз, считая отсюда: срабатывание первым делом ставит свой следующий срок — он и виден.
    *  Часы флота ведут срабатывания по одному: началось новое — работа прежних кончена. Поэтому два срабатывания — барьер:
    *  что первое из них должно было сделать, уже сделано. Ответ — сколько срабатываний увидено. */
@@ -56,6 +61,7 @@ await check(async (t) => {
   const reach = (id: string, what: string, ok: (x: Ticket) => boolean) => {
     let last: Ticket | undefined;
     return t.wait(what, async () => {
+      adopt();
       const x = (last = await one(id));
       if (x.state === "stop") throw new Error(`${what}: тикет ${id} встал${x.why ? `: ${x.why}` : ""}, шаг ${x.step + 1}`);
       return ok(x) && x;
@@ -65,14 +71,8 @@ await check(async (t) => {
   let ids: string[] = [];
   await t.step("определение проекта применено из репозитория ролей", async () => {
     const r = await t.must("factory.apply", { project: PROJECT, repo: REPO });
-    // правила пошли по часам: при любом исходе проверки фабрика проекта остаётся на паузе, а сессии её шагов и пост-сторож убраны
+    // правила пошли по часам: при любом исходе проверки фабрика проекта остаётся на паузе
     t.defer("фабрика проекта — на паузу", (go: Go) => go("factory.pause", { project: PROJECT, on: true }));
-    t.defer("сессии шагов и пост-сторож", async (go: Go) => {
-      const list = await go("fleet.list", {});
-      if (!list.ok) return list;
-      const gone = (list.result.sessions as { callsign: string }[]).map((x) => x.callsign).filter((c) => c.startsWith(POST + "@") || tickets.some((id) => c.startsWith(id + "-s")));
-      return (await Promise.all(gone.map((to) => go("session.remove", { to })))).find((x) => !x.ok && x.error !== "not_found");
-    });
     const f = await factory();
     started = f.at;
     const line = f.def.lines[LINE];
@@ -90,6 +90,7 @@ await check(async (t) => {
     for (let i = 1; i <= TICKETS; i++) ids.push(mine((await t.must("ticket.new", { project: PROJECT, to: LINE, title: `Живая проверка конвейера ${tag} · ${i}` })).id));
     let peak = 0, closed = 0;
     await t.wait(`закрыты ${TICKETS} тикетов конвейера`, async () => {
+      adopt();
       // загрузка конвейера — проходящее число: её ловит каждое чтение, пока тикеты идут; точный счёт одновременной работы — по истории флота, следующим шагом
       peak = Math.max(peak, (await factory()).load.lines[LINE].work);
       const now = (await all()).filter((x) => ids.includes(x.id));
@@ -145,6 +146,7 @@ await check(async (t) => {
   await t.step(`находка правила — тикет посту; следующие ${NOTES} находки — заметки в тот же тикет`, async () => {
     let seen = "тикета правила нет";
     const x: Ticket = await t.wait("тикет правила с находкой: сторож позвал человека, заметки идут в него", async () => {
+      adopt();
       const made = await byRule(FOUND);
       if (made.length > 1) throw new Error(`правило завело ${made.length} тикета: ${made.map((m) => m.id).join(", ")}`);
       if (!made[0]) return false;

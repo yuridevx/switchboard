@@ -42,7 +42,7 @@ await check(async (t) => {
   await t.step("своя сессия ответила своим словом", async () => {
     // первая задача сессии — ответить словом проверки: обвязка ждёт итог этого хода
     source = await t.session({ name: "srv", prompt: turn(say(word)) });
-    if (!source.first.text) throw new Error("ответа сессии нет");
+    if (!source.first.text.includes(word)) throw new Error(`ответ без слова проверки: ${source.first.text.slice(0, 80) || "пусто"}`);
     return source.callsign;
   });
   await t.step("архив включён у сессии", async () => (await t.must("session.update", { to: source.callsign, patch: { backup: true } }), "backup: true"));
@@ -58,14 +58,11 @@ await check(async (t) => {
     return `sid ${sid.slice(0, 8)}, точек ${s.points}`;
   });
   await t.step("поиск по слову находит сессию", async () => {
-    // слово точки доходит до поиска не сразу за сохранением: ждём находку, а не читаем один раз
-    let n = 0;
-    const hit = await t.wait("сессия найдена поиском по слову", async () => {
-      const r = await t.must("points.list", { q: word });
-      n = r.sessions.length;
-      return r.sessions.find((x: { sid: string }) => x.sid === sid);
-    }, () => `не найдена; нашлось: ${n}`);
-    return `найдено ${n}; строка: ${hit.hit?.slice(0, 60)}`;
+    // слова разговора архив пишет той же пачкой, что строку каталога: ответ points.save пришёл — поиск их уже видит
+    const r = await t.must("points.list", { q: word });
+    const hit = r.sessions.find((x: { sid: string }) => x.sid === sid);
+    if (!hit) throw new Error("не найдена; нашлось: " + r.sessions.length);
+    return `найдено ${r.sessions.length}; строка: ${hit.hit?.slice(0, 60)}`;
   });
   await t.step("разговор читается из архива", async () => {
     const r = await t.must("points.history", { sid, limit: 20 });

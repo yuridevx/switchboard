@@ -1,7 +1,7 @@
 // Живая проверка тикетов: node tools/fleet/live-tickets.ts [флот] [устройство] [машина]
 // Своя сессия останавливается; тикет ей создаётся и поднимает её сам (письмо остановленной получило бы отказ); сессия сдаёт шаг
 // инструментом ticket_set; история флота отдаёт движения тикета по имени строки. Ключ и модель — SB2_KEY и SB2_MODEL.
-// Проекта проверки на флоте может не быть — тогда она его заводит: это меняет общее для флота, проверка идёт одна (дорожка «одна»).
+// Проекта проверки на флоте может не быть — тогда она его заводит и в конце убирает: это меняет общее для флота, проверка идёт одна (дорожка «одна»).
 import { check } from "./harness.mjs";
 import { say, tool, turn as script } from "./turn.mjs";
 
@@ -15,7 +15,18 @@ await check(async (t) => {
   await t.step("своя сессия открыта в проекте проверки и остановлена: письмо ей — отказ", async () => {
     const me = await t.must("whoami", {});
     const projects = (await t.must("people.list", {})).projects;
-    if (!projects.some((p: { id: string }) => p.id === PROJECT)) await t.must("project.set", { project: PROJECT, name: "Проверка тикетов", members: [me.person] });
+    const made = !projects.some((p: { id: string }) => p.id === PROJECT);
+    if (made) await t.must("project.set", { project: PROJECT, name: "Проверка тикетов", members: [me.person] });
+    // общее флота возвращается как было — по порядку: свой тикет, не доведённый до вердикта, снимается (открытым он остался бы на исполнителе,
+    // которого уже нет; снимает его участник проекта), потом проект, который завела проверка, убирается
+    t.defer(`тикет проверки${made ? " и проект " + PROJECT : ""}`, async (go: (type: string, fields: unknown) => Promise<{ ok: boolean; error?: string }>) => {
+      if (id) {
+        const r = await go("ticket.set", { ticket: id, drop: true, note: "живая проверка кончена" });
+        // закрытый снимать нечего
+        if (!r.ok && r.error !== "bad_state") return r;
+      }
+      if (made) return go("project.remove", { project: PROJECT });
+    });
     s = await t.session({ name: "tk", project: PROJECT });
     await t.must("session.stop", { to: s.callsign });
     await t.wait(`${s.callsign} остановлена`, async () => (await s.row())?.state === "stopped");
@@ -28,11 +39,6 @@ await check(async (t) => {
     // в тексте тикета {id} — его номер: шаг сценария называет его инструменту
     const text = script(tool("mcp__fleet__ticket_set", { ticket: "{id}", verdict: "done", note: "живая проверка " + t.tag }), say("шаг сдан"));
     id = (await t.must("ticket.new", { project: PROJECT, to: s.callsign, for: "10m", title: "Живая проверка тикета " + t.tag, text })).id;
-    // тикет, который проверка не довела до вердикта, снимается: открытым он остался бы на исполнителе, которого уже нет
-    t.defer(`тикет ${id}`, async (go: (type: string, fields: unknown) => Promise<{ ok: boolean; error?: string }>) => {
-      const r = await go("ticket.set", { ticket: id, drop: true, note: "живая проверка кончена" });
-      return r.error === "bad_state" ? undefined : r; // закрытый снимать нечего
-    });
     let state = "";
     const done = await t.wait(`тикет ${id} закрыт`, async () => {
       const x = await one(id);
