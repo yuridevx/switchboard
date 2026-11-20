@@ -68,7 +68,7 @@ describe("откат разговора", () => {
     // файл разговора ещё хранит ушедшее — история его уже не показывает; повтор старой записи при запуске обрезку не снимает
     expect(((await st.request("session.history", { to: CS }, PULT)).result as { events: any[] }).events.map((e) => e.uuid).filter((u) => /^[ha][0-9]$/.test(u))).toEqual(["h1", "a1"]);
     st.proc(CS).send({ ...user("h1", "Почини меню"), isReplay: true });
-    await tick(20);
+    await st.proc(CS).settle();
     expect(s.rec.upto).toBe("a1");
     st.proc(CS).exit(1, "упал");
     await until(() => st!.sdk.of(CS).length === 3 && s.state === "idle", "resume после сбоя");
@@ -128,7 +128,7 @@ describe("откат разговора", () => {
     expect(sent.queued).toBe(true);
     expect((await st.request("session.rewind", { to: CS, upto: "h3" }, PULT)).ok).toBe(true);
     await until(() => events(st!).find((e) => e.type === "message.status" && e.uuid === sent.uuid && e.status === "cancelled"), "отмена в ленте");
-    await tick(50);
+    await st.settle(CS);
     expect(st.proc(CS).inputs.some((i) => i.message.content === "а ещё вот это")).toBe(false);
   });
 
@@ -197,7 +197,8 @@ describe("ведущая и ведомый", () => {
     await until(() => s.kernel.sessions.get(WING)!.state === "idle", "ведомый после отката");
     await s.request("session.rewind", { to: WING, upto: "h2" }, LEAD);
     s.proc(WING).send({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 68_000, post_tokens: 12_000 } });
-    await tick(40);
+    await s.proc(WING).settle();
+    await s.settle(LEAD);
     expect(news(s)).toHaveLength(1);
   });
 
@@ -208,7 +209,7 @@ describe("ведущая и ведомый", () => {
     void s.proc(WING).ask("Bash", { command: "rm -rf dist" }, "toolu_w1");
     await until(() => news(s).some((t) => t.includes("Ждёт ответа человека")), "весть");
     s.kernel.sessions.get(WING)!.sync();
-    await tick(30);
+    await s.settle(LEAD);
     expect(news(s).filter((t) => t.includes("Ждёт ответа человека"))).toHaveLength(1);
   });
 
@@ -219,7 +220,7 @@ describe("ведущая и ведомый", () => {
     void s.proc(WING).ask("AskUserQuestion", { questions: [{ question: "Какую ветку смотреть?", options: [{ label: "main" }, { label: "release" }] }] }, "toolu_q1");
     const asked = () => s.proc(LEAD).inputs.map((i) => String(i.message.content)).filter((t) => t.includes('kind="question"'));
     await until(() => asked().length, "вопрос ведущей");
-    await tick(30);
+    await s.settle(LEAD);
     expect(news(s)).toEqual([]);
     // один тег вида question с номером вопроса: вложенного тега и приписки «ответь инструментом» нет
     expect(asked()).toEqual([`<fleet from="${WING}" kind="question" ask="toolu_q1">\nКакую ветку смотреть?\n· main\n· release\n</fleet>`]);
@@ -263,12 +264,12 @@ describe("идут сейчас", () => {
     proc.send({ type: "system", subtype: "task_started", task_id: "t1", tool_use_id: "tu1", description: "Права службы оплаты", task_type: "local_agent" });
     proc.send({ type: "system", subtype: "task_started", task_id: "t2", description: "tail -f auth.log", task_type: "local_bash", is_backgrounded: true });
     proc.send({ type: "system", subtype: "task_notification", task_id: "t1", status: "completed" });
-    await tick(30);
+    await proc.settle();
     const r = (await st.request("session.watch", { to: CS }, PULT)).result as { running?: any[] };
     expect(r.running).toMatchObject([{ subtype: "task_started", task_id: "t2" }]);
     expect(r.running![0].at).toBeGreaterThanOrEqual(t0);
     proc.send({ type: "system", subtype: "background_tasks_changed", tasks: [] });
-    await tick(30);
+    await proc.settle();
     expect(((await st.request("session.watch", { to: CS }, "phone~yuri@example.com")).result as { running?: any[] }).running).toBeUndefined();
   });
 });

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { make as chat } from "../src/modules/chat/chat.ts";
 import { make as files } from "../src/modules/files/files.ts";
 import { make as work } from "../src/modules/work/work.ts";
-import { stand, tick, until, type Stand } from "../stand/index.ts";
+import { signal, stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 const servers: Server[] = [];
@@ -30,13 +30,14 @@ const feed = () => st!.link.of("session.events").flatMap((f) => f.events as any[
 /** Хранилище флота: содержимое по хэшу, чтение с места (Range). hang — хэши, на которых сервер молчит; half — отдаёт половину и замолкает; down — отвечает 500. */
 async function storage(s: Stand) {
   const blobs = new Map<string, Buffer>();
-  const store = { blobs, puts: [] as string[], gets: [] as string[], ranges: [] as string[], hang: new Set<string>(), half: new Set<string>(), down: false, url: "" };
+  const store = { blobs, puts: [] as string[], gets: [] as string[], ranges: [] as string[], hang: new Set<string>(), hung: [] as string[], half: new Set<string>(), down: false, url: "" };
   const srv = createServer((req, res) => {
     const hash = req.url!.split("/").pop()!;
     const parts: Buffer[] = [];
     req.on("data", (d: Buffer) => parts.push(d));
     req.on("end", () => {
-      if (store.hang.has(hash)) return;
+      signal();
+      if (store.hang.has(hash)) return void store.hung.push(hash);
       if (store.down) return void res.writeHead(500).end();
       if (req.method === "PUT") {
         store.puts.push(hash);
@@ -181,7 +182,7 @@ describe("файлы: человек загружает файл", () => {
       throw { word: "no_file", message: "содержимого нет" };
     };
     expect(await st.request("message", { to: CS, text: "вот", files: [f] }, ANYA)).toMatchObject({ ok: false, error: "no_file" });
-    await tick(10);
+    await st.settle(CS);
     expect(JSON.stringify(row(CS).people ?? [])).toBe(before);
     expect(proc.inputs).toHaveLength(0);
     expect(existsSync(join(st.dir, "uploads"))).toBe(false);
@@ -324,7 +325,7 @@ describe("файлы: тикет, история, предел", () => {
     write(st.dir, "big.bin", "большой файл");
     store.hang.add(sha("большой файл"));
     const sending = st.request("file.send", { to: CS, path: "big.bin" }, CS);
-    await tick(20);
+    await until(() => store.hung.includes(sha("большой файл")), "загрузка висит в хранилище");
     void st.kernel.shutdown("эталон 24");
     expect(await sending).toMatchObject({ ok: false, error: "shutting_down" });
   });

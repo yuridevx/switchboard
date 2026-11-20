@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Refusal } from "@sb/protocol";
 import type { Module } from "../src/core/contract.ts";
 import { make as chat } from "../src/modules/chat/chat.ts";
-import { FakeHolders, stand, tick, until, type Stand } from "../stand/index.ts";
+import { FakeHolders, stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 afterEach(async () => {
@@ -167,7 +167,7 @@ describe("ядро Host", () => {
     // ход, начатый человеком, родителю не уходит
     await st.request("message", { to: "kid@laptop", text: "а теперь линтер" });
     await st.turn("kid@laptop", [], "линтер чист");
-    await tick(20);
+    await st.settle("lead@laptop");
     expect(st.proc("lead@laptop").inputs).toHaveLength(1);
   });
 

@@ -1,7 +1,8 @@
 // Провод поддельного claude: строки JSON между поддельным SDK и поддельным процессом у поддельного keeper.
 // Сообщения SDK идут как есть; служебные строки — с полем "$".
-//   SDK → процесс: initialize · user · interrupt · permission · hook_result · elicit_result
-//   процесс → SDK: initialized · can_use_tool · hook · elicit · mark (метка барьера: ядро взяло всё, что процесс написал до неё)
+//   SDK → процесс: initialize · user · interrupt · permission · hook_result · elicit_result · mark
+//   процесс → SDK: initialized · can_use_tool · hook · elicit · mark
+//   mark — метка барьера: дошла до конца пути — всё, что шло тем же путём до неё, дошло тоже
 export type Wire =
   | { $: "initialize"; hooks: string[] }
   | { $: "user"; message: unknown }

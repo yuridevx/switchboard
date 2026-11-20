@@ -11,7 +11,7 @@ import { make as points, projectDir } from "../src/modules/points/points.ts";
 import { make as profiles } from "../src/modules/profiles/profiles.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
 import { make as shell } from "../src/modules/shell/shell.ts";
-import { stand, tick, until, type Stand } from "../stand/index.ts";
+import { signal, stand, tick, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 const servers: Server[] = [];
@@ -35,6 +35,7 @@ async function server(answer: () => { status?: number; body?: Buffer | string } 
     req.on("data", () => {});
     req.on("end", () => {
       seen.push({ method: req.method!, url: req.url! });
+      signal();
       const a = answer();
       res.writeHead(a.status ?? 200).end(a.body ?? "{}");
     });
@@ -140,7 +141,7 @@ describe("пара", () => {
     expect(wing.rec.spec).toMatchObject({ parent: "lead@laptop", model: "m1", cwd: st.dir });
     expect(st.link.rows("lead-wing@laptop").at(-1)!.row).toMatchObject({ lead: "lead@laptop" });
     // ведущая открыла ведомого сама и получила его позывной ответом инструмента — весть лишняя
-    await tick(40);
+    await st.settle("lead@laptop");
     expect(st.proc("lead@laptop").inputs).toEqual([]);
     expect(await st.request("session.update", { to: "lead@laptop", patch: {}, pair: true })).toMatchObject({ ok: false, error: "has_wing" });
     expect(await st.request("session.update", { to: "lead-wing@laptop", patch: {}, pair: true })).toMatchObject({ ok: false, error: "pair_inside" });

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Refusal, sessionStop } from "@sb/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Module } from "../src/core/contract.ts";
-import { FakeHolders, stand, tick, until, type Stand } from "../stand/index.ts";
+import { FakeHolders, stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 afterEach(async () => {
@@ -121,7 +121,8 @@ describe("план v2: процесс сессии", () => {
     const { s, proc } = await st.open("site");
     proc.exit(0, "", null, true);
     await until(() => s.state === "stopped", "stopped");
-    await tick();
+    // подъём начался бы в том же шаге, что stopped: последняя строка была бы starting
+    expect((st.link.rows(CS).at(-1)!.row as any).state).toBe("stopped");
     expect(st.holders.spawns).toHaveLength(1);
     expect(logged("session_os_stop")[0]).toMatchObject({ callsign: CS });
   });
@@ -264,10 +265,10 @@ describe("план v2: связь и остановка Host", () => {
     };
     const other: Module = { name: "other", stop: () => void order.push("stop other") };
     st = await stand({ modules: [slow, other] });
+    // запрос дошёл до хозяина сразу: обработчик вызван в том же шаге
     const asking = st.request("shell.info", { to: "@laptop" });
-    await tick();
     const down = st.kernel.shutdown("SIGTERM");
-    await tick();
+    await until(() => st!.clock.pending().includes(30_000), "остановка ждёт начатое");
     expect(order).toEqual([]);
     release();
     expect(await asking).toMatchObject({ ok: true, result: { os: "linux" } });
@@ -282,7 +283,7 @@ describe("план v2: связь и остановка Host", () => {
     st = await stand({ modules: [stuck] });
     const { proc } = await st.open("site");
     const down = st.kernel.shutdown("SIGTERM");
-    await tick();
+    await until(() => st!.clock.pending().includes(30_000), "предел остановки взведён");
     st.clock.advance(30_000);
     await down;
     expect(st.exits).toEqual([1]);

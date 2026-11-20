@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { make as chat } from "../src/modules/chat/chat.ts";
 import { make as shell } from "../src/modules/shell/shell.ts";
-import { FakeHolders, stand, tick, until, type Stand } from "../stand/index.ts";
+import { FakeHolders, stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 afterEach(async () => {
@@ -51,7 +51,8 @@ describe("итог хода: открытая задача", () => {
     // чьё: факт прода — 62 таких хода в выборке; гейт — обмен, без которого поток работает
     await st.request("message", { to: KID, text: "спасибо, а что по логам?" }, PULT);
     await st.turn(KID, [], "в логах пусто");
-    await tick(40);
+    // итог родителю решается в конце хода и встаёт в его ввод в том же шаге: метка ввода пришла — итога нет
+    await st.settle(BOSS);
     expect(results(st, BOSS, KID)).toHaveLength(2);
   });
 
@@ -105,7 +106,7 @@ describe("итог хода: открытая задача", () => {
     st = await stand({ home, holders, modules: [chat()] });
     await until(() => results(st!, BOSS, KID).length === 1, "итог у родителя после запуска");
     expect(results(st, BOSS, KID)).toEqual(["трафик чист"]);
-    await tick(40);
+    await st.settle(BOSS);
     expect(results(st, BOSS, KID)).toHaveLength(1);
   });
 

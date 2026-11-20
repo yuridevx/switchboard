@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { make as accounts } from "../src/modules/accounts/accounts.ts";
 import { make as chat } from "../src/modules/chat/chat.ts";
-import { stand, tick, type Stand } from "../stand/index.ts";
+import { stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 afterEach(async () => {
@@ -144,11 +144,10 @@ describe("кэш на любой модели", () => {
     await st!.turn(CS, [foreign(212_000, 200_000)]);
     expect(row().cache).toEqual({ until: T0 + 30 * MIN, compact: T0 + 24 * MIN, size: 212_000, read: 200_000 });
     st!.clock.advance(23 * MIN);
-    await tick();
+    await st!.settle(CS);
     expect(compacts()).toBe(0);
     st!.clock.advance(MIN);
-    await tick();
-    expect(compacts()).toBe(1);
+    await until(() => compacts() === 1, "/compact во вводе");
   });
 });
 
@@ -159,11 +158,10 @@ describe("сжатие при простое", () => {
     await open();
     await st!.turn(CS, [answer(212_000)]);
     st!.clock.advance(53 * MIN);
-    await tick();
+    await st!.settle(CS);
     expect(compacts()).toBe(0);
     st!.clock.advance(MIN);
-    await tick();
-    expect(compacts()).toBe(1);
+    await until(() => compacts() === 1, "/compact во вводе");
     expect(journal("idle_compact")).toMatchObject([{ callsign: CS, size: 212_000 }]);
   });
 
@@ -172,7 +170,7 @@ describe("сжатие при простое", () => {
     await open();
     await st!.turn(CS, [answer(120_000)]);
     st!.clock.advance(60 * MIN);
-    await tick();
+    await st!.settle(CS);
     expect(compacts()).toBe(0);
   });
 
@@ -181,7 +179,7 @@ describe("сжатие при простое", () => {
     await open();
     await st!.turn(CS, [answer(212_000, "5m")]);
     st!.clock.advance(60 * MIN);
-    await tick();
+    await st!.settle(CS);
     expect(compacts()).toBe(0);
     expect(row().cache).toEqual({ until: T0 + 5 * MIN, size: 212_000, read: READ(212_000) });
   });
@@ -193,11 +191,10 @@ describe("сжатие при простое", () => {
     st!.clock.advance(30 * MIN);
     await st!.turn(CS, [answer(214_000)]);
     st!.clock.advance(30 * MIN);
-    await tick();
+    await st!.settle(CS);
     expect(compacts()).toBe(0);
     st!.clock.advance(24 * MIN);
-    await tick();
-    expect(compacts()).toBe(1);
+    await until(() => compacts() === 1, "/compact во вводе");
   });
 
   it("разговор сжат: размер — после сжатия, второй раз он не сжимается", async () => {
@@ -205,12 +202,11 @@ describe("сжатие при простое", () => {
     await open();
     await st!.turn(CS, [answer(212_000)]);
     st!.clock.advance(54 * MIN);
-    await tick();
-    expect(compacts()).toBe(1);
+    await until(() => compacts() === 1, "/compact во вводе");
     await st!.turn(CS, [{ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 212_000, post_tokens: 9_000 } }], "");
     expect(row().cache).toEqual({ until: T0 + 54 * MIN + 60 * MIN, size: 9_000, read: READ(212_000) });
     st!.clock.advance(60 * MIN);
-    await tick();
+    await st!.settle(CS);
     expect(compacts()).toBe(1);
   });
 
@@ -219,18 +215,17 @@ describe("сжатие при простое", () => {
     await fleet(before(T0 - 20 * MIN));
     expect(row().cache).toEqual({ until: T0 + 40 * MIN, compact: T0 + 34 * MIN, size: 212_000, read: 205_598 });
     st!.clock.advance(33 * MIN);
-    await tick();
+    await st!.settle(CS);
     expect(compacts()).toBe(0);
     st!.clock.advance(MIN);
-    await tick();
-    expect(compacts()).toBe(1);
+    await until(() => compacts() === 1, "/compact во вводе");
   });
 
   // устав: «система ловит, агент чинит» — догоняющего сжатия нет
   it("Host поднят после срока: строка журнала с причиной, разговор не сжат", async () => {
     await fleet(before(T0 - 58 * MIN));
     st!.clock.advance(60 * MIN);
-    await tick();
+    await st!.settle(CS);
     expect(compacts()).toBe(0);
     expect(journal("idle_compact_late")).toHaveLength(1);
     expect(row().cache).toEqual({ until: T0 + 2 * MIN, size: 212_000, read: 205_598 });

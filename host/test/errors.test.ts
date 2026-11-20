@@ -37,8 +37,8 @@ describe("беда сессии — в её ленту", () => {
     st.kernel.log.error("link_stopped", { why: "строка не о сессии" });
     st.kernel.log.warn("call", { callsign: "ghost@laptop", why: "такой сессии нет" });
     st.kernel.log.warn("call", { callsign: CS, status: 400, why: REFUSED });
+    // строки журнала написаны разом: в ленту они ушли одной пачкой — пришла она, пришло бы и лишнее
     await until(() => logs().length, "событие log в ленте");
-    await tick(20);
     expect(logs()).toEqual([{ type: "log", uuid: expect.any(String), level: "warn", msg: "call", why: REFUSED, at: expect.any(Number) }]);
     // журнал — тот же: строка в ленте ничего в нём не меняет
     expect(journal("call").map((l) => l.callsign)).toEqual(["ghost@laptop", CS]);
@@ -69,7 +69,7 @@ describe("беда сессии — в её ленту", () => {
     st = await stand({ modules: [chat(), machine()] });
     const { proc } = await st.open("site");
     proc.send(say("a1", "Сверил."));
-    await tick(10);
+    await proc.settle();
     st.kernel.log.warn("call", { callsign: CS, why: REFUSED });
     const home = st.home, holders = st.holders;
     await st.kernel.shutdown("подмена");
@@ -91,7 +91,6 @@ describe("беда сессии — в её ленту", () => {
     await st.request("session.watch", { to: CS }, PULT);
     st.kernel.log.warn("call", { callsign: CS, why: REFUSED });
     await until(() => logs().length, "событие log в ленте");
-    await tick(20);
     expect([seen, logs().length]).toEqual([1, 1]);
     expect(st.journal().filter((l) => l.word === "module_failed")).toMatchObject([{ level: "error", module: "host-broken", callsign: CS, why: "не смог показать" }]);
   });
@@ -147,8 +146,8 @@ describe("беды Claude — одна таблица на машине", () => 
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
     await until(() => st!.kernel.sessions.get(CS)!.state === "busy", "ход идёт");
     await st.request("session.call", { to: CS, method: "interrupt" }, PULT);
+    // строка беды о прерванном ходе пошла бы в ленту той же пачкой, что итог хода
     await until(() => feed().some((e) => e.type === "result"), "итог хода в ленте");
-    await tick(20);
     expect(journal("sdk.result")).toMatchObject([{ callsign: CS, level: "info", word: "interrupted" }]);
     expect(logs()).toEqual([]);
   });

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { make as chat } from "../src/modules/chat/chat.ts";
-import { stand, tick, until, type Stand } from "../stand/index.ts";
+import { stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 afterEach(async () => {
@@ -30,7 +30,7 @@ describe("chat", () => {
     const before = st.link.rows("site@laptop").length;
     const events = Array.from({ length: 1000 }, (_, i) => ({ type: "assistant", uuid: `u${i}`, message: { content: [{ type: "text", text: `шаг ${i}` }] } }));
     await st.turn("site@laptop", events, "сделано");
-    await tick(20);
+    await st.proc("site@laptop").settle();
     const rows = st.link.rows("site@laptop").slice(before);
     expect(rows.map((f) => (f.row as any).state)).toEqual(["busy", "idle"]);
     expect(rows[1]!.row).toMatchObject({ result: "сделано", unread: ["~yuri@example.com"] });

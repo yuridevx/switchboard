@@ -49,7 +49,9 @@ export class FakeQuery {
     void (async () => {
       for await (const m of p.prompt) {
         if (this.closed) return;
-        this.write({ $: "user", message: m });
+        // метка барьера ввода идёт процессу тем же путём, что ввод, но вводом не становится
+        const mark = (m as { mark?: string }).mark;
+        this.write(mark ? { $: "mark", id: mark } : { $: "user", message: m });
       }
     })();
   }

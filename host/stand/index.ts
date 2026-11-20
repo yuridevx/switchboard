@@ -11,7 +11,7 @@ import type { CoreRecord } from "../src/core/store.ts";
 import { FakeClock } from "./clock.ts";
 import { FakeHolders, type FakeProc } from "./holders.ts";
 import { FakeSdk, type FakeQuery } from "./sdk.ts";
-import { signal, unmet, until } from "./signal.ts";
+import { marks, signal, unmet, until } from "./signal.ts";
 
 export { FakeClock, FakeHolders, FakeSdk, StartError, signal, until };
 export type { FakeProc, FakeQuery };
@@ -22,6 +22,7 @@ afterEach(() => {
   if (what.length) throw new Error(`стенд: не дождался — ${what.join("; ")}`);
 });
 
+/** Подождать n оборотов цикла событий: уходит вместе с таймерами модулей мимо часов ядра. */
 export const tick = async (n = 5) => {
   while (n-- > 0) await new Promise((r) => setImmediate(r));
 };
@@ -144,6 +145,8 @@ export type Stand = {
   /** открыть сессию и дождаться готовности */
   open(name: string, spec?: Record<string, unknown>, from?: string): Promise<{ s: Session; proc: FakeProc; q: FakeQuery }>;
   proc(callsign: string): FakeProc;
+  /** Барьер ввода: метка тем же путём, что ввод сессии, — очередь ядра, SDK, процесс; пришла — всё, что ядро отдало процессу до неё, у процесса. */
+  settle(callsign: string): Promise<void>;
   /** ход: занята → события → итог → свободна */
   turn(callsign: string, events?: Array<Record<string, unknown>>, result?: string): Promise<void>;
   stop(): Promise<void>;
@@ -191,6 +194,11 @@ export async function stand(o: StandOptions = {}): Promise<Stand> {
       return { s: kernel.sessions.get(callsign)!, proc: holders.procs.get(callsign)!, q: sdk.last(callsign)! };
     },
     proc: (callsign) => holders.procs.get(callsign)!,
+    async settle(callsign) {
+      const id = newId("m");
+      kernel.sessions.get(callsign)!.input("", { mark: id } as never);
+      await until(() => marks.delete(id), `метка ввода ${callsign}`);
+    },
     async turn(callsign, events = [], result = "готово") {
       const taken = (turns ??= new WeakMap<object, number>());
       const p = holders.procs.get(callsign)!;
