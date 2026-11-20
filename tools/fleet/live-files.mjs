@@ -11,7 +11,6 @@ import { check } from "./harness.mjs";
 import { say, tool, turn as script } from "./turn.mjs";
 
 const BIG_MB = Number(process.env.SB2_BIG_MB ?? 100);
-const DOC = { key: process.env.SB2_KEY ?? "claude", model: process.env.SB2_MODEL ?? "claude-haiku-5-5" };
 const sha = (file) => new Promise((done, fail) => {
   const h = crypto.createHash("sha256");
   fs.createReadStream(file).on("data", (d) => h.update(d)).on("end", () => done(h.digest("hex"))).on("error", fail);
@@ -70,7 +69,7 @@ await check(async (t) => {
   }
 
   await t.step("приглашение принято, разговор сессии открыт", async () => {
-    s = await t.session({ name: "files", ...DOC });
+    s = await t.session({ name: "files" });
     page = await t.page({ width: 1280, height: 900, acceptDownloads: true, console: true });
     await page.goto(t.base + "/#/work/" + s.callsign);
     await box().waitFor();

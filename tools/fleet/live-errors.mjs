@@ -1,5 +1,5 @@
 // Живая проверка «Ошибки на виду»: node tools/fleet/live-errors.mjs [флот] [устройство] [машина]
-// Сессия на дешёвой модели (SB2_KEY и SB2_MODEL, по умолчанию claude и claude-haiku-5-5) получает негодный PDF — провайдер отклоняет вызов.
+// Сессия на дешёвой модели (SB2_KEY и SB2_MODEL; список зовёт её на claude и claude-haiku-5-5) получает негодный PDF — провайдер отклоняет вызов.
 // Проверяет: причина словами провайдера стоит в журнале машины, в ленте сессии (история отдаёт её на месте) и на выложенной странице — до и после перезагрузки.
 // SB2_GOAL_KEY и SB2_GOAL_MODEL (ключ и модель Meta) — ещё и проверка цели: «/goal» на Meta проходит, отказов провайдера и сбоя хука нет.
 // Снимки — dist/live/errors.
@@ -8,23 +8,23 @@ import { check } from "./harness.mjs";
 import { say, tool, turn as script } from "./turn.mjs";
 
 const REFUSED = "вызов модели отклонён (4";
-const DOC = { key: process.env.SB2_KEY ?? "claude", model: process.env.SB2_MODEL ?? "claude-haiku-5-5" };
 
 await check(async (t) => {
-  let s, page;
+  let s, page, asked, end;
   let line = "";
   const logsOf = async (x) => (await x.history()).filter((e) => e.type === "log");
 
   await t.step("сессия на дешёвой модели открыта", async () => {
-    s = await t.session({ name: "err", ...DOC });
-    return `${s.callsign} · ${DOC.key}/${DOC.model}`;
+    s = await t.session({ name: "err" });
+    return s.callsign;
   });
 
   await t.step("провайдер отклонил вызов: причина его словами — событием log в ленте сессии", async () => {
     // заголовок PDF настоящий, тело — нет: сессия отдаёт файл провайдеру документом, и тот его отклоняет
     const pdf = await t.put("broken.pdf", Buffer.from("%PDF-1.7\n%âãÏÓ\nэто не PDF " + t.tag + "\n%%EOF\n"));
     // файл сообщения встаёт в uploads/ папки сессии; негодный PDF провайдер отклоняет, когда сессия его читает
-    await s.turn(script(tool("Read", { file_path: `${s.cwd}/uploads/broken.pdf` }), say("прочитано")), { files: [pdf] });
+    asked = await s.send(script(tool("Read", { file_path: `${s.cwd}/uploads/broken.pdf` }), say("прочитано")), { files: [pdf] });
+    end = (await s.ended(asked)).events.at(-1);
     let logs = [];
     const refused = await t.wait("строка отказа в ленте", async () => {
       logs = await logsOf(s);
@@ -47,24 +47,27 @@ await check(async (t) => {
     return `строк вызова с отказом ${lines.length}, с причиной ${withWhy.length}`;
   });
 
-  // у одних провайдеров отказ обрывает ход, у других claude повторяет вызов без негодного файла и ход кончается ответом: строк «ход остановлен» — ровно по числу оборванных ходов
+  // у одних провайдеров отказ обрывает ход, у других claude повторяет вызов без негодного файла и ход кончается ответом:
+  // строка «ход остановлен» за своим сообщением — одна, если итог своего хода — сбой, и ни одной, если ход кончился ответом
   await t.step("ход остановлен — строкой error в ленте, по одной на оборванный ход", async () => {
-    const count = (h) => ({ ended: h.filter((e) => e.type === "result" && e.is_error).length, stopped: h.filter((e) => e.type === "log" && e.level === "error" && e.msg === "sdk.result") });
-    // строка «ход остановлен» встаёт в ленту вслед за итогом оборванного хода: ждём её, а не читаем ленту один раз
-    const got = await t.wait("строки «ход остановлен» по числу оборванных ходов", async () => {
-      const n = count(await s.history());
-      return n.stopped.length >= n.ended && n;
-    });
-    if (got.stopped.length !== got.ended) throw new Error(`оборванных ходов ${got.ended}, строк «ход остановлен» ${got.stopped.length}: ${JSON.stringify((await logsOf(s)).map((e) => e.msg))}`);
-    return got.ended ? String(got.stopped[0].why).slice(0, 140) : "ход не оборвался: claude повторил вызов без файла и ответил";
+    const broken = end.subtype !== "success" || end.is_error ? 1 : 0;
+    let stops = [];
+    // строка встаёт в ленту вслед за итогом оборванного хода: ждём её, а не читаем ленту один раз
+    await t.wait(`строк «ход остановлен» за своим сообщением — ${broken}`, async () => {
+      const h = await s.history();
+      stops = h.slice(h.findIndex((e) => e.uuid === asked) + 1).filter((e) => e.type === "log" && e.level === "error" && e.msg === "sdk.result");
+      return stops.length >= broken;
+    }, () => `строк «ход остановлен» ${stops.length}`);
+    if (stops.length !== broken) throw new Error(`итог хода ${broken ? "— сбой" : "— ответ"}, строк «ход остановлен» ${stops.length}: ${String(stops[0]?.why).slice(0, 140)}`);
+    return broken ? String(stops[0].why).slice(0, 140) : "ход кончился ответом: claude повторил вызов без файла, строк «ход остановлен» 0";
   });
 
   await t.step("история отдаёт строку на месте: за сообщением человека, перед итогом хода", async () => {
     const h = await s.history();
     const at = h.findIndex((e) => e.type === "log" && e.why === line);
-    const asked = h.findIndex((e) => e.type === "user" && JSON.stringify(e.message ?? {}).includes("Ответь текстом: прочитано"));
-    if (at < 0 || asked < 0 || at < asked) throw new Error(`строка на месте ${at}, сообщение человека на месте ${asked}`);
-    return `сообщение — ${asked}, строка — ${at} из ${h.length}`;
+    const mine = h.findIndex((e) => e.uuid === asked);
+    if (at < 0 || mine < 0 || at < mine) throw new Error(`строка на месте ${at}, сообщение человека на месте ${mine}`);
+    return `сообщение — ${mine}, строка — ${at} из ${h.length}`;
   });
 
   // строки беды в ленте страницы; своя — та, что начинается словами отказа

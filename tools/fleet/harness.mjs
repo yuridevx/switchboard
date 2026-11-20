@@ -16,7 +16,6 @@ import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyFrame, emptyPicture, httpTransport, newId } from "@sb/protocol";
@@ -353,18 +352,18 @@ export function kit(o) {
   const shots = () => (shotDir ??= (fs.mkdirSync(path.join(root, "dist", "live", slug), { recursive: true }), path.join(root, "dist", "live", slug)));
   /** Страница флота в браузере: своё устройство по приглашению, вход принят. У ожиданий страницы своих чисел нет: предел — остаток бюджета.
    *  Ошибка страницы — красный в конце проверки; console: true — ошибкой считается и строка error консоли.
-   *  profile: true — окно со своим профилем на диске в настоящем Chrome (headless: false — с окном): подписка на уведомления живёт только в таком —
-   *  у окна без профиля службы пушей нет, у сборки Chromium нет её ключей. На Windows настоящий Chrome на свежем профиле — отказ входа в систему (см. launchBrowser).
+   *  profile: true — свой браузер настоящего Chrome с профилем на диске: подписка на уведомления живёт только в таком —
+   *  у окна без профиля службы пушей нет, у сборки Chromium нет её ключей. Профиль — временная папка Playwright, она уходит с закрытием.
+   *  На Windows настоящий Chrome на свежем профиле — отказ входа в систему (см. launchBrowser).
    *  Остальные поля — поля окна браузера (colorScheme, permissions, acceptDownloads…). */
-  async function page({ width = 1440, height = 900, console: logs = false, profile = false, headless = true, ...context } = {}) {
+  async function page({ width = 1440, height = 900, console: logs = false, profile = false, ...context } = {}) {
     const me = await must("whoami", {});
     const inv = await must("invite", { addr: `${slug.replaceAll("-", "")}${tag}${pages.length || ""}${me.person}` });
     defer(`приглашение ${inv.kid}`, (go) => go("revoke", { kid: inv.kid }));
     let ctx;
     if (profile) {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), `sb2-${slug}-`));
-      ctx = await chromium.launchPersistentContext(dir, { channel: "chrome", headless, viewport: { width, height }, ...context });
-      profiles.push({ ctx, dir });
+      ctx = await chromium.launchPersistentContext("", { channel: "chrome", viewport: { width, height }, ...context });
+      profiles.push(ctx);
     } else {
       browser ??= await (o.launch ?? launchBrowser)();
       ctx = await browser.newContext({ viewport: { width, height }, ...context });
@@ -396,17 +395,10 @@ export function kit(o) {
   /** Уборка: сначала сессии и прочее своё, потом папки — процессы сессий к тому времени папки отпустили. */
   async function cleanup() {
     clock.clearTimeout(timer);
-    // KEEP=1 — оставить своё для разбора: что осталось, названо строкой
-    // окна со своим профилем — каждое свой браузер: закрыть и убрать профиль с диска
-    for (const x of profiles.splice(0)) {
-      await x.ctx.close().catch(() => {});
-      try {
-        fs.rmSync(x.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-      } catch (e) {
-        out(`уборка не прошла: профиль браузера ${x.dir} — ${String(e.message).split("\n")[0]}`);
-      }
-    }
+    // окна со своим профилем — каждое свой браузер: закрытие уносит и его временный профиль
+    for (const ctx of profiles.splice(0)) await ctx.close().catch(() => {});
     await browser?.close().catch(() => {});
+    // KEEP=1 — оставить своё для разбора: что осталось, названо строкой
     if (o.keep) return void (out(`оставлено для разбора: ${cleanups.map((c) => c.what).join(", ") || "ничего"}`), link?.close());
     const done = await Promise.allSettled(cleanups.splice(0).reverse().map(async (c) => {
       const r = await c.fn(raw);
