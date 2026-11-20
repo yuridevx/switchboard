@@ -121,30 +121,153 @@
 .move-kind.token { color: var(--st-failed); }
 .move-m { flex: none; font-size: 11.5px; }
 
-/* «Фабрика»: посты, конвейеры со шагами-колонками, плашки тикетов; на телефоне шаги идут строками */
-.fposts { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-.fpost { cursor: pointer; }
-.fpost:hover, .ftile:hover { border-color: var(--muted); }
-.fpost:focus-visible, .ftile:focus-visible, .fpick:focus-visible { outline: 2px solid var(--st-busy); outline-offset: -2px; }
-.fpost-head { display: flex; gap: 8px; align-items: flex-start; min-width: 0; }
-.fpost-head .t { font-weight: 500; }
-.fpost-head .sub { font-size: 12px; }
-.fline-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.fsteps { display: flex; gap: 8px; }
-.fstep { flex: 1 1 0; max-width: calc((100% - 32px) / 5); background: var(--surface-2); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 84px; }
-.fstep-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); min-width: 0; min-height: 20px; }
-.fdoer { display: inline-flex; flex: none; }
-.ftile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 13px; }
-.ftile.ready { border-style: dashed; }
-.ftile.stop { border-color: var(--st-failed); }
-.ftile-top { display: flex; align-items: center; gap: 6px; font-size: 12px; min-width: 0; }
-.ftile-top .lamp { margin-top: 0; width: 8px; height: 8px; }
-.ftile .why { color: var(--st-failed); font-size: 12px; overflow-wrap: anywhere; }
-.flists { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: start; }
-.fpick { cursor: pointer; }
-.fpath { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.fpath .chip.now { background: var(--mantine-color-text); color: var(--surface); }
+/* «Фабрика»: вкладки «Цех», «Бэклог», «Входы». В цехе место — тикетам: статичное (названия дорожек, станции, свободные посты)
+   стоит мелко и тихо. Цвет — только у состояния тикета. */
+.page.factory { max-width: 1320px; display: flex; flex-direction: column; gap: 14px; }
+.fhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; padding: 8px 12px; margin: -8px -12px; border-radius: 10px; }
+.fhead.paused { background: var(--st-waiting-weak); }
+.fhead h1 { font-size: 20px; margin: 0; }
+.fhead .grow { flex: 1; }
+.fhead .ftabs { border-bottom: 0; margin: 0 4px; flex-wrap: nowrap; }
+.fhead .ftabs button { padding: 4px 9px; }
+.fgrp { font-size: 12.5px; font-weight: 600; color: var(--muted); margin: 0 0 6px; }
+.fnone { color: var(--muted); font-size: 13.5px; padding: 8px 2px; }
+/* потолок: деление — место под шаг, залитое — шаг идёт */
+.fslots { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fslots i { width: 6px; height: 12px; border-radius: 2px; border: 1.5px solid var(--st-stopped); }
+.fslots i.on { background: var(--st-busy); border-color: var(--st-busy); }
+.fslots span { margin-left: 3px; }
+
+/* поверхность цеха: дорожки и ряд свободных постов на одной плашке, между ними — линии */
+.ffloor { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.ffloor.flist { padding: 0 12px; }
+.flane { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 4px 12px; padding: 8px 12px; border-top: 1px solid var(--line); min-width: 0; }
+.flane:first-child, .fquiet:first-child { border-top: 0; }
+.fwho { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding-top: 1px; }
+.fwho .t { font-size: 13px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+.fwho.post { cursor: pointer; }
+.fwho.post .t { display: flex; align-items: center; gap: 7px; font-weight: 500; }
+.fwho.post:hover .t { text-decoration: underline; text-underline-offset: 3px; }
+.fwho.post .lamp, .fchip .lamp, .fbusy .lamp, .frow .lamp, .fstate .lamp { margin-top: 0; width: 8px; height: 8px; }
+
+/* рельс: станции-шаги в ряд, от станции к следующей — стрелка; тикеты стоят под своей станцией; пустая станция занимает только своё имя */
+.ftrack { display: grid; gap: 4px 8px; min-width: 0; align-items: start; }
+.ftrack.one { grid-template-columns: minmax(0, 1fr); }
+.fstop { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fstop-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); min-height: 17px; min-width: 0; white-space: nowrap; }
+.frail { flex: 1 1 14px; min-width: 14px; height: 0; border-top: 1.5px solid var(--st-stopped); position: relative; margin: 0 4px 0 0; opacity: 0.5; }
+.frail::after { content: ""; position: absolute; right: -3px; top: -4.75px; border: 4px solid transparent; border-right: 0; border-left: 6px solid var(--st-stopped); }
+/* дорожка в одну станцию — пост и конвейер из одного шага: тикеты стоят в ряд, первый — тот, что идёт */
+.ftrack.one .fstop { flex-direction: row; flex-wrap: wrap; align-items: stretch; }
+.ftrack.one .ftile { flex: 0 1 264px; }
+.fbusy { display: inline-flex; align-items: center; gap: 7px; align-self: center; border: 0; background: none; padding: 4px 2px; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.fbusy:hover { color: var(--mantine-color-text); }
+
+/* плашка тикета: в работе — залитая, в очереди — пунктир, ждёт человека — жёлтая, встал — красная; заголовок — главное на экране */
+.ftile { background: var(--surface-2); border: 1px solid transparent; border-radius: 8px; padding: 5px 9px 5px 24px; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 8px; min-width: 0; font-size: 13.5px; line-height: 1.35; }
+.ftile:hover { border-color: var(--muted); }
+.ftile.ready { background: none; border: 1px dashed var(--st-stopped); }
+.ftile.human { background: var(--st-waiting-weak); border-color: var(--st-waiting); }
+.ftile.stop { background: var(--st-failed-weak); border-color: var(--st-failed); }
+.ftile-h { display: flex; align-items: flex-start; gap: 7px; flex: 1 1 auto; min-width: 0; margin-left: -15px; font-weight: 500; }
+.ftile-h .lamp { margin-top: 5.5px; width: 8px; height: 8px; }
+.fmark { display: inline-flex; flex: none; color: var(--muted); width: 8px; justify-content: center; }
+.ftile-h .fmark { margin-top: 3.5px; }
+.ftile > .fwhen { font-size: 11.5px; }
+.ftile > .fnote { font-size: 12px; color: var(--muted); flex: 0 1 auto; min-width: 0; }
+.ftile > .chip { font-size: 11px; padding: 2px 6px; align-self: center; }
+.fat { display: none; }
+.fwhen { margin-left: auto; flex: none; font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.why { color: var(--st-failed); overflow-wrap: anywhere; }
+.ftile .why { font-size: 12px; }
+.ftile:focus-visible, .frow:focus-visible, .fwho.post:focus-visible, .fbusy:focus-visible, .fchip:focus-visible { outline: 2px solid var(--st-busy); outline-offset: -2px; }
+
+/* тихий ряд цеха: свободные посты — метками в строку; название поста — в подсказке */
+.fquiet { display: flex; flex-wrap: wrap; gap: 5px 6px; padding: 8px 12px; border-top: 1px solid var(--line); min-width: 0; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 12px; line-height: 1; padding: 5px 9px; border-radius: 999px; border: 0; background: var(--surface-2); color: var(--muted); white-space: nowrap; max-width: 100%; min-width: 0; }
+.fchip svg { flex: none; }
+button.fchip { cursor: pointer; }
+button.fchip:hover { color: var(--mantine-color-text); }
+
+/* строки: «Нужен человек» в жёлтой рамке, бэклог и закрытые на своей вкладке */
+.frow { display: grid; grid-template-columns: 10px auto minmax(0, 1fr) minmax(0, auto) 64px; align-items: center; gap: 0 10px; padding: 7px 0; border-top: 1px solid var(--line); min-width: 0; font-size: 13.5px; cursor: pointer; }
+.fcall > .frow:first-child, .flist > .frow:first-child, .flist > .frule:first-child { border-top: 0; }
+.frow:hover .ftitle { text-decoration: underline; text-underline-offset: 3px; }
+.frow .fid { font-size: 12px; }
+.ftitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fwhere { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.frow .fwhen { text-align: right; }
+.frow.two { grid-template-columns: 10px auto minmax(0, 1fr) 64px; align-items: baseline; row-gap: 1px; padding: 8px 0; }
+.frow.two .lamp, .frow.two .fmark { align-self: center; }
+.frow.two .ftitle { white-space: normal; overflow-wrap: anywhere; }
+.fsubline { grid-column: 3 / -1; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fcall { border: 1px solid var(--st-waiting); background: var(--st-waiting-weak); border-radius: 10px; padding: 2px 14px; }
+.fcall .frow { border-top-color: color-mix(in srgb, var(--st-waiting) 35%, transparent); font-size: 14.5px; padding: 9px 0; }
+.fcall .ftitle { font-weight: 500; }
+.fstore { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px 18px; align-items: start; }
+.fdays { display: flex; flex-direction: column; gap: 12px; }
+/* вкладка «Входы»: вход, чем срабатывает и чем проверяется, кому идёт тикет, когда сработает, тикет, который вход держит открытым */
+.frule { display: grid; grid-template-columns: 16px minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 1fr) 76px minmax(0, 0.9fr); align-items: center; gap: 2px 14px; padding: 9px 0; border-top: 1px solid var(--line); min-width: 0; font-size: 13.5px; }
+.frule-cell { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.frule .fid { font-size: 11.5px; }
+.frule .fwhen { text-align: right; }
+.frule-made { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; min-width: 0; }
+.frule-made .fchip { color: var(--mantine-color-text); }
+
+/* страница тикета: путь по станциям, история заметок, блок действий */
+.fpath { display: flex; flex-wrap: wrap; gap: 6px 0; align-items: center; font-size: 13px; }
+.fpath-st { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.fpath-st .frail { flex: none; width: 22px; margin-left: 2px; }
+.fdoer { display: inline-flex; flex: none; color: var(--muted); }
+.fpath-st.past { color: var(--mantine-color-text); }
+.fpath-st.past .fdoer { color: var(--st-idle); }
+.fpath-st.now { color: var(--surface); background: var(--mantine-color-text); border-radius: 999px; padding: 2px 10px; font-weight: 600; }
+.fpath-st.now .frail { margin-left: 14px; margin-right: -32px; }
+.fpath-st.now:has(.frail) { margin-right: 36px; }
+.fnotes { display: flex; flex-direction: column; border-left: 1.5px solid var(--line); margin-left: 4px; }
+.fnote-row { display: flex; gap: 12px; padding: 6px 0 8px; margin-left: -5px; min-width: 0; }
+.fnote-row .grow { flex: 1; min-width: 0; }
+.fnote-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; margin-top: 4px; background: var(--surface-2); border: 1.5px solid var(--st-stopped); }
+.fnote-row.done .fnote-dot { background: var(--st-idle); border-color: var(--st-idle); }
+.fnote-row.back .fnote-dot { background: var(--st-waiting); border-color: var(--st-waiting); }
+.fnote-row.stop .fnote-dot { background: var(--st-failed); border-color: var(--st-failed); }
+.fverdict { font-weight: 600; color: var(--mantine-color-text); }
+.fnote-row.stop .fverdict { color: var(--st-failed); }
+.fact { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 12px 14px; }
+.fact.human { border-color: var(--st-waiting); background: var(--st-waiting-weak); }
+.fact.stop { border-color: var(--st-failed); background: var(--st-failed-weak); }
+.fact-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.fassign { display: inline-flex; gap: 6px; align-items: center; margin-left: 12px; min-width: 0; }
+.fassign .mantine-Select-root { width: 190px; }
+.fdrop { margin-left: auto; }
+
+/* телефон: название дорожки — над рельсом; рельс — одной строкой имён со стрелками, тикеты под ним столбцом, станция названа в плашке */
 @media (max-width: 860px) {
-  .fsteps { flex-direction: column; }
-  .fstep { flex: none; max-width: none; min-height: 0; }
+  .flane { grid-template-columns: minmax(0, 1fr); }
+  .fwho { flex-direction: row; align-items: center; gap: 10px; }
+  .ftrack:not(.one) { display: flex; flex-wrap: wrap; gap: 4px 0; }
+  .ftrack:not(.one) .fstop { display: contents; }
+  .ftrack:not(.one) .fstop-head { order: 0; }
+  .ftrack:not(.one) .ftile { order: 1; flex: 1 1 100%; }
+  .ftrack:not(.one) .frail { flex: none; width: 14px; margin: 0 7px 0 4px; }
+  .fat { display: inline; }
+  .ftrack.one .ftile { flex: 1 1 100%; }
+  .frow { grid-template-columns: 10px auto minmax(0, 1fr) auto; }
+  .frow .ftitle { grid-column: 2 / -1; grid-row: 1; white-space: normal; }
+  .frow .lamp, .frow .fmark { grid-row: 1; }
+  .frow .fid { grid-column: 2; grid-row: 2; }
+  .frow .fwhere { grid-column: 3; grid-row: 2; }
+  .frow .fwhen { grid-column: 4; grid-row: 2; }
+  .fstore { grid-template-columns: minmax(0, 1fr); }
+  .frow.two .fsubline { grid-column: 2 / -1; grid-row: 3; }
+  .fhead .ftabs { order: 9; flex: 1 1 100%; margin: 0; }
+  .frule { grid-template-columns: 16px minmax(0, 1fr) auto; align-items: start; }
+  .frule > .frule-cell:nth-child(2) { grid-column: 2; grid-row: 1; }
+  .frule > .fwhen { grid-column: 3; grid-row: 1; }
+  .frule > .frule-cell:nth-child(3) { grid-column: 2 / -1; grid-row: 2; }
+  .frule > .fwhere { grid-column: 2 / -1; grid-row: 3; }
+  .frule > .frule-made { grid-column: 2 / -1; grid-row: 4; justify-content: flex-start; }
+  .frule > .frule-made:empty { display: none; }
+  .fassign { margin-left: 0; flex: 1 1 100%; }
+  .fassign .mantine-Select-root { flex: 1; width: auto; }
 }

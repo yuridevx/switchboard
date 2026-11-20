@@ -27,7 +27,7 @@ function open(at: string) {
   return render(
     <MantineProvider><QueryClientProvider client={qc}><MemoryRouter initialEntries={[at]}><At />
       <Routes>
-        <Route path="/factory/:project?" element={<Factory />} />
+        <Route path="/factory/:project?/:tab?" element={<Factory />} />
         <Route path="/factory/:project/new" element={<NewTicket />} />
         <Route path="/factory/:project/t/:id" element={<TicketPage />} />
         <Route path="/work/:callsign?" element={null} />
@@ -59,15 +59,17 @@ describe("«Фабрика»", () => {
     expect(stepBox("Изменение службы", "ревью").getByText("Права доступа служб выгрузки")).toBeTruthy();
     expect(stepBox("Изменение службы", "слияние").getByText(/ждёт: PR слит · #212/)).toBeTruthy();
     const load = (await waitFor(() => apiModule.api.call(factoryGet, { project: "infra" }))).factory!.load.lines.change!;
-    expect(within(screen.getByLabelText("Конвейер Изменение службы")).getByText(`${load.work} из 2`)).toBeTruthy();
+    expect(within(screen.getByLabelText("Конвейер Изменение службы")).getByLabelText(`идёт ${load.work} из 2`)).toBeTruthy();
     expect(load.work).toBe(2);
-    // вставший тикет — и на шаге, и в списке «Стоп», с причиной
-    expect(within(screen.getByLabelText("Стоп")).getByText("срок вышел")).toBeTruthy();
-    // тикет сессии по позывному и отложенный — в своём списке
-    expect(within(screen.getByLabelText("У сессий")).getByText("Проверить выкладку статики")).toBeTruthy();
-    // входы: срок правила — из ответа служб
-    expect(within(screen.getByLabelText("Входы")).getByText("каждые 10m")).toBeTruthy();
+    // вставший тикет — и на шаге, и первым блоком «Нужен человек», с причиной
+    expect(within(screen.getByLabelText("Нужен человек")).getByText("стоп: срок вышел")).toBeTruthy();
+    // тикет сессии по позывному и отложенный — дорожкой этой сессии
+    expect(within(screen.getByLabelText("Сессия deploy@server")).getByText("Проверить выкладку статики")).toBeTruthy();
     expect(document.querySelector(".banner.bad")).toBeNull();
+    // входы — своей вкладкой: срок правила — из ответа служб
+    cleanup();
+    open("/factory/infra/inputs");
+    await waitFor(() => expect(within(screen.getByLabelText("Входы")).getByText("каждые 10m")).toBeTruthy());
   });
 
   it("«Принять» у шага человека двигает тикет на следующий шаг; потолок занят — он встаёт в очередь", async () => {
@@ -112,7 +114,8 @@ describe("«Фабрика»", () => {
     open("/factory/infra/new");
     fireEvent.change(await screen.findByLabelText("Заголовок"), { target: { value: "Сверить права архива" } });
     fireEvent.click(screen.getByRole("button", { name: "Создать" }));
-    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra"));
+    // тикет без исполнителя виден во вкладке «Бэклог» — туда экран и возвращается
+    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra/backlog"));
     const made = (await waitFor(() => apiModule.api.call(ticketList, { project: "infra" }))).tickets[0]!;
     expect(made).toMatchObject({ id: "infra-53", title: "Сверить права архива", state: "ready" });
     expect(made.to).toBeUndefined();
@@ -132,5 +135,91 @@ describe("«Фабрика»", () => {
     // список тикетов действий не несёт: их называют службы у тикета, спрошенного по номеру
     expect(all.every((t) => t.acts === undefined && t.notes === undefined)).toBe(true);
     expect((await waitFor(() => ticket("infra-41"))).acts).toEqual(["verdict", "drop", "assign"]);
+  });
+
+  /** Номера тикетов внутри части экрана — в порядке показа. */
+  const ids = (el: Element) => [...el.querySelectorAll("[data-ticket]")].map((x) => x.getAttribute("data-ticket"));
+
+  it("тикеты, которые ждут человека, стоят первым блоком цеха: стоп и шаг человека, старые первыми; ждущий события — нет", async () => {
+    open("/factory/infra");
+    const call = await waitFor(() => screen.getByLabelText("Нужен человек"));
+    // чьё: договор — у проекта одно поле «кого звать, когда тикет ждёт человека или встал»
+    expect(ids(call)).toEqual(["infra-39", "infra-41"]);
+    expect(within(call).getByText("стоп: срок вышел")).toBeTruthy();
+    // блок — первый: выше него тикетов на экране нет
+    expect(document.querySelector(".page.factory [data-ticket]")).toBe(call.querySelector("[data-ticket]"));
+    // тот же тикет стоит на своей станции жёлтой плашкой; ждущий события — тихой: человеку там делать нечего
+    const tile = (step: string, title: string) => stepBox("Изменение службы", step).getByText(title).closest("[data-ticket]")!;
+    expect(tile("согласие", "Перенос журналов в архив").classList.contains("human")).toBe(true);
+    expect(tile("слияние", "Сжатие резервных копий").classList.contains("human")).toBe(false);
+  });
+
+  it("до и после работы тикет лежит во вкладке «Бэклог»: в цехе его нет", async () => {
+    open("/factory/infra");
+    await waitFor(() => expect(stepBox("Изменение службы", "план").getByText("Предел запросов на входе")).toBeTruthy());
+    // чьё: слово пользователя 20 нояб. — входы и бэклог с закрытыми — отдельные вкладки
+    for (const id of ["infra-50", "infra-51", "infra-35", "infra-33"]) expect(document.querySelector(`[data-ticket="${id}"]`)).toBeNull();
+    expect(screen.queryByLabelText("Входы")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Бэклог" }));
+    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra/backlog"));
+    // без исполнителя — старые первыми
+    await waitFor(() => expect(ids(screen.getByLabelText("Бэклог"))).toEqual(["infra-50", "infra-51"]));
+    // закрытые — по дням, свежие выше; снятый без работы назван
+    const closed = screen.getByLabelText("Закрытые");
+    expect(ids(closed)).toEqual(["infra-35", "infra-33"]);
+    expect(within(closed).getByText("Вчера")).toBeTruthy();
+    expect(within(closed).getByText("Изменение службы · снят")).toBeTruthy();
+    // тикет в работе на вкладке не стоит
+    expect(document.querySelector('[data-ticket="infra-43"]')).toBeNull();
+  });
+
+  it("пустых разделов в цехе нет: без ждущих человека блока нет, пустых списков экран не рисует", async () => {
+    open("/factory/research");
+    await waitFor(() => expect(screen.getByLabelText("Конвейер Ревью отчёта")).toBeTruthy());
+    // чьё: правило пользователя 2 нояб. — в интерфейсе только то, что несёт информацию
+    expect(screen.queryByLabelText("Нужен человек")).toBeNull();
+    expect(document.querySelector(".fnone")).toBeNull();
+    // конвейер без тикетов — одна строка названия: коробки под тикеты у него нет
+    expect(ids(screen.getByLabelText("Конвейер Цикл руководителя"))).toEqual([]);
+    expect(ids(screen.getByLabelText("Конвейер Ревью отчёта"))).toEqual(["research-1"]);
+  });
+
+  it("свободные посты стоят одним рядом меток; дорожка — только у поста с работой", async () => {
+    open("/factory/research");
+    const idle = await waitFor(() => screen.getByLabelText("Свободные посты"));
+    // чьё: слово пользователя 20 нояб. — меньше места статичному, больше тому, на что смотрят каждый день
+    expect([...idle.querySelectorAll("[data-post]")].map((x) => x.getAttribute("data-post"))).toEqual(["lead", "wing", "crawler", "sources", "stats", "editor", "charts"]);
+    expect(ids(screen.getByLabelText(/^Пост Аналитик цен/))).toEqual(["research-2"]);
+    expect(screen.queryByLabelText(/^Пост Руководитель/)).toBeNull();
+    // метка свободного поста открывает разговор его сессии
+    fireEvent.click(idle.querySelector('[data-post="lead"]')!);
+    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/work/lead@laptop"));
+  });
+
+  it("пост, занятый шагом конвейера, показывает этот шаг: причина очереди видна", async () => {
+    open("/factory/infra");
+    const post = await waitFor(() => screen.getByLabelText("Пост Оператор"));
+    // чьё: код — пост берёт тикеты по одному и занят шагом конвейера, который ведёт его сессия
+    const step = within(post).getByRole("button", { name: /шаг конвейера infra-43/ });
+    expect(ids(post)).toEqual(["infra-49"]);
+    expect(post.querySelector('[data-ticket="infra-49"]')!.classList.contains("ready")).toBe(true);
+    fireEvent.click(step);
+    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra/t/infra-43"));
+  });
+
+  it("пауза видна шапкой на любой вкладке, и на паузе у входов нет срока; вход показывает тикет, который держит открытым", async () => {
+    open("/factory/infra/inputs");
+    const disk = () => within(screen.getByLabelText("Входы")).getByText("Место на дисках").closest("[data-on]")!;
+    // чьё: код — на паузе входы не срабатывают и новые шаги не запускаются
+    await waitFor(() => expect(disk().textContent).toContain("через 4м"));
+    expect(document.querySelector(".fhead.paused")).toBeNull();
+    expect(ids(disk())).toEqual(["infra-49"]);
+    fireEvent.click(screen.getByRole("switch", { name: "Пауза" }));
+    await waitFor(() => expect(document.querySelector(".fhead.paused")).toBeTruthy());
+    expect(disk().textContent).not.toContain("через");
+    // шапка та же на вкладке «Цех»
+    fireEvent.click(screen.getByRole("tab", { name: "Цех" }));
+    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra"));
+    expect(document.querySelector(".fhead.paused")).toBeTruthy();
   });
 });

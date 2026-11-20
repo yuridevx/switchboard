@@ -18,11 +18,17 @@ export const STATE_LAMP: Record<TicketState, string> = { ready: "off", work: "bu
 
 /** Шаг, на котором стоит тикет: у тикета поста, сессии и бэклога шагов нет. */
 export const stepOf = (def: FactoryDef, t: Pick<Ticket, "to" | "step">): StepDef | undefined => (t.to ? def.lines[t.to]?.steps[t.step] : undefined);
+/** Событие, которого ждёт тикет: шаг-ожидание; у шага человека его нет. */
+export const waitsEvent = (def: FactoryDef, t: Pick<Ticket, "to" | "step" | "state">): string | undefined => (t.state === "wait" ? stepOf(def, t)?.wait : undefined);
+/** Тикет ждёт человека: шаг человека или стоп — дальше его двигает только человек. */
+export const needsHuman = (def: FactoryDef, t: Pick<Ticket, "to" | "step" | "state">): boolean => t.state === "stop" || (t.state === "wait" && !waitsEvent(def, t));
 /** Чего ждёт тикет: человека или события; у события — его слово и номер PR. */
 export function waitWord(def: FactoryDef, t: Ticket): string {
-  const step = stepOf(def, t);
-  return step?.wait ? `ждёт: ${eventWord(step.wait)}${t.pr ? ` · ${t.pr.slice(t.pr.indexOf("#"))}` : ""}` : "ждёт человека";
+  const event = waitsEvent(def, t);
+  return event ? `ждёт: ${eventWord(event)}${t.pr ? ` · ${t.pr.slice(t.pr.indexOf("#"))}` : ""}` : "ждёт человека";
 }
+/** Тикет, которым занят пост помимо своей очереди: шаг конвейера, который ведёт его сессия. */
+export const postStep = (name: string, call: string, tickets: Ticket[]): Ticket | undefined => tickets.find((t) => t.state === "work" && t.session === call && t.to !== name);
 /** Тикеты шага в порядке показа: идущие и ждущие — первыми, очередь — после них, старые раньше. */
 export function atStep(line: string, step: number, tickets: Ticket[]): Ticket[] {
   const rank = (t: Ticket) => (t.state === "ready" ? 1 : 0);
