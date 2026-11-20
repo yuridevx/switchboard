@@ -1,9 +1,12 @@
 // Свойства плана тестов v2 без теста: заведение флота (отказы) и удаление человека.
 // Источник — устав («система ловит»: отказ словом, ничего не изменено) и код («чьё: код»).
 import { SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
-import type { Frame, MachineRow, SessionRow } from "@sb/protocol";
-import { ANYA, api, ask, boot, connect, host, newFleet, OLEG, page, pass, row, trio, YURI } from "./kit.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CALL_MS, type Frame, type MachineRow, type SessionRow } from "@sb/protocol";
+import { machineStub } from "../src/env.ts";
+import { ANYA, api, ask, boot, connect, E, hangUp, host, newFleet, OLEG, page, pass, row, tick, trio, YURI } from "./kit.ts";
+
+afterEach(hangUp);
 
 const names = (f: Frame) => ((f.machines as MachineRow[] | undefined) ?? []).map((m) => m.name).sort();
 
@@ -122,7 +125,8 @@ describe("люди и проекты: кто что видит после пра
     expect(await ask(t.fleet, t.yuri, { type: "project.set", project: "site", name: "site", members: [YURI, "~ghost@example.com"] })).toMatchObject({ ok: false, error: "not_found" });
     const list = (await ask(t.fleet, t.yuri, { type: "people.list" })).result as { projects: Array<{ id: string; members: string[] }> };
     expect(list.projects.find((p) => p.id === "site")!.members.sort()).toEqual([ANYA, YURI]);
-    expect(await Promise.race([a.closed.then(() => "closed"), new Promise((r) => setTimeout(() => r("open"), 300))])).toBe("open");
+    // барьер: закрытие пришло бы раньше ответа на ping
+    expect(await a.sync()).toBe("pong");
   });
 
   // находка: проверки — до первой записи, отказ ничего не оставляет
@@ -181,10 +185,19 @@ describe("соединение машины", () => {
 
   // устав: «у всех операций должен быть лимит»
   it("Host принял запрос и молчит дольше предела — отказ timeout, соединение цело", async () => {
-    const fleet = newFleet(), yuri = await boot(fleet), laptop = await pass(fleet, yuri, "@laptop");
-    const silent = await connect("/m/" + fleet + "/laptop", laptop, "host");
-    const r = await api.deliver(fleet, { type: "message", id: "m-t", to: "site@laptop", text: "x" });
-    expect(r).toMatchObject({ ok: false, error: "timeout" });
-    expect(silent.ws.readyState).toBe(1);
+    // время предела — поддельное: тест сдвигает часы объекта машины на CALL_MS
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const fleet = newFleet(), yuri = await boot(fleet), laptop = await pass(fleet, yuri, "@laptop");
+      const silent = await connect("/m/" + fleet + "/laptop", laptop, "host");
+      const waiting = api.deliver(fleet, { type: "message", id: "m-t", to: "site@laptop", text: "x" });
+      await silent.next((f) => f.id === "m-t"); // запрос у Host — предел заведён
+      await tick(machineStub(E, fleet, "laptop"), CALL_MS);
+      expect(await waiting).toMatchObject({ ok: false, error: "timeout" });
+      // барьер: закрытие пришло бы раньше ответа на ping
+      expect(await silent.sync()).toBe("pong");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

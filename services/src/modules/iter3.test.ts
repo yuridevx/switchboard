@@ -1,6 +1,6 @@
 // Эталоны служб, третья итерация: поиск по переписке с записью и точкой, обзор архива, фильтры каталога, CORS входа,
 // числа Host (ряд и сводка здоровья), оповещения о машине без связи и о сессии со сбоем.
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type ArchSession, type HostMetrics, type SessionRow, sha256hex } from "@sb/protocol";
 import { around, blockKey } from "./archive/archive.ts";
 import { drop, fire, list as timers } from "./clock/clock.ts";
@@ -24,6 +24,15 @@ async function save(s: Stand, sid: string, point: string, text: { uuid: string; 
   if (!first.done) expect(await s.ask("points.put", { ...put, commit: true }, as)).toMatchObject({ result: { done: true } });
 }
 const list = async (s: Stand, f: Record<string, unknown>, as = "kyura1") => (await s.ask("points.list", f, as)).result as { sessions: ArchSession[]; more: boolean };
+/** Время записи задаёт тест: часы стоят на at. */
+const at = (ms: number) => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(ms);
+};
+const T = Date.UTC(2026, 10, 20);
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("архив: поиск по переписке", () => {
   it("строка вокруг слова — до 60 знаков с каждой стороны, обрыв помечен; слова нет — начало текста", () => {
@@ -45,8 +54,9 @@ describe("архив: поиск по переписке", () => {
 
   it("найденная сессия называет запись, точку, с которой запись в архиве, и строку вокруг слова", async () => {
     const s = stand();
+    at(T);
     await save(s, "s-find", "p1", [{ uuid: "u-1", text: "начнём с тестов" }]);
-    await new Promise((r) => setTimeout(r, 5));
+    at(T + 10);
     await save(s, "s-find", "p2", [{ uuid: "u-2", text: "теперь выкладка на стенд и проверка" }]);
     const r = await list(s, { q: "выкладка" });
     expect(r.sessions).toHaveLength(1);
@@ -59,11 +69,12 @@ describe("архив: поиск по переписке", () => {
 describe("архив: каталог и обзор", () => {
   it("фильтры каталога: машина, не старше, порядок по токенам, предел с признаком «есть ещё»", async () => {
     const s = stand();
+    at(T);
     await save(s, "s-a", "p1", [{ uuid: "a1", text: "раз" }], { tokens: 10 });
-    await new Promise((r) => setTimeout(r, 5));
-    const mid = Date.now();
-    await new Promise((r) => setTimeout(r, 5));
+    const mid = T + 10;
+    at(T + 20);
     await save(s, "s-b", "p1", [{ uuid: "b1", text: "два" }], { tokens: 500 });
+    at(T + 30);
     await save(s, "s-o", "p1", [{ uuid: "o1", text: "три" }], { as: "kolegm", tokens: 99 });
     expect((await list(s, {})).sessions.map((x) => x.sid)).toEqual(["s-o", "s-b", "s-a"]);
     expect((await list(s, { order: "tokens" })).sessions.map((x) => x.sid)).toEqual(["s-b", "s-o", "s-a"]);
