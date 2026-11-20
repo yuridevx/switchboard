@@ -231,7 +231,7 @@ describe("привязка сессии", () => {
     const home = st!.home, sid = s.rec.sessionId;
     await st!.stop();
     await fleet(all, () => ({}), { home });
-    await until(() => st!.kernel.sessions.get(CS)?.state === "idle", 5000, "site поднята новым Host");
+    await until(() => st!.kernel.sessions.get(CS)?.state === "idle", "site поднята новым Host");
     expect(await routed(sid)).toBe(A);
   });
 
@@ -244,8 +244,8 @@ describe("привязка сессии", () => {
     all[B] = {};
     api.names.list.push(B);
     st!.link.deliver({ type: "changed", what: "keys" });
-    await until(async () => (await listed()).length === 2, 5000, "аккаунт B прочитан");
-    await until(() => (JSON.parse(readFileSync(join(st!.home, "store", "host-accounts.json"), "utf8")).machine.accounts[B] ? true : false), 5000, "B в записи");
+    await until(() => (JSON.parse(readFileSync(join(st!.home, "store", "host-accounts.json"), "utf8")).machine.accounts[B] ? true : false), "B в записи");
+    expect(await listed()).toHaveLength(2);
     const { s: fresh } = await st!.open("fresh", claude(OPUS));
     // свежая неделя B: 100 % на 168 часов против 50 % на 90 — счёт выше у B
     expect(await routed(fresh.rec.sessionId)).toBe(B);
@@ -342,8 +342,7 @@ describe("отказы Claude", () => {
     const api = await fleet({ [A]: { week: 0.2, hours: 20 }, [B]: { week: 0.4, hours: 90 } }, (_hit, n) => (n === 1 ? { status: 429, headers: { "retry-after": "20" } } : {}));
     const { s } = await st!.open("site", claude());
     const answer = call(s.rec.sessionId);
-    await until(() => api.hits.length === 1, 5000, "первый вызов дошёл до Claude");
-    await tick(20);
+    await until(() => st!.clock.pending().includes(20_000), "прокси ждёт 20 с по часам");
     expect(api.hits).toHaveLength(1);
     st!.clock.advance(20_000);
     expect((await answer).status).toBe(200);
@@ -360,7 +359,7 @@ describe("отказы Claude", () => {
     expect((await listed()).find((a) => a.name === A)).toMatchObject({ ok: false, why: "токен не принят" });
     expect(row().account).toBe(B);
     expect(journal("account.token")).toMatchObject([{ account: A, level: "error" }]);
-    await until(() => raised.length === 1, 5000, "событие об аккаунте");
+    await until(() => raised.length === 1, "событие об аккаунте");
     expect(raised[0]).toMatchObject({ project: "site", on: "account", key: A });
   });
 
@@ -380,7 +379,7 @@ describe("отказы Claude", () => {
     await tick();
     expect(proc.inputs.some((i) => i.message.content === "Продолжай")).toBe(false);
     st!.clock.advance(HOUR);
-    await until(() => proc.inputs.some((i) => i.message.content === "Продолжай"), 5000, "сессия продолжила в час сброса");
+    await until(() => proc.inputs.some((i) => i.message.content === "Продолжай"), "сессия продолжила в час сброса");
     expect(row().wait).toBeUndefined();
   });
 });
@@ -437,7 +436,7 @@ describe("провайдеры и модели", () => {
     await st!.turn(CS, [said("claude-opus-5-5")]);
     expect(row()).toMatchObject({ spec: { model: FABLE }, answers: "claude-opus-5-5" });
     expect(journal("model_drift")).toMatchObject([{ callsign: CS, level: "error" }]);
-    await until(() => raised.length === 1, 5000, "событие о модели");
+    await until(() => raised.length === 1, "событие о модели");
     expect(raised[0]).toMatchObject({ project: "site", on: "model", key: CS, text: expect.stringContaining("ответила claude-opus-5-5") });
     // ответ субагента в сверку не идёт; названная модель снимает расхождение
     await st!.turn(CS, [{ ...said(HAIKU), parent_tool_use_id: "toolu_1" }, said(FABLE)]);
@@ -525,14 +524,14 @@ describe("проба окон аккаунта", () => {
     const { s } = await st!.open("site", claude(OPUS));
     await call(s.rec.sessionId, OPUS);
     const sent = () => st!.services.of("keys.limits");
-    await until(() => sent().length === 1, 5000, "окна сообщены флоту");
+    await until(() => sent().length === 1, "окна сообщены флоту");
     expect(sent()[0]).toMatchObject({ name: A, limits: [{ name: "seven_day", used: 0.41, resets: T0 + 40 * HOUR, at: T0 }] });
     await call(s.rec.sessionId, OPUS);
     await tick(20);
     expect(sent()).toHaveLength(1);
     week = 0.42;
     await call(s.rec.sessionId, OPUS);
-    await until(() => sent().length === 2, 5000, "изменившиеся окна сообщены");
+    await until(() => sent().length === 2, "изменившиеся окна сообщены");
     expect((sent()[1] as any).limits[0].used).toBe(0.42);
   });
 
@@ -560,7 +559,7 @@ describe("проба окон аккаунта", () => {
     expect(api.hits).toMatchObject([{ account: A }]);
     expect(fresh[0]!.limits.map((l) => [l.name, l.used])).toEqual([["seven_day", 0.02]]);
     expect(st!.services.of("keys.limits").at(-1)).toMatchObject({ name: A, limits: [{ name: "seven_day", used: 0.02 }] });
-    await until(() => proc.inputs.some((i) => i.message.content === "Продолжай"), 5000, "сессия продолжила после сброса");
+    await until(() => proc.inputs.some((i) => i.message.content === "Продолжай"), "сессия продолжила после сброса");
   });
 
   // чьё: слово пользователя 16 нояб. — «надо сделать периодический перезапрос лимитов»
@@ -572,8 +571,8 @@ describe("проба окон аккаунта", () => {
     expect(api.hits).toHaveLength(0);
     // чьё: решение агента — срок обхода десять минут; первый обход машины — внутри срока
     st!.clock.advance(600_000);
-    await until(() => api.hits.length === 1, 5000, "обход попробовал закрытый аккаунт");
-    await until(() => proc.inputs.some((i) => i.message.content === "Продолжай"), 5000, "сессия продолжила после сброса");
+    await until(() => api.hits.length === 1, "обход попробовал закрытый аккаунт");
+    await until(() => proc.inputs.some((i) => i.message.content === "Продолжай"), "сессия продолжила после сброса");
     expect(row().wait).toBeUndefined();
   });
 
@@ -587,7 +586,7 @@ describe("проба окон аккаунта", () => {
     expect(api.hits).toHaveLength(0);
     // прошёл ещё срок, флот молчал — проба этой машиной, одна
     st!.clock.advance(600_000);
-    await until(() => api.hits.length === 1, 5000, "обход попробовал притихший аккаунт");
+    await until(() => api.hits.length === 1, "обход попробовал притихший аккаунт");
   });
 
   it("вопрос «заново», а окно так и закрыто — проба получает тот же отказ: аккаунт закрыт до того же часа, второй строки о закрытии в журнале нет", async () => {

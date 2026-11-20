@@ -127,10 +127,10 @@ describe("файлы: человек загружает файл", () => {
     const f = uploaded(store, "maket.png", "PNG-байты макета");
     expect((await st.request("message", { to: CS, text: "Вот макет, сверь с ним шапку.", files: [f] }, PULT)).ok).toBe(true);
     expect(readFileSync(join(st.dir, "uploads", "maket.png"), "utf8")).toBe("PNG-байты макета");
-    await until(() => proc.inputs.length === 1, 5000, "ввод");
+    await until(() => proc.inputs.length === 1, "ввод");
     expect(proc.inputs[0]!.message.content).toBe(`Вот макет, сверь с ним шапку.\n\nЗагружены файлы в папку сессии:\n- uploads/maket.png · ${f.size} байт · sha256 ${f.hash}`);
     // лента получает разобранное: текст человека без строки уведомления и файлы полем
-    const said = await until(() => feed().find((e) => e.type === "user"), 5000, "событие ленты");
+    const said = await until(() => feed().find((e) => e.type === "user"), "событие ленты");
     expect(said).toMatchObject({ from: PULT, message: { content: "Вот макет, сверь с ним шапку." }, files: [f] });
     expect(journal("file_upload")).toMatchObject([{ callsign: CS, name: "uploads/maket.png", hash: f.hash, size: f.size }]);
     // из хранилища пришло не то содержимое — в папку не записано, сообщение не принято
@@ -140,9 +140,9 @@ describe("файлы: человек загружает файл", () => {
     // файл от сессии — тем же шагом: строка уведомления внутри тега входящего
     const g = uploaded(store, "notes.md", "# заметки");
     await st.request("message", { to: CS, text: "держи", files: [g] }, "docs@server");
-    await until(() => proc.inputs.length === 2, 5000, "ввод от сессии");
+    await until(() => proc.inputs.length === 2, "ввод от сессии");
     expect(proc.inputs[1]!.message.content).toBe(`<fleet from="docs@server" kind="message">\nдержи\n\nЗагружены файлы в папку сессии:\n- uploads/notes.md · ${g.size} байт · sha256 ${g.hash}\n</fleet>`);
-    expect(await until(() => feed().find((e) => e.peer), 5000, "входящее в ленте")).toMatchObject({ peer: { from: "docs@server", kind: "message", text: "держи" }, files: [g] });
+    expect(await until(() => feed().find((e) => e.peer), "входящее в ленте")).toMatchObject({ peer: { from: "docs@server", kind: "message", text: "держи" }, files: [g] });
   });
 
   it("эталон 9 · имя занято другим содержимым — файл встаёт рядом, с номером; то же содержимое — один файл", async () => {
@@ -159,7 +159,7 @@ describe("файлы: человек загружает файл", () => {
     await st.request("message", { to: CS, text: "ещё раз", files: [b, a] }, PULT);
     expect(readdirSync(join(st.dir, "uploads")).sort()).toEqual(["spec-2.pdf", "spec.pdf"]);
     expect(store.gets).toHaveLength(gets);
-    await until(() => proc.inputs.length === 3, 5000, "ввод");
+    await until(() => proc.inputs.length === 3, "ввод");
     expect(proc.inputs[0]!.message.content).toBe(`Загружены файлы в папку сессии:\n- uploads/spec.pdf · ${a.size} байт · sha256 ${a.hash}`);
     expect(proc.inputs[2]!.message.content).toContain(`- uploads/spec-2.pdf · ${b.size} байт · sha256 ${b.hash}\n- uploads/spec.pdf · ${a.size} байт`);
     // имя с путём и знаками, которых не терпит диск, — только имя файла, внутри uploads/
@@ -261,7 +261,7 @@ describe("файлы: тикет, история, предел", () => {
     const { proc } = await st.open("site");
     const f = uploaded(store, "df.txt", "/ 99%");
     expect((await st.request("work.give", { to: "@laptop", name: "site", ticket: "site-7", on: "disk", key: "c:", text: "Тикет site-7: место кончается", files: [f] }, ".factory")).ok).toBe(true);
-    await until(() => proc.inputs.length === 1, 5000, "шаг во вводе");
+    await until(() => proc.inputs.length === 1, "шаг во вводе");
     expect(proc.inputs[0]!.message.content).toBe(`<fleet from=".factory" kind="ticket" ticket="site-7" on="disk" key="c:">\nТикет site-7: место кончается\n\nЗагружены файлы в папку сессии:\n- uploads/df.txt · 5 байт · sha256 ${f.hash}\n</fleet>`);
     expect(readFileSync(join(st.dir, "uploads", "df.txt"), "utf8")).toBe("/ 99%");
     // содержимого в хранилище нет — работа не дана, отказ словом: служба поставит тикет в «стоп»
@@ -276,14 +276,14 @@ describe("файлы: тикет, история, предел", () => {
     await st.request("session.watch", { to: CS }, PULT);
     const f = uploaded(store, "maket.png", "PNG-байты макета");
     await st.request("message", { to: CS, text: "Вот макет.", files: [f] }, PULT);
-    await until(() => proc.inputs.length === 1, 5000, "ввод");
+    await until(() => proc.inputs.length === 1, "ввод");
     // файл разговора хранит то, что ушло процессу: текст со строкой уведомления
     const said = [{ type: "user", uuid: "u1", message: { role: "user", content: proc.inputs[0]!.message.content } }, { type: "user", uuid: "u2", message: { role: "user", content: "А тут файлов нет:\n- список" } }];
     (st.sdk as any).functions = new Proxy({}, { get: (_t, name) => async () => (name === "getSessionMessages" ? said : {}) });
     const history = ((await st.request("session.history", { to: CS }, PULT)).result as { events: any[] }).events;
     expect(history[0]).toMatchObject({ uuid: "u1", message: { content: "Вот макет." }, files: [f] });
     expect(history[1]).toEqual(said[1]);
-    const live = await until(() => feed().find((e) => e.type === "user"), 5000, "событие ленты");
+    const live = await until(() => feed().find((e) => e.type === "user"), "событие ленты");
     expect({ text: history[0].message.content, files: history[0].files }).toEqual({ text: live.message.content, files: live.files });
   });
 

@@ -1,5 +1,6 @@
-// Поддельные часы ядра: время журнала и таймеры ядра идут только по advance().
+// Поддельные часы ядра: время журнала и таймеры ядра идут только по advance(). Новый таймер ядра — сигнал стенда.
 import type { Clock } from "../src/core/clock.ts";
+import { signal } from "./signal.ts";
 
 export class FakeClock implements Clock {
   private t: number;
@@ -17,7 +18,13 @@ export class FakeClock implements Clock {
   setTimeout(fn: () => void, ms: number): unknown {
     const id = ++this.seq;
     this.timers.push({ at: this.t + ms, fn, id });
+    signal();
     return id;
+  }
+
+  /** Сколько осталось до каждого поставленного таймера. */
+  pending(): number[] {
+    return this.timers.map((x) => x.at - this.t);
   }
 
   clearTimeout(h: unknown): void {

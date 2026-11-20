@@ -86,7 +86,7 @@ const call = (sid: string, model: string, extra: Record<string, unknown> = {}) =
 const said = (model: string) => ({ type: "assistant", uuid: `u-${model}-${Math.random()}`, parent_tool_use_id: null, message: { model, content: [{ type: "text", text: "ок" }] } });
 const busy = async (s: { state: string }) => {
   st!.proc(CS).send({ type: "system", subtype: "session_state_changed", state: "running", session_id: "s" });
-  await until(() => s.state === "busy", 5000, "busy");
+  await until(() => s.state === "busy", "busy");
 };
 
 describe("смена на лету", () => {
@@ -118,7 +118,7 @@ describe("смена на лету", () => {
     st!.proc(CS).send(said(FABLE));
     st!.proc(CS).send({ type: "result", subtype: "success", result: "готово", session_id: "s" });
     st!.proc(CS).send({ type: "system", subtype: "session_state_changed", state: "idle", session_id: "s" });
-    await until(() => s.state === "idle", 5000, "idle");
+    await until(() => s.state === "idle", "idle");
     expect(row().answers).toBeUndefined();
     expect(journal("model_drift")).toHaveLength(0);
     await st!.turn(CS, [said(FABLE)]);
@@ -182,7 +182,7 @@ describe("смена на лету", () => {
     expect(await update({ key: "oai", model: "grok-4.5" })).toMatchObject({ ok: true });
     expect(swaps(q)).toEqual([]);
     await st!.request("session.start", { to: CS });
-    await until(() => s.state === "idle", 5000, "idle");
+    await until(() => s.state === "idle", "idle");
     const o = st!.sdk.queries.at(-1)!.options as any;
     expect([o.model, o.env.CLAUDE_CODE_OAUTH_TOKEN, o.env.ANTHROPIC_API_KEY]).toEqual(["grok-4.5", "fleet", undefined]);
   });
@@ -217,17 +217,17 @@ describe("смена на лету", () => {
     // на модель с окном 256 К: имя с «[1m]» сразу, предел — перезапуском
     expect(await update({ key: "orca", model: "qwen-3.5-coder" })).toMatchObject({ ok: true, result: { now: [], later: ["model", "key"] } });
     expect(swaps(q)).toEqual(["qwen-3.5-coder[1m]"]);
-    await until(() => launched().env.CLAUDE_CODE_AUTO_COMPACT_WINDOW === "256000" && s.state === "idle", 5000, "перезапуск с пределом");
+    await until(() => launched().env.CLAUDE_CODE_AUTO_COMPACT_WINDOW === "256000" && s.state === "idle", "перезапуск с пределом");
     expect([launched().model, launched().resume]).toEqual(["qwen-3.5-coder[1m]", s.rec.sessionId]);
     expect(journal("model_switch").at(-1)).toMatchObject({ how: "restart" });
     // обратно на модель без предела: предел прежней пары снят перезапуском
     expect(await update({ key: "orca", model: "glm-5.3" })).toMatchObject({ ok: true, result: { later: ["model", "key"] } });
-    await until(() => launched().env.CLAUDE_CODE_AUTO_COMPACT_WINDOW === undefined && launched().model === "glm-5.3" && s.state === "idle", 5000, "перезапуск без предела");
+    await until(() => launched().env.CLAUDE_CODE_AUTO_COMPACT_WINDOW === undefined && launched().model === "glm-5.3" && s.state === "idle", "перезапуск без предела");
     // на ключ со своим окружением и обратно
     expect(await update({ key: "enved", model: "m1" })).toMatchObject({ ok: true, result: { later: ["model", "key"] } });
-    await until(() => launched().env.PROVIDER_REGION === "eu" && s.state === "idle", 5000, "перезапуск с окружением ключа");
+    await until(() => launched().env.PROVIDER_REGION === "eu" && s.state === "idle", "перезапуск с окружением ключа");
     expect(await update({ key: "orca", model: "glm-5.3" })).toMatchObject({ ok: true, result: { later: ["model", "key"] } });
-    await until(() => launched().env.PROVIDER_REGION === undefined && s.state === "idle", 5000, "перезапуск без окружения ключа");
+    await until(() => launched().env.PROVIDER_REGION === undefined && s.state === "idle", "перезапуск без окружения ключа");
   });
 
   // эталон 9 — устав: после перезапуска Host модуль поднимает своё из хранилища
@@ -241,7 +241,7 @@ describe("смена на лету", () => {
     api.hits.length = 0;
     // запись о паре пережила подмену: адрес и ключ провайдера — из неё, каталог заново не читается
     await fleet(() => ({}), { home: api.home, holders });
-    await until(() => st!.kernel.sessions.get(CS)?.state === "idle", 5000, "idle после подмены");
+    await until(() => st!.kernel.sessions.get(CS)?.state === "idle", "idle после подмены");
     expect(st!.kernel.sessions.get(CS)!.launched).toBe("attach");
     const base = `http://127.0.0.1:${JSON.parse(readFileSync(join(api.home, "store", "host-proxy.json"), "utf8")).machine.port}`;
     await fetch(`${base}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-claude-code-session-id": sid }, body: JSON.stringify({ model: "glm-5.3", messages: [] }) });
@@ -265,7 +265,7 @@ describe("смена на лету", () => {
     expect(r).toMatchObject({ ok: false, error: "model_refused" });
     expect(r.why).toContain("не ответил за 30 с");
     expect(s.rec.spec).toMatchObject({ key: "claude", model: FABLE });
-    await until(() => st!.sdk.queries.length === queries + 1 && s.state === "idle", 5000, "чистый перезапуск");
+    await until(() => st!.sdk.queries.length === queries + 1 && s.state === "idle", "чистый перезапуск");
     expect((st!.sdk.queries.at(-1)!.options as any).model).toBe(`${FABLE}[1m]`);
   });
 });
@@ -357,7 +357,7 @@ describe("путь OpenAI-протокола", () => {
     expect(hit.body.input.map((i: any) => i.type)).toEqual(["message", "reasoning", "message", "function_call", "function_call_output"]);
     // поиск в вебе ведёт только диалект Meta: у OpenAI-протокола инструмента нет, о пробеле — строка журнала
     expect(hit.body.tools.map((t: any) => t.name)).toEqual(["Bash"]);
-    await until(() => journal("gap").length > 0, 5000, "строка о пробеле перевода");
+    await until(() => journal("gap").length > 0, "строка о пробеле перевода");
     expect(journal("gap")[0].why).toContain("web_search");
   });
 

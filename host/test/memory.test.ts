@@ -101,7 +101,7 @@ describe("память флота: один старт, запись по мод
     const before = git.length;
     await proc.hook("PostToolUse", fresh);
     expect(trail()).toMatchObject([{ level: "info", callsign: CS, model: OPUS, piece: GAME, record: "new-note", op: "write" }]);
-    await until(() => git.length > before, 5000, "сведение после записи");
+    await until(() => git.length > before, "сведение после записи");
     expect(git[before]![0]).toBe("add");
   });
 
@@ -156,7 +156,7 @@ describe("память флота: один старт, запись по мод
     rmSync(join(clone, "game"), { recursive: true, force: true });
     await st!.request("session.stop", { to: "lost@laptop" }, PULT);
     await st!.request("session.start", { to: "lost@laptop" }, PULT);
-    await until(() => st!.kernel.sessions.get("lost@laptop")?.state === "idle", 5000, "сессия поднялась");
+    await until(() => st!.kernel.sessions.get("lost@laptop")?.state === "idle", "сессия поднялась");
     expect(settingsOf("lost@laptop")).toEqual({ autoMemoryEnabled: false });
     expect(st!.journal().some((l) => l.msg === "profile" && l.level === "error" && l.callsign === "lost@laptop")).toBe(true);
   });
@@ -179,7 +179,7 @@ describe("память флота: дочерняя берёт кусочки р
     const { memory } = await fleet();
     await open("boss", OPUS, [GAME]);
     expect(await st!.request("session.open", { to: "@laptop", spec: { name: "kid", cwd: st!.dir, key: "claude", model: HAIKU } }, "boss@laptop")).toMatchObject({ ok: true });
-    await until(() => st!.kernel.sessions.get("kid@laptop")?.state === "idle", 5000, "дочерняя готова");
+    await until(() => st!.kernel.sessions.get("kid@laptop")?.state === "idle", "дочерняя готова");
     expect(st!.kernel.sessions.get("kid@laptop")!.rec.spec).toMatchObject({ pieces: [GAME], parent: "boss@laptop" });
     expect(settingsOf("kid@laptop")).toEqual({ autoMemoryDirectory: memory });
     expect(denied(await st!.proc("kid@laptop").hook("PreToolUse", write(join(memory, "new-note.md"))))?.permissionDecision).toBe("deny");
@@ -199,7 +199,7 @@ describe("память флота: дочерняя берёт кусочки р
     await fleet();
     await open("boss", OPUS, [GAME]);
     await st!.request("session.open", { to: "@laptop", spec: { name: "kid", cwd: st!.dir, key: "claude", model: OPUS, pieces: [] } }, "boss@laptop");
-    await until(() => st!.kernel.sessions.get("kid@laptop")?.state === "idle", 5000, "дочерняя готова");
+    await until(() => st!.kernel.sessions.get("kid@laptop")?.state === "idle", "дочерняя готова");
     expect(st!.kernel.sessions.get("kid@laptop")!.rec.spec.pieces).toEqual([]);
     const o = st!.sdk.last("kid@laptop")!.options as Record<string, unknown>;
     expect(o.settings).toEqual({ autoMemoryEnabled: false });

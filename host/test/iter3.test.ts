@@ -113,7 +113,7 @@ describe("точки: предел повторов, остановленная 
     expect(st!.services.of("points.delete")).toHaveLength(0);
     // архив вернули — остановленная сессия сохраняется снова
     expect((await st!.request("session.update", { to: "site@laptop", patch: { backup: true } })).ok).toBe(true);
-    await until(() => state.puts.length > saved, 5000, "точка после возврата архива");
+    await until(() => state.puts.length > saved, "точка после возврата архива");
   });
 });
 
@@ -127,15 +127,15 @@ describe("вопрос человеку", () => {
     const events = () => st!.link.of("session.events").flatMap((f) => f.events as any[]);
     const ask = (id: string) => proc.ask("AskUserQuestion", { questions: [{ question: "Какую ветку?", options: [{ label: "main" }, { label: "release" }] }] }, id);
     const a1 = ask("q-1");
-    await until(() => lastRow("site@laptop").ask?.id === "q-1", 5000, "вопрос");
+    await until(() => lastRow("site@laptop").ask?.id === "q-1", "вопрос");
     expect((await st.request("answer", { to: "site@laptop", ask: "q-1", answer: "main", via: "push" }, PULT)).ok).toBe(true);
     await a1;
-    expect(await until(() => events().find((e) => e.type === "ask.answered" && e.ask === "q-1"), 5000, "итог")).toMatchObject({ by: PULT, answer: "main", via: "push" });
+    expect(await until(() => events().find((e) => e.type === "ask.answered" && e.ask === "q-1"), "итог")).toMatchObject({ by: PULT, answer: "main", via: "push" });
     const a2 = ask("q-2");
-    await until(() => lastRow("site@laptop").ask?.id === "q-2", 5000, "второй вопрос");
+    await until(() => lastRow("site@laptop").ask?.id === "q-2", "второй вопрос");
     await st.request("answer", { to: "site@laptop", ask: "q-2", answer: "release" }, PULT);
     await a2;
-    const second = await until(() => events().find((e) => e.type === "ask.answered" && e.ask === "q-2"), 5000, "второй итог");
+    const second = await until(() => events().find((e) => e.type === "ask.answered" && e.ask === "q-2"), "второй итог");
     expect(second.via).toBeUndefined();
   });
 });
@@ -153,16 +153,16 @@ describe("числа Host для наблюдения", () => {
     for (const ms of [100, 200, 300, 400, 2000]) st.kernel.meter.time("provider", ms);
     st.kernel.meter.count("provider.failed");
     proc.exit(1, "упал");
-    await until(() => st!.holders.spawns.length === 3 && s.state === "idle", 5000, "resume");
+    await until(() => st!.holders.spawns.length === 3 && s.state === "idle", "resume");
     // замеры и сбой могут попасть в соседние окна: каждое проверяется там, где оказалось
-    const m = await until(() => sent.find((x) => x.crashes === 1), 5000, "окно со сбоем");
+    const m = await until(() => sent.find((x) => x.crashes === 1), "окно со сбоем");
     expect(m).toMatchObject({ build: 1, crashes: 1, resumes: 1, queue: 0 });
     expect(Object.values(m.sessions).reduce((a, b) => a + b, 0)).toBe(2);
-    const timed = await until(() => sent.find((x) => x.provider.n > 0), 5000, "окно с замерами");
+    const timed = await until(() => sent.find((x) => x.provider.n > 0), "окно с замерами");
     expect(timed.provider).toEqual({ n: 5, p50: 300, p95: 2000, failed: 1, retries: 0 });
     // следующее окно — без прежних сбоев и замеров
     const n = sent.length;
-    const next = await until(() => sent[n + 1], 5000, "следующее окно");
+    const next = await until(() => sent[n + 1], "следующее окно");
     expect(next).toMatchObject({ crashes: 0, resumes: 0, provider: { n: 0, p50: 0, p95: 0, failed: 0 }, sessions: { idle: 2 } });
     // запрос машины отдаёт числа последнего окна и нынешние сессии
     const now = (await st.request("machine.metrics", { to: "@laptop" })).result as HostMetrics;
@@ -175,7 +175,7 @@ describe("числа Host для наблюдения", () => {
     st.services.handlers["obs.metrics"] = () => {
       throw { word: "offline", message: "службы молчат" };
     };
-    await until(() => st!.journal().some((l) => l.msg === "metrics" && l.word === "offline"), 5000, "строка журнала");
+    await until(() => st!.journal().some((l) => l.msg === "metrics" && l.word === "offline"), "строка журнала");
     expect((await st.request("machine.dirs", { to: "@laptop", path: st.dir })).ok).toBe(true);
   });
 });

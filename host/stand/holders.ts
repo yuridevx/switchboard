@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import net from "node:net";
 import { frame, frames } from "../src/core/holders.ts";
 import type { HoldFile, HolderApi } from "../src/core/holders.ts";
+import { marks, signal, until } from "./signal.ts";
 import { lineReader } from "./wire.ts";
 import type { Wire } from "./wire.ts";
 
@@ -91,6 +92,7 @@ export class FakeProc {
           if (this.sock && !this.sock.destroyed) this.sock.destroy();
           authed = true;
           this.holders.ops.push({ op: "attach", id: this.id, buffered: this.buffered });
+          signal();
           this.sock = sock;
           sock.write(frame("h", JSON.stringify({ pid: this.pid, buffered: this.buffered })));
           for (const b of this.out.splice(0)) sock.write(frame("o", b));
@@ -100,10 +102,12 @@ export class FakeProc {
         if (t === "i") lines(data);
         else if (t === "c") {
           this.holders.ops.push({ op: "close_input", id: this.id });
+          signal();
           // ввод закрыт — claude выходит сам с кодом 0
           if (!this.noClose) this.exit(0);
         } else if (t === "k") {
           this.holders.ops.push({ op: "kill", id: this.id });
+          signal();
           if (!this.noKill) this.exit(null, "", "SIGKILL");
         }
       }),
@@ -130,6 +134,7 @@ export class FakeProc {
   }
 
   private fromSdk(x: Wire): void {
+    signal();
     for (const l of this.listeners) l(x);
     if (x.$ === "initialize") {
       this.initializes++;
@@ -176,6 +181,13 @@ export class FakeProc {
   send(msg: Record<string, unknown>): void {
     if (msg.type === "system" && msg.subtype === "session_state_changed") this.busy = msg.state !== "idle";
     this.write(msg);
+  }
+
+  /** Барьер: метка тем же путём, что сообщения процесса; пришла — ядро взяло всё, что процесс написал до неё. */
+  settle(): Promise<void> {
+    const id = `m${++this.seq}`;
+    this.write({ $: "mark", id });
+    return until(() => marks.delete(id), `метка ${this.id}`).then(() => {});
   }
 
   /** Модель вызвала инструмент, которому нужно разрешение: ответ canUseTool. */
@@ -250,6 +262,7 @@ export class FakeHolders implements HolderApi {
       p.failInit = true;
     }
     this.procs.set(s.id, p);
+    signal();
     return p.file;
   }
 

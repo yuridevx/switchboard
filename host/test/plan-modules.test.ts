@@ -172,7 +172,7 @@ describe("план v2: точки", () => {
     talk(s);
     accept();
     expect((await st.request("points.save", { to: CS, stop: true })).result).toMatchObject({ point: expect.stringMatching(/^p/) });
-    await until(() => s.state === "stopped", 5000, "stopped");
+    await until(() => s.state === "stopped", "stopped");
   });
 
   it("points.raise: сессия этого разговора идёт на машине — отказ running, процесс не тронут", async () => {
@@ -315,7 +315,7 @@ describe("план v2: сведение кусочков", () => {
     const { proc } = await st!.open("site", { pieces: ["team/kit/base"] });
     const before = git.calls.length;
     await proc.hook("PostToolUse", { tool_name: "Write", tool_input: { file_path: join(home, "profiles", "team__kit", "base", "memory", "note.md") } });
-    await until(() => git.calls.length > before, 5000, "сведение после записи");
+    await until(() => git.calls.length > before, "сведение после записи");
     expect(git.calls.slice(before)[0]!.args[0]).toBe("add");
   });
 });
@@ -380,7 +380,7 @@ describe("план v2: прокси модели", () => {
     st.services.handlers["prefs.get"] = () => ({ values: { "proxy.rules": [] } });
     // тот же home — сессия уже есть: новый Host поднял её сам
     const s = st.kernel.sessions.get(CS) ?? (await st.open("site", { key: "team-key", model: "m" })).s;
-    await until(() => s.state === "idle", 5000, "site idle");
+    await until(() => s.state === "idle", "site idle");
     const url = (st.sdk.last(CS)!.options as any).env.ANTHROPIC_BASE_URL as string;
     const call = () => fetch(`${url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-api-key": "fleet", "x-claude-code-session-id": s.rec.sessionId }, body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "привет" }] }) });
     return { url, call };
@@ -432,7 +432,7 @@ describe("план v2: точки сами", () => {
     let puts = 0;
     st.services.handlers["points.put"] = () => (puts++, { upload: {}, done: true });
     await st.turn(CS);
-    await until(() => puts === 1, 5000, "точка после хода");
+    await until(() => puts === 1, "точка после хода");
     writeFileSync(file, line(1) + line(2));
     await st.turn(CS);
     await new Promise((r) => setTimeout(r, 150));
@@ -448,11 +448,11 @@ describe("план v2: точки сами", () => {
     let puts = 0;
     st.services.handlers["points.put"] = () => (puts++, { upload: {}, done: true });
     await st.turn(CS);
-    await until(() => puts === 1, 5000, "точка после хода");
+    await until(() => puts === 1, "точка после хода");
     st.clock.advance(2 * 60_000);
     writeFileSync(file, line(1) + line(2));
     await st.turn(CS);
-    await until(() => puts === 2, 5000, "точка через 2 минуты");
+    await until(() => puts === 2, "точка через 2 минуты");
   });
 
   // чьё: код — «ход идёт 10 мин — точка посреди хода»
@@ -464,14 +464,14 @@ describe("план v2: точки сами", () => {
     let puts = 0;
     st.services.handlers["points.put"] = () => (puts++, { upload: {}, done: true });
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
-    await until(() => s.state === "busy", 5000, "ход идёт");
+    await until(() => s.state === "busy", "ход идёт");
     st.clock.advance(10 * 60_000);
-    await until(() => puts === 1, 5000, "точка на десятой минуте");
+    await until(() => puts === 1, "точка на десятой минуте");
     writeFileSync(file, line(1) + line(2));
     st.clock.advance(10 * 60_000);
-    await until(() => puts === 2, 5000, "точка на двадцатой минуте");
+    await until(() => puts === 2, "точка на двадцатой минуте");
     proc.send({ type: "system", subtype: "session_state_changed", state: "idle" });
-    await until(() => s.state === "idle", 5000, "ход кончился");
+    await until(() => s.state === "idle", "ход кончился");
     await new Promise((r) => setTimeout(r, 100));
     const after = puts;
     st.clock.advance(10 * 60_000);
@@ -488,7 +488,7 @@ describe("план v2: точки сами", () => {
     let written = false;
     st.services.handlers["points.put"] = () => new Promise((r) => (release = () => ((written = true), r({ upload: {}, done: true }))));
     const saving = st.request("points.save", { to: CS });
-    await until(() => st!.services.of("points.put").length === 1, 5000, "точка пошла");
+    await until(() => st!.services.of("points.put").length === 1, "точка пошла");
     const down = st.kernel.shutdown("SIGTERM");
     await tick();
     expect(st.exits).toEqual([]);

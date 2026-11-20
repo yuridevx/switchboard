@@ -21,11 +21,11 @@ describe("вопрос человеку", () => {
     await st.request("session.watch", { to: "site@laptop" }, PHONE);
     const input = { questions: [{ question: "Какую ветку?", options: [{ label: "main" }, { label: "release" }] }] };
     const asked = proc.ask("AskUserQuestion", input, "q-1");
-    const row = await until(() => (st!.link.rows("site@laptop").at(-1)!.row as any).ask, 5000, "вопрос в строке");
+    const row = await until(() => (st!.link.rows("site@laptop").at(-1)!.row as any).ask, "вопрос в строке");
     expect(row).toMatchObject({ id: "q-1", to: PULT, seen: [PULT, PHONE] });
     expect((await st.request("answer", { to: "site@laptop", ask: "q-1", answer: "main" }, PHONE)).ok).toBe(true);
     await asked;
-    const done = await until(() => events(st!).find((e) => e.type === "ask.answered"), 5000, "итог вопроса в ленте");
+    const done = await until(() => events(st!).find((e) => e.type === "ask.answered"), "итог вопроса в ленте");
     expect(done).toMatchObject({ type: "ask.answered", ask: "q-1", kind: "question", by: PHONE, answer: "main" });
   });
 });

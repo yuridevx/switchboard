@@ -36,9 +36,9 @@ const writes = (st: Stand) => st.services.of("log.write");
 const tickShip = async (st: Stand, ms: number) => {
   const before = writes(st).length;
   st.clock.advance(ms);
-  await until(() => writes(st).length > before, 5000, "пачка журнала ушла службе");
+  await until(() => writes(st).length > before, "пачка журнала ушла службе");
 };
-const caughtUp = (st: Stand, rows: Map<string, string>) => until(() => rows.size === onDisk(st).length, 5000, "в истории столько же строк, сколько в файлах журнала");
+const caughtUp = (st: Stand, rows: Map<string, string>) => until(() => rows.size === onDisk(st).length, "в истории столько же строк, сколько в файлах журнала");
 
 describe("журнал машины → история флота", () => {
   // эталон: «ClickHouse недоступен час; сессии работают» — чьё: слово пользователя 15 нояб. — «observability first»; устав — часть падает одна
@@ -73,7 +73,7 @@ describe("журнал машины → история флота", () => {
     st.services.handlers["log.write"] = ch.take;
     await tickShip(st, SHIP_RETRY_MS);
     // возврат — строка журнала; она сама уходит следующей пачкой
-    await until(() => st.journal().some((l) => l.msg === "log_ship" && l.level === "info"), 5000, "строка о возврате истории");
+    await until(() => st.journal().some((l) => l.msg === "log_ship" && l.level === "info"), "строка о возврате истории");
     await caughtUp(st, ch.rows);
     expect(writes(st)[accepted + 60]).toMatchObject({ file: refused[0]!.file, pos: place });
     expect([...ch.rows.values()].sort()).toEqual(onDisk(st).sort());
