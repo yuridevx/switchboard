@@ -1,7 +1,7 @@
 // Шаг «машины» выкладки: сборка под следующим номером уходит в каталог флота и назначается ему; машины на связи встают на неё, сессии остаются.
 // Хозяин шага один: его зовут выкладка (tools/deploy/fleet.mjs), подъём флота в коробке (tools/box/box.mjs) и живая проверка «выкладка сборки».
 //   node tools/deploy/machines.mjs <флот> [устройство]
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -14,6 +14,15 @@ const BUILD_MS = 15 * 60_000; // предел сборки и загрузки
 const ROLL_MS = 10 * 60_000; // предел ожидания, пока машины встанут на новую сборку
 const BACK_MS = 3 * 60_000; // предел ожидания, пока сессии вернутся после подмены Host
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Команда до конца, не занимая цикл событий: код выхода (null — снята по пределу opts.timeout) и вывод, если он взят в трубу.
+ *  Синхронный запуск держал бы цикл, пока сервер закрывает простаивающее соединение общего клиента, — следующий запрос ушёл бы в закрытое. */
+export const exec = (cmd, args, opts = {}) => new Promise((done) => {
+  const child = spawn(cmd, args, { stdio: "inherit", ...opts });
+  let stdout = "";
+  child.stdout?.on("data", (d) => (stdout += d));
+  child.on("close", (status) => done({ status, stdout }));
+});
 
 /** Запрос флоту пропуском устройства из настроек разработки: результат или отказ словом. */
 export function fleetMust(fleet, device) {
@@ -34,7 +43,7 @@ export async function rollMachines(fleet, device = "ci") {
   const build = nextBuild(catalog.builds);
   // сессии до подмены Host: после неё каждая должна быть на месте, новых сбоев — 0
   const was = new Map((await call("fleet.list")).sessions.map((s) => [s.callsign, s.state]));
-  const built = spawnSync(process.execPath, [path.join(root, "tools/build/build.mjs"), String(build), "--upload", fleet, device], { cwd: root, stdio: "inherit", timeout: BUILD_MS });
+  const built = await exec(process.execPath, [path.join(root, "tools/build/build.mjs"), String(build), "--upload", fleet, device], { cwd: root, stdio: "inherit", timeout: BUILD_MS });
   if (built.status !== 0) throw new Error(`сборка ${build}: ${built.status === null ? "предел вышел" : "код " + built.status}`);
   await call("builds.deploy", { build });
   // сборка назначена флоту; машины на связи должны на неё встать
