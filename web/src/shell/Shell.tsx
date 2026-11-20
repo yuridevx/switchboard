@@ -7,6 +7,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { Boundary, personWord, useUi } from "../common.tsx";
 import { hhmm } from "../lib/time.ts";
 import { useFleet, waitsYou } from "../store/fleet.ts";
+import { Screen } from "./Busy.tsx";
 import { FailedBar } from "./FailedBar.tsx";
 import { linkWord, openPage, useLink } from "./link.ts";
 import { LAMP, NAV } from "./nav.ts";
@@ -95,7 +96,7 @@ export function Shell() {
         <FailedBar />
         {/* страница шага встаёт сюда и занимает место экрана; сам экран при этом скрыт, но жив */}
         <div id={HOST} className="pagehost" />
-        <div className="screen"><Boundary name={NAV.find(([to]) => to === section)?.[1] ?? "Экран"} key={loc.pathname.split("/")[1]}><Outlet /></Boundary></div>
+        <Screen><Boundary name={NAV.find(([to]) => to === section)?.[1] ?? "Экран"} key={loc.pathname.split("/")[1]}><Outlet /></Boundary></Screen>
         <Steps />
         <StepUrl />
       </main>

@@ -386,8 +386,9 @@ export function kit(o) {
     p.on("pageerror", (e) => pageErrors.push(e.message));
     if (logs) p.on("console", (m) => m.type() === "error" && pageErrors.push(m.text()));
     await p.goto(`${o.base}/#invite=${encodeURIComponent(inv.invite)}`);
-    // вход принят: навигация приложения на месте и адрес от приглашения очищен — переход, начатый раньше, страница перебила бы своим
-    await p.locator("nav a").first().waitFor();
+    // вход принят: навигация приложения на месте и адрес от приглашения очищен — переход, начатый раньше, страница перебила бы своим;
+    // навигация — видимая: на телефоне панель разделов слева скрыта, видна нижняя
+    await p.locator("nav a:visible").first().waitFor();
     await p.waitForFunction(() => !location.hash.includes("invite="));
     return p;
   }
