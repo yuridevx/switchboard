@@ -147,9 +147,10 @@ describe("экран машины", () => {
     localStorage.clear();
     apiModule.connect();
     const mock = apiModule.mock!;
-    await new Promise<void>((done) => {
+    // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+    await waitFor(() => new Promise<void>((done) => {
       const link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), link.close(), done()) });
-    });
+    }));
   });
   it("у машины на связи — её числа Host; у машины без связи блока нет", async () => {
     page(<Machine />, "/machine/laptop");

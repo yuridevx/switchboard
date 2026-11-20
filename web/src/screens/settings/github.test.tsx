@@ -2,7 +2,7 @@
 // Экран «Настройки → GitHub» на моке флота: при замене приложения владельца нового называет человек — поле стоит у кнопки замены.
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
@@ -17,14 +17,14 @@ import { GitHub, setupAsk } from "./Rest.tsx";
 
 let mock: Mock;
 let link: { close(): void } | null = null;
-const LONG = { timeout: 4000 };
 
 beforeEach(async () => {
   apiModule.connect();
   mock = apiModule.mock!;
-  await new Promise<void>((done) => {
+  // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+  await waitFor(() => new Promise<void>((done) => {
     link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), done()) });
-  });
+  }));
 });
 afterEach(() => (cleanup(), vi.restoreAllMocks(), link?.close(), mock.stop()));
 
@@ -34,7 +34,7 @@ describe("«Настройки → GitHub»", () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<MantineProvider><QueryClientProvider client={qc}><GitHub /></QueryClientProvider></MantineProvider>);
     // приложение уже установлено: админ видит замену и поле организации рядом с ней
-    expect(await screen.findByRole("button", { name: "Заменить приложение" }, LONG)).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Заменить приложение" })).toBeTruthy();
     expect(screen.getByLabelText("Организация")).toBeTruthy();
     const at = { origin: "https://f.example", pathname: "/" };
     expect(setupAsk(" team ", true, at)).toEqual({ redirect: "https://f.example/?open=settings/github", org: "team", replace: true });

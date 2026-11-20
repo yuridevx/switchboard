@@ -36,9 +36,9 @@ const inList = (label: string) => listbox()!.querySelector(`[aria-label="${label
 async function modelList(): Promise<string[]> {
   fireEvent.click(await screen.findByRole("button", { name: /^Модель/ }));
   // каталоги провайдеров приходят по одному: список читается, когда пришли все
-  const keys = (await apiModule.api.call(keysList, {})).keys.filter((k) => k.protocol !== CLAUDE).map((k) => k.name);
+  const keys = (await waitFor(() => apiModule.api.call(keysList, {}))).keys.filter((k) => k.protocol !== CLAUDE).map((k) => k.name);
   // каталог провайдера, который не ответил, моделей в список не даёт: остальные в списке остаются
-  const all = (await Promise.all([CLAUDE, ...keys].map((name) => apiModule.api.call(keysModels, { name }).then((r) => r.models.length, () => 0)))).reduce((n, r) => n + r, 0);
+  const all = (await waitFor(() => Promise.all([CLAUDE, ...keys].map((name) => apiModule.api.call(keysModels, { name }).then((r) => r.models.length, () => 0))))).reduce((n, r) => n + r, 0);
   await waitFor(() => expect(offers().length).toBe(all));
   return offers();
 }
@@ -49,9 +49,10 @@ const setRow = (callsign: string, patch: object = {}) => useFleet.getState().app
 beforeEach(async () => {
   apiModule.connect();
   mock = apiModule.mock!;
-  await new Promise<void>((done) => {
+  // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+  await waitFor(() => new Promise<void>((done) => {
     const link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), link.close(), done()) });
-  });
+  }));
   localStorage.clear();
 });
 afterEach(() => (cleanup(), vi.restoreAllMocks(), mock.stop()));
@@ -91,7 +92,7 @@ describe("эталоны страницы «Аккаунты и модели»",
     expect(inRow).toEqual(inNew);
     expect(inStopped).toEqual(inNew);
     // в списке — все модели каталогов: Claude целиком и каждый провайдер
-    const claude = (await apiModule.api.call(keysModels, { name: CLAUDE })).models.map((m) => `${CLAUDE}/${m.id}`);
+    const claude = (await waitFor(() => apiModule.api.call(keysModels, { name: CLAUDE }))).models.map((m) => `${CLAUDE}/${m.id}`);
     expect(inNew.filter((id) => id.startsWith(CLAUDE + "/")).sort()).toEqual([...claude].sort());
     expect(inNew.some((id) => id.startsWith("orca/"))).toBe(true);
   });

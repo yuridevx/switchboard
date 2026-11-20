@@ -182,9 +182,10 @@ describe("экраны второй итерации в отрисовке", () 
     localStorage.clear();
     apiModule.connect();
     mock = apiModule.mock!;
-    await new Promise<void>((done) => {
+    // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+    await waitFor(() => new Promise<void>((done) => {
       const link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), link.close(), done()) });
-    });
+    }));
   });
   afterEach(() => cleanup());
 

@@ -23,9 +23,10 @@ vi.hoisted(() => {
 
 let mock: Mock;
 const At = () => { const l = useLocation(); return <output data-testid="at">{l.pathname}</output>; };
+// Mantine в режиме тестов (его штатный способ): без переходов; выпадающий список не прячется оттого, что в DOM без раскладки опорная кнопка «не видна»
 function page(ui: ReactNode, at = "/") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<MantineProvider><QueryClientProvider client={qc}><MemoryRouter initialEntries={[at]}><At /><Steps /><Routes><Route path="*" element={ui} /></Routes></MemoryRouter></QueryClientProvider></MantineProvider>);
+  return render(<MantineProvider env="test"><QueryClientProvider client={qc}><MemoryRouter initialEntries={[at]}><At /><Steps /><Routes><Route path="*" element={ui} /></Routes></MemoryRouter></QueryClientProvider></MantineProvider>);
 }
 const called = (spy: { mock: { calls: unknown[][] } }, def: unknown) => spy.mock.calls.filter((c) => c[0] === def).map((c) => c[1] as any);
 /** Подменить ответ одного запроса; остальное идёт в мок. */
@@ -38,9 +39,10 @@ const opened = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.filter(
 beforeEach(async () => {
   apiModule.connect();
   mock = apiModule.mock!;
-  await new Promise<void>((done) => {
+  // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+  await waitFor(() => new Promise<void>((done) => {
     const link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), link.close(), done()) });
-  });
+  }));
   localStorage.clear();
 });
 afterEach(() => (cleanup(), vi.restoreAllMocks(), mock.stop()));
@@ -52,7 +54,7 @@ describe("аккаунты Claude", () => {
     await waitFor(() => expect(document.querySelectorAll("[data-account]").length).toBeGreaterThan(0));
     const names = [...document.querySelectorAll("[data-account]")].map((el) => el.getAttribute("data-account"));
     expect(names.filter((n) => n === "yuri@example.com")).toHaveLength(1);
-    expect(new Set(names)).toEqual(new Set((await apiModule.api.call(keysList, {})).keys.filter((k) => k.protocol === CLAUDE).map((k) => k.name)));
+    expect(new Set(names)).toEqual(new Set((await waitFor(() => apiModule.api.call(keysList, {}))).keys.filter((k) => k.protocol === CLAUDE).map((k) => k.name)));
     expect(screen.queryByRole("button", { name: "+ очередь" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Получить ссылку входа|Войти/ })).toBeNull();
   });
@@ -134,7 +136,7 @@ describe("новая сессия", () => {
 
   it("4 · кусочки показывают, что ставят; кусочка, которого на машине нет, в документе новой сессии не будет", async () => {
     // источник: слово пользователя «видеть пре выбранные поля»; находка «base: такой папки нет в клонах»
-    const real = (await apiModule.api.call(profileList, { to: "@laptop" })).pieces;
+    const real = (await waitFor(() => apiModule.api.call(profileList, { to: "@laptop" }))).pieces;
     const neighbour = mock.state.sessions["site@laptop"]!.spec.pieces ?? [];
     expect(neighbour.length).toBeGreaterThan(1);
     const gone = neighbour.at(-1)!;

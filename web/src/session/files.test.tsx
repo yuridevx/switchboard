@@ -12,6 +12,9 @@ import type { Mock } from "../mock/fleet.ts";
 import { BLOBS, goneTurn, showTurn } from "../mock/show.ts";
 import { Composer } from "./Composer.tsx";
 import { Md, Rows } from "./Feed.tsx";
+// куски страницы, которые лента грузит при первом показе, загружены заранее: показ не ждёт чтения модулей с диска
+import "./Markdown.tsx";
+import "./Mermaid.tsx";
 import type { Talk } from "./talk.ts";
 
 vi.hoisted(() => {
@@ -71,8 +74,6 @@ function answerOf(events: any[], path: string): { name: string; hash: string; si
   const id = blocks.find((b: any) => b.type === "tool_use" && b.input?.path === path).id;
   return JSON.parse(blocks.find((b: any) => b.type === "tool_result" && b.tool_use_id === id).content);
 }
-/** Первый показ ждёт куски страницы (разметка, лента): дольше обычного ожидания. */
-const SLOW = { timeout: 8000 };
 
 describe("файлы: человек загружает", () => {
   it("эталон 15 · файл любого вида в поле ввода: хэш в браузере, загрузка по ссылке; в сообщении — имя, хэш, размер", async () => {
@@ -81,10 +82,14 @@ describe("файлы: человек загружает", () => {
     const box = screen.getByLabelText("Сообщение сессии");
     const bytes = new Uint8Array(3072).fill(7);
     const hash = await sha(bytes);
+    // хэш браузер считает вне часов теста: ждём сам расчёт — n-й вызов
+    const digest = vi.spyOn(crypto.subtle, "digest");
+    const hashed = async (n: number) => (await waitFor(() => expect(digest).toHaveBeenCalledTimes(n)), await digest.mock.results[n - 1]!.value);
     fireEvent.paste(box, { clipboardData: { files: [new File([bytes], "dump.bin", { type: "application/octet-stream" })] } });
     await waitFor(() => expect(screen.getByText("dump.bin")).toBeTruthy());
     fireEvent.change(box, { target: { value: "Вот дамп, разбери его." } });
     fireEvent.keyDown(box, { key: "Enter" });
+    await hashed(1);
     await waitFor(() => expect(talk.send).toHaveBeenCalledWith("Вот дамп, разбери его.", [{ name: "dump.bin", hash, size: 3072 }], undefined));
     // содержимое ушло в хранилище по ссылке, а не в сообщение
     expect(calls.find((c) => c.name === "files.put")!.input).toEqual({ files: [{ hash, size: 3072 }] });
@@ -94,6 +99,7 @@ describe("файлы: человек загружает", () => {
     fireEvent.paste(box, { clipboardData: { files: [new File([bytes], "копия.bin")] } });
     fireEvent.change(box, { target: { value: "ещё раз" } });
     fireEvent.keyDown(box, { key: "Enter" });
+    await hashed(2);
     await waitFor(() => expect(talk.send).toHaveBeenCalledWith("ещё раз", [{ name: "копия.bin", hash, size: 3072 }], undefined));
     expect(put).not.toHaveBeenCalled();
   });
@@ -104,7 +110,7 @@ describe("файлы: человек загружает", () => {
       const img = document.querySelector('.me-pic[data-file="maket.png"] img') as HTMLImageElement | null;
       expect(img).toBeTruthy();
       return img!;
-    }, SLOW);
+    });
     expect(pic.src).toMatch(/^blob:/);
     const doc = document.querySelector('.me-file[data-file="spec.pdf"]') as HTMLElement;
     expect(doc.textContent).toContain("spec.pdf");
@@ -121,7 +127,7 @@ describe("файлы: сессия отправила", () => {
     const card = sent("out/latency.svg");
     expect(card.textContent).toContain("Время ответа за сутки");
     expect(card.textContent).toContain("out/latency.svg");
-    await waitFor(() => expect(card.querySelector("img.pic")).toBeTruthy(), SLOW);
+    await waitFor(() => expect(card.querySelector("img.pic")).toBeTruthy());
     // вызовы отправки и сайта стоят в ленте сами: в стопке строк инструментов их нет
     for (const row of document.querySelectorAll(".toolrow")) expect(row.textContent).not.toMatch(/Отправка файла|Сайт/);
     const { hash } = answerOf(turn(), "out/latency.svg");
@@ -190,7 +196,7 @@ describe("файлы: сессия отправила", () => {
     ];
     feed([...goneTurn(Date.now() - 60_000, "nightcheck@server", "Проверь флот.", "Три машины из четырёх на сборке 412."), ...refused]);
     // ответ есть, содержимого в хранилище нет
-    await waitFor(() => expect(sent("out/builds.png").querySelector(".filefail")?.textContent).toBe("Такого файла нет"), SLOW);
+    await waitFor(() => expect(sent("out/builds.png").querySelector(".filefail")?.textContent).toBe("Такого файла нет"));
     expect(sent("out/builds.png").textContent).toContain("Сборки по машинам");
     // вызов отказан словом — оно и стоит на месте файла и сайта
     expect(sent("out/нет.png").querySelector(".filefail")?.textContent).toBe("Такого файла нет");
@@ -206,8 +212,8 @@ describe("файлы: сессия отправила", () => {
     const archived = turn().filter((e: any) => e.type === "assistant" || e.type === "user");
     expect(session("gone@offline")).toBeUndefined();
     feed(archived);
-    await waitFor(() => expect(sent("out/latency.svg").querySelector("img.pic")).toBeTruthy(), SLOW);
-    await waitFor(() => expect(sent("shots/header-390.png").querySelector("img.pic")).toBeTruthy(), SLOW);
+    await waitFor(() => expect(sent("out/latency.svg").querySelector("img.pic")).toBeTruthy());
+    await waitFor(() => expect(sent("shots/header-390.png").querySelector("img.pic")).toBeTruthy());
     expect(document.querySelector('.fileshow[data-site="out/site"] iframe.htmlframe')).toBeTruthy();
     expect(document.querySelector('.me-pic[data-file="maket.png"]')).toBeTruthy();
     // страница ходила только в службу файлов: запросов машине нет

@@ -21,7 +21,6 @@ import { Factory, NewTicket, TicketPage } from "./Factory.tsx";
 
 let mock: Mock;
 let link: { close(): void } | null = null;
-const LONG = { timeout: 4000 };
 const At = () => <output data-testid="at">{useLocation().pathname}</output>;
 function open(at: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -37,14 +36,15 @@ function open(at: string) {
   );
 }
 const ticket = async (id: string): Promise<Ticket> => (await apiModule.api.call(ticketList, { ticket: id })).tickets[0]!;
-const stepBox = async (line: string, step: string) => within(within(await screen.findByLabelText(`Конвейер ${line}`, {}, LONG)).getByLabelText(`Шаг ${step}`));
+const stepBox = (line: string, step: string) => within(within(screen.getByLabelText(`Конвейер ${line}`)).getByLabelText(`Шаг ${step}`));
 
 beforeEach(async () => {
   apiModule.connect();
   mock = apiModule.mock!;
-  await new Promise<void>((done) => {
+  // первый кадр мока: waitFor двигает часы теста, пока он не придёт
+  await waitFor(() => new Promise<void>((done) => {
     link = mock.transport.open("page", { onFrame: (f) => (useFleet.getState().apply(f), done()) });
-  });
+  }));
   localStorage.clear();
 });
 afterEach(() => (cleanup(), vi.restoreAllMocks(), link?.close(), mock.stop()));
@@ -53,12 +53,12 @@ describe("«Фабрика»", () => {
   it("конвейер показывает тикет на его шаге, а загрузку — числом из ответа служб", async () => {
     open("/factory");
     // без проекта в адресе экран сам встаёт на проект с определением: их называет служба одним ответом
-    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra"), LONG);
-    const agree = await stepBox("Изменение службы", "согласие");
-    await waitFor(() => expect(agree.getByText("Перенос журналов в архив")).toBeTruthy(), LONG);
-    expect((await stepBox("Изменение службы", "ревью")).getByText("Права доступа служб выгрузки")).toBeTruthy();
-    expect((await stepBox("Изменение службы", "слияние")).getByText(/ждёт: PR слит · #212/)).toBeTruthy();
-    const load = (await apiModule.api.call(factoryGet, { project: "infra" })).factory!.load.lines.change!;
+    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra"));
+    const agree = await waitFor(() => stepBox("Изменение службы", "согласие"));
+    await waitFor(() => expect(agree.getByText("Перенос журналов в архив")).toBeTruthy());
+    expect(stepBox("Изменение службы", "ревью").getByText("Права доступа служб выгрузки")).toBeTruthy();
+    expect(stepBox("Изменение службы", "слияние").getByText(/ждёт: PR слит · #212/)).toBeTruthy();
+    const load = (await waitFor(() => apiModule.api.call(factoryGet, { project: "infra" }))).factory!.load.lines.change!;
     expect(within(screen.getByLabelText("Конвейер Изменение службы")).getByText(`${load.work} из 2`)).toBeTruthy();
     expect(load.work).toBe(2);
     // вставший тикет — и на шаге, и в списке «Стоп», с причиной
@@ -72,56 +72,56 @@ describe("«Фабрика»", () => {
 
   it("«Принять» у шага человека двигает тикет на следующий шаг; потолок занят — он встаёт в очередь", async () => {
     open("/factory/infra/t/infra-41");
-    fireEvent.click(await screen.findByRole("button", { name: "Принять" }, LONG));
-    await waitFor(() => expect(document.querySelector('.fpath [aria-current="step"]')?.textContent).toBe("правка"), LONG);
-    const t = await ticket("infra-41");
+    fireEvent.click(await screen.findByRole("button", { name: "Принять" }));
+    await waitFor(() => expect(document.querySelector('.fpath [aria-current="step"]')?.textContent).toBe("правка"));
+    const t = await waitFor(() => ticket("infra-41"));
     expect([t.step, t.state, t.notes!.at(-1)?.verdict]).toEqual([2, "ready", "done"]);
     // тикет в очереди: вердикт давать нечему — кнопки берутся из ответа служб
     expect(t.acts).toEqual(["drop", "assign"]);
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Принять" })).toBeNull(), LONG);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Принять" })).toBeNull());
     cleanup();
     open("/factory/infra");
-    await waitFor(async () => expect((await stepBox("Изменение службы", "правка")).getByText("Перенос журналов в архив")).toBeTruthy(), LONG);
+    await waitFor(() => expect(stepBox("Изменение службы", "правка").getByText("Перенос журналов в архив")).toBeTruthy());
   });
 
   it("кнопки тикета — по действиям, которые назвали службы: вставший возвращают в очередь, закрытому ничего не предлагают", async () => {
     open("/factory/infra/t/infra-39");
-    fireEvent.click(await screen.findByRole("button", { name: "Вернуть в очередь" }, LONG));
+    fireEvent.click(await screen.findByRole("button", { name: "Вернуть в очередь" }));
     expect(screen.queryByRole("button", { name: "Принять" })).toBeNull();
-    await waitFor(async () => expect((await ticket("infra-39")).state).not.toBe("stop"), LONG);
+    await waitFor(async () => expect((await ticket("infra-39")).state).not.toBe("stop"));
     cleanup();
     open("/factory/infra/t/infra-35");
-    await screen.findByText(/example\/sb-ops#207 слит/, {}, LONG);
-    expect((await ticket("infra-35")).acts).toEqual([]);
+    await screen.findByText(/example\/sb-ops#207 слит/);
+    expect((await waitFor(() => ticket("infra-35"))).acts).toEqual([]);
     for (const name of ["Принять", "Вернуть", "Вернуть в очередь", "Назначить", "Снять"]) expect(screen.queryByRole("button", { name })).toBeNull();
     expect(screen.queryByLabelText("Заметка")).toBeNull();
   });
 
   it("пауза видна после перечитывания, и на паузе новый шаг не запускается", async () => {
     open("/factory/infra");
-    const sw = (await screen.findByRole("switch", { name: "Пауза" }, LONG)) as HTMLInputElement;
+    const sw = (await screen.findByRole("switch", { name: "Пауза" })) as HTMLInputElement;
     expect(sw.checked).toBe(false);
     fireEvent.click(sw);
-    await waitFor(() => expect((screen.getByRole("switch", { name: "Пауза" }) as HTMLInputElement).checked).toBe(true), LONG);
-    expect((await apiModule.api.call(factoryGet, { project: "infra" })).factory!.paused).toBe(true);
+    await waitFor(() => expect((screen.getByRole("switch", { name: "Пауза" }) as HTMLInputElement).checked).toBe(true));
+    expect((await waitFor(() => apiModule.api.call(factoryGet, { project: "infra" }))).factory!.paused).toBe(true);
     // место на «Разборе сбоя» есть (1 из 2), но на паузе вердикт не запускает следующий шаг
-    expect(await apiModule.api.call(ticketSet, { ticket: "infra-44", verdict: "done" })).toMatchObject({ step: 1, state: "ready" });
+    expect(await waitFor(() => apiModule.api.call(ticketSet, { ticket: "infra-44", verdict: "done" }))).toMatchObject({ step: 1, state: "ready" });
   });
 
   it("новый тикет: заголовок, текст и «Куда» — в бэклог или на конвейер; экран возвращается к фабрике", async () => {
     open("/factory/infra/new");
-    fireEvent.change(await screen.findByLabelText("Заголовок", {}, LONG), { target: { value: "Сверить права архива" } });
+    fireEvent.change(await screen.findByLabelText("Заголовок"), { target: { value: "Сверить права архива" } });
     fireEvent.click(screen.getByRole("button", { name: "Создать" }));
-    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra"), LONG);
-    const made = (await apiModule.api.call(ticketList, { project: "infra" })).tickets[0]!;
+    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra"));
+    const made = (await waitFor(() => apiModule.api.call(ticketList, { project: "infra" }))).tickets[0]!;
     expect(made).toMatchObject({ id: "infra-53", title: "Сверить права архива", state: "ready" });
     expect(made.to).toBeUndefined();
-    await waitFor(() => expect(within(screen.getByLabelText("Бэклог")).getByText("Сверить права архива")).toBeTruthy(), LONG);
+    await waitFor(() => expect(within(screen.getByLabelText("Бэклог")).getByText("Сверить права архива")).toBeTruthy());
   });
 
   it("слова экрана: исполнитель шага, порядок на шаге, вход правила, чего ждёт тикет", async () => {
-    const f = (await apiModule.api.call(factoryGet, { project: "infra" })).factory!;
-    const all = (await apiModule.api.call(ticketList, { project: "infra" })).tickets;
+    const f = (await waitFor(() => apiModule.api.call(factoryGet, { project: "infra" }))).factory!;
+    const all = (await waitFor(() => apiModule.api.call(ticketList, { project: "infra" }))).tickets;
     expect(f.def.lines.change!.steps.map((s) => doerOf(s).kind)).toEqual(["post", "human", "same", "new", "event"]);
     // на шаге сначала идущие, потом очередь
     expect(atStep("change", 0, all).map((t) => t.state)).toEqual(["work", "ready"]);
@@ -131,6 +131,6 @@ describe("«Фабрика»", () => {
     expect(waitWord(f.def, by("infra-36"))).toBe("ждёт: PR слит · #212");
     // список тикетов действий не несёт: их называют службы у тикета, спрошенного по номеру
     expect(all.every((t) => t.acts === undefined && t.notes === undefined)).toBe(true);
-    expect((await ticket("infra-41")).acts).toEqual(["verdict", "drop", "assign"]);
+    expect((await waitFor(() => ticket("infra-41"))).acts).toEqual(["verdict", "drop", "assign"]);
   });
 });
