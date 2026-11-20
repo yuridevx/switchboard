@@ -1,9 +1,17 @@
 // Эталоны платформы: одно свойство на зафиксированном входе. Источник — дизайн «Switchboard с нуля», если не названо иное.
 import { evictDurableObject, runInDurableObject, SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Frame, MachineRow, SessionRow } from "@sb/protocol";
 import { fleetStub, machineStub } from "../src/env.ts";
-import { ANYA, api, ask, boot, connect, E, host, newFleet, OLEG, page, pass, redeem, row, trio, watcher, YURI } from "./kit.ts";
+import { ANYA, api, ask, boot, connect, E, hangUp, host, newFleet, OLEG, page, pass, redeem, row, trio, watcher, YURI } from "./kit.ts";
+
+afterEach(() => {
+  hangUp();
+  vi.useRealTimers();
+});
+
+/** Пределы объектов — на часах теста: таймер предела входа на настоящих часах держит объект от усыпления до своего срока. */
+const testClock = () => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
 const names = (f: Frame) => ((f.machines as MachineRow[] | undefined) ?? []).map((m) => m.name).sort();
 const calls = (f: Frame) => ((f.sessions as Array<{ callsign: string }> | undefined) ?? []).map((s) => s.callsign).sort();
@@ -78,6 +86,7 @@ describe("картина флота", () => {
   });
 
   it("картина переживает усыпление объекта флота: страница получает изменения и после него", async () => {
+    testClock();
     const fleet = newFleet(), yuri = await boot(fleet), laptop = await pass(fleet, yuri, "@laptop");
     const h = await host(fleet, "laptop", laptop);
     const p = await page(fleet, yuri);
@@ -291,6 +300,7 @@ describe("доставка", () => {
 
   it("соединение Host переживает усыпление объекта машины: доставка и ответ работают", async () => {
     // опыт: объект усыплён с открытым соединением, карточка соединения восстановлена, ответ возвращён
+    testClock();
     const fleet = newFleet(), yuri = await boot(fleet), laptop = await pass(fleet, yuri, "@laptop");
     const h = await host(fleet, "laptop", laptop);
     h.send({ type: "machine.hello", build: 1, sessions: [] });

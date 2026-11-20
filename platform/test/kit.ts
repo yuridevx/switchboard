@@ -1,5 +1,7 @@
-// Леса тестов платформы: завести флот, выдать пропуска, подключить страницу, Host, Keeper и зрителя.
-import { env, SELF } from "cloudflare:test";
+// Леса тестов платформы: завести флот, выдать пропуска, подключить страницу, Host, Keeper и зрителя. Время пределов объектов — поддельное и
+// идёт внутри объекта (tick); соединения тестов закрывает hangUp после каждого теста.
+import { env, runInDurableObject, SELF } from "cloudflare:test";
+import { vi } from "vitest";
 import { type Frame, PROTO, type Reply, type SessionRow } from "@sb/protocol";
 import type { Env } from "../src/env.ts";
 import { platformApi } from "../src/index.ts";
@@ -47,18 +49,59 @@ export type Conn = {
   next(pred: (f: Frame) => boolean, ms?: number): Promise<Frame>;
   closed: Promise<{ code: number; reason: string }>;
   send(f: Frame): void;
+  /** барьер: "ping" тем же соединением; "pong" — всё, что объект послал раньше, уже пришло; "closed" — объект закрыл соединение раньше */
+  sync(): Promise<"pong" | "closed">;
 };
 
-export async function connect(path: string, key: string, role: "page" | "host" | "keeper" | "watch", onAsk?: (f: Frame, c: Conn) => void): Promise<Conn> {
+/** Открытые соединения тестов: закрывает hangUp. */
+const open = new Set<WebSocket>();
+
+/** Закрыть соединения теста — afterEach каждого файла. */
+export function hangUp(): void {
+  for (const ws of open) {
+    try {
+      ws.close(1000, "test_end");
+    } catch {
+      // уже закрыто
+    }
+  }
+  open.clear();
+}
+
+/** Открыть соединение с платформой; закрывает его hangUp. */
+export async function socket(path: string): Promise<WebSocket> {
   const res = await SELF.fetch("https://p.test" + path, { headers: { Upgrade: "websocket" } });
   const ws = res.webSocket;
   if (!ws) throw new Error("нет соединения: " + res.status);
   ws.accept();
+  open.add(ws);
+  ws.addEventListener("close", () => open.delete(ws));
+  return ws;
+}
+
+/** Поддельное время объекта: таймеры пределов (vi.useFakeTimers) сдвигаются внутри него — их соединения закрываются в его контексте. */
+export async function tick(stub: DurableObjectStub, ms: number): Promise<void> {
+  await runInDurableObject(stub, async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
+export async function connect(path: string, key: string, role: "page" | "host" | "keeper" | "watch", onAsk?: (f: Frame, c: Conn) => void): Promise<Conn> {
+  const ws = await socket(path);
   const frames: Frame[] = [];
   const waiters: Array<() => void> = [];
+  const pongs: Array<(r: "pong" | "closed") => void> = [];
+  ws.addEventListener("close", () => {
+    for (const p of pongs.splice(0)) p("closed");
+  });
   const c: Conn = {
     ws, frames,
     send: (f) => ws.send(JSON.stringify(f)),
+    sync: () => new Promise((resolve) => {
+      if (ws.readyState !== WebSocket.OPEN) return resolve("closed");
+      pongs.push(resolve);
+      ws.send("ping");
+    }),
     closed: new Promise((res2) => ws.addEventListener("close", (e) => res2({ code: e.code, reason: e.reason }))),
     next(pred, ms = 5000) {
       return new Promise<Frame>((resolve, reject) => {
@@ -79,6 +122,7 @@ export async function connect(path: string, key: string, role: "page" | "host" |
     },
   };
   ws.addEventListener("message", (e) => {
+    if (e.data === "pong") return pongs.shift()?.("pong");
     const f = JSON.parse(e.data as string) as Frame;
     if (onAsk && f.id && f.type !== "reply") onAsk(f, c);
     else frames.push(f);

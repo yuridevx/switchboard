@@ -1,36 +1,46 @@
 // Эталоны платформы, вторая волна: предел входа, картина для модели, пропуска и люди, вход внешнего клиента по OAuth.
-import { SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Frame, MachineRow, PassRow, PersonRow, SessionRow } from "@sb/protocol";
-import { s256 } from "../src/env.ts";
+import { fleetStub, HELLO_MS, machineStub, s256 } from "../src/env.ts";
 import { clientDoc, platformApi } from "../src/index.ts";
-import { ANYA, api, ask, boot, E, host, newFleet, OLEG, page, pass, row, trio, YURI } from "./kit.ts";
+import { ANYA, api, ask, boot, E, hangUp, host, newFleet, OLEG, page, pass, row, socket, tick, trio, YURI } from "./kit.ts";
+
+afterEach(hangUp);
 
 const names = (ms: MachineRow[]) => ms.map((m) => m.name).sort();
 
-/** Соединение без `hello`. */
-async function silent(path: string): Promise<{ code: number; reason: string }> {
-  const res = await SELF.fetch("https://p.test" + path, { headers: { Upgrade: "websocket" } });
-  const ws = res.webSocket!;
-  ws.accept();
-  return new Promise((resolve) => ws.addEventListener("close", (e) => resolve({ code: e.code, reason: e.reason })));
+/** Соединение без `hello`: ответ — когда объект его принял и завёл предел; closed — его закрытие. */
+async function silent(path: string): Promise<{ closed: Promise<{ code: number; reason: string }> }> {
+  const ws = await socket(path);
+  return { closed: new Promise((resolve) => ws.addEventListener("close", (e) => resolve({ code: e.code, reason: e.reason }))) };
 }
 
 describe("предел входа", () => {
+  // время предела — поддельное: тест сдвигает часы объекта на HELLO_MS
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("соединение, которое не представилось, закрывается словом hello_timeout — у объекта флота и у объекта машины", async () => {
-    // предел в стенде — 300 мс (настройка HELLO_MS); на флоте — 10 с
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const fleet = newFleet();
     await boot(fleet);
-    expect((await silent("/f/" + fleet)).reason).toBe("hello_timeout");
-    expect((await silent("/m/" + fleet + "/laptop")).reason).toBe("hello_timeout");
+    const f = await silent("/f/" + fleet);
+    await tick(fleetStub(E, fleet), HELLO_MS);
+    expect((await f.closed).reason).toBe("hello_timeout");
+    const m = await silent("/m/" + fleet + "/laptop");
+    await tick(machineStub(E, fleet, "laptop"), HELLO_MS);
+    expect((await m.closed).reason).toBe("hello_timeout");
   });
 
   it("вошедшее соединение предел не трогает", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const fleet = newFleet(), yuri = await boot(fleet);
     const p = await page(fleet, yuri);
     await p.next((f) => f.type === "roster");
-    const closed = await Promise.race([p.closed, new Promise<"alive">((r) => setTimeout(() => r("alive"), 700))]);
-    expect(closed).toBe("alive");
+    await tick(fleetStub(E, fleet), HELLO_MS);
+    // барьер: закрытие пришло бы раньше ответа на ping
+    expect(await p.sync()).toBe("pong");
   });
 });
 
