@@ -5,7 +5,7 @@ import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HostMetrics } from "@sb/protocol";
-import { make as chat } from "../src/modules/chat/chat.ts";
+import { make as chat, WINDOW_MS } from "../src/modules/chat/chat.ts";
 import { make as machine } from "../src/modules/machine/machine.ts";
 import { make as points, projectDir } from "../src/modules/points/points.ts";
 import { stand, until, type Stand } from "../stand/index.ts";
@@ -20,7 +20,6 @@ afterEach(async () => {
     await new Promise((r) => s.close(r));
   }
 });
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const lastRow = (cs: string) => st!.link.rows(cs).at(-1)!.row as any;
 
 /** Хранилище блоков: принимает загрузку по ссылке. */
@@ -55,14 +54,8 @@ async function withConversation(o: { retryMs?: number; waitMs?: number } = {}) {
 }
 
 describe("точки: предел повторов, остановленная сессия, снятие архива", () => {
-  /** Двигать часы стенда шагами, пока условие не выполнится: повторы точек идут по часам ядра. */
-  const ticking = async (cond: () => boolean, label: string) => {
-    for (let i = 0; i < 300 && !cond(); i++) {
-      st!.clock.advance(20);
-      await wait(5);
-    }
-    if (!cond()) throw new Error("не дождались: " + label);
-  };
+  /** Повтор точки по часам ядра: таймер повтора взведён — его срок настаёт. */
+  const retry = () => st!.clock.due(40);
 
   it("сбой точки повторяется сам до предела от первого сбоя; срок виден в строке; после предела повторов нет, причина остаётся", async () => {
     const { state } = await withConversation({ retryMs: 40, waitMs: 150 });
@@ -74,12 +67,17 @@ describe("точки: предел повторов, остановленная 
     expect(first.archiveUntil).toBeGreaterThanOrEqual(t0 + 150);
     expect(first.archiveUntil).toBeLessThan(t0 + 150 + 1000);
     expect(first.archiveRetryAt).toBeGreaterThanOrEqual(t0 + 40);
-    await ticking(() => !lastRow("site@laptop").archiveRetryAt, "повторы кончились");
+    // повтор за повтором: каждый кончается новым таймером повтора или, после предела, строкой без срока повтора
+    while (lastRow("site@laptop").archiveRetryAt) {
+      await retry();
+      await until(() => st!.clock.pending().includes(40) || !lastRow("site@laptop").archiveRetryAt, "повтор кончился");
+    }
     const tries = state.tries;
     expect(tries).toBeGreaterThanOrEqual(2); // сам запрос и хотя бы один повтор
     expect(tries).toBeLessThanOrEqual(1 + Math.ceil(150 / 40));
+    // после предела повторов нет: таймера повтора на часах нет
+    expect(st!.clock.pending()).not.toContain(40);
     st!.clock.advance(120);
-    await wait(30);
     expect(state.tries).toBe(tries);
     const after = lastRow("site@laptop");
     expect(after.archiveError).toContain("архив не отвечает");
@@ -91,11 +89,13 @@ describe("точки: предел повторов, остановленная 
     more();
     state.fail = true;
     expect((await st!.request("session.stop", { to: "site@laptop" })).ok).toBe(true);
-    await ticking(() => state.tries >= 2, "повтор у остановленной");
+    await retry();
+    await until(() => state.tries >= 2, "повтор у остановленной");
     expect(lastRow("site@laptop")).toMatchObject({ state: "stopped", archiveError: expect.stringContaining("архив не отвечает") });
     state.fail = false;
-    await ticking(() => state.puts.some((p) => p.commit), "точка записана");
-    await ticking(() => !lastRow("site@laptop").archiveError, "причина снята");
+    await retry();
+    await until(() => state.puts.some((p) => p.commit), "точка записана");
+    await until(() => !lastRow("site@laptop").archiveError, "причина снята");
     expect(lastRow("site@laptop").archiveUntil).toBeUndefined();
     expect(lastRow("site@laptop").archiveRetryAt).toBeUndefined();
   });
@@ -108,12 +108,15 @@ describe("точки: предел повторов, остановленная 
     expect((await st!.request("session.update", { to: "site@laptop", patch: { backup: false } })).ok).toBe(true);
     more();
     expect((await st!.request("session.stop", { to: "site@laptop" })).ok).toBe(true);
-    await wait(80);
-    expect(state.puts).toHaveLength(saved);
+    // барьер — та же очередь точек сессии: точка по запросу записана — точка от остановки, будь она, записана раньше неё
+    expect((await st!.request("points.save", { to: "site@laptop" })).ok).toBe(true);
+    expect(st!.journal().filter((l) => l.msg === "point")).toHaveLength(2);
     expect(st!.services.of("points.delete")).toHaveLength(0);
     // архив вернули — остановленная сессия сохраняется снова
+    more();
+    const kept = state.puts.length;
     expect((await st!.request("session.update", { to: "site@laptop", patch: { backup: true } })).ok).toBe(true);
-    await until(() => state.puts.length > saved, "точка после возврата архива");
+    await until(() => state.puts.length > kept, "точка после возврата архива");
   });
 });
 
@@ -130,12 +133,15 @@ describe("вопрос человеку", () => {
     await until(() => lastRow("site@laptop").ask?.id === "q-1", "вопрос");
     expect((await st.request("answer", { to: "site@laptop", ask: "q-1", answer: "main", via: "push" }, PULT)).ok).toBe(true);
     await a1;
-    expect(await until(() => events().find((e) => e.type === "ask.answered" && e.ask === "q-1"), "итог")).toMatchObject({ by: PULT, answer: "main", via: "push" });
+    await st.clock.due(WINDOW_MS);
+    expect(events().find((e) => e.type === "ask.answered" && e.ask === "q-1")).toMatchObject({ by: PULT, answer: "main", via: "push" });
     const a2 = ask("q-2");
     await until(() => lastRow("site@laptop").ask?.id === "q-2", "второй вопрос");
     await st.request("answer", { to: "site@laptop", ask: "q-2", answer: "release" }, PULT);
     await a2;
-    const second = await until(() => events().find((e) => e.type === "ask.answered" && e.ask === "q-2"), "второй итог");
+    await st.clock.due(WINDOW_MS);
+    const second = events().find((e) => e.type === "ask.answered" && e.ask === "q-2");
+    expect(second).toBeDefined();
     expect(second.via).toBeUndefined();
   });
 });
@@ -154,7 +160,8 @@ describe("числа Host для наблюдения", () => {
     st.kernel.meter.count("provider.failed");
     proc.exit(1, "упал");
     await until(() => st!.holders.spawns.length === 3 && s.state === "idle", "resume");
-    // замеры и сбой могут попасть в соседние окна: каждое проверяется там, где оказалось
+    // такт — по часам машины: окно закрывается, когда его срок двигает тест
+    st.clock.advance(40);
     const m = await until(() => sent.find((x) => x.crashes === 1), "окно со сбоем");
     expect(m).toMatchObject({ build: 1, crashes: 1, resumes: 1, queue: 0 });
     expect(Object.values(m.sessions).reduce((a, b) => a + b, 0)).toBe(2);
@@ -162,6 +169,7 @@ describe("числа Host для наблюдения", () => {
     expect(timed.provider).toEqual({ n: 5, p50: 300, p95: 2000, failed: 1, retries: 0 });
     // следующее окно — без прежних сбоев и замеров
     const n = sent.length;
+    st.clock.advance(80);
     const next = await until(() => sent[n + 1], "следующее окно");
     expect(next).toMatchObject({ crashes: 0, resumes: 0, provider: { n: 0, p50: 0, p95: 0, failed: 0 }, sessions: { idle: 2 } });
     // запрос машины отдаёт числа последнего окна и нынешние сессии
@@ -175,6 +183,7 @@ describe("числа Host для наблюдения", () => {
     st.services.handlers["obs.metrics"] = () => {
       throw { word: "offline", message: "службы молчат" };
     };
+    st.clock.advance(30);
     await until(() => st!.journal().some((l) => l.msg === "metrics" && l.word === "offline"), "строка журнала");
     expect((await st.request("machine.dirs", { to: "@laptop", path: st.dir })).ok).toBe(true);
   });

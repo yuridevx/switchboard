@@ -2,10 +2,11 @@
 // Состояние репозитория живёт в памяти Host: следующее сведение узнает его заново. Список репозиториев — настройка флота; машина её не хранит.
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { githubToken, prefsGet, READ_MS, Refusal, sessionCall, splitPiece, within, type Piece as PieceOut, type RepoClone } from "@sb/protocol";
+import { CALL_MS, githubToken, prefsGet, READ_MS, Refusal, sessionCall, splitPiece, type Piece as PieceOut, type RepoClone } from "@sb/protocol";
+import { limited } from "../../core/clock.ts";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
 import { assemble, BadPieces, indexMeasure, namesIn, nearMemory, readPiece, valuesOf, type Assembly } from "./pieces.ts";
-import { realGit, syncRepo, type Git, type RepoState } from "./sync.ts";
+import { gitWithin, syncRepo, type Git, type RepoState } from "./sync.ts";
 import { FILE_MAX, insideFile, viewOf } from "./view.ts";
 
 export type { Git, RepoState };
@@ -30,9 +31,10 @@ const same = (p: string) => (process.platform === "win32" ? p.toLowerCase() : p)
 type Repo = { state: RepoState; running?: Promise<void>; again?: boolean; gone?: boolean };
 
 export function make(o: { git?: Git } = {}): Module {
-  const git = o.git ?? realGit;
+  /** git с пределом по часам ядра; тест даёт свой */
+  let git = o.git;
   let host: HostApi;
-  let timer: ReturnType<typeof setInterval>;
+  let timer: unknown;
   let stopping = false;
   const repos = new Map<string, Repo>();
   /** сессии, чей список на этом старте не собрался: причина уже в журнале */
@@ -64,7 +66,7 @@ export function make(o: { git?: Git } = {}): Module {
       const clone = cloneOf(repo);
       if (r.gone && !existsSync(clone)) return void repos.delete(repo);
       const was = r.state.state;
-      const state = await syncRepo(git, repo, clone, host.machine, () => token(repo), (why) => host.log.info("sync", { why }));
+      const state = await syncRepo(git!, repo, clone, host.machine, () => token(repo), (why) => host.log.info("sync", { why }));
       const { pulled, ...rest } = state;
       r.state = { ...rest, dir: clone, ...(state.state === "ok" ? { at: Date.now() } : r.state.at ? { at: r.state.at } : {}) };
       // сведение принесло чужие правки кусочков — работающие сессии этого репозитория перечитывают скилы, агентов и серверы плагинов
@@ -103,7 +105,7 @@ export function make(o: { git?: Git } = {}): Module {
     let list: unknown;
     let word: string | null = null;
     try {
-      list = (await within(host.call(prefsGet, { scope: "fleet", prefix: PROFILE_REPOS }), READ_MS)).values[PROFILE_REPOS];
+      list = (await limited(host.clock, host.call(prefsGet, { scope: "fleet", prefix: PROFILE_REPOS }), READ_MS, () => new Refusal("timeout", "нет ответа"))).values[PROFILE_REPOS];
     } catch (e) {
       word = (e as Refusal).word ?? "offline";
     }
@@ -300,8 +302,9 @@ export function make(o: { git?: Git } = {}): Module {
     },
     start(h) {
       host = h;
-      timer = setInterval(() => void tick(), SYNC_MS);
-      timer.unref();
+      git ??= gitWithin(host.clock, CALL_MS);
+      timer = host.clock.setInterval(() => void tick(), SYNC_MS);
+      (timer as { unref?: () => void }).unref?.();
       // на старте связи может ещё не быть: первое сведение пробуем сразу, следующее — по такту
       void tick();
     },
@@ -312,7 +315,7 @@ export function make(o: { git?: Git } = {}): Module {
     },
     async stop() {
       stopping = true;
-      clearInterval(timer);
+      host.clock.clearTimeout(timer);
       await Promise.all([...repos.values()].map((r) => r.running));
     },
   };

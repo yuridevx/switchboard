@@ -2,17 +2,19 @@
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { CALL_MS, within } from "@sb/protocol";
+import { Refusal } from "@sb/protocol";
+import { limited, type Clock } from "../../core/clock.ts";
 
 type Run = { code: number; out: string };
 export type Git = (args: string[], o: { cwd: string; env: Record<string, string> }) => Promise<Run>;
 /** wait — машина ещё не сводила этот репозиторий; dir — клон; at — последнее сведение, мс; pulled — это сведение принесло чужие правки. */
 export type RepoState = { state: "ok" | "wait" | "conflict" | "error"; op?: string; files?: string[]; error?: string; dir?: string; at?: number; pulled?: boolean };
 
-/** Настоящий git с пределом на команду: процесс убит, а его потомок может держать вывод — ответа не ждём. */
-export const gitWithin = (ms: number): Git => (args, o) => {
+/** Настоящий git с пределом на команду по часам ядра: процесс убит, а его потомок может держать вывод — ответа не ждём. */
+export const gitWithin = (clock: Clock, ms: number): Git => (args, o) => {
   const late = `git не ответил за ${ms / 1000} с`;
-  return within(
+  return limited(
+    clock,
     new Promise((done, fail) => {
       execFile("git", args, { cwd: o.cwd, env: { ...process.env, ...o.env }, windowsHide: true, maxBuffer: 16 << 20, timeout: ms }, (e, out, err) => {
         if ((e as { killed?: boolean } | null)?.killed) return fail(new Error(late));
@@ -20,11 +22,9 @@ export const gitWithin = (ms: number): Git => (args, o) => {
       });
     }),
     ms,
-    late,
+    () => new Refusal("timeout", late),
   );
 };
-
-export const realGit = gitWithin(CALL_MS);
 
 const NEVER_ASK = ["-c", "credential.interactive=never"];
 /** Шаг, на котором синхронизация встала. */

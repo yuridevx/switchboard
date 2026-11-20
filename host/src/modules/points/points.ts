@@ -6,6 +6,7 @@ import { basename, join, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import { sha256, storePut } from "../files/contract.ts";
 import { machineOf, pointsGet, pointsPut, pointsSave, Refusal, sessionName, sessionRemove, sessionStart, type Spec } from "@sb/protocol";
+import { within } from "../../core/clock.ts";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
 import { clientPath, claudeDir, realDir, tildePath } from "../../core/paths.ts";
 import { download, writeFiles } from "./files.ts";
@@ -60,6 +61,7 @@ export function toBlocks(path: string, buf: Buffer, blocks: Blocks): PointFile {
 type Usage = { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; output_tokens?: number };
 type Said = { type?: string; uuid?: string; message?: { id?: string; model?: string; usage?: Usage; content?: unknown } };
 
+const busy = (s: SessionApi) => s.state === "busy" || s.state === "waiting";
 const textOf = (content: unknown): string =>
   typeof content === "string" ? content : Array.isArray(content) ? content.flatMap((b: { type?: string; text?: string }) => (b?.type === "text" && typeof b.text === "string" ? [b.text] : [])).join("\n") : "";
 
@@ -73,6 +75,8 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
   const retries = new Map<string, unknown>();
   /** точки одной сессии идут по очереди */
   const queue = new Map<string, Promise<unknown>>();
+  /** точка прервала ход и ждёт его конца */
+  const halting = new Map<string, () => void>();
   const markOf = (s: SessionApi) => s.store<Mark>();
   const conversationOf = (s: SessionApi) => join(projectDir(s.info.cwd), `${s.info.sessionId}.jsonl`);
 
@@ -193,10 +197,12 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
   /** Точка по запросу: прервать ход перед ней, остановить сессию после; перенос — ведущий с ведомым не отпускается. */
   async function saveNow(s: SessionApi, o: SaveOpts): Promise<{ point: string; same?: boolean }> {
     if (o.move && s.spec.wing) throw new Refusal("has_wing", `${s.callsign} ведёт ${s.spec.wing}: пара не переносится — сначала снимите ведомого`);
-    if ((o.interrupt || o.move) && (s.state === "busy" || s.state === "waiting")) {
+    if ((o.interrupt || o.move) && busy(s)) {
+      // конец хода — событием состояния, предел — по часам машины
+      const calm = new Promise<void>((r) => halting.set(s.callsign, r));
       await s.sdk("interrupt").catch(() => {});
-      const until = Date.now() + INTERRUPT_MS;
-      while ((s.state === "busy" || s.state === "waiting") && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+      if (busy(s)) await within(host.clock, calm, INTERRUPT_MS, () => undefined);
+      halting.delete(s.callsign);
     }
     if (o.stop || o.move) await s.stop();
     return save(s, o.label);
@@ -322,6 +328,7 @@ export function make(o: { retryMs?: number; waitMs?: number } = {}): Module {
     on: {
       state(s, state) {
         const cs = s.callsign;
+        if (!busy(s)) halting.get(cs)?.();
         if (state === "busy" && !turns.has(cs) && s.spec.backup) longTurn(s);
         if (state === "stopped") {
           endTurn(cs);

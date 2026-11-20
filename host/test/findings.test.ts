@@ -56,8 +56,7 @@ describe("находки: пределы шагов SDK на часах ядра
     const sid = s.rec.sessionId;
     mute(st, "getSessionMessages");
     const asked = st.request("session.rewind", { to: CS, upto: "u1", dry: true }, PULT);
-    await new Promise((r) => setTimeout(r, 50));
-    st.clock.advance(30_000);
+    await st.clock.due(30_000);
     expect(await asked).toMatchObject({ ok: false, error: "sdk_error" });
     expect(s.rec.sessionId).toBe(sid);
   });
@@ -67,8 +66,7 @@ describe("находки: пределы шагов SDK на часах ядра
     await st.open("site");
     (st.sdk.last(CS) as any).reloadPlugins = silent;
     const asked = st.request("session.call", { to: CS, method: "reload" }, PULT);
-    await new Promise((r) => setTimeout(r, 50));
-    st.clock.advance(30_000);
+    await st.clock.due(30_000);
     expect(await asked).toMatchObject({ ok: false, error: "sdk_error" });
   });
 
@@ -76,8 +74,7 @@ describe("находки: пределы шагов SDK на часах ядра
     st = await stand({ modules: [chat()] });
     mute(st, "listSessions");
     const asked = st.request("machine.conversations", { to: "@laptop", cwd: st.dir }, PULT);
-    await new Promise((r) => setTimeout(r, 50));
-    st.clock.advance(30_000);
+    await st.clock.due(30_000);
     expect(await asked).toMatchObject({ ok: false, error: "sdk_error" });
   });
 });

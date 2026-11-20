@@ -1,5 +1,6 @@
 // Вопросы человеку: AskUserQuestion, разрешение инструмента, план и формы серверов MCP. Вопрос живёт в строке сессии; первый ответ выигрывает.
-import { fleetList, kindOf, notice, personOf, reachSend, READ_MS, Refusal, within, type Ask } from "@sb/protocol";
+import { fleetList, kindOf, notice, personOf, reachSend, READ_MS, Refusal, type Ask } from "@sb/protocol";
+import { limited } from "../../core/clock.ts";
 import type { DecideOpts, HostApi, PermissionResult, SessionApi } from "../../core/contract.ts";
 
 const REFUSAL = "The user doesn't want to proceed with this tool use.";
@@ -40,7 +41,7 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
   /** Владелец этой машины: машина его у себя не хранит — спрашивает флот, когда нужно. */
   async function owner(): Promise<string | undefined> {
     const h = host();
-    return (await within(h.call(fleetList, { machine: h.machine }), READ_MS)).machines.find((m) => m.name === h.machine)?.owner;
+    return (await limited(h.clock, h.call(fleetList, { machine: h.machine }), READ_MS, () => new Refusal("timeout", "нет ответа"))).machines.find((m) => m.name === h.machine)?.owner;
   }
 
   /** Позвать того, кто решает. Вопрос с вариантами — тому, кто дал задачу: человеку — службой, сессии-родителю — во ввод видом question.
@@ -81,7 +82,7 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
       };
       const abort = () => {
         close();
-        feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, q: ask, answer: "cancelled", at: Date.now() });
+        feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, q: ask, answer: "cancelled", at: host().clock.now() });
         resolve(cancelled);
       };
       signal.addEventListener("abort", abort);
@@ -92,7 +93,7 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
           host().log.info("answered", { callsign: cs, ask: ask.id, from: by, ...(via ? { via } : {}) });
           // итог вопроса — в ленту: кто ответил, чем и откуда (кнопкой уведомления — via: push)
           // событие несёт сам вопрос: из него страница собирает карточку ответа
-          feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, q: ask, by, answer, ...(via ? { via } : {}), at: Date.now() });
+          feed.push(cs, { type: "ask.answered", ask: ask.id, kind: ask.kind, q: ask, by, answer, ...(via ? { via } : {}), at: host().clock.now() });
           resolve(answered(answer, by));
         },
       });
@@ -107,7 +108,7 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
     const ask: Ask = {
       id: opts.toolUseID, kind: "question", title: first.header, text: first.question ?? "",
       options: (first.options ?? []).map((o) => ({ label: o.label ?? "", ...(o.description ? { about: o.description } : {}) })),
-      ...(first.multiSelect ? { multi: true } : {}), tool: "AskUserQuestion", input, at: Date.now(),
+      ...(first.multiSelect ? { multi: true } : {}), tool: "AskUserQuestion", input, at: host().clock.now(),
     };
     return put<PermissionResult>(s, ask, opts.signal, (answer) => {
       const given = answer as { answers?: Record<string, string> } | string | string[];
@@ -122,7 +123,7 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
     const ask: Ask = {
       id: opts.toolUseID, kind: plan ? "plan" : "permission", title: opts.title ?? opts.tool,
       text: plan ? String(input.plan ?? "") : (opts.description ?? opts.title ?? opts.tool),
-      options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }], tool: opts.tool, input, at: Date.now(),
+      options: [{ label: "allow" }, { label: "allow_always" }, { label: "deny" }], tool: opts.tool, input, at: host().clock.now(),
       // что запишет «Разрешать всегда», какой путь задет и почему спросили — как это назвал сам Claude
       ...(!plan && ruleOf(opts.suggestions) ? { rule: ruleOf(opts.suggestions) } : {}),
       ...(opts.blockedPath ? { blocked: opts.blockedPath } : {}),
@@ -161,7 +162,7 @@ export function questions(host: () => HostApi, asker: (s: SessionApi) => string 
       const url = req.mode === "url";
       const ask: Ask = {
         id: opts.requestId, kind: url ? "url" : "form", title: String(req.serverName ?? ""), text: String(req.message ?? ""),
-        ...(url ? { url: String(req.url ?? "") } : { schema: req.requestedSchema }), at: Date.now(),
+        ...(url ? { url: String(req.url ?? "") } : { schema: req.requestedSchema }), at: host().clock.now(),
       };
       return put<unknown>(s, ask, opts.signal, (answer) => {
         const a = (typeof answer === "string" ? { action: answer } : (answer ?? {})) as { action?: string; content?: unknown };

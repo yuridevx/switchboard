@@ -30,9 +30,12 @@ type Run = {
   waited: boolean;
   /** сколько запросов сейчас ждут конца запуска */
   waiting: number;
-  limit?: NodeJS.Timeout; ttl?: NodeJS.Timeout; timeout?: NodeJS.Timeout;
+  limit?: unknown; ttl?: unknown; timeout?: unknown;
   over: Promise<void>; finish: () => void; killing?: State;
 };
+
+/** Таймер не держит процесс Host. */
+const unref = (t: unknown) => (t as { unref?: () => void }).unref?.();
 
 export function make({ root = join(tmpdir(), "sb2-shell") }: { root?: string } = {}): Module {
   let host: HostApi;
@@ -76,7 +79,7 @@ export function make({ root = join(tmpdir(), "sb2-shell") }: { root?: string } =
 
   function forget(r: Run): void {
     runs.delete(r.id);
-    clearTimeout(r.ttl);
+    host.clock.clearTimeout(r.ttl);
     try {
       rmSync(r.dir, { recursive: true, force: true });
     } catch (e) {
@@ -87,15 +90,15 @@ export function make({ root = join(tmpdir(), "sb2-shell") }: { root?: string } =
 
   function ended(r: Run, state: State, code: number | null): void {
     if (r.ended !== undefined) return;
-    clearTimeout(r.limit);
-    clearTimeout(r.timeout);
-    r.ended = Date.now();
+    host.clock.clearTimeout(r.limit);
+    host.clock.clearTimeout(r.timeout);
+    r.ended = host.clock.now();
     r.state = state;
     if (code !== null && (state === "done" || state === "failed")) r.code = code;
     const bytes = statSync(join(r.dir, "out"), { throwIfNoEntry: false })?.size ?? 0;
     host.log.info("run_end", { run: r.id, state, code: r.code, ms: r.ended - r.started, bytes });
-    r.ttl = setTimeout(() => forget(r), TTL_MS);
-    r.ttl.unref();
+    r.ttl = host.clock.setTimeout(() => forget(r), TTL_MS);
+    unref(r.ttl);
     r.finish();
     // сессия пустила запуск и не дождалась — конец придёт ей сообщением
     if (r.owner && !r.waited && !r.waiting) {
@@ -108,8 +111,8 @@ export function make({ root = join(tmpdir(), "sb2-shell") }: { root?: string } =
   function kill(r: Run, as: State = "killed"): Promise<void> {
     if (r.ended === undefined && !r.killing) {
       r.killing = as;
-      clearTimeout(r.limit);
-      clearTimeout(r.timeout);
+      host.clock.clearTimeout(r.limit);
+      host.clock.clearTimeout(r.timeout);
       void killTree(r.pid).then((why) => {
         if (why) host.log.warn("run_kill", { run: r.id, why });
         ended(r, as, null);
@@ -120,11 +123,11 @@ export function make({ root = join(tmpdir(), "sb2-shell") }: { root?: string } =
 
   async function wait(r: Run, seconds: number | undefined): Promise<void> {
     if (!seconds) return;
-    let timer: NodeJS.Timeout | undefined;
+    let timer: unknown;
     r.waiting++;
-    await Promise.race([r.over, new Promise((res) => (timer = setTimeout(res, seconds * 1000)))]);
+    await Promise.race([r.over, new Promise((res) => (timer = host.clock.setTimeout(() => res(undefined), seconds * 1000)))]);
     r.waiting--;
-    clearTimeout(timer);
+    host.clock.clearTimeout(timer);
   }
 
   const runOf = (id: string) => {
@@ -177,15 +180,15 @@ export function make({ root = join(tmpdir(), "sb2-shell") }: { root?: string } =
         }
         let finish = () => {};
         const over = new Promise<void>((r) => (finish = r));
-        const r: Run = { id, dir, started: Date.now(), state: "running", pid: child.pid ?? 0, owner: kindOf(ctx.from) === "session" ? ctx.from : undefined, waited: false, waiting: 0, over, finish };
+        const r: Run = { id, dir, started: host.clock.now(), state: "running", pid: child.pid ?? 0, owner: kindOf(ctx.from) === "session" ? ctx.from : undefined, waited: false, waiting: 0, over, finish };
         runs.set(id, r);
         ctx.log.info("run_start", { run: id, from: ctx.from, shell: sh, pid: child.pid, line: script.split("\n")[0]!.slice(0, 200) });
         const closed = new Promise<void>((res) => child.once("close", () => res()));
         child.once("exit", (code) => {
           // последние куски вывода приходят после выхода шелла; потоки могут держать его фоновые дети — их закрытия ждём недолго
-          let timer: NodeJS.Timeout | undefined;
-          void Promise.race([closed, new Promise<void>((res) => (timer = setTimeout(res, DRAIN_MS)))]).then(() => {
-            clearTimeout(timer);
+          let timer: unknown;
+          void Promise.race([closed, new Promise<void>((res) => (timer = host.clock.setTimeout(res, DRAIN_MS)))]).then(() => {
+            host.clock.clearTimeout(timer);
             if (!r.killing) ended(r, code === 0 ? "done" : "failed", code);
           });
         });
@@ -193,11 +196,11 @@ export function make({ root = join(tmpdir(), "sb2-shell") }: { root?: string } =
           host.log.warn("run_error", { run: id, why: e.message });
           ended(r, "failed", null);
         });
-        r.limit = setTimeout(() => void kill(r, "stopped"), RUN_MS);
-        r.limit.unref();
+        r.limit = host.clock.setTimeout(() => void kill(r, "stopped"), RUN_MS);
+        unref(r.limit);
         if (timeout) {
-          r.timeout = setTimeout(() => void kill(r, "timeout"), timeout * 1000);
-          r.timeout.unref();
+          r.timeout = host.clock.setTimeout(() => void kill(r, "timeout"), timeout * 1000);
+          unref(r.timeout);
         }
         await wait(r, seconds);
         if (r.ended !== undefined) r.waited = true;

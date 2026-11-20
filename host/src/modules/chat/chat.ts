@@ -10,7 +10,7 @@ import { split, type FilesApi } from "../files/contract.ts";
 import { questions } from "./ask.ts";
 
 /** Окно пачки ленты. */
-const WINDOW_MS = 100;
+export const WINDOW_MS = 100;
 /** Предел обхода папки для «@». */
 const FILES_MS = 5000;
 const FILES_MAX = 50;
@@ -118,7 +118,7 @@ async function files(cwd: string, q: string, signal: AbortSignal, now: () => num
 export function make(): Module {
   let host: HostApi;
   const viewers = new Map<string, Set<string>>();
-  const batches = new Map<string, { events: unknown[]; timer: ReturnType<typeof setTimeout> }>();
+  const batches = new Map<string, { events: unknown[]; timer: unknown }>();
   const seqs = new Map<string, number>();
   /** последние события ленты: событие i имеет номер seq − length + i + 1 */
   const recent = new Map<string, unknown[]>();
@@ -158,12 +158,12 @@ export function make(): Module {
   function deliver(s: SessionApi, from: string, text: string, body: string, uuid: string, priority: Priority): { queued: boolean; uuid: string } {
     const to = s.callsign;
     s.input(body, { priority, uuid });
-    push(to, seen({ type: "user", uuid, from, at: Date.now(), message: { role: "user", content: body } }));
+    push(to, seen({ type: "user", uuid, from, at: host.clock.now(), message: { role: "user", content: body } }));
     lastUuid.set(to, uuid);
     // сессия занята — сообщение ждёт в очереди: его видно зрителям и его можно отменить
     const waits = s.state !== "idle";
     if (waits) {
-      queued.set(to, [...(queued.get(to) ?? []), { uuid, from, text, at: Date.now() }]);
+      queued.set(to, [...(queued.get(to) ?? []), { uuid, from, text, at: host.clock.now() }]);
       status(to, uuid, "queued");
     }
     return { queued: waits, uuid };
@@ -216,7 +216,7 @@ export function make(): Module {
     const b = batches.get(cs);
     if (!b) return;
     batches.delete(cs);
-    clearTimeout(b.timer);
+    host.clock.clearTimeout(b.timer);
     const seq = (seqs.get(cs) ?? 0) + b.events.length;
     seqs.set(cs, seq);
     const kept = [...(recent.get(cs) ?? []), ...b.events];
@@ -277,7 +277,7 @@ export function make(): Module {
 
   /** Событие в ленту: пачка уходит зрителям через окно. */
   function push(cs: string, event: unknown): void {
-    const b = batches.get(cs) ?? batches.set(cs, { events: [], timer: setTimeout(() => flush(cs), WINDOW_MS) }).get(cs)!;
+    const b = batches.get(cs) ?? batches.set(cs, { events: [], timer: host.clock.setTimeout(() => flush(cs), WINDOW_MS) }).get(cs)!;
     b.events.push(event);
   }
 
@@ -319,7 +319,7 @@ export function make(): Module {
     const text = doingOf(tool);
     const was = doing.get(cs);
     if (was?.text === text) return;
-    const now = Date.now();
+    const now = host.clock.now();
     // новое дело запоминается всегда, в картину уходит не чаще предела; между ними его унесёт любая другая смена строки
     const fresh = !was || now - was.at >= DOING_GAP_MS;
     doing.set(cs, { text, at: fresh ? now : was!.at });
@@ -465,7 +465,7 @@ export function make(): Module {
         if (msg?.type === "conversation_reset") {
           if (!msg.uuid) msg = { ...msg, uuid: randomUUID() };
           if (!msg.text) msg = { ...msg, text: "Разговор очищен" };
-          const mark = { type: msg.type, uuid: msg.uuid, text: msg.text, at: Date.now() };
+          const mark = { type: msg.type, uuid: msg.uuid, text: msg.text, at: host.clock.now() };
           if (typeof msg.after === "string") {
             merge(s, { ends: [...(part(s).ends ?? []), { after: msg.after, event: mark }].slice(-ENDS_MAX) });
             lastUuid.set(cs, msg.after);
@@ -479,7 +479,7 @@ export function make(): Module {
           recent.set(cs, []);
         }
         // у живого события своего времени нет — время машины: по нему страница считает, сколько идёт работа
-        if (msg && typeof msg === "object" && msg.at === undefined && msg.timestamp === undefined) msg = { ...msg, at: Date.now() };
+        if (msg && typeof msg === "object" && msg.at === undefined && msg.timestamp === undefined) msg = { ...msg, at: host.clock.now() };
         push(cs, msg);
         // ход взял сообщения: процесс называет их номера на ответах модели и на итоге хода
         const taken = (msg as { user_message_uuids?: unknown }).user_message_uuids;

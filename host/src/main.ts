@@ -7,6 +7,7 @@ import { join } from "node:path";
 import * as sdk from "@anthropic-ai/claude-agent-sdk";
 import { parsePass, PROTO } from "@sb/protocol";
 import { claudeCli, claudePath, sdkVersion } from "./core/claude.ts";
+import { realClock } from "./core/clock.ts";
 import { realHolders } from "./core/holders.ts";
 import { Kernel, StartError } from "./core/kernel.ts";
 import { modules } from "./modules/index.ts";
@@ -39,9 +40,11 @@ function options() {
   const functions = Object.fromEntries(Object.entries(sdk).filter(([, f]) => typeof f === "function")) as never;
   return {
     home: data, journal: join(home, "journal"), machine, fleet, base: base.replace(/\/+$/, ""), key, build: Number(env.SB_BUILD ?? 0), sdkVersion: sdkVersion(), modules: modules(), config,
-    sdk: { query: sdk.query as never, functions, cli: claudeCli(bin), bin },
+    sdk: { query: sdk.query as never, functions, cli: claudeCli(bin, realClock), bin },
     // держатель берёт папку флота только из SB_HOME: файлы procs/ лежат в ней
-    holders: realHolders(home, env.SB_HOLDER),
+    holders: realHolders(home, env.SB_HOLDER, realClock),
+    // часы одни на Host: ядро, команда claude и держатели
+    clock: realClock,
     exit: (code: number) => process.exit(code),
   };
 }

@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { make as chat } from "../src/modules/chat/chat.ts";
+import { make as chat, WINDOW_MS } from "../src/modules/chat/chat.ts";
 import { stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
@@ -85,7 +85,9 @@ describe("план v2: сообщения", () => {
     await st.request("session.watch", { to: CS }, PHONE);
     expect(await st.request("session.unwatch", { to: CS }, PULT)).toMatchObject({ ok: true });
     proc.send(bot("a1", "привет"));
-    const f = await until(() => st!.link.of("session.events")[0], "пачка");
+    await proc.settle();
+    await st.clock.due(WINDOW_MS);
+    const f = st.link.of("session.events")[0]!;
     expect(f.to).toEqual([PHONE]);
   });
 });
@@ -136,7 +138,8 @@ describe("план v2: вопросы и разрешения", () => {
     st.proc(CS).abortAsk("p-1");
     expect(await asked).toEqual({ behavior: "deny", message: "cancelled" });
     await until(() => row(CS).ask === null, "вопрос ушёл из строки");
-    await until(() => events(st!).some((e) => e.type === "ask.answered" && e.ask === "p-1" && e.answer === "cancelled"), "событие в ленте");
+    await st.clock.due(WINDOW_MS);
+    expect(events(st).some((e) => e.type === "ask.answered" && e.ask === "p-1" && e.answer === "cancelled")).toBe(true);
     expect(await st.request("answer", { to: CS, ask: "p-1", answer: "allow" }, PULT)).toMatchObject({ ok: false, error: "already_answered" });
   });
 });

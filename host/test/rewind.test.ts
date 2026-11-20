@@ -1,7 +1,7 @@
 // Откат разговора в той же сессии, инструменты и вести ведущей, разговоры папки, поля вопроса, время живых событий.
 import { afterEach, describe, expect, it } from "vitest";
-import { make as chat } from "../src/modules/chat/chat.ts";
-import { stand, tick, until, type Stand } from "../stand/index.ts";
+import { make as chat, WINDOW_MS } from "../src/modules/chat/chat.ts";
+import { stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 afterEach(async () => {
@@ -53,7 +53,8 @@ describe("откат разговора", () => {
     expect(st.sdk.last(CS)!.options).toMatchObject({ resume: id, resumeSessionAt: "a1" });
     expect(s.state).toBe("idle");
     expect(q.calls.some((c) => c.name === "rewindFiles")).toBe(false);
-    const mark = await until(() => events(st!).find((e) => e.type === "conversation_reset"), "след отката в ленте");
+    await st.clock.due(WINDOW_MS);
+    const mark = events(st).find((e) => e.type === "conversation_reset");
     expect(mark).toMatchObject({ text: "Откат к «Теперь подвал»", after: "a1" });
     const h = (await st.request("session.history", { to: CS }, PULT)).result as { events: any[] };
     expect(h.events.map((e) => e.uuid ?? e.type).slice(0, 3)).toEqual(["h1", "a1", mark.uuid]);
@@ -90,7 +91,8 @@ describe("откат разговора", () => {
     const order = q.calls.map((c) => (c.name === "rewindFiles" ? `files:${(c.args[1] as any).dryRun}` : c.name)).filter((n) => n.startsWith("files") || n === "close");
     expect(order).toEqual(["files:true", "files:false", "close"]);
     expect(q.calls.find((c) => c.name === "rewindFiles")!.args[0]).toBe("h2");
-    const mark = await until(() => events(st!).find((e) => e.type === "conversation_reset"), "след");
+    await st.clock.due(WINDOW_MS);
+    const mark = events(st).find((e) => e.type === "conversation_reset");
     expect(mark.text).toBe("Откат к «Теперь подвал» · файлы возвращены: 3");
   });
 
@@ -127,7 +129,8 @@ describe("откат разговора", () => {
     const sent = (await st.request("message", { to: CS, text: "а ещё вот это" }, PULT)).result as { uuid: string; queued: boolean };
     expect(sent.queued).toBe(true);
     expect((await st.request("session.rewind", { to: CS, upto: "h3" }, PULT)).ok).toBe(true);
-    await until(() => events(st!).find((e) => e.type === "message.status" && e.uuid === sent.uuid && e.status === "cancelled"), "отмена в ленте");
+    await st.clock.due(WINDOW_MS);
+    expect(events(st).find((e) => e.type === "message.status" && e.uuid === sent.uuid && e.status === "cancelled")).toBeDefined();
     await st.settle(CS);
     expect(st.proc(CS).inputs.some((i) => i.message.content === "а ещё вот это")).toBe(false);
   });
@@ -143,8 +146,9 @@ describe("откат разговора", () => {
     // процесс после /clear называет новый разговор в init; событие сброса от SDK о том же разговоре второй строки не даёт
     proc.send({ type: "system", subtype: "init", session_id: "11111111-2222-4333-8444-555555555555", model: "m" });
     proc.send({ type: "conversation_reset", new_conversation_id: "11111111-2222-4333-8444-555555555555", trigger: "clear" });
-    const mark = await until(() => events(st!).find((e) => e.type === "conversation_reset"), "сброс в ленте");
-    await tick(40);
+    await proc.settle();
+    await st.clock.due(WINDOW_MS);
+    const mark = events(st).find((e) => e.type === "conversation_reset");
     expect(events(st).filter((e) => e.type === "conversation_reset")).toHaveLength(1);
     expect(mark.text).toBe("Разговор очищен");
     expect(s.rec.sessionId).toBe("11111111-2222-4333-8444-555555555555");
@@ -232,12 +236,13 @@ describe("лента и вопросы", () => {
     st = await stand({ modules: [chat()] });
     const { proc } = await st.open("site");
     await st.request("session.watch", { to: CS }, PULT);
-    const t0 = Date.now();
+    const t0 = st.clock.now();
     proc.send({ type: "assistant", uuid: "a1", message: { content: [{ type: "tool_use", id: "t1", name: "Agent", input: { description: "ищу" } }] } });
     proc.send({ type: "user", uuid: "u1", timestamp: "2026-11-10T10:00:00.000Z", message: { role: "user", content: "из файла" } });
-    const got = await until(() => (events(st!).length >= 2 ? events(st!) : undefined), "события");
-    expect(got[0].at).toBeGreaterThanOrEqual(t0);
-    expect(got[0].at).toBeLessThanOrEqual(Date.now());
+    await proc.settle();
+    await st.clock.due(WINDOW_MS);
+    const got = events(st);
+    expect(got[0].at).toBe(t0);
     expect(got[1].at).toBeUndefined();
   });
 
@@ -250,7 +255,8 @@ describe("лента и вопросы", () => {
     const row = await until(() => (st!.link.rows(CS).at(-1)?.row as any)?.ask, "вопрос в строке");
     expect(row).toMatchObject({ kind: "permission", rule: "Bash(rm -rf dist *)", blocked: "~/projects/site/dist", notes: "папка вне правил проекта" });
     await st.request("answer", { to: CS, ask: "toolu_p1", answer: { action: "allow" } }, PULT);
-    const done = await until(() => events(st!).find((e) => e.type === "ask.answered"), "ответ в ленте");
+    await st.clock.due(WINDOW_MS);
+    const done = events(st).find((e) => e.type === "ask.answered");
     expect(done).toMatchObject({ by: PULT, answer: { action: "allow" }, q: { id: "toolu_p1", kind: "permission", rule: "Bash(rm -rf dist *)" } });
     expect(typeof done.at).toBe("number");
   });
@@ -260,14 +266,14 @@ describe("идут сейчас", () => {
   it("новый зритель получает начало идущих работ со временем машины; законченная работа в ответ не идёт", async () => {
     st = await stand({ modules: [chat()] });
     const { proc } = await st.open("site");
-    const t0 = Date.now();
+    const t0 = st.clock.now();
     proc.send({ type: "system", subtype: "task_started", task_id: "t1", tool_use_id: "tu1", description: "Права службы оплаты", task_type: "local_agent" });
     proc.send({ type: "system", subtype: "task_started", task_id: "t2", description: "tail -f auth.log", task_type: "local_bash", is_backgrounded: true });
     proc.send({ type: "system", subtype: "task_notification", task_id: "t1", status: "completed" });
     await proc.settle();
     const r = (await st.request("session.watch", { to: CS }, PULT)).result as { running?: any[] };
     expect(r.running).toMatchObject([{ subtype: "task_started", task_id: "t2" }]);
-    expect(r.running![0].at).toBeGreaterThanOrEqual(t0);
+    expect(r.running![0].at).toBe(t0);
     proc.send({ type: "system", subtype: "background_tasks_changed", tasks: [] });
     await proc.settle();
     expect(((await st.request("session.watch", { to: CS }, "phone~yuri@example.com")).result as { running?: any[] }).running).toBeUndefined();

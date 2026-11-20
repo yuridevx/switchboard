@@ -100,7 +100,7 @@ export function make({ home = homedir(), metricsMs = METRICS_MS, shipMs = SHIP_M
   let host: HostApi;
   /** окно счётчиков, отданное последним */
   let last: Window = { counts: {}, times: {} };
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let timer: unknown;
   /** Числа Host: сессии и очередь — как есть сейчас; время провайдера, сбои и возобновления — за окно. */
   const numbers = (w: Window): HostMetrics => {
     const sessions: Record<string, number> = {};
@@ -111,7 +111,7 @@ export function make({ home = homedir(), metricsMs = METRICS_MS, shipMs = SHIP_M
     }
     const p = w.times.provider;
     return {
-      at: Date.now(), build: host.build, sessions, queue,
+      at: host.clock.now(), build: host.build, sessions, queue,
       provider: { n: p?.n ?? 0, p50: p?.p50 ?? 0, p95: p?.p95 ?? 0, failed: w.counts["provider.failed"] ?? 0, retries: w.counts["provider.retry"] ?? 0 },
       crashes: w.counts["session.crash"] ?? 0, resumes: w.counts["session.resume"] ?? 0,
     };
@@ -155,13 +155,13 @@ export function make({ home = homedir(), metricsMs = METRICS_MS, shipMs = SHIP_M
     name: "host-machine",
     start(h) {
       host = h;
-      timer = setInterval(() => void tick(), metricsMs);
-      timer.unref();
+      timer = host.clock.setInterval(() => void tick(), metricsMs);
+      (timer as { unref?: () => void }).unref?.();
       shipTimer = host.clock.setTimeout(() => void ship(), shipMs);
     },
     stop() {
       stopped = true;
-      clearInterval(timer);
+      host.clock.clearTimeout(timer);
       host.clock.clearTimeout(shipTimer);
     },
     compose: () => ({ env: { CLAUDE_CODE_STARTUP_FAILURE_RESULTS: "1" } }),

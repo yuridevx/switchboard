@@ -7,6 +7,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import net from "node:net";
 import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
+import type { Clock } from "./clock.ts";
 
 /** Файл держателя procs/<id>.json. */
 export type HoldFile = { id: string; owner: string; pid: number; port: number; key: string };
@@ -162,8 +163,8 @@ export class Holders {
   }
 }
 
-/** Настоящие держатели: файл keeper с командой hold, файлы — procs/ папки данных. */
-export function realHolders(home: string, bin: string | undefined): HolderApi {
+/** Настоящие держатели: файл keeper с командой hold, файлы — procs/ папки данных; предел запуска — по часам ядра. */
+export function realHolders(home: string, bin: string | undefined, clock: Clock): HolderApi {
   return {
     files() {
       const dir = join(home, "procs");
@@ -184,23 +185,23 @@ export function realHolders(home: string, bin: string | undefined): HolderApi {
         const child = spawn(bin, args, { env: { ...s.env, SB_HOME: home, SWITCHBOARD_HOME: home }, stdio: ["ignore", "pipe", "pipe"], detached: true, windowsHide: true });
         let out = "";
         let err = "";
-        const timer = setTimeout(() => {
+        const timer = clock.setTimeout(() => {
           child.kill();
           reject(new Error(`держатель не ответил за ${SPAWN_MS / 1000} с`));
         }, SPAWN_MS);
         child.on("error", (e) => {
-          clearTimeout(timer);
+          clock.clearTimeout(timer);
           reject(e);
         });
         child.on("exit", (code) => {
-          clearTimeout(timer);
+          clock.clearTimeout(timer);
           reject(new Error(`держатель вышел с кодом ${code}: ${err.trim()}`));
         });
         child.stderr.on("data", (d) => (err += d));
         child.stdout.on("data", (d) => {
           out += d;
           if (!out.includes("\n")) return;
-          clearTimeout(timer);
+          clock.clearTimeout(timer);
           child.removeAllListeners("exit");
           child.stdout.destroy();
           child.stderr.destroy();

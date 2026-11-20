@@ -8,7 +8,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { CLAUDE, findModels, keysLimits, keysList, keysModels, keysValue, LIMIT_WORD, MACHINE_RULES, READ_MS, Refusal, ticketNew, within, type Account as AccountOut, type Model, type Offer, type Protocol, type SessionState } from "@sb/protocol";
+import { CLAUDE, findModels, keysLimits, keysList, keysModels, keysValue, LIMIT_WORD, MACHINE_RULES, READ_MS, Refusal, ticketNew, type Account as AccountOut, type Model, type Offer, type Protocol, type SessionState } from "@sb/protocol";
+import { limited } from "../../core/clock.ts";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
 import { cacheOf, hours, launchEnv, launchSig, procModel, wireModel, type Cache, type Pair } from "./pair.ts";
 import { choose, closed, FABLE, FIVE, fits, isFable, nextReset, read, refusalHeaders, shown, WEEK, type Account, type Candidate } from "./limits.ts";
@@ -114,6 +115,8 @@ export function make(): Module {
   const fresh = new Map<string, Pair>();
 
   const now = () => host.clock.now();
+  /** Предел по часам ядра: не успела — отказ timeout словами why. */
+  const limit = <T>(p: Promise<T>, ms: number, why: string) => limited(host.clock, p, ms, () => new Refusal("timeout", why));
   const shelf = () => host.store<Book>();
   const book = (): Record<string, Account> => shelf().get()?.accounts ?? {};
   const write = (fn: (all: Record<string, Account>) => void) => void shelf().update((b = { accounts: {} }) => (fn(b.accounts), b));
@@ -143,10 +146,10 @@ export function make(): Module {
   function load(): Promise<void> {
     loading ??= (async () => {
       try {
-        const { keys } = await within(host.call(keysList, {}), READ_MS, `список ключей флота: службы не ответили за ${READ_MS / 1000} с`);
+        const { keys } = await limit(host.call(keysList, {}), READ_MS, `список ключей флота: службы не ответили за ${READ_MS / 1000} с`);
         const rows = keys.filter((k) => k.protocol === CLAUDE);
         await Promise.all(rows.filter((k) => !tokens.has(k.name)).map(async (k) => {
-          const v = await within(host.call(keysValue, { name: k.name }), READ_MS, `токен ${k.name}: службы не ответили`);
+          const v = await limit(host.call(keysValue, { name: k.name }), READ_MS, `токен ${k.name}: службы не ответили`);
           tokens.set(k.name, v.value);
           if (v.base) bases.set(k.name, v.base);
         }));
@@ -193,7 +196,7 @@ export function make(): Module {
       await load();
       const t = now();
       const quiet = Object.keys(book()).filter((n) => tokens.has(n) && book()[n]!.ok && (seen.get(n) ?? 0) < t - ROUND_MS);
-      await within(Promise.all(quiet.map(probe)), PROBE_MS, "проба не успела").catch(() => {});
+      await limit(Promise.all(quiet.map(probe)), PROBE_MS, "проба не успела").catch(() => {});
       revive();
       plan();
     } catch (e) {
@@ -233,7 +236,7 @@ export function make(): Module {
   }
 
   /** Каталог моделей провайдера: спрашивается у службы каждый раз, своей копии нет. */
-  const catalog = async (key: string): Promise<Model[]> => (await within(host.call(keysModels, { name: key }), READ_MS, `каталог ${key}: службы не ответили за ${READ_MS / 1000} с`)).models;
+  const catalog = async (key: string): Promise<Model[]> => (await limit(host.call(keysModels, { name: key }), READ_MS, `каталог ${key}: службы не ответили за ${READ_MS / 1000} с`)).models;
 
   /** Событие машины — правилу входа проекта, по имени: тикет заведут службы. Проекта у сессии нет или правила у проекта нет — строка журнала:
    *  само событие уже записано в журнал словом. */
@@ -267,7 +270,7 @@ export function make(): Module {
 
   async function readKey(name: string, project?: string): Promise<KeyConfig> {
     try {
-      const { value, keep: _keep, until, ...config } = await within(host.call(keysValue, { name }), READ_MS, `ключ флота ${name}: службы не ответили за ${READ_MS / 1000} с`);
+      const { value, keep: _keep, until, ...config } = await limit(host.call(keysValue, { name }), READ_MS, `ключ флота ${name}: службы не ответили за ${READ_MS / 1000} с`);
       values.set(name, value);
       if (until === undefined) untils.delete(name);
       else {
@@ -551,7 +554,7 @@ export function make(): Module {
     },
 
     async offers() {
-      const { keys } = await within(host.call(keysList, {}), READ_MS, `список ключей флота: службы не ответили за ${READ_MS / 1000} с`);
+      const { keys } = await limit(host.call(keysList, {}), READ_MS, `список ключей флота: службы не ответили за ${READ_MS / 1000} с`);
       const names = [...(keys.some((k) => k.protocol === CLAUDE) ? [CLAUDE] : []), ...keys.filter((k) => k.protocol !== CLAUDE).map((k) => k.name)];
       // каталог одного провайдера не ответил — остальные в списке остаются
       const lists = await Promise.all(names.map((n) => catalog(n).then((ms) => ms.map((m) => ({ key: n, model: m.id, ...(m.name ? { name: m.name } : {}), ...(m.family ? { family: m.family } : {}) })), () => [])));
@@ -691,7 +694,7 @@ export function make(): Module {
         const open = (a: Account) => fits(a, true, now(), true) || fits(a, false, now(), true);
         const stale = Object.keys(book()).filter((n) => tokens.has(n) && (i.fresh || (open(book()[n]!) && (seen.get(n) ?? 0) < now() - FRESH_MS)));
         // ответ не ждёт пробу дольше предела: её числа придут к следующему вопросу
-        await within(Promise.all(stale.map(probe)), PROBE_MS, "проба не успела").catch(() => {});
+        await limit(Promise.all(stale.map(probe)), PROBE_MS, "проба не успела").catch(() => {});
         // окно открылось раньше своего часа — сессии с оборванным ходом продолжают, побудка считается заново
         if (i.fresh) {
           revive();

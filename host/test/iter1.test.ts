@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ok } from "@sb/protocol";
-import { DOING_GAP_MS, make as chat, peopleOnly } from "../src/modules/chat/chat.ts";
+import { DOING_GAP_MS, make as chat, peopleOnly, WINDOW_MS } from "../src/modules/chat/chat.ts";
 import { make as machine } from "../src/modules/machine/machine.ts";
 import { make as points, projectDir } from "../src/modules/points/points.ts";
 import { make as profiles } from "../src/modules/profiles/profiles.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
 import { make as shell } from "../src/modules/shell/shell.ts";
-import { signal, stand, tick, until, type Stand } from "../stand/index.ts";
+import { signal, stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 const servers: Server[] = [];
@@ -179,13 +179,13 @@ describe("chat: строка и лента", () => {
     await st.open("site");
     const before = st.link.rows(CS).length;
     const steps = Array.from({ length: 1000 }, (_, i) => ({ type: "assistant", uuid: `u${i}`, message: { content: [{ type: "tool_use", id: `t${i}`, name: "Read", input: { file_path: `src/f${i}.ts` } }] } }));
-    const t0 = Date.now();
+    const t0 = st.clock.now();
     await st.turn(CS, steps, "сделано");
-    await tick(20);
+    await st.proc(CS).settle();
     const rows = st.link.rows(CS).slice(before).map((f) => f.row as any);
     const doing = rows.filter((r, i) => r.doing && r.doing !== rows[i - 1]?.doing);
     expect(doing.length).toBeGreaterThanOrEqual(1);
-    expect(doing.length).toBeLessThanOrEqual(1 + Math.floor((Date.now() - t0) / DOING_GAP_MS));
+    expect(doing.length).toBeLessThanOrEqual(1 + Math.floor((st.clock.now() - t0) / DOING_GAP_MS));
     expect(doing[0]!.doing).toBe("Чтение src/f0.ts");
     expect(rows.length).toBeLessThanOrEqual(2 + doing.length);
     expect(rows.at(-1)).toMatchObject({ state: "idle" });
@@ -208,17 +208,21 @@ describe("chat: строка и лента", () => {
     const { proc } = await st.open("site");
     expect((await st.request("session.watch", { to: CS }, PULT)).result).toEqual({ seq: 0 });
     for (const uuid of ["a1", "a2", "a3"]) proc.send({ type: "assistant", uuid, message: { content: [] } });
-    await until(() => events(st!).length === 3, "три события");
+    await proc.settle();
+    await st.clock.due(WINDOW_MS);
+    expect(events(st)).toHaveLength(3);
     const again = await st.request("session.watch", { to: CS, after: 1 }, PHONE);
     expect(again.result).toMatchObject({ seq: 3 });
     expect((again.result as any).events.map((e: any) => e.uuid)).toEqual(["a2", "a3"]);
     expect((await st.request("session.watch", { to: CS, after: 3 }, PHONE)).result).toEqual({ seq: 3 });
     for (let i = 0; i < 2005; i++) proc.send({ type: "assistant", uuid: `b${i}`, message: { content: [] } });
-    await until(() => events(st!).length === 2008, "поток");
+    await proc.settle();
+    await st.clock.due(WINDOW_MS);
+    expect(events(st)).toHaveLength(2008);
     const far = await st.request("session.watch", { to: CS, after: 1 }, PHONE);
     expect(far.result).toMatchObject({ seq: 2008, gap: true });
     expect((far.result as any).events).toBeUndefined();
-  }, 30_000);
+  });
 
   it("сообщение «сейчас» посреди хода: сначала прерывание, потом сообщение процессу; «следующим» хода не прерывает", async () => {
     // чьё: слово пользователя — дизайн «Низ разговора»: «Сейчас. Ход прерывается, сообщение берётся сразу»;
@@ -253,17 +257,21 @@ describe("chat: строка и лента", () => {
     const uuid = (m.result as any).uuid as string;
     await until(() => proc.inputs.length === 1, "ввод");
     expect(proc.inputs[0]!.priority).toBe("next");
-    await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === uuid && e.status === "queued"), "статус queued");
+    await st.clock.due(WINDOW_MS);
+    expect(events(st).some((e) => e.type === "message.status" && e.uuid === uuid && e.status === "queued")).toBe(true);
     expect((await st.request("session.watch", { to: CS }, PHONE)).result).toMatchObject({ queued: [{ uuid, from: PULT, text: "ещё одно" }] });
     expect((await st.request("message.cancel", { to: CS, uuid }, PULT)).result).toEqual({ cancelled: true });
     expect(st.sdk.last(CS)!.calls.find((c) => c.name === "cancelAsyncMessage")!.args).toEqual([uuid]);
-    await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === uuid && e.status === "cancelled"), "статус cancelled");
+    await st.clock.due(WINDOW_MS);
+    expect(events(st).some((e) => e.type === "message.status" && e.uuid === uuid && e.status === "cancelled")).toBe(true);
     expect((await st.request("message.cancel", { to: CS, uuid }, PULT)).result).toEqual({ cancelled: false });
     // вход отмены один: проходом session.call её нет
     expect(await st.request("session.call", { to: CS, method: "cancelMessage", args: { uuid } }, PULT)).toMatchObject({ ok: false });
     const second = ((await st.request("message", { to: CS, text: "и ещё" }, PULT)).result as any).uuid as string;
     proc.send({ type: "system", subtype: "status", user_message_uuids: [second] });
-    await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === second && e.status === "taken"), "статус taken");
+    await proc.settle();
+    await st.clock.due(WINDOW_MS);
+    expect(events(st).some((e) => e.type === "message.status" && e.uuid === second && e.status === "taken")).toBe(true);
     expect((await st.request("session.watch", { to: CS }, PHONE)).result).not.toHaveProperty("queued");
   });
 
@@ -272,14 +280,16 @@ describe("chat: строка и лента", () => {
     const { proc, s } = await st.open("site");
     await st.request("session.watch", { to: CS }, PULT);
     const uuid = ((await st.request("message", { to: CS, text: "привет" }, PULT)).result as any).uuid as string;
-    await until(() => events(st!).some((e) => e.type === "user" && e.uuid === uuid), "сообщение в ленте");
+    await st.clock.due(WINDOW_MS);
     expect(events(st).find((e) => e.uuid === uuid)).toMatchObject({ type: "user", from: PULT, message: { role: "user", content: "привет" } });
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
     proc.send({ type: "assistant", uuid: "a1", message: { content: [{ type: "text", text: "ответ" }] } });
     proc.send({ type: "result", subtype: "success", uuid: "r1", result: "ответ", duration_ms: 7000, num_turns: 1, total_cost_usd: 0.03, usage: { input_tokens: 25000 } });
     proc.send({ type: "system", subtype: "session_state_changed", state: "idle" });
-    await until(() => events(st!).some((e) => e.type === "result" && e.uuid === "r1"), "итог хода в ленте");
-    await until(() => s.state === "idle", "ход кончился");
+    await proc.settle();
+    await st.clock.due(WINDOW_MS);
+    expect(events(st).some((e) => e.type === "result" && e.uuid === "r1")).toBe(true);
+    expect(s.state).toBe("idle");
     // файл разговора итога не хранит: история отдаёт его за последней записью хода
     const said = [{ type: "user", uuid, message: { content: "привет" } }, { type: "assistant", uuid: "a1", message: { content: [{ type: "text", text: "ответ" }] } }];
     (st.sdk as any).functions = new Proxy({}, { get: (_t, name) => async () => (name === "getSessionMessages" ? said : {}) });
@@ -289,7 +299,7 @@ describe("chat: строка и лента", () => {
     expect(h[2].result).toBeUndefined();
     // сообщение сессии — с разобранным отправителем
     const from = ((await st.request("message", { to: CS, text: "я закончила" }, "docs@server")).result as any).uuid as string;
-    await until(() => events(st!).some((e) => e.uuid === from), "сообщение сессии в ленте");
+    await st.clock.due(WINDOW_MS);
     expect(events(st).find((e) => e.uuid === from)).toMatchObject({ type: "user", peer: { from: "docs@server", text: "я закончила" } });
   });
 
@@ -386,7 +396,10 @@ describe("shell", () => {
     expect(done.out).toContain("in:привет");
     expect(done.out).toContain("err!");
     expect(done.files).toEqual([{ name: "r.txt", size: Buffer.byteLength("итог"), base64: Buffer.from("итог").toString("base64") }]);
-    const late = (await st.request("shell.run", { to: "@laptop", shell: "node", script: "setTimeout(() => {}, 60000)", timeout: 1, wait: 40 })).result as any;
+    // предел запроса — по часам машины: секунда проходит, когда её двигает тест
+    const running = st.request("shell.run", { to: "@laptop", shell: "node", script: "setTimeout(() => {}, 60000)", timeout: 1, wait: 40 });
+    await st.clock.due(1000);
+    const late = (await running).result as any;
     expect(late).toMatchObject({ state: "timeout" });
     expect(late.code).toBeUndefined();
     const info = (await st.request("shell.info", { to: "@laptop" })).result as any;
@@ -470,11 +483,10 @@ describe("machine, proxy, profiles", () => {
     const seen: Record<string, number> = { "site@laptop": 0, "far@laptop": 0 };
     for (const cs of Object.keys(seen)) (st.sdk.last(cs) as any).reloadPlugins = async () => (seen[cs]!++, {});
     const reloads = (cs: string) => seen[cs]!;
+    // перечитывание зовётся в том же шаге, где сведение увидело чужие правки, — до ответа на profile.sync
     await st.request("profile.sync", { to: "@laptop" });
-    await new Promise((r) => setTimeout(r, 20));
     expect([reloads("site@laptop"), reloads("far@laptop")]).toEqual([0, 0]);
     await st.request("profile.sync", { to: "@laptop" });
-    await new Promise((r) => setTimeout(r, 20));
     expect([reloads("site@laptop"), reloads("far@laptop")]).toEqual([1, 0]);
   });
 
