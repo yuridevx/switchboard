@@ -5,7 +5,7 @@
 import { check } from "./harness.mjs";
 import { say, tool, turn as script } from "./turn.mjs";
 
-type Ev = { type: string; subtype?: string; uuid?: string; text?: string; message?: { content?: unknown }; peer?: { from: string; kind: string; text: string } };
+type Ev = { type: string; subtype?: string; uuid?: string; text?: string; isCompactSummary?: boolean; message?: { content?: unknown }; peer?: { from: string; kind: string; text: string } };
 
 await check(async (t: any) => {
   const stepRewind = t.only("rewind"), stepPair = t.only("pair");
@@ -158,11 +158,12 @@ await check(async (t: any) => {
     for (let i = 1; i <= 2; i++) await wing.turn(script(say(`часть ${i}: ` + "велосипед едет, пока крутятся колёса, цепь тянет звезду, а руль держит путь; ".repeat(25))));
     const before = (await news()).length;
     await t.must("session.call", { to: wing.callsign, method: "compact" });
-    // сжатие идёт вводом сессии: его конец — граница сжатия в разговоре ведомого
+    // сжатие идёт вводом сессии: его конец — сводка сжатия в разговоре ведомого (запись человека isCompactSummary;
+    // у системных записей истории подвида нет — границу сжатия по ним не отличить)
     let ev: Ev[] = [];
     await t.wait("граница сжатия в разговоре ведомого", async () => {
       ev = await wing.history();
-      return ev.some((e) => e.subtype === "compact_boundary");
+      return ev.some((e) => e.isCompactSummary);
     }, () => kinds(ev));
     await wing.idle();
     // очистка человеком весть даёт — она же барьер: весть о сжатии, будь она, пришла бы ведущей раньше вести об очистке
