@@ -46,7 +46,8 @@ const LIST = [
   ["запросы", "smoke.ts", [fleet, device], {}, true, QUIET],
   ["серверные функции", "live-server.ts", [fleet, device, machine, second], {}, false, QUIET],
   ["часы флота", "live-clock.mjs", [fleet, device], {}, true, QUIET],
-  ["тикеты", "live-tickets.ts", [fleet, device, machine], {}, false, QUIET],
+  // заводит и убирает проект проверки: состав проекта рвёт соединения страниц человека — идёт до всех
+  ["тикеты", "live-tickets.ts", [fleet, device, machine], {}, false, ALONE],
   // конвейер идёт по определению из репозитория кусочков коробки: на живом флоте такого репозитория у проверки нет
   ...(local() ? [["конвейер", "live-lines.ts", [fleet, device], {}, false, QUIET]] : []),
   ["страница в браузере", "live-page.mjs", [fleet, device, machine], {}, true, QUIET],
