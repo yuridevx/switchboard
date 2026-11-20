@@ -9,7 +9,7 @@ import { make as accounts } from "../src/modules/accounts/accounts.ts";
 import { capOf, procModel } from "../src/modules/accounts/pair.ts";
 import { encodeSignature, toMetaRequest } from "../src/modules/proxy/muse/request.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
-import { stand, tick, until, type Stand } from "../stand/index.ts";
+import { stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 const servers: Server[] = [];
@@ -201,7 +201,7 @@ describe("смена на лету", () => {
     // модель ответила, итог хода пришёл — состояние «свободна» процесс ещё не назвал
     proc.send(said(FABLE));
     proc.send({ type: "result", subtype: "success", result: "ок", session_id: "s" });
-    await tick();
+    await proc.settle();
     expect([st!.sdk.queries.length, s.state, s.rec.last]).toEqual([queries, "busy", was]);
     proc.send({ type: "system", subtype: "session_state_changed", state: "idle", session_id: "s" });
     await done;
@@ -256,9 +256,8 @@ describe("смена на лету", () => {
     (q as any).setModel = () => new Promise(() => {});
     const queries = st!.sdk.queries.length;
     const asked = update({ key: "oai", model: "grok-4.5" });
-    await tick();
+    await until(() => st!.clock.pending().includes(30_000), "смена модели ждёт процесс");
     st!.clock.advance(29_000);
-    await tick();
     expect(s.rec.spec.key).toBe("oai");
     st!.clock.advance(1_000);
     const r = await asked;

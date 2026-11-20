@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { make as chat } from "../src/modules/chat/chat.ts";
 import { make as shell } from "../src/modules/shell/shell.ts";
 import { make as work } from "../src/modules/work/work.ts";
-import { FakeHolders, stand, tick, until, type FakeProc, type Stand } from "../stand/index.ts";
+import { FakeHolders, stand, until, type FakeProc, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 afterEach(async () => {
@@ -18,10 +18,10 @@ const PULT = "pult~yuri@example.com";
 const give = (s: Stand, name: string, ticket: string, extra: Record<string, unknown> = {}) => s.request("work.give", { to: "@laptop", name, ticket, text: `Тикет ${ticket}: шапка сайта`, ...extra }, FACTORY);
 /** Текст последнего ввода процесса. */
 const lastInput = (p: FakeProc) => String(p.inputs.at(-1)!.message.content);
-/** Ход взял ввод: процесс называет номера взятых сообщений на ответе модели; несколько шагов цикла событий — ядро успевает прочесть событие раньше хука. */
+/** Ход взял ввод: процесс называет номера взятых сообщений на ответе модели; метка процесса пришла — ядро прочло событие раньше хука. */
 const take = async (p: FakeProc) => {
   p.send({ type: "assistant", uuid: "a" + p.inputs.length, message: { role: "assistant", content: [{ type: "text", text: "беру" }] }, user_message_uuids: [p.inputs.at(-1)!.uuid] });
-  await tick(20);
+  await p.settle();
 };
 const reminded = (out: unknown[]) => out.filter((o) => (o as { decision?: string } | undefined)?.decision === "block") as { reason: string }[];
 const lines = (s: Stand) => s.journal().filter((l) => l.msg === "work");

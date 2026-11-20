@@ -158,6 +158,8 @@ export class FakeProc {
       const a = this.asks.get(x.toolUseID);
       this.asks.delete(x.toolUseID);
       a?.resolve(x.result);
+    } else if (x.$ === "mark") {
+      marks.add(x.id);
     } else if (x.$ === "hook_result" || x.$ === "elicit_result") {
       const w = this.waits.get(x.id);
       this.waits.delete(x.id);

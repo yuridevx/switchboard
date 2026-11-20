@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Refusal } from "@sb/protocol";
 import { make as accounts } from "../src/modules/accounts/accounts.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
-import { stand, tick, type Stand } from "../stand/index.ts";
+import { signal, stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 const servers: Server[] = [];
@@ -33,6 +33,7 @@ async function fleet(value: (base: string) => Record<string, unknown>) {
     req.on("data", (c: Buffer) => chunks.push(c));
     req.on("end", () => {
       hits.push({ path: req.url ?? "", headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") });
+      signal();
       res.writeHead(503, { "content-type": "application/json" }).end(JSON.stringify({ error: { message: "upstream is down" } }));
     });
   });
@@ -119,7 +120,7 @@ describe("аккаунт ChatGPT: вход умер", () => {
     expect((await r1.json()) as any).toMatchObject({ type: "error", error: { type: "authentication_error", message: expect.stringMatching(/bad_token: вход ChatGPT gpt: refresh_token_expired.*войдите в аккаунт заново/) } });
     const r2 = await call(api.sid);
     expect(r2.status).toBe(401);
-    await tick();
+    await until(() => raised.length, "событие правилу «account»");
     // служб спросили один раз; бэкенду не ушло ничего
     expect([taken() - before, api.hits.length]).toEqual([1, 0]);
     expect(journal("account.token")).toMatchObject([{ level: "error", account: KEY, word: "bad_token" }]);
@@ -133,8 +134,8 @@ describe("аккаунт ChatGPT: вход умер", () => {
     expect((await call(api.sid)).status).toBe(401);
     // человек вошёл заново: служба ключей рассылает машинам «ключи изменились»
     Object.assign(api.state, { dead: false, token: "at-2" });
+    // вызов сам ждёт перечитанных аккаунтов
     st!.link.deliver({ type: "changed", what: "keys" });
-    await tick();
     expect((await call(api.sid)).status).toBe(529);
     expect(api.hits.map((h) => h.headers.authorization)).toEqual(["Bearer at-2"]);
     expect(raised).toHaveLength(1);

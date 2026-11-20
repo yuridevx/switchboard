@@ -10,7 +10,7 @@ import { make as accounts, type AccountsApi } from "../src/modules/accounts/acco
 import { choose, fits, type Account } from "../src/modules/accounts/limits.ts";
 import { make as chat } from "../src/modules/chat/chat.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
-import { stand, tick, until, type Stand } from "../stand/index.ts";
+import { signal, stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 const servers: Server[] = [];
@@ -70,6 +70,7 @@ async function claudeApi(answer: (hit: Hit, n: number) => Reply): Promise<{ url:
     req.on("end", () => {
       const hit = { account: String(req.headers.authorization ?? "").replace("Bearer tok-", ""), model: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}").model as string, headers: req.headers };
       hits.push(hit);
+      signal();
       const a = answer(hit, hits.length);
       res.writeHead(a.status ?? 200, { "content-type": "application/json", "request-id": `req_${hits.length}`, ...a.headers }).end(JSON.stringify(a.body ?? { type: a.status && a.status >= 400 ? "error" : "message" }));
     });
@@ -376,7 +377,7 @@ describe("отказы Claude", () => {
     expect(journal("route").at(-1).why).toMatch(/^годных аккаунтов Claude нет: ближайший сброс в \d\d:\d\d$/);
     expect(journal("route").filter((l) => l.account).every((l) => l.level === "info")).toBe(true);
     st!.clock.advance(HOUR);
-    await tick();
+    await st!.settle(CS);
     expect(proc.inputs.some((i) => i.message.content === "Продолжай")).toBe(false);
     st!.clock.advance(HOUR);
     await until(() => proc.inputs.some((i) => i.message.content === "Продолжай"), "сессия продолжила в час сброса");
@@ -526,8 +527,8 @@ describe("проба окон аккаунта", () => {
     const sent = () => st!.services.of("keys.limits");
     await until(() => sent().length === 1, "окна сообщены флоту");
     expect(sent()[0]).toMatchObject({ name: A, limits: [{ name: "seven_day", used: 0.41, resets: T0 + 40 * HOUR, at: T0 }] });
+    // ответ прокси уходит после решения о числах окон: к ответу решение уже принято
     await call(s.rec.sessionId, OPUS);
-    await tick(20);
     expect(sent()).toHaveLength(1);
     week = 0.42;
     await call(s.rec.sessionId, OPUS);
@@ -582,7 +583,8 @@ describe("проба окон аккаунта", () => {
     liveCli();
     api.names.limits[A] = [{ name: "seven_day", used: 0.45, resets: T0 + 40 * HOUR, at: T0 + 550_000 }];
     st!.clock.advance(600_000);
-    await tick(50);
+    // обход кончился — пробы, будь они, позади: следующий обход взведён на срок
+    await until(() => st!.clock.pending().includes(600_000), "обход кончился");
     expect(api.hits).toHaveLength(0);
     // прошёл ещё срок, флот молчал — проба этой машиной, одна
     st!.clock.advance(600_000);

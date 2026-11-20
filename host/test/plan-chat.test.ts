@@ -5,7 +5,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { make as chat } from "../src/modules/chat/chat.ts";
-import { stand, tick, until, type Stand } from "../stand/index.ts";
+import { stand, until, type Stand } from "../stand/index.ts";
 
 let st: Stand | undefined;
 afterEach(async () => {
@@ -153,9 +153,9 @@ describe("план v2: вести", () => {
     st.holders.procs.get(CS)!.exit(1, "не поднялся");
     await until(() => s.state === "failed", "failed");
     await until(() => st!.services.of("reach.send").length === 1, "reach.send");
-    expect(st.services.of("reach.send")[0]).toMatchObject({ to: "~yuri@example.com", kind: "failed", callsign: CS });
-    await tick();
+    // зов человека решается при смене состояния и уходит службам в том же шаге: второй был бы уже здесь
     expect(st.services.of("reach.send")).toHaveLength(1);
+    expect(st.services.of("reach.send")[0]).toMatchObject({ to: "~yuri@example.com", kind: "failed", callsign: CS });
   });
 
   // устав: «процесс claude умер — один resume»; слово пользователя 15 нояб.: вести ведущей — только то, что требует решения
@@ -166,7 +166,7 @@ describe("план v2: вести", () => {
     const before = st.proc("lead@laptop").inputs.length;
     st.proc("lead-wing@laptop").exit(1, "упал");
     await until(() => st!.holders.spawns.filter((x) => x.id === "lead-wing@laptop").length === 2 && wing.state === "idle", "resume ведомого");
-    await tick(40);
+    await st.settle("lead@laptop");
     expect(st.proc("lead@laptop").inputs.slice(before)).toEqual([]);
   });
 });

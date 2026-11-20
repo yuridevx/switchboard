@@ -490,7 +490,7 @@ describe("план v2: точки сами", () => {
     const saving = st.request("points.save", { to: CS });
     await until(() => st!.services.of("points.put").length === 1, "точка пошла");
     const down = st.kernel.shutdown("SIGTERM");
-    await tick();
+    await until(() => st!.clock.pending().includes(30_000), "остановка ждёт точку");
     expect(st.exits).toEqual([]);
     release();
     await down;
