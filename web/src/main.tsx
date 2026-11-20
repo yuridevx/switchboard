@@ -49,7 +49,7 @@ const router = createHashRouter([
     children: [
       { index: true, element: <Navigate to="/work" replace /> },
       { path: "work/:callsign?", element: <Work /> },
-      { path: "factory/:project?", element: late(<Factory />) },
+      { path: "factory/:project?/:tab?", element: late(<Factory />) },
       { path: "factory/:project/new", element: late(<FactoryNew />) },
       { path: "factory/:project/t/:id", element: late(<FactoryTicket />) },
       { path: "archive/:sid?", element: late(<Archive />) },
