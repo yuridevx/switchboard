@@ -1,116 +1,78 @@
-// Живая проверка разговора на выложенной странице: node tools/fleet/live-talk.mjs [флот] [устройство] [машина] [папка снимков]
-// Настоящий Chrome и настоящая сессия на ключе флота: откат в том же окне (разговор и файлы), очистка, кольцо контекста, вопрос и ответ карточками ленты,
+// Живая проверка разговора на выложенной странице: node tools/fleet/live-talk.mjs [флот] [устройство] [машина]
+// Страница в браузере и своя сессия на ключе флота: откат в том же окне (разговор и файлы), очистка, кольцо контекста, вопрос и ответ карточками ленты,
 // «Идут сейчас» со временем от начала работы после перезагрузки, перетаскивание границы списка, разговоры папки в «Новой сессии».
-import { execFileSync } from "node:child_process";
-import fs from "node:fs";
+// Части (SB2_PART): turn — ходы сессии со страницы (очередь, молния, файл, откат); live — живое в ленте (вопрос, фоновая команда, кольцо контекста,
+// ряд значков); screen — экран (очистка, границы, разрешение, пара, списки). Снимки шагов — dist/live/talk.
 import path from "node:path";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-import { dev, fleetEnv } from "../dev.mjs";
-import { fleetCall, launchBrowser, machineTmp, newTag } from "./harness.mjs";
+import { check } from "./harness.mjs";
 import { say as answer, tool, turn } from "./turn.mjs";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const [fleet = "test", device = "cli", machine = "devbox", outArg] = process.argv.slice(2);
-const out = outArg ?? path.join(root, "dist", "talk");
-fs.mkdirSync(out, { recursive: true });
-const dir = dev;
-const env = fleetEnv;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const { call, must } = fleetCall(fleet, device);
-const me = must("whoami", {});
-const tag = newTag();
-const cwd = `${machineTmp(fleet, device, machine)}/sb2-talk-${tag}`;
-const made = [];
-const state = (cs) => must("fleet.list", { machine }).sessions.find((s) => s.callsign === cs)?.state;
-const idle = async (cs, ms = 150_000) => { for (const end = Date.now() + ms; Date.now() < end; await sleep(1500)) if (state(cs) === "idle") return; throw new Error(`${cs} не освободилась`); };
-const fileOn = (name) => String(must("shell.run", { to: "@" + machine, shell: "node", script: `import fs from "node:fs";const p=${JSON.stringify(cwd + "/" + name)};process.stdout.write(fs.existsSync(p)?fs.readFileSync(p,"utf8"):"")`, wait: 30 }).out ?? "").trim();
+await check(async (t) => {
+  const s = await t.session({ name: "talk" });
+  const cs = s.callsign;
+  const page = await t.page();
+  const stepTurn = t.only("turn"), stepLive = t.only("live"), stepScreen = t.only("screen");
+  const shot = (name) => page.screenshot({ path: path.join(t.shots(), name + ".png") });
+  const box = page.getByRole("textbox", { name: "Сообщение сессии" });
+  const opts = page.locator(".composer-opts");
+  /** Последняя строка сценария: по ней история узнаёт сообщение, которое отправила страница. */
+  const last = (text) => text.split("\n").at(-1);
+  /** Ход со страницы: текст в поле, Enter — и итог именно этого хода. */
+  const enter = async (text) => {
+    await box.fill(text);
+    await box.press("Enter");
+    return s.after(last(text));
+  };
+  /** Ждать, пока read даст число около want: страница перерисовывает ширину вслед за жестом. */
+  const near = (what, read, want, slack) => {
+    let got;
+    return t.wait(what, async () => ((got = await read()), Math.abs(got - want) <= slack && got), () => `${got}, ждали ${want} ± ${slack}`);
+  };
 
-// модель сессии сценария — SB2_MODEL или первая из каталога провайдера
-const SEAT = process.env.SB2_KEY ?? "muse";
-const MODEL = process.env.SB2_MODEL ?? must("keys.models", { name: SEAT }).models[0].id;
-const cs = must("session.open", { to: "@" + machine, spec: { name: "talk-" + tag, cwd, key: SEAT, model: MODEL }, mkdir: true }).callsign;
-made.push(cs);
-await idle(cs);
-
-const browser = await launchBrowser();
-const invite = must("invite", { addr: "talk" + tag + me.person });
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-const errors = [];
-page.on("pageerror", (e) => errors.push(e.message));
-let bad = 0, total = 0;
-const step = async (label, fn) => {
-  total++;
-  try {
-    const note = await fn();
-    console.log(`✓ ${label}${note ? ` · ${note}` : ""}`);
-  } catch (e) {
-    bad++;
-    console.log(`✗ ${label} · ${String(e.message).split("\n")[0]}`);
-    await page.screenshot({ path: path.join(out, `fail-${total}.png`) }).catch(() => {});
-  }
-};
-const shot = (name) => page.screenshot({ path: path.join(out, name + ".png") });
-// части проверки: turn — ходы сессии со страницы (очередь, молния, файл, откат); live — живое в ленте (вопрос, фоновая команда, кольцо контекста, ряд значков); screen — экран (очистка, границы, разрешение, пара, списки)
-const PART = process.env.SB2_PART ?? "";
-const skip = async () => {};
-const stepTurn = !PART || PART === "turn" ? step : skip;
-const stepLive = !PART || PART === "live" ? step : skip;
-const stepScreen = !PART || PART === "screen" ? step : skip;
-const box = page.getByRole("textbox", { name: "Сообщение сессии" });
-const opts = page.locator(".composer-opts");
-const say = async (text) => { await box.fill(text); await box.press("Enter"); await sleep(2500); await idle(cs); await sleep(1500); };
-
-try {
-  await page.goto(`${env.SB2_BASE}/#invite=${encodeURIComponent(invite.invite)}`);
-  await page.waitForSelector("nav.rail a", { timeout: 25_000 });
-  await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
-  await box.waitFor({ timeout: 15_000 });
+  await page.goto(`${t.base}/#/work/${cs}`);
+  await box.waitFor();
 
   await stepTurn("панель сессии после загрузки закрыта: кнопка открывает её и закрывает", async () => {
     const panel = page.locator('aside.insp[aria-label="Инспектор"]');
     if (await panel.count()) throw new Error("панель справа открыта сама");
     const button = opts.getByRole("button", { name: "Инспектор", exact: true });
     await button.click();
-    await panel.waitFor({ timeout: 8000 });
+    await panel.waitFor();
     await button.click();
-    await panel.waitFor({ state: "detached", timeout: 8000 });
+    await panel.waitFor({ state: "detached" });
   });
 
   await stepTurn("Enter во время хода ставит сообщение в очередь: пометка «в очереди» и «Отменить», слов «после хода» нет", async () => {
-    // ход на полминуты: команда, которая ничего не делает
-    await box.fill(turn(tool("Bash", { command: 'node -e "setTimeout(()=>{},30000)"' }), answer("готово")));
-    await box.press("Enter");
-    for (const end = Date.now() + 60_000; state(cs) !== "busy"; await sleep(1000)) if (Date.now() > end) throw new Error(`${cs} не начала ход`);
-    for (const name of ["Отправить следующим", "Отправить сейчас", "Прервать ход"]) await page.getByRole("button", { name, exact: true }).waitFor({ timeout: 8000 });
+    // ход стоит на шаге сценария, пока его не отпустят: «во время хода» — вход проверки, а не гонка с моделью. Отпускать его не придётся:
+    // следующий шаг прерывает ход молнией
+    await s.hold();
+    for (const name of ["Отправить следующим", "Отправить сейчас", "Прервать ход"]) await page.getByRole("button", { name, exact: true }).waitFor();
     if (await page.getByLabel("Когда взять сообщение").count()) throw new Error("меню срочности осталось");
     await box.fill(turn(answer("очередь")));
     await box.press("Enter");
     const note = page.locator(".me-note").filter({ hasText: "в очереди" }).last();
-    await note.waitFor({ timeout: 15_000 });
-    await note.getByRole("button", { name: "Отменить" }).waitFor({ timeout: 5000 });
+    await note.waitFor();
+    await note.getByRole("button", { name: "Отменить" }).waitFor();
     if (/после хода/.test(await note.innerText())) throw new Error("в пометке осталось «после хода»");
     await shot("queued");
   });
 
   await stepTurn("молния прерывает ход: в ленте «прервано», сообщение взято сразу", async () => {
-    const t0 = Date.now();
-    await box.fill(turn(answer("стоп")));
+    const now = turn(answer("стоп"));
+    await box.fill(now);
     await page.getByRole("button", { name: "Отправить сейчас", exact: true }).click();
-    await page.getByText(/^прервано/).last().waitFor({ timeout: 20_000 });
-    const ms = Date.now() - t0;
+    await page.getByText(/^прервано/).last().waitFor();
     await shot("now");
-    // после прерывания сессия берёт оба сообщения по очереди; между ними она на миг свободна — ждём, пока очередь опустеет
-    await page.locator(".me-note").filter({ hasText: "в очереди" }).first().waitFor({ state: "detached", timeout: 60_000 });
-    await sleep(2500);
-    await idle(cs);
-    return `прервано через ${Math.round(ms / 1000)} с после нажатия`;
+    // после прерывания сессия берёт оба сообщения по очереди: очередь на странице пустеет, у каждого сообщения в истории — итог его хода
+    await page.locator(".me-note").filter({ hasText: "в очереди" }).first().waitFor({ state: "detached" });
+    await s.after(last(now));
+    await s.after(last(turn(answer("очередь"))));
   });
 
   await stepTurn("ход со страницы: сессия записала файл", async () => {
-    await say(turn(tool("Write", { file_path: `${cwd}/page.txt`, content: "первый\n" }), answer("записан первый")));
-    await say(turn(tool("Write", { file_path: `${cwd}/page.txt`, content: "второй\n" }), answer("записан второй")));
-    const text = fileOn("page.txt");
+    await enter(turn(tool("Write", { file_path: `${s.cwd}/page.txt`, content: "первый\n" }), answer("записан первый")));
+    await enter(turn(tool("Write", { file_path: `${s.cwd}/page.txt`, content: "второй\n" }), answer("записан второй")));
+    const text = (await s.file("page.txt")).trim();
     if (!/второй/.test(text)) throw new Error("файл: " + JSON.stringify(text));
     return "файл: " + text;
   });
@@ -119,20 +81,21 @@ try {
     const url = page.url();
     await page.getByRole("button", { name: "Откатить сюда" }).last().click();
     const stepPage = page.locator('[data-step="rewind"]');
-    await stepPage.getByText(/Из разговора уйдёт записей/).waitFor({ timeout: 15_000 });
+    await stepPage.getByText(/Из разговора уйдёт записей/).waitFor();
     await page.getByText("Разговор и файлы", { exact: true }).click();
-    await stepPage.locator(".line").getByText("page.txt").first().waitFor({ timeout: 8000 });
+    await stepPage.locator(".line").getByText("page.txt").first().waitFor();
     await shot("rewind-step");
     await page.getByRole("button", { name: "Откатить", exact: true }).click();
-    await page.waitForFunction(() => !document.querySelector("[data-step]"), null, { timeout: 60_000 });
-    await page.getByText(/Откат к «.+» · файлы возвращены: 1/).first().waitFor({ timeout: 20_000 });
+    await page.waitForFunction(() => !document.querySelector("[data-step]"));
+    await page.getByText(/Откат к «.+» · файлы возвращены: 1/).first().waitFor();
     if (page.url() !== url) throw new Error(`адрес сменился: ${page.url()}`);
-    const text = await box.inputValue();
-    if (!/второй/.test(text)) throw new Error("в поле ввода: " + JSON.stringify(text.slice(0, 60)));
+    // текст откаченного сообщения страница возвращает в поле ввода вслед за откатом
+    let typed = "";
+    await t.wait("текст откаченного сообщения в поле ввода", async () => /второй/.test((typed = await box.inputValue())), () => "в поле ввода: " + JSON.stringify(typed.slice(0, 60)));
     // после отката страница перечитывает разговор: ушедшее сообщение уходит из ленты, когда перечитка легла
-    await page.locator(".feed-in .me").getByText("записан второй").first().waitFor({ state: "detached", timeout: 8000 }).catch(() => { throw new Error("откаченное сообщение осталось в ленте"); });
-    await idle(cs);
-    const file = fileOn("page.txt");
+    await page.locator(".feed-in .me").getByText("записан второй").first().waitFor({ state: "detached" });
+    await s.idle();
+    const file = (await s.file("page.txt")).trim();
     if (!/первый/.test(file) || /второй/.test(file)) throw new Error("файл на диске: " + JSON.stringify(file));
     await box.fill("");
     await shot("rewound");
@@ -141,61 +104,67 @@ try {
 
   await stepTurn("перезагрузка страницы: лента та же обрезанная, след отката на месте", async () => {
     await page.reload();
-    await box.waitFor({ timeout: 15_000 });
-    await page.getByText(/Откат к «.+»/).first().waitFor({ timeout: 15_000 });
-    await page.locator(".feed-in .me").getByText("записан второй").first().waitFor({ state: "detached", timeout: 8000 }).catch(() => { throw new Error("откаченное сообщение вернулось"); });
+    await box.waitFor();
+    // след отката — запись того же разговора: он на месте — значит, разговор прочитан, и откаченного сообщения в нём нет
+    await page.getByText(/Откат к «.+»/).first().waitFor();
+    await page.locator(".feed-in .me").getByText("записан второй").first().waitFor({ state: "detached" });
   });
 
   await stepLive("вопрос сессии — карточкой ленты; ответ остаётся карточкой с выбранным вариантом", async () => {
-    await box.fill(turn(tool("AskUserQuestion", { questions: [{ question: "Какой цвет?", header: "Цвет", multiSelect: false, options: [{ label: "Красный", description: "красный цвет" }, { label: "Синий", description: "синий цвет" }] }] }), answer("выбрано: {итог 1}")));
+    const asked = turn(tool("AskUserQuestion", { questions: [{ question: "Какой цвет?", header: "Цвет", multiSelect: false, options: [{ label: "Красный", description: "красный цвет" }, { label: "Синий", description: "синий цвет" }] }] }), answer("выбрано: {итог 1}"));
+    await box.fill(asked);
     await box.press("Enter");
     const card = page.locator(".feed-in .askcard[data-open]");
-    await card.first().waitFor({ timeout: 90_000 });
+    await card.first().waitFor();
     if (await page.locator(".dock .askcard").count()) throw new Error("вопрос стоит над полем ввода");
     await shot("ask");
+    // у одного вопроса с одним выбором ответ уходит нажатием варианта: кнопки «Ответить» у такой карточки нет
     await card.getByRole("button", { name: "Синий", exact: true }).click();
-    const send = card.getByRole("button", { name: "Ответить", exact: true });
-    if (await send.count()) await send.click();
     const done = page.locator(".feed-in .askcard.answered");
-    await done.first().waitFor({ timeout: 30_000 });
-    if (!(await done.locator('.asked-opt[aria-current="true"]').getByText("Синий").count())) throw new Error("выбранный вариант не выделен");
+    await done.first().waitFor();
+    await done.locator('.asked-opt[aria-current="true"]').getByText("Синий").first().waitFor();
     await done.getByText(/ответил/).first().waitFor();
-    await idle(cs);
+    await s.after(last(asked));
     await shot("answered");
   });
 
   await stepLive("«Идут сейчас»: фоновая команда строкой; время — от начала работы и после перезагрузки страницы", async () => {
-    await box.fill(turn(tool("Bash", { command: "sleep 90", run_in_background: true }), answer("запущено")));
-    await box.press("Enter");
-    const runs = page.getByRole("group", { name: "Идут сейчас" });
-    await runs.locator(".run-row").first().waitFor({ timeout: 90_000 });
-    await sleep(12_000);
-    const secs = async () => { const t = await runs.locator(".run-row .time").first().innerText(); const m = /(?:(\d+)\s*мин)?\s*(?:(\d+)\s*с)?/.exec(t); return Number(m?.[1] ?? 0) * 60 + Number(m?.[2] ?? 0); };
-    const before = await secs();
-    if (before < 8) throw new Error(`время строки ${before} с через 12 с после начала`);
+    // фоновая команда идёт, пока на машине нет её файла: сколько строке стоять, решает проверка, а не срок сна. Файл не появляется:
+    // команда уходит вместе с сессией
+    await enter(turn(tool("Bash", { command: `until [ -f '${s.cwd}/run-gate' ]; do sleep 0.2; done`, run_in_background: true }), answer("запущено")));
+    const time = page.getByRole("group", { name: "Идут сейчас" }).locator(".run-row .time").first();
+    await time.waitFor();
+    /** Время строки в секундах и возраст страницы в секундах — одним чтением. */
+    const read = () => time.evaluate((el) => {
+      const m = /(?:(\d+)\s*мин)?\s*(?:(\d+)\s*с)?/.exec(el.textContent ?? "");
+      return { secs: Number(m?.[1] ?? 0) * 60 + Number(m?.[2] ?? 0), age: performance.now() / 1000 };
+    });
+    // время идёт: показанное число растёт
+    const first = await read();
+    let now = first;
+    const before = await t.wait("время строки растёт", async () => ((now = await read()), now.secs > first.secs && now.secs >= 2 && now), () => `${now.secs} с, сначала было ${first.secs} с`);
     await page.reload();
-    await runs.locator(".run-row").first().waitFor({ timeout: 30_000 });
-    await sleep(1500);
-    const after = await secs();
-    if (after < before) throw new Error(`после перезагрузки ${after} с, было ${before} с`);
+    await time.waitFor();
+    // после перезагрузки время — от начала работы на машине, а не от загрузки страницы: оно больше возраста страницы на всё, что работа шла до перезагрузки
+    const after = await t.wait("время строки — от начала работы", async () => ((now = await read()), now.secs - now.age >= before.secs - 1 && now), () => `${now.secs} с при возрасте страницы ${Math.round(now.age)} с; до перезагрузки было ${before.secs} с`);
     await shot("runs");
-    return `${before} с → после перезагрузки ${after} с`;
+    return `${before.secs} с → после перезагрузки ${after.secs} с`;
   });
 
   await stepLive("кольцо контекста: процент виден, нажатие сжимает", async () => {
-    await idle(cs);
+    await s.idle();
     const ring = opts.getByRole("button", { name: /^Контекст \d+% · сжать$/ });
-    await ring.waitFor({ timeout: 40_000 });
+    await ring.waitFor();
     const word = await ring.getAttribute("aria-label");
     await ring.click();
-    await sleep(3000);
-    if (await page.locator(".mantine-Notification-root[data-with-title], .mantine-Notification-root").filter({ hasText: /Ошибка|не |Нет/ }).count()) throw new Error("сжатие отказано");
-    await idle(cs);
+    // сжатие прошло — в ленте встала его строка; отказ пришёл бы уведомлением, и строки бы не было
+    await page.locator(".feed-in").getByText(/контекст сжат/).first().waitFor();
+    await s.idle();
     return word;
   });
 
   await stepLive("ряд под полем: значки действий на месте, «/ команды» нет; шапка без кнопок действий", async () => {
-    for (const name of ["Фокус", "Инспектор", "Ещё", "Очистить"]) await opts.getByRole("button", { name, exact: true }).waitFor({ timeout: 8000 });
+    for (const name of ["Фокус", "Инспектор", "Ещё", "Очистить"]) await opts.getByRole("button", { name, exact: true }).waitFor();
     if (await opts.getByText("/ команды").count()) throw new Error("кнопка «/ команды» осталась");
     if (await page.locator(".conv-head").getByRole("button", { name: /Ещё|Инспектор/ }).count()) throw new Error("кнопки действий остались в шапке");
   });
@@ -205,61 +174,66 @@ try {
     await opts.getByRole("button", { name: "Очистить" }).click();
     // подтверждает кнопка страницы шага: у значка под полем то же имя, и до появления страницы шага нажатие досталось бы ему
     await page.locator("[data-step]").getByRole("button", { name: "Очистить", exact: true }).click();
-    await page.getByText("Разговор очищен").first().waitFor({ timeout: 40_000 });
+    await page.getByText("Разговор очищен").first().waitFor();
     if (page.url().replace(/\?do=.*$/, "") !== url) throw new Error("адрес сменился: " + page.url());
     await shot("cleared");
   });
 
+  // граница списка: ширину списка называет сама граница (aria-valuenow), пока её тянут — у раскладки класс pulling
+  const edge = page.getByRole("separator", { name: "Ширина списка" });
+  const width = async () => Math.round((await page.locator(".pane.list").boundingBox()).width);
+  const pulled = async () => Number(await edge.getAttribute("aria-valuenow"));
+  const pulling = page.locator(".panes.pulling");
+
   await stepScreen("граница списка тянется мышью; ширину помнит устройство", async () => {
-    const width = async () => Math.round((await page.locator(".pane.list").boundingBox()).width);
-    const w0 = await width();
-    const edge = await page.getByRole("separator", { name: "Ширина списка" }).boundingBox();
-    await page.mouse.move(edge.x + edge.width / 2, edge.y + 200);
+    const w0 = await width(), v0 = await pulled();
+    const b = await edge.boundingBox();
+    await page.mouse.move(b.x + b.width / 2, b.y + 200);
     await page.mouse.down();
-    await page.mouse.move(edge.x + edge.width / 2 + 90, edge.y + 200, { steps: 6 });
+    await pulling.waitFor();
+    await page.mouse.move(b.x + b.width / 2 + 90, b.y + 200, { steps: 6 });
+    // страница нарисовала сдвиг — отпускание запоминает нарисованное
+    await near("граница пошла за мышью на 90", pulled, v0 + 90, 12);
     await page.mouse.up();
-    const w1 = await width();
-    if (Math.abs(w1 - w0 - 90) > 12) throw new Error(`ширина ${w0} → ${w1}`);
+    const w1 = await near("список шире на 90 после жеста мышью", width, w0 + 90, 12);
     await page.reload();
-    await page.locator(".pane.list .row").first().waitFor({ timeout: 15_000 });
-    const w2 = await width();
-    if (Math.abs(w2 - w1) > 2) throw new Error(`после перезагрузки ${w2}, было ${w1}`);
-    await page.getByRole("separator", { name: "Ширина списка" }).dblclick();
+    await page.locator(".pane.list .row").first().waitFor();
+    const w2 = await near("после перезагрузки ширина списка прежняя", width, w1, 2);
+    await edge.dblclick();
+    await near("двойное нажатие вернуло ширину списка", width, w0, 2);
     return `${w0} → ${w1}, после перезагрузки ${w2}`;
   });
 
   await stepScreen("карточка разрешения: причина вопроса и строка правила «Разрешать всегда»; «Разрешить» продолжает ход", async () => {
-    await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
-    await box.waitFor({ timeout: 15_000 });
-    must("session.update", { to: cs, patch: { mode: "ask" } });
-    try {
-      await idle(cs);
-      // файл вне папки сессии: Claude называет причину вопроса и правило с этой папкой (отдельного поля пути SDK для Write не даёт — факт прогона 10 нояб.)
-      const outside = "../sb2-talk-" + tag + "-out.txt";
-      await box.fill(turn(tool("Write", { file_path: `${cwd}-out.txt`, content: "ok" }), answer("записан")));
-      await box.press("Enter");
-      const card = page.locator(".feed-in .askcard[data-open]");
-      await card.first().waitFor({ timeout: 90_000 });
-      await card.getByText(/запишет правило/).first().waitFor({ timeout: 5000 });
-      await card.getByText(/outside allowed working directories/).first().waitFor({ timeout: 5000 });
-      await shot("permission");
-      await card.getByRole("button", { name: "Разрешить", exact: true }).click();
-      await idle(cs);
-      if (fileOn(outside) !== "ok") throw new Error("файл не создан после разрешения");
-    } finally {
-      // режим возвращается и при сбое шага: следующие шаги идут на свободной сессии
-      const open = must("fleet.list", { machine, full: true }).sessions.find((x) => x.callsign === cs)?.ask;
-      if (open) call("answer", { to: cs, ask: open.id, answer: { action: "deny" } });
-      call("session.update", { to: cs, patch: { mode: "all" } });
-      call("shell.run", { to: "@" + machine, shell: "node", script: `import fs from "node:fs";fs.rmSync(${JSON.stringify(cwd + "-out.txt")},{force:true})`, wait: 30 });
-    }
+    await page.goto(`${t.base}/#/work/${cs}`);
+    await box.waitFor();
+    /** Режим в документе сессии встал, сессия свободна. */
+    const mode = async (want) => {
+      await t.must("session.update", { to: cs, patch: { mode: want } });
+      let row;
+      await t.wait(`режим «${want}» в строке сессии`, async () => ((row = await s.row()), row?.spec?.mode === want && row.state === "idle"), () => `режим ${row?.spec?.mode ?? "не назван"}, сессия ${row?.state ?? "нет"}`);
+    };
+    await mode("ask");
+    // файл вне папки сессии: Claude называет причину вопроса и правило с этой папкой (отдельного поля пути SDK для Write не даёт — факт прогона 10 нояб.)
+    const asked = turn(tool("Write", { file_path: `${s.cwd}-out.txt`, content: "ok" }), answer("записан"));
+    await box.fill(asked);
+    await box.press("Enter");
+    const card = page.locator(".feed-in .askcard[data-open]");
+    await card.first().waitFor();
+    await card.getByText(/запишет правило/).first().waitFor();
+    await card.getByText(/outside allowed working directories/).first().waitFor();
+    await shot("permission");
+    await card.getByRole("button", { name: "Разрешить", exact: true }).click();
+    await s.after(last(asked));
+    if ((await s.file(`../${path.posix.basename(s.cwd)}-out.txt`)) !== "ok") throw new Error("файл не создан после разрешения");
+    // следующие шаги идут в прежнем режиме; файл лежит в своей папке проверки — её убирает обвязка
+    await mode("all");
   });
 
   await stepScreen("граница списка тянется пальцем", async () => {
-    await idle(cs);
-    const width = async () => Math.round((await page.locator(".pane.list").boundingBox()).width);
-    const w0 = await width();
-    const b = await page.getByRole("separator", { name: "Ширина списка" }).boundingBox();
+    await s.idle();
+    const w0 = await width(), v0 = await pulled();
+    const b = await edge.boundingBox();
     // настоящее касание через протокол браузера: события указателя вида touch рождает сам Chrome
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });
@@ -267,79 +241,76 @@ try {
     const touch = (type, x) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
     try {
       await touch("touchStart", x0);
-      for (const dx of [20, 40, 60]) { await touch("touchMove", x0 + dx); await sleep(60); }
+      await pulling.waitFor();
+      for (const dx of [20, 40, 60]) await touch("touchMove", x0 + dx);
+      // страница нарисовала сдвиг — отпускание запоминает нарисованное
+      await near("граница пошла за пальцем на 60", pulled, v0 + 60, 12);
       await touch("touchEnd", x0 + 60);
-      await sleep(300);
     } finally {
       await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
     }
-    const w1 = await width();
-    await page.getByRole("separator", { name: "Ширина списка" }).dblclick();
-    if (Math.abs(w1 - w0 - 60) > 12) throw new Error(`ширина ${w0} → ${w1}`);
+    const w1 = await near("список шире на 60 после жеста пальцем", width, w0 + 60, 12);
+    await edge.dblclick();
+    await near("двойное нажатие вернуло ширину списка", width, w0, 2);
     return `${w0} → ${w1}`;
   });
 
   await stepScreen("пара: шапка с двумя участниками, выбор стороны, «обе» и инспектор у стороны ведомого", async () => {
-    const wing = must("session.update", { to: cs, patch: {}, pair: true }).wing;
-    try {
-      await idle(wing);
-      await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
-      const bar = page.getByRole("group", { name: "Пара" });
-      await bar.waitFor({ timeout: 20_000 });
-      if ((await bar.locator(".pm-who").count()) !== 2) throw new Error("в шапке пары не два участника");
-      const who = bar.locator(`.pm-who[aria-label$="${wing}"]`);
-      // выбрать ведомого: показана его сторона, адрес — его
-      await who.click();
-      await page.waitForFunction((w) => location.hash.includes(w), wing, { timeout: 10_000 });
-      // повторное нажатие на показанную сторону — обе рядом
-      if (!(await page.locator(".talk.pair").count())) await who.click();
-      await page.locator(".talk.pair").waitFor({ timeout: 10_000 });
-      if ((await page.locator(".talk.pair .conv").count()) !== 2) throw new Error("при «обе» не два разговора");
-      // инспектор стороны ведомого: его разговор и инспектор, ведущая остаётся участником шапки
-      await page.locator(".talk.pair .conv").nth(1).locator(".composer-opts").getByRole("button", { name: "Инспектор" }).click();
-      await page.locator('aside.insp[aria-label="Инспектор"]').waitFor({ timeout: 10_000 });
-      if ((await page.locator(".talk .conv").count()) !== 1) throw new Error("с инспектором показаны оба разговора");
-      if ((await bar.locator(".pm-who").count()) !== 2) throw new Error("вторая сторона пропала из шапки");
-      await shot("pair-inspector");
-      // закрытие инспектора возвращает обе стороны
-      await page.locator(".composer-opts").getByRole("button", { name: "Инспектор" }).first().click();
-      await page.locator(".talk.pair").waitFor({ timeout: 10_000 });
-    } finally {
-      call("session.update", { to: cs, patch: { wing: null } });
-    }
+    // ведомого заводит сама сессия — он тоже свой: уборка — обвязки
+    const wing = t.own((await t.must("session.update", { to: cs, patch: {}, pair: true })).wing, s.cwd);
+    await wing.idle();
+    await page.goto(`${t.base}/#/work/${cs}`);
+    const bar = page.getByRole("group", { name: "Пара" });
+    await bar.locator(".pm-who").nth(1).waitFor();
+    if ((await bar.locator(".pm-who").count()) !== 2) throw new Error("в шапке пары не два участника");
+    const who = bar.locator(`.pm-who[aria-label$="${wing.callsign}"]`);
+    // выбрать ведомого: показана его сторона, адрес — его
+    await who.click();
+    await page.waitForFunction((w) => location.hash.includes(w), wing.callsign);
+    await bar.locator(`.pm-who[aria-pressed="true"][aria-label$="${wing.callsign}"]`).waitFor();
+    await bar.locator('.pm-who[aria-pressed="false"]').waitFor();
+    // повторное нажатие на показанную сторону — обе рядом
+    await who.click();
+    await page.locator(".talk.pair .conv").nth(1).waitFor();
+    if ((await page.locator(".talk.pair .conv").count()) !== 2) throw new Error("при «обе» не два разговора");
+    // инспектор стороны ведомого: его разговор и инспектор, ведущая остаётся участником шапки
+    await page.locator(".talk.pair .conv").nth(1).locator(".composer-opts").getByRole("button", { name: "Инспектор" }).click();
+    await page.locator('aside.insp[aria-label="Инспектор"]').waitFor();
+    await page.locator(".talk.with-insp").waitFor();
+    if ((await page.locator(".talk .conv").count()) !== 1) throw new Error("с инспектором показаны оба разговора");
+    if ((await bar.locator(".pm-who").count()) !== 2) throw new Error("вторая сторона пропала из шапки");
+    await shot("pair-inspector");
+    // закрытие инспектора возвращает обе стороны
+    await page.locator(".composer-opts").getByRole("button", { name: "Инспектор" }).first().click();
+    await page.locator(".talk.pair").waitFor();
+    // следующие шаги идут без пары
+    await t.must("session.update", { to: cs, patch: { wing: null } });
   });
 
   await stepScreen("«Работа» открывает последнюю сессию; раздела «Вам» нет", async () => {
     // последняя — та, что человек открывал последней
-    await page.goto(`${env.SB2_BASE}/#/work/${cs}`);
-    await box.first().waitFor({ timeout: 15_000 });
-    await page.goto(`${env.SB2_BASE}/#/fleet/machines`);
-    await page.waitForFunction(() => location.hash.startsWith("#/fleet"), null, { timeout: 10_000 });
-    await page.goto(`${env.SB2_BASE}/#/work`);
-    await page.waitForFunction((c) => location.hash.includes(c), cs, { timeout: 10_000 });
+    await page.goto(`${t.base}/#/work/${cs}`);
+    await box.first().waitFor();
+    await page.goto(`${t.base}/#/fleet/machines`);
+    await page.waitForFunction(() => location.hash.startsWith("#/fleet"));
+    await page.goto(`${t.base}/#/work`);
+    await page.waitForFunction((c) => location.hash.includes(c), cs);
     if (await page.locator("nav.rail").getByText("Вам", { exact: true }).count()) throw new Error("пункт «Вам» остался");
   });
 
   await stepScreen("«Новая сессия»: разговоры папки списком; занятый — только копией; продолжение открывает сессию", async () => {
-    await page.goto(`${env.SB2_BASE}/#/new?machine=${machine}&cwd=${encodeURIComponent(cwd)}`);
+    await page.goto(`${t.base}/#/new?machine=${s.machine}&cwd=${encodeURIComponent(s.cwd)}`);
     const list = page.getByRole("listbox", { name: "Разговоры папки" });
-    await list.getByRole("option").first().waitFor({ timeout: 20_000 });
+    await list.getByRole("option").first().waitFor();
     const n = await list.getByRole("option").count();
     await list.getByRole("option").filter({ hasText: /занят/ }).first().click();
-    if (!(await page.getByLabel("Копией").isChecked())) throw new Error("занятый разговор не стал копией");
+    await t.wait("занятый разговор стал копией", () => page.getByLabel("Копией").isChecked());
     await shot("conversations");
-    await page.getByRole("textbox", { name: "Имя" }).fill("talkcopy-" + tag);
+    // копию открывает страница — сессия всё равно своя: уборка — обвязки
+    t.own(`talkcopy-${t.tag}@${s.machine}`, s.cwd);
+    await page.getByRole("textbox", { name: "Имя" }).fill("talkcopy-" + t.tag);
     await page.getByRole("button", { name: "Продолжить разговор" }).click();
-    await page.waitForFunction((t) => location.hash.includes("talkcopy-" + t), tag, { timeout: 60_000 });
-    made.push(`talkcopy-${tag}@${machine}`);
+    await page.waitForFunction((tag) => location.hash.includes("talkcopy-" + tag), t.tag);
     return `разговоров в папке ${n}`;
   });
-} finally {
-  await browser.close();
-  for (const c of made) call("session.remove", { to: c });
-  call("shell.run", { to: "@" + machine, shell: "node", script: `import fs from "node:fs";fs.rmSync(${JSON.stringify(cwd)},{recursive:true,force:true})`, wait: 30 });
-  call("revoke", { kid: invite.kid });
-}
-if (errors.length) console.log("ошибки страницы:\n" + [...new Set(errors)].join("\n"));
-console.log(bad || errors.length ? `сбоев: ${bad} из ${total}` : `разговор: ${total} из ${total}`);
-process.exit(bad || errors.length ? 1 : 0);
+});
