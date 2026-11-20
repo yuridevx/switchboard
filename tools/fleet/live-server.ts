@@ -1,24 +1,26 @@
 // Живая проверка серверных функций флота: node tools/fleet/live-server.ts <флот> <устройство> [машина] [машина для переноса]
 // Архив проверяется на своей сессии: проверка открывает её, даёт ей один ход со своим словом и убирает за собой.
 // Сервер MCP (список инструментов, вызов; путь входа клиента — в live-oauth.mjs), здоровье, точка → архив → поиск → разговор → перенос на другую машину.
+// Части (SB2_PART): near — всё на первой машине; far — копия поднята на второй машине (точка и архив — общие шаги обеих частей).
 import { check } from "./harness.mjs";
 import { say, turn } from "./turn.mjs";
 
 await check(async (t) => {
+  const near = t.only("near"), far = t.only("far");
   const rpc = async (body: unknown) => (await t.fetch(t.base + "/mcp", { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: "Bearer " + t.key }, body: JSON.stringify(body) })).json();
 
-  await t.step("MCP: список инструментов", async () => {
+  await near("MCP: список инструментов", async () => {
     const j = (await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" })) as { result?: { tools: { name: string }[] } };
     const names = j.result?.tools.map((x) => x.name) ?? [];
     for (const need of ["session_open", "message", "fleet_list", "points_list", "obs_health", "reach_send"]) if (!names.includes(need)) throw new Error("нет инструмента " + need);
     return `инструментов ${names.length}`;
   });
-  await t.step("MCP: вызов инструмента fleet_list", async () => {
+  await near("MCP: вызов инструмента fleet_list", async () => {
     const j = (await rpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "fleet_list", arguments: {} } })) as { result?: { content: { text: string }[]; isError?: boolean } };
     if (!j.result || j.result.isError) throw new Error(JSON.stringify(j).slice(0, 200));
     return `ответ ${j.result.content[0]!.text.length} знаков`;
   });
-  await t.step("адрес установки с приглашением: страница зовёт манифест с ним, манифест запускает приложение с ним", async () => {
+  await near("адрес установки с приглашением: страница зовёт манифест с ним, манифест запускает приложение с ним", async () => {
     // приглашение не принимается: шаг читает только разметку и манифест
     const asked = encodeURIComponent(`${t.fleet}:kshow${t.tag}:${"s".repeat(20)}`);
     const page = await (await t.fetch(`${t.base}/i?invite=${asked}`)).text();
@@ -29,11 +31,11 @@ await check(async (t) => {
     if (m.start_url !== "/i?invite=" + asked || plain.start_url === m.start_url) throw new Error(`start_url: ${m.start_url}, без приглашения: ${plain.start_url}`);
     return `${m.name}: запуск с приглашением, без него — ${plain.start_url}`;
   });
-  await t.step("картина флота для модели", async () => {
+  await near("картина флота для модели", async () => {
     const r = await t.must("fleet.list", {});
     return `машин ${r.machines.length}, сессий ${r.sessions.length}`;
   });
-  await t.step("сводка здоровья", async () => JSON.stringify(await t.must("obs.health", {})).slice(0, 160));
+  await near("сводка здоровья", async () => JSON.stringify(await t.must("obs.health", {})).slice(0, 160));
 
   // архив: блоки разговора идут в хранилище по подписанным ссылкам
   if (t.lacks("r2")) return;
@@ -57,19 +59,19 @@ await check(async (t) => {
     sid = s.sid;
     return `sid ${sid.slice(0, 8)}, точек ${s.points}`;
   });
-  await t.step("поиск по слову находит сессию", async () => {
+  await near("поиск по слову находит сессию", async () => {
     // слова разговора архив пишет той же пачкой, что строку каталога: ответ points.save пришёл — поиск их уже видит
     const r = await t.must("points.list", { q: word });
     const hit = r.sessions.find((x: { sid: string }) => x.sid === sid);
     if (!hit) throw new Error("не найдена; нашлось: " + r.sessions.length);
     return `найдено ${r.sessions.length}; строка: ${hit.hit?.slice(0, 60)}`;
   });
-  await t.step("разговор читается из архива", async () => {
+  await near("разговор читается из архива", async () => {
     const r = await t.must("points.history", { sid, limit: 20 });
     if (!r.events.length) throw new Error("событий нет");
     return `событий ${r.events.length}`;
   });
-  if (t.second) await t.step("копия поднята на другой машине", async () => {
+  if (t.second) await far("копия поднята на другой машине", async () => {
     const cwd = `${await t.tmp(t.second)}/raised-${t.tag}`;
     const r = await t.must("points.raise", { to: "@" + t.second, sid, name: "raised" + t.tag, cwd });
     // копия своя, проверочная: уборка — обвязки

@@ -1,13 +1,11 @@
 // Живая проверка флота — один список: node tools/fleet/live.mjs <флот> <устройство> [машина] [вторая машина]
-// Список целиком гонит CI после выкладки main. Сессия у себя запускает одну свою проверку — через список, по названию:
+// Строки и выбор — tools/fleet/list.mjs; здесь только запуск выбранного. Место прогона: флот в коробке — коробка (CI до слияния, весь список);
+// SB2_ENV=prod — прод; иначе живой флот: после каждого слияния идут швы, SB2_ALL=1 — весь список (ручной запуск выкладки, list=весь).
+// Сессия у себя запускает одну свою проверку — через список, по названию:
 //   SB2_ONLY="смена модели" node tools/box/box.mjs node tools/fleet/live.mjs box cli m1 m2
-// Новая функция добавляет свою проверку строкой в LIST — и та идёт на каждом слиянии.
-// Проверки идут одновременно, у каждой свои пробные сессии. Дорожек три:
-//   тихая  — никого не задевает: все тихие идут разом на первой машине;
-//   шумная — перезапускает Host своей машины: шумные идут по очереди на второй машине, рядом с тихими;
-//   одна   — меняет общее для флота (аккаунты Claude): идёт первой, одна, до остальных.
+// Новая функция добавляет свою проверку строкой в list.mjs — и та идёт на каждом слиянии в коробке.
+// Проверки идут одновременно, у каждой свои пробные сессии: сначала дорожка «одна» по одной, потом тихие разом рядом с очередью шумных.
 // Модель сессий проверок — SB2_KEY и SB2_MODEL; пары «ключ/модель» для смены модели — SB2_SWITCH через пробел.
-// SB2_ENV=prod — прод: идут только проверки с пометкой «годна проду» — свои пробные сессии, чужие не трогают, машины не перезапускают.
 // Выход 0 — всё прошло.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -15,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import { lacks, local, newTag } from "./harness.mjs";
+import { ALONE, BOX, FLEET, NOISY, PROD, QUIET, rows, select } from "./list.mjs";
 import { appendSteps, readSteps, stamp } from "./steps.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -23,6 +22,7 @@ const [fleet = "test", device = "cli", machine = "devbox", second = "wsl"] = pro
 // одна проверка списка — по названию: SB2_ONLY="смена модели"
 const only = process.env.SB2_ONLY ?? "";
 const prod = process.env.SB2_ENV === "prod";
+const place = local() ? BOX : prod ? PROD : FLEET;
 const LIMIT_MS = 4 * 60_000; // предел одной проверки
 
 /** Одна проверка отдельным процессом: вывод целиком, код выхода, время; предел вышел — процесс снят, код null. */
@@ -36,66 +36,20 @@ const run = (file, args, env = {}) => new Promise((done) => {
   child.on("close", (status) => (clearTimeout(timer), done({ status, stdout, stderr, ms: Date.now() - t0 })));
 });
 
-const pairs = (process.env.SB2_SWITCH ?? "").split(" ").filter(Boolean);
-
-const QUIET = "тихая", NOISY = "шумная", ALONE = "одна";
 // доля списка: SB2_SHARD=номер/всего. Работа CI делит список между коробками — каждая на своём раннере, проверкам не тесно
 const [shard, shards] = (process.env.SB2_SHARD ?? "1/1").split("/").map(Number);
-// название · файл · аргументы · окружение · годна проду · дорожка · чего ей нужно от флота (см. lacks): нет у флота — проверка не идёт
-const LIST = [
-  ["запросы", "smoke.ts", [fleet, device], {}, true, QUIET],
-  ["серверные функции", "live-server.ts", [fleet, device, machine, second], {}, false, QUIET],
-  ["часы флота", "live-clock.mjs", [fleet, device], {}, true, QUIET],
-  // заводит и убирает проект проверки: состав проекта рвёт соединения страниц человека — идёт до всех
-  ["тикеты", "live-tickets.ts", [fleet, device, machine], {}, false, ALONE],
-  // конвейер идёт по определению из репозитория кусочков коробки: на живом флоте такого репозитория у проверки нет
-  ...(local() ? [["конвейер", "live-lines.ts", [fleet, device], {}, false, QUIET]] : []),
-  ["страница в браузере", "live-page.mjs", [fleet, device, machine], {}, true, QUIET],
-  ["разделы страницы", "live-bar.mjs", [fleet, device, machine], {}, true, QUIET],
-  ["оповещение о сбое", "live-alert.mjs", [fleet, device], {}, false, QUIET, ["push"]],
-  ["флоу без окон", "live-flows.mjs", [fleet, device, machine], { SB2_PART: "rest" }, false, QUIET],
-  ["комментарии к странице", "live-comments.mjs", [fleet, device], {}, false, QUIET],
-  // длинные проверки идут частями (SB2_PART): у каждой части свои сессии, части идут разом
-  ["откат разговора", "live-rewind.ts", [fleet, device, machine], { SB2_PART: "rewind" }, false, QUIET],
-  ["пара: ведущая и ведомый", "live-rewind.ts", [fleet, device, machine], { SB2_PART: "pair" }, false, QUIET],
-  ["разговор на странице: ходы", "live-talk.mjs", [fleet, device, machine], { SB2_PART: "turn" }, false, QUIET],
-  ["разговор на странице: живое", "live-talk.mjs", [fleet, device, machine], { SB2_PART: "live" }, false, QUIET],
-  ["разговор на странице: экран", "live-talk.mjs", [fleet, device, machine], { SB2_PART: "screen" }, false, QUIET],
-  ["аккаунты и модели", "live-accounts.ts", [fleet, device, machine], { SB2_PART: "rest" }, false, QUIET, ["claude"]],
-  // отказ провайдера на негодный PDF воспроизводится на Claude: у этой проверки свой ключ и модель
-  ["ошибки на виду", "live-errors.mjs", [fleet, device, machine], { SB2_KEY: "claude", SB2_MODEL: "claude-haiku-5-5" }, false, QUIET, ["claude", "r2"]],
-  ["файлы сессии", "live-files.mjs", [fleet, device, machine], { SB2_BIG_MB: process.env.SB2_BIG_MB ?? "10" }, false, QUIET, ["r2"]],
-  ["смена модели", "live-switch.mjs", [fleet, device, machine, ...pairs], {}, false, QUIET],
-  // память проекта — папка кусочка из git: замок записи по модели, след, кусочки родителя у дочерней; модели — аккаунты Claude
-  ["память флота", "live-memory.mjs", [fleet, device, machine], {}, false, QUIET, ["claude", "github"]],
-  ["сценарии", "live-steps.ts", [fleet, device, machine], { SB2_PART: "one" }, false, QUIET],
-  ["связь сессий и карточки входящего", "live-comms.ts", [fleet, device, machine], { SB2_PART: "talk" }, false, QUIET],
-  // описание клиента флот читает по публичному адресу https — клиент настоящий: Claude Code
-  ["вход внешнего клиента", "live-oauth.mjs", [fleet, device], {}, false, QUIET],
-  // вторая машина: её Host перезапускает подмена — всё, что трогает вторую машину, идёт с ней в одной очереди
-  ["сценарии: вторая машина", "live-steps.ts", [fleet, device, machine, second], { SB2_PART: "far" }, false, NOISY],
-  ["подмена Host посреди хода", "live-comms.ts", [fleet, device, second], { SB2_PART: "swap" }, false, NOISY, ["keeper"]],
-  // меняет состав проекта: платформа при этом рвёт соединения всех страниц человека — идёт до всех
-  ["флоу: галочка проекта", "live-flows.mjs", [fleet, device], { SB2_PART: "people" }, false, ALONE],
-  // человека в Telegram играет двойник коробки; бот — общий для флота, а человек проверки не должен быть на связи страницей — идёт до всех
-  // и без соединения картины (SB2_AWAY): оно и есть «человек на связи»
-  ...(process.env.SB2_TG_HUMAN ? [["переписка с человеком", "live-rooms.mjs", [fleet, device, machine], { SB2_AWAY: "1" }, false, ALONE]] : []),
-  // подменяет Host на всех машинах флота — идёт до всех; только на флоте в коробке: на живой флот сборку доводит CI
-  // ставит службу в ОС компьютера: только на раннере (SB2_INSTALL=1); новая машина флота не должна попасть под выкладку — идёт одна
-  ...(local() && process.env.SB2_INSTALL === "1" ? [["установка службы машины", "live-install.mjs", [fleet, device], {}, false, ALONE]] : []),
-  ...(local() ? [["выкладка сборки", "live-roll.mjs", [fleet, device, machine, second], {}, false, ALONE]] : []),
-  // заводит и убирает негодный аккаунт Claude флота: при нём чужой ход на Claude получил бы лишний переход — идёт до всех
-  ["аккаунты: негодный токен", "live-accounts.ts", [fleet, device, machine], { SB2_PART: "token" }, false, ALONE, ["claude"]],
-].filter((c) => (!prod || c[4]) && !(c[6] ?? []).some(lacks)).filter((c, i) => (only ? c[0] === only : i % shards === shard - 1));
+const pairs = (process.env.SB2_SWITCH ?? "").split(" ").filter(Boolean);
+// install — служба ОС ставится на этом компьютере: только раннер CI (SB2_INSTALL=1)
+const lacking = (what) => (what === "install" ? process.env.SB2_INSTALL !== "1" : lacks(what));
+const LIST = select(rows({ fleet, device, machine, second, pairs, bigMb: process.env.SB2_BIG_MB }), { place, shard, shards, only, lacks: lacking, all: process.env.SB2_ALL === "1" });
 if (only && !LIST.length) throw new Error(`в списке нет проверки «${only}» — или у этого флота нет того, что ей нужно`);
 
 // журнал шагов: строка общей формы на каждый шаг — в файл SB2_STEPS; работа CI сохраняет его при прогоне, читает tools/test/history.mjs
 const STEPS = process.env.SB2_STEPS;
-const place = local() ? `коробка ${process.platform === "win32" ? "windows" : "linux"}` : `флот ${fleet}`;
-const journal = { place, commit: process.env.GITHUB_SHA, run: Number(process.env.GITHUB_RUN_ID) || undefined, bare: prod };
+const journal = { place: place === BOX ? `коробка ${process.platform === "win32" ? "windows" : "linux"}` : `флот ${fleet}`, commit: process.env.GITHUB_SHA, run: Number(process.env.GITHUB_RUN_ID) || undefined, bare: prod };
 
 const t00 = Date.now();
-const rows = [];
+const table = [];
 let failed = 0, okAll = 0, badAll = 0;
 /** Проверка от запуска до своего блока в журнале: блок печатается целиком, когда она кончилась. */
 async function check([title, file, args, env, , laneOf]) {
@@ -125,7 +79,7 @@ async function check([title, file, args, env, , laneOf]) {
   okAll += ok;
   badAll += bad;
   if (r.status !== 0) failed++;
-  rows.push(`| ${r.status === 0 ? "✓" : "✗"} | ${title} | ${ok} из ${ok + bad} | ${sec} с |`);
+  table.push(`| ${r.status === 0 ? "✓" : "✗"} | ${title} | ${ok} из ${ok + bad} | ${sec} с |`);
 }
 const lane = (name) => LIST.filter((c) => c[5] === name);
 const inTurn = async (checks) => { for (const c of checks) await check(c); };
@@ -135,5 +89,5 @@ await Promise.all([...lane(QUIET).map(check), inTurn(lane(NOISY))]);
 const total = `живых шагов ${okAll} из ${okAll + badAll} · проверок ${LIST.length - failed} из ${LIST.length} · ${((Date.now() - t00) / 60_000).toFixed(1)} мин`;
 console.log(failed ? `\n${total} · проверок со сбоями: ${failed}` : `\n${total} · живой флот прошёл весь список`);
 // итог прогона CI: одна сводка на странице прогона
-if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Живая проверка · флот ${fleet}\n\n${total}\n\n| | проверка | шагов | время |\n|---|---|---|---|\n${rows.join("\n")}\n`);
+if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Живая проверка · флот ${fleet}\n\n${total}\n\n| | проверка | шагов | время |\n|---|---|---|---|\n${table.join("\n")}\n`);
 process.exit(failed ? 1 : 0);
