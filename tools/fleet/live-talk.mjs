@@ -18,7 +18,7 @@ await check(async (t) => {
   /** Последняя строка сценария: по ней история узнаёт сообщение, которое отправила страница. */
   const last = (text) => text.split("\n").at(-1);
   /** Ход со страницы: текст в поле, Enter — и итог именно этого хода. */
-  const say = async (text) => {
+  const enter = async (text) => {
     await box.fill(text);
     await box.press("Enter");
     return s.after(last(text));
@@ -70,8 +70,8 @@ await check(async (t) => {
   });
 
   await stepTurn("ход со страницы: сессия записала файл", async () => {
-    await say(turn(tool("Write", { file_path: `${s.cwd}/page.txt`, content: "первый\n" }), answer("записан первый")));
-    await say(turn(tool("Write", { file_path: `${s.cwd}/page.txt`, content: "второй\n" }), answer("записан второй")));
+    await enter(turn(tool("Write", { file_path: `${s.cwd}/page.txt`, content: "первый\n" }), answer("записан первый")));
+    await enter(turn(tool("Write", { file_path: `${s.cwd}/page.txt`, content: "второй\n" }), answer("записан второй")));
     const text = (await s.file("page.txt")).trim();
     if (!/второй/.test(text)) throw new Error("файл: " + JSON.stringify(text));
     return "файл: " + text;
@@ -118,12 +118,9 @@ await check(async (t) => {
     await card.first().waitFor();
     if (await page.locator(".dock .askcard").count()) throw new Error("вопрос стоит над полем ввода");
     await shot("ask");
+    // у одного вопроса с одним выбором ответ уходит нажатием варианта: кнопки «Ответить» у такой карточки нет
     await card.getByRole("button", { name: "Синий", exact: true }).click();
-    // у вопроса с одним выбором ответ уходит сразу; иначе его шлёт кнопка «Ответить» — что из двух, показывает сама карточка
-    const send = card.getByRole("button", { name: "Ответить", exact: true });
     const done = page.locator(".feed-in .askcard.answered");
-    await send.or(done).first().waitFor();
-    if (await send.isVisible()) await send.click();
     await done.first().waitFor();
     await done.locator('.asked-opt[aria-current="true"]').getByText("Синий").first().waitFor();
     await done.getByText(/ответил/).first().waitFor();
@@ -134,7 +131,7 @@ await check(async (t) => {
   await stepLive("«Идут сейчас»: фоновая команда строкой; время — от начала работы и после перезагрузки страницы", async () => {
     // фоновая команда идёт, пока на машине нет её файла: сколько строке стоять, решает проверка, а не срок сна. Файл не появляется:
     // команда уходит вместе с сессией
-    await say(turn(tool("Bash", { command: `until [ -f '${s.cwd}/run-gate' ]; do sleep 0.2; done`, run_in_background: true }), answer("запущено")));
+    await enter(turn(tool("Bash", { command: `until [ -f '${s.cwd}/run-gate' ]; do sleep 0.2; done`, run_in_background: true }), answer("запущено")));
     const time = page.getByRole("group", { name: "Идут сейчас" }).locator(".run-row .time").first();
     await time.waitFor();
     /** Время строки в секундах и возраст страницы в секундах — одним чтением. */
