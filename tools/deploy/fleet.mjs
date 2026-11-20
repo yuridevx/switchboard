@@ -10,8 +10,7 @@ import { fileURLToPath } from "node:url";
 import { digests } from "../build/digest.mjs";
 import { buildPage } from "../build/page.mjs";
 import { fleetEnv } from "../dev.mjs";
-import { fleetCall } from "../fleet/harness.mjs";
-import { rollLine, rollMachines } from "./machines.mjs";
+import { fleetMust, rollLine, rollMachines } from "./machines.mjs";
 import { plan } from "./plan.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -31,7 +30,7 @@ const sh = (cmd, cmdArgs, opts = {}) => {
 };
 const node = (file, fileArgs, opts) => sh(process.execPath, [path.join(root, file), ...fileArgs], opts);
 // запрос флоту пропуском устройства — общий вход инструментов: результат или отказ словом
-const call = fleetCall(fleet, device).must;
+const call = fleetMust(fleet, device);
 // до первой выкладки отсюда служба об отпечатке не отвечает: ответа-JSON нет — отпечатка нет, часть выкладывается
 const health = async (p) => (await (await fetch(base + p, { signal: AbortSignal.timeout(30_000) })).json().catch(() => ({}))).digest;
 /** Версия Worker'а, которая стоит сейчас: номер для отката. */

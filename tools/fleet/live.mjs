@@ -8,14 +8,14 @@
 //   одна   — меняет общее для флота (аккаунты Claude): идёт первой, одна, до остальных.
 // Модель сессий проверок — SB2_KEY и SB2_MODEL; пары «ключ/модель» для смены модели — SB2_SWITCH через пробел.
 // SB2_ENV=prod — прод: идут только проверки с пометкой «годна проду» — свои пробные сессии, чужие не трогают, машины не перезапускают.
-// Выход 0 — всё прошло («ждёт выкладки» сбоем не считается).
+// Выход 0 — всё прошло.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import { lacks, local, newTag } from "./harness.mjs";
-import { appendSteps, parseLines, readSteps, stamp } from "./steps.mjs";
+import { appendSteps, readSteps, stamp } from "./steps.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
@@ -103,24 +103,24 @@ async function check([title, file, args, env, , laneOf]) {
   const tag = newTag();
   const own = path.join(os.tmpdir(), `sb2-steps-${process.pid}-${tag}.jsonl`);
   const r = await run(file, args, { ...env, SB2_CHECK: title, SB2_LANE: laneOf, SB2_TAG: tag, SB2_STEPS: own });
-  const told = fs.existsSync(own) ? readSteps(fs.readFileSync(own, "utf8")) : null;
+  const told = fs.existsSync(own) ? readSteps(fs.readFileSync(own, "utf8")) : [];
   fs.rmSync(own, { force: true });
   // слова ошибки упавшей проверки — без строк стека: слова идут первыми, стек — последним
   const words = r.status !== 0 && r.stderr ? r.stderr.split("\n").filter((l) => l.trim() && !/^\s+at /.test(l)).slice(-6).join("\n") : "";
   const out = r.stdout + (words ? "\n" + words : "");
-  // прежняя проверка строк журнала не отдаёт: её шаги читаются из вывода
-  const steps = stamp(title, told ?? parseLines(title, r.stdout, Date.now()), r.status, words, { ...journal, t: Date.now() });
+  // шаги — строки журнала самой проверки; не отдала ни одной и кончилась не нулём — красная строка о ней самой
+  const steps = stamp(title, told, r.status, words, { ...journal, t: Date.now() });
   if (STEPS) appendSteps(STEPS, steps);
-  const lines = out.split("\n").filter((l) => /^[✓✗…]/.test(l));
-  const ok = steps.filter((s) => s.ok).length, bad = steps.length - ok, wait = lines.filter((l) => l.startsWith("…")).length;
+  const lines = out.split("\n").filter((l) => /^[✓✗]/.test(l));
+  const ok = steps.filter((s) => s.ok).length, bad = steps.length - ok;
   const sec = (r.ms / 1000).toFixed(0);
   const why = r.status === 0 ? "" : r.status === null ? " · предел проверки вышел" : " · код " + r.status;
-  const block = [`\n== ${title}: ${ok} из ${ok + bad}${wait ? `, ждут выкладки ${wait}` : ""} · ${sec} с${why}`];
+  const block = [`\n== ${title}: ${ok} из ${ok + bad} · ${sec} с${why}`];
   // журнал прогона открыт всем: на проде в него идут только названия шагов и числа
   for (const l of lines) block.push(prod ? l.split(" · ")[0] : l.slice(0, 260));
   if (r.status !== 0 && !prod && (!lines.length || !lines.some((l) => l.startsWith("✗")))) block.push(out.split("\n").slice(-8).join("\n"));
   // процесс снят жёстко — своё проверка убрать не успела: агент находит остатки по метке
-  if (r.status === null && told) block.push(`проверка снята по пределу: её сессии и папки с меткой ${tag} могли остаться на флоте`);
+  if (r.status === null) block.push(`проверка снята по пределу: её сессии и папки с меткой ${tag} могли остаться на флоте`);
   console.log(block.join("\n"));
   okAll += ok;
   badAll += bad;

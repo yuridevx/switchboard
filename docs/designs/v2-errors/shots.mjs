@@ -3,14 +3,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "../../../tools/fleet/harness.mjs";
+import { launchBrowser } from "../../../tools/fleet/harness.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const base = process.argv[2] ?? "http://127.0.0.1:5391";
 const out = path.join(here, "shots");
 fs.mkdirSync(out, { recursive: true });
 
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await launchBrowser();
 for (const [w, h] of [[1280, 860], [390, 844]]) {
   for (const scheme of ["light", "dark"]) {
     const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: scheme, deviceScaleFactor: 2, hasTouch: w < 500, isMobile: w < 500 });
