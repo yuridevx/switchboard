@@ -41,3 +41,24 @@ test("обвязка и текст не в счёт: таймер в обвяз�
   assert.deepEqual(check(base), []);
   fs.rmSync(base, { recursive: true, force: true });
 });
+
+// чьё: дизайн «Тесты без случайности» — тест части не ждёт времени сам: таймер — у стенда, моков и часов теста;
+// поле timeout в данных запроса или сценария — данные (host/test/iter1.test.ts, web/src/session/screens.test.tsx), а не ожидание
+test("тест части: настоящий таймер и предел ожидания — красные; стенд, мок, часы теста и поле timeout в данных — нет", () => {
+  const base = tree({
+    "host/test/x.test.ts": ["await new Promise((r) => setTimeout(r, 50));", 'await call("shell.run", { script: "x", timeout: 1, wait: 40 });', ""].join("\n"),
+    "web/src/y.test.tsx": ["await vi.waitFor(() => seen(), { timeout: 500 });", 'const step = { tool: "Bash", input: { command: "ls", timeout: 5 } };', ""].join("\n"),
+    "platform/src/z.test.ts": "const s = AbortSignal.timeout(1000);\n",
+    "host/stand/clock.ts": "export const real = (fn, ms) => setTimeout(fn, ms);\n",
+    "platform/test/kit.ts": "setTimeout(() => reject(new Error('кадр не пришёл')), ms);\n",
+    "services/test/stand.ts": "setInterval(tick, 10);\n",
+    "web/src/mock/fleet.ts": "setTimeout(push, 0);\n",
+    "web/src/test-clock.ts": "export const later = (fn) => setTimeout(fn, 0);\n",
+  });
+  assert.deepEqual(check(base), [
+    "platform/src/z.test.ts:1: таймер в тесте (AbortSignal.timeout) — ждите сигнал или часы теста",
+    "host/test/x.test.ts:1: таймер в тесте (setTimeout) — ждите сигнал или часы теста",
+    "web/src/y.test.tsx:1: своё число предела (timeout: 500) — ждите сигнал или часы теста",
+  ]);
+  fs.rmSync(base, { recursive: true, force: true });
+});
