@@ -1,7 +1,7 @@
 // Провод поддельного claude: строки JSON между поддельным SDK и поддельным процессом у поддельного keeper.
 // Сообщения SDK идут как есть; служебные строки — с полем "$".
 //   SDK → процесс: initialize · user · interrupt · permission · hook_result · elicit_result
-//   процесс → SDK: initialized · can_use_tool · hook · elicit
+//   процесс → SDK: initialized · can_use_tool · hook · elicit · mark (метка барьера: ядро взяло всё, что процесс написал до неё)
 export type Wire =
   | { $: "initialize"; hooks: string[] }
   | { $: "user"; message: unknown }
@@ -13,7 +13,8 @@ export type Wire =
   | { $: "can_use_tool"; tool: string; input: Record<string, unknown>; toolUseID: string; opts?: Record<string, unknown> }
   | { $: "can_use_tool_abort"; toolUseID: string }
   | { $: "hook"; id: string; event: string; input: Record<string, unknown>; toolUseID?: string }
-  | { $: "elicit"; id: string; request: unknown };
+  | { $: "elicit"; id: string; request: unknown }
+  | { $: "mark"; id: string };
 
 /** Делит поток байт на строки JSON. */
 export function lineReader(onLine: (x: any) => void): (b: Buffer | string) => void {

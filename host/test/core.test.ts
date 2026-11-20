@@ -85,15 +85,15 @@ describe("ядро Host", () => {
     st = await stand();
     const { s, proc } = await st.open("site");
     proc.exit(1, "упал");
-    await until(() => st!.holders.spawns.length === 2 && s.state === "idle", 5000, "resume");
+    await until(() => st!.holders.spawns.length === 2 && s.state === "idle", "resume");
     expect(st.sdk.of("site@laptop")).toHaveLength(2);
     expect((st.sdk.last("site@laptop")!.options as any).resume).toBe(s.rec.sessionId);
     // снова упал, и новый процесс не дошёл до готовности — второй сбой подряд
     st.holders.failInitNext = 1;
     st.holders.procs.get("site@laptop")!.exit(1, "упал снова");
-    await until(() => st!.holders.procs.get("site@laptop")?.failInit, 5000, "неготовый процесс");
+    await until(() => st!.holders.procs.get("site@laptop")?.failInit, "неготовый процесс");
     st.holders.procs.get("site@laptop")!.exit(1, "не поднялся");
-    await until(() => s.state === "failed", 5000, "failed");
+    await until(() => s.state === "failed", "failed");
     expect(st.link.rows("site@laptop").at(-1)!.row).toMatchObject({ state: "failed", error: expect.stringContaining("второй сбой до готовности") });
     expect(st.holders.spawns).toHaveLength(3);
   });
@@ -107,7 +107,7 @@ describe("ядро Host", () => {
     expect(proc.alive).toBe(true);
     st = await stand({ holders, home: first.home });
     const again = st.kernel.sessions.get("site@laptop")!;
-    await until(() => again.state === "idle", 5000, "attach");
+    await until(() => again.state === "idle", "attach");
     expect(st.holders.procs.get("site@laptop")).toBe(proc);
     expect(proc.initializes).toBe(2);
     expect(holders.spawns).toHaveLength(1);
@@ -159,10 +159,10 @@ describe("ядро Host", () => {
     expect(r.ok).toBe(true);
     const kid = st.kernel.sessions.get("kid@laptop")!;
     expect(kid.rec.spec.parent).toBe("lead@laptop");
-    await until(() => st!.proc("kid@laptop").inputs.length === 1, 5000, "задача дошла");
+    await until(() => st!.proc("kid@laptop").inputs.length === 1, "задача дошла");
     expect(st.proc("kid@laptop").inputs[0]!.message.content).toBe('<fleet from="lead@laptop" kind="task">\nпроверь тесты\n</fleet>');
     await st.turn("kid@laptop", [], "тесты зелёные");
-    await until(() => st!.proc("lead@laptop").inputs.length === 1, 5000, "итог у родителя");
+    await until(() => st!.proc("lead@laptop").inputs.length === 1, "итог у родителя");
     expect(st.proc("lead@laptop").inputs[0]!.message.content).toBe('<fleet from="kid@laptop" kind="result">\nтесты зелёные\n</fleet>');
     // ход, начатый человеком, родителю не уходит
     await st.request("message", { to: "kid@laptop", text: "а теперь линтер" });

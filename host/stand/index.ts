@@ -2,6 +2,7 @@
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach } from "vitest";
 import { fail, isReply, newId, ok, type Frame, type Link, type LinkState, type LogLine, type Reply, type Transport } from "@sb/protocol";
 import type { Module } from "../src/core/contract.ts";
 import { Kernel, StartError } from "../src/core/kernel.ts";
@@ -10,21 +11,20 @@ import type { CoreRecord } from "../src/core/store.ts";
 import { FakeClock } from "./clock.ts";
 import { FakeHolders, type FakeProc } from "./holders.ts";
 import { FakeSdk, type FakeQuery } from "./sdk.ts";
+import { signal, unmet, until } from "./signal.ts";
 
-export { FakeClock, FakeHolders, FakeSdk, StartError };
+export { FakeClock, FakeHolders, FakeSdk, StartError, signal, until };
 export type { FakeProc, FakeQuery };
 
-/** Подождать, пока условие станет истинным: шагами цикла событий, не дольше ms настоящего времени. */
-export async function until<T>(cond: () => T | undefined | null | false, ms = 5000, what = "условие"): Promise<T> {
-  const end = Date.now() + ms;
-  for (;;) {
-    const v = cond();
-    if (v) return v;
-    if (Date.now() > end) throw new Error(`стенд: не дождался — ${what}`);
-    await new Promise((r) => setImmediate(r));
-  }
-}
-export const tick = (n = 5) => until(() => --n < 0);
+// ожидание без своего предела кончается пределом теста: после теста ошибка называет, чего ждали
+afterEach(() => {
+  const what = unmet();
+  if (what.length) throw new Error(`стенд: не дождался — ${what.join("; ")}`);
+});
+
+export const tick = async (n = 5) => {
+  while (n-- > 0) await new Promise((r) => setImmediate(r));
+};
 
 /** Поддельное соединение с объектом машины. */
 export class FakeLink {
@@ -43,6 +43,7 @@ export class FakeLink {
     return {
       send: (f) => {
         this.sent.push(f);
+        signal();
         if (isReply(f)) return void this.waits.get(f.id)?.(f);
         const answer = f.id ? this.answers[f.type]?.(f) : undefined;
         if (answer) queueMicrotask(() => this.onFrame(answer));
@@ -92,12 +93,15 @@ export class FakeServices implements Transport {
   handlers: Record<string, (f: Frame) => unknown> = {};
   call = async (f: Frame): Promise<Reply> => {
     this.calls.push(f);
-    const h = this.handlers[f.type];
+    signal();
     try {
+      const h = this.handlers[f.type];
       return ok(f.id!, h ? await h(f) : {});
     } catch (e) {
       const r = e as { word?: string; why?: string; message: string };
       return fail(f.id!, r.word ?? "module_failed", r.why ?? r.message);
+    } finally {
+      signal();
     }
   };
   open = (): Link => ({ send() {}, close() {} });
@@ -192,7 +196,7 @@ export async function stand(o: StandOptions = {}): Promise<Stand> {
       const p = holders.procs.get(callsign)!;
       const s = kernel.sessions.get(callsign)!;
       p.send({ type: "system", subtype: "session_state_changed", state: "running", session_id: "s" });
-      await until(() => s.state === "busy", 5000, `${callsign} busy`);
+      await until(() => s.state === "busy", `${callsign} busy`);
       for (const e of events) p.send(e);
       // как настоящий SDK: итог хода называет номера сообщений, которые ход взял, — всё принятое процессом с прошлого хода
       const from = taken.get(p) ?? 0;
@@ -200,7 +204,7 @@ export async function stand(o: StandOptions = {}): Promise<Stand> {
       const uuids = p.inputs.slice(from).map((i) => i.uuid).filter((u): u is string => typeof u === "string");
       p.send({ type: "result", subtype: "success", result, session_id: "s", ...(uuids.length ? { user_message_uuids: uuids } : {}) });
       p.send({ type: "system", subtype: "session_state_changed", state: "idle", session_id: "s" });
-      await until(() => s.state === "idle", 5000, `${callsign} idle`);
+      await until(() => s.state === "idle", `${callsign} idle`);
     },
     async stop() {
       if (!kernel.shutting) await kernel.shutdown("стенд");

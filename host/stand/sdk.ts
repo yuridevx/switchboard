@@ -2,6 +2,7 @@
 // initialize в начале, ввод из очереди, сообщения из вывода процесса, canUseTool, хуки и формы MCP — внутри Host.
 // Методы query записываются в calls; close() закрывает ввод процесса, как настоящий SDK.
 import type { Options, SDKUserMessage, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
+import { marks, signal } from "./signal.ts";
 import { lineReader } from "./wire.ts";
 import type { Wire } from "./wire.ts";
 
@@ -67,11 +68,13 @@ export class FakeQuery {
     this.ended = true;
     if (!this.initDone) this.initFail(new Error("процесс claude вышел до initialize"));
     this.wake?.();
+    signal();
   }
 
   private async fromProc(x: Record<string, any>): Promise<void> {
     const o = this.options;
-    if (!("$" in x)) {
+    // метка барьера встаёт в ту же очередь, что сообщения: ядро дойдёт до неё, взяв всё, что было до неё
+    if (!("$" in x) || x.$ === "mark") {
       this.buf.push(x);
       this.wake?.();
       return;
@@ -102,7 +105,17 @@ export class FakeQuery {
 
   async *[Symbol.asyncIterator](): AsyncGenerator<any, void> {
     for (;;) {
-      while (this.buf.length) yield this.buf.shift();
+      while (this.buf.length) {
+        const m = this.buf.shift() as Record<string, unknown>;
+        if (m.$ === "mark") {
+          marks.add(m.id as string);
+          signal();
+          continue;
+        }
+        yield m;
+        // ядро попросило следующее: взятое оно уже разобрало
+        signal();
+      }
       if (this.ended) return;
       await new Promise<void>((r) => (this.wake = r));
       this.wake = null;
@@ -115,11 +128,13 @@ export class FakeQuery {
 
   async interrupt(): Promise<void> {
     this.calls.push({ name: "interrupt", args: [] });
+    signal();
     this.write({ $: "interrupt" });
   }
 
   async setMcpServers(servers: Record<string, unknown>) {
     this.calls.push({ name: "setMcpServers", args: [servers] });
+    signal();
     const next = new Set(Object.keys(servers));
     const added = [...next].filter((n) => !this.mcp.has(n));
     const removed = [...this.mcp].filter((n) => !next.has(n));
@@ -130,6 +145,7 @@ export class FakeQuery {
   /** close: ввод процесса закрыт — keeper закрывает ввод claude, процесс выходит сам. */
   close(): void {
     this.calls.push({ name: "close", args: [] });
+    signal();
     this.closed = true;
     if (this.proc) this.proc.stdin.end();
     else this.end();
@@ -145,6 +161,7 @@ const RECORDED = [
 for (const name of RECORDED) {
   (FakeQuery.prototype as unknown as Record<string, unknown>)[name] = async function (this: FakeQuery, ...args: unknown[]) {
     this.calls.push({ name, args });
+    signal();
     return {};
   };
 }
@@ -165,18 +182,21 @@ export class FakeSdk {
   query = (p: Params) => {
     const q = new FakeQuery(p);
     this.queries.push(q);
+    signal();
     return q as never;
   };
 
   functions = new Proxy({} as Record<string, (...a: unknown[]) => Promise<unknown>>, {
     get: (_t, name: string) => async (...args: unknown[]) => {
       this.fnCalls.push({ name, args });
+      signal();
       return name === "getSessionMessages" ? [] : {};
     },
   });
 
   cli = async (args: string[], env: Record<string, string | undefined>, input?: string) => {
     this.cliCalls.push({ args, env, ...(input !== undefined ? { input } : {}) });
+    signal();
     return { code: 0, out: "" };
   };
 

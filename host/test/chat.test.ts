@@ -18,7 +18,7 @@ describe("chat", () => {
     const { proc } = await st.open("site");
     expect((await st.request("message", { to: "site@laptop", text: "привет" }, PULT)).ok).toBe(true);
     expect((await st.request("message", { to: "site@laptop", text: "я закончила" }, "docs@server")).ok).toBe(true);
-    await until(() => proc.inputs.length === 2, 5000, "ввод");
+    await until(() => proc.inputs.length === 2, "ввод");
     expect(proc.inputs[0]!.message.content).toBe("привет");
     expect(proc.inputs[1]!.message.content).toBe('<fleet from="docs@server" kind="message">\nя закончила\n</fleet>');
   });
@@ -42,7 +42,7 @@ describe("chat", () => {
     expect(await st.request("session.watch", { to: "site@laptop" }, PULT)).toMatchObject({ ok: true, result: { seq: expect.any(Number) } });
     proc.send({ type: "assistant", uuid: "a1", message: { content: [] } });
     proc.send({ type: "assistant", uuid: "a2", message: { content: [] } });
-    const f = await until(() => st!.link.of("session.events")[0], 5000, "пачка");
+    const f = await until(() => st!.link.of("session.events")[0], "пачка");
     expect(f).toMatchObject({ to: [PULT], callsign: "site@laptop" });
     expect((f.events as any[]).map((e) => e.uuid)).toEqual(["a1", "a2"]);
     st.link.deliver({ type: "watcher.gone", from: PULT });
@@ -78,9 +78,9 @@ describe("chat", () => {
     await st.request("message", { to: "site@laptop", text: "выкладывай" }, PULT);
     const input = { questions: [{ question: "Какую ветку выкладывать?", options: [{ label: "main" }, { label: "release" }] }] };
     const asked = proc.ask("AskUserQuestion", input, "q-9");
-    await until(() => (st!.link.rows("site@laptop").at(-1)!.row as any).ask, 5000, "вопрос в строке");
+    await until(() => (st!.link.rows("site@laptop").at(-1)!.row as any).ask, "вопрос в строке");
     expect(st.link.rows("site@laptop").at(-1)!.row).toMatchObject({ ask: { id: "q-9", kind: "question", text: "Какую ветку выкладывать?", options: [{ label: "main" }, { label: "release" }] } });
-    await until(() => st!.services.of("reach.send").length === 1, 5000, "reach.send");
+    await until(() => st!.services.of("reach.send").length === 1, "reach.send");
     expect(st.services.of("reach.send")[0]).toMatchObject({ to: "~yuri@example.com", kind: "ask", callsign: "site@laptop", text: "Какую ветку выкладывать?" });
     const first = await st.request("answer", { to: "site@laptop", ask: "q-9", answer: "main" }, PHONE);
     const second = await st.request("answer", { to: "site@laptop", ask: "q-9", answer: "release" }, PULT);
@@ -98,7 +98,7 @@ describe("chat", () => {
     expect(await proc.ask("Bash", { command: "ls" })).toEqual({ behavior: "allow", updatedInput: { command: "ls" } });
     const { proc: careful } = await st.open("careful", { mode: "ask" });
     const asked = careful.ask("Bash", { command: "rm -rf x" }, "p-1");
-    await until(() => (st!.link.rows("careful@laptop").at(-1)!.row as any).ask, 5000, "разрешение в строке");
+    await until(() => (st!.link.rows("careful@laptop").at(-1)!.row as any).ask, "разрешение в строке");
     expect(await st.request("answer", { to: "careful@laptop", ask: "p-1", answer: "allow" }, "docs@server")).toMatchObject({ ok: false, error: "not_client" });
     expect((await st.request("answer", { to: "careful@laptop", ask: "p-1", answer: { action: "deny", message: "не надо" } }, PULT)).ok).toBe(true);
     expect(await asked).toMatchObject({ behavior: "deny", message: expect.stringContaining("не надо") });
@@ -109,7 +109,7 @@ describe("chat", () => {
     await st.open("site");
     await st.request("message", { to: "site@laptop", text: "работай" }, PULT);
     await st.turn("site@laptop", [], "готово: 3 файла");
-    await until(() => st!.services.of("reach.send").length === 1, 5000, "reach.send");
+    await until(() => st!.services.of("reach.send").length === 1, "reach.send");
     expect(st.services.of("reach.send")[0]).toMatchObject({ to: "~yuri@example.com", kind: "done", text: "готово: 3 файла", callsign: "site@laptop" });
   });
 

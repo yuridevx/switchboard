@@ -96,7 +96,7 @@ describe("ядро: открытие и документ", () => {
     expect(first.calls.find((c) => c.name === "applyFlagSettings")!.args[0]).toEqual({ fastMode: true, outputStyle: "short", alwaysThinkingEnabled: false });
     expect(first.calls.find((c) => c.name === "renameSession")!.args[0]).toBe("Новый заголовок");
     expect(s.row().title).toBe("Новый заголовок");
-    await until(() => st!.sdk.of(CS).length === 2 && s.state === "idle", 5000, "перезапуск с новой папкой");
+    await until(() => st!.sdk.of(CS).length === 2 && s.state === "idle", "перезапуск с новой папкой");
     expect(st.sdk.last(CS)!.options).toMatchObject({ cwd: other, settings: { fastMode: true, outputStyle: "short", alwaysThinkingEnabled: false } });
   });
 
@@ -108,7 +108,7 @@ describe("ядро: открытие и документ", () => {
     await st.request("session.call", { to: CS, method: "permissionRules" });
     expect(q.calls.map((c) => c.name)).toContain("listPermissionRules");
     await st.request("session.call", { to: CS, method: "compact" });
-    await until(() => proc.inputs.some((i) => i.message.content === "/compact"), 5000, "команда сжатия во вводе");
+    await until(() => proc.inputs.some((i) => i.message.content === "/compact"), "команда сжатия во вводе");
     await st.request("session.stop", { to: CS });
     expect((await st.request("session.call", { to: CS, method: "getSessionInfo" })).ok).toBe(true);
     expect(await st.request("session.call", { to: CS, method: "interrupt" })).toMatchObject({ ok: false, error: "stopped" });
@@ -118,13 +118,13 @@ describe("ядро: открытие и документ", () => {
     st = await stand();
     const { proc, s } = await st.open("site");
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
-    await until(() => s.state === "busy", 5000, "ход");
+    await until(() => s.state === "busy", "ход");
     const r = await st.request("session.remove", { to: CS, after_turn: true }, CS);
     expect(r.result).toEqual({ after_turn: true });
     expect(st.kernel.sessions.has(CS)).toBe(true);
     proc.send({ type: "result", subtype: "success", result: "готово" });
     proc.send({ type: "system", subtype: "session_state_changed", state: "idle" });
-    await until(() => !st!.kernel.sessions.has(CS), 5000, "сессия убрана после хода");
+    await until(() => !st!.kernel.sessions.has(CS), "сессия убрана после хода");
     expect(st.link.rows(CS).at(-1)!.row).toBeNull();
   });
 });
@@ -164,10 +164,10 @@ describe("пара", () => {
     const wing = st.kernel.sessions.get("lead-wing@laptop")!;
     st.holders.failInitNext = 1;
     st.proc("lead-wing@laptop").exit(1, "упал");
-    await until(() => st!.holders.procs.get("lead-wing@laptop")?.failInit, 5000, "неготовый процесс");
+    await until(() => st!.holders.procs.get("lead-wing@laptop")?.failInit, "неготовый процесс");
     st.holders.procs.get("lead-wing@laptop")!.exit(1, "не поднялся");
-    await until(() => wing.state === "failed", 5000, "failed");
-    const got = await until(() => st!.proc("lead@laptop").inputs.find((i) => String(i.message.content).includes("со сбоем")), 5000, "весть об обрыве");
+    await until(() => wing.state === "failed", "failed");
+    const got = await until(() => st!.proc("lead@laptop").inputs.find((i) => String(i.message.content).includes("со сбоем")), "весть об обрыве");
     expect(String(got.message.content)).toMatch(/^<fleet from="lead-wing@laptop" kind="news">\nОстановилась со сбоем: /);
   });
 });
@@ -195,11 +195,11 @@ describe("chat: строка и лента", () => {
     st = await stand({ modules: [chat()] });
     const { proc, s } = await st.open("site");
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
-    await until(() => s.state === "busy", 5000, "ход");
+    await until(() => s.state === "busy", "ход");
     proc.send({ type: "system", subtype: "status", status: "compacting" });
-    await until(() => (st!.link.rows(CS).at(-1)!.row as any).compacting === true, 5000, "сжатие в строке");
+    await until(() => (st!.link.rows(CS).at(-1)!.row as any).compacting === true, "сжатие в строке");
     proc.send({ type: "system", subtype: "status", status: null });
-    await until(() => (st!.link.rows(CS).at(-1)!.row as any).compacting === undefined, 5000, "сжатие кончилось");
+    await until(() => (st!.link.rows(CS).at(-1)!.row as any).compacting === undefined, "сжатие кончилось");
   });
 
   it("лента: зритель называет последний номер и получает пропущенное; пропущенного нет в памяти — gap", async () => {
@@ -207,13 +207,13 @@ describe("chat: строка и лента", () => {
     const { proc } = await st.open("site");
     expect((await st.request("session.watch", { to: CS }, PULT)).result).toEqual({ seq: 0 });
     for (const uuid of ["a1", "a2", "a3"]) proc.send({ type: "assistant", uuid, message: { content: [] } });
-    await until(() => events(st!).length === 3, 5000, "три события");
+    await until(() => events(st!).length === 3, "три события");
     const again = await st.request("session.watch", { to: CS, after: 1 }, PHONE);
     expect(again.result).toMatchObject({ seq: 3 });
     expect((again.result as any).events.map((e: any) => e.uuid)).toEqual(["a2", "a3"]);
     expect((await st.request("session.watch", { to: CS, after: 3 }, PHONE)).result).toEqual({ seq: 3 });
     for (let i = 0; i < 2005; i++) proc.send({ type: "assistant", uuid: `b${i}`, message: { content: [] } });
-    await until(() => events(st!).length === 2008, 10_000, "поток");
+    await until(() => events(st!).length === 2008, "поток");
     const far = await st.request("session.watch", { to: CS, after: 1 }, PHONE);
     expect(far.result).toMatchObject({ seq: 2008, gap: true });
     expect((far.result as any).events).toBeUndefined();
@@ -226,18 +226,18 @@ describe("chat: строка и лента", () => {
     const { proc, s } = await st.open("site");
     proc.busy = true;
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
-    await until(() => s.state === "busy", 5000, "ход");
+    await until(() => s.state === "busy", "ход");
     await st.request("message", { to: CS, text: "потом" }, PULT);
-    await until(() => proc.inputs.length === 1, 5000, "ввод «следующим»");
+    await until(() => proc.inputs.length === 1, "ввод «следующим»");
     expect(proc.interrupts).toBe(0);
     await st.request("message", { to: CS, text: "стоп", priority: "now" }, PULT);
-    await until(() => proc.inputs.length === 2, 5000, "ввод «сейчас»");
+    await until(() => proc.inputs.length === 2, "ввод «сейчас»");
     expect(proc.order).toEqual(["user", "interrupt", "user"]);
     expect(proc.inputs[1]).toMatchObject({ priority: "now", message: { content: "стоп" } });
     // свободной сессии прерывать нечего
-    await until(() => s.state === "idle", 5000, "ход прерван");
+    await until(() => s.state === "idle", "ход прерван");
     await st.request("message", { to: CS, text: "ещё" , priority: "now" }, PULT);
-    await until(() => proc.inputs.length === 3, 5000, "ввод свободной");
+    await until(() => proc.inputs.length === 3, "ввод свободной");
     expect(proc.interrupts).toBe(1);
   });
 
@@ -246,23 +246,23 @@ describe("chat: строка и лента", () => {
     const { proc, s } = await st.open("site");
     await st.request("session.watch", { to: CS }, PULT);
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
-    await until(() => s.state === "busy", 5000, "ход");
+    await until(() => s.state === "busy", "ход");
     const m = await st.request("message", { to: CS, text: "ещё одно" }, PULT);
     expect(m.result).toMatchObject({ queued: true, uuid: expect.any(String) });
     const uuid = (m.result as any).uuid as string;
-    await until(() => proc.inputs.length === 1, 5000, "ввод");
+    await until(() => proc.inputs.length === 1, "ввод");
     expect(proc.inputs[0]!.priority).toBe("next");
-    await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === uuid && e.status === "queued"), 5000, "статус queued");
+    await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === uuid && e.status === "queued"), "статус queued");
     expect((await st.request("session.watch", { to: CS }, PHONE)).result).toMatchObject({ queued: [{ uuid, from: PULT, text: "ещё одно" }] });
     expect((await st.request("message.cancel", { to: CS, uuid }, PULT)).result).toEqual({ cancelled: true });
     expect(st.sdk.last(CS)!.calls.find((c) => c.name === "cancelAsyncMessage")!.args).toEqual([uuid]);
-    await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === uuid && e.status === "cancelled"), 5000, "статус cancelled");
+    await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === uuid && e.status === "cancelled"), "статус cancelled");
     expect((await st.request("message.cancel", { to: CS, uuid }, PULT)).result).toEqual({ cancelled: false });
     // вход отмены один: проходом session.call её нет
     expect(await st.request("session.call", { to: CS, method: "cancelMessage", args: { uuid } }, PULT)).toMatchObject({ ok: false });
     const second = ((await st.request("message", { to: CS, text: "и ещё" }, PULT)).result as any).uuid as string;
     proc.send({ type: "system", subtype: "status", user_message_uuids: [second] });
-    await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === second && e.status === "taken"), 5000, "статус taken");
+    await until(() => events(st!).some((e) => e.type === "message.status" && e.uuid === second && e.status === "taken"), "статус taken");
     expect((await st.request("session.watch", { to: CS }, PHONE)).result).not.toHaveProperty("queued");
   });
 
@@ -271,14 +271,14 @@ describe("chat: строка и лента", () => {
     const { proc, s } = await st.open("site");
     await st.request("session.watch", { to: CS }, PULT);
     const uuid = ((await st.request("message", { to: CS, text: "привет" }, PULT)).result as any).uuid as string;
-    await until(() => events(st!).some((e) => e.type === "user" && e.uuid === uuid), 5000, "сообщение в ленте");
+    await until(() => events(st!).some((e) => e.type === "user" && e.uuid === uuid), "сообщение в ленте");
     expect(events(st).find((e) => e.uuid === uuid)).toMatchObject({ type: "user", from: PULT, message: { role: "user", content: "привет" } });
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
     proc.send({ type: "assistant", uuid: "a1", message: { content: [{ type: "text", text: "ответ" }] } });
     proc.send({ type: "result", subtype: "success", uuid: "r1", result: "ответ", duration_ms: 7000, num_turns: 1, total_cost_usd: 0.03, usage: { input_tokens: 25000 } });
     proc.send({ type: "system", subtype: "session_state_changed", state: "idle" });
-    await until(() => events(st!).some((e) => e.type === "result" && e.uuid === "r1"), 5000, "итог хода в ленте");
-    await until(() => s.state === "idle", 5000, "ход кончился");
+    await until(() => events(st!).some((e) => e.type === "result" && e.uuid === "r1"), "итог хода в ленте");
+    await until(() => s.state === "idle", "ход кончился");
     // файл разговора итога не хранит: история отдаёт его за последней записью хода
     const said = [{ type: "user", uuid, message: { content: "привет" } }, { type: "assistant", uuid: "a1", message: { content: [{ type: "text", text: "ответ" }] } }];
     (st.sdk as any).functions = new Proxy({}, { get: (_t, name) => async () => (name === "getSessionMessages" ? said : {}) });
@@ -288,7 +288,7 @@ describe("chat: строка и лента", () => {
     expect(h[2].result).toBeUndefined();
     // сообщение сессии — с разобранным отправителем
     const from = ((await st.request("message", { to: CS, text: "я закончила" }, "docs@server")).result as any).uuid as string;
-    await until(() => events(st!).some((e) => e.uuid === from), 5000, "сообщение сессии в ленте");
+    await until(() => events(st!).some((e) => e.uuid === from), "сообщение сессии в ленте");
     expect(events(st).find((e) => e.uuid === from)).toMatchObject({ type: "user", peer: { from: "docs@server", text: "я закончила" } });
   });
 
@@ -296,7 +296,7 @@ describe("chat: строка и лента", () => {
     st = await stand({ modules: [chat()] });
     const { proc } = await st.open("site");
     const asked = proc.elicit({ serverName: "почта", message: "Нужны данные сервера", requestedSchema: { type: "object", properties: { server: { type: "string" }, port: { type: "number" } } } });
-    const ask = await until(() => (st!.link.rows(CS).at(-1)!.row as any).ask, 5000, "вопрос-форма в строке");
+    const ask = await until(() => (st!.link.rows(CS).at(-1)!.row as any).ask, "вопрос-форма в строке");
     expect(ask).toMatchObject({ kind: "form", text: "Нужны данные сервера" });
     expect((await st.request("answer", { to: CS, ask: ask.id, answer: { action: "accept", content: { server: "smtp.example.com", port: 587 } } }, PULT)).ok).toBe(true);
     expect(await asked).toEqual({ action: "accept", content: { server: "smtp.example.com", port: 587 } });

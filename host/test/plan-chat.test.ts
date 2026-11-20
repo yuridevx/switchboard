@@ -28,7 +28,7 @@ const row = (cs: string) => st!.link.rows(cs).at(-1)!.row as any;
 const busy = async (cs: string) => {
   st!.proc(cs).busy = true;
   st!.proc(cs).send({ type: "system", subtype: "session_state_changed", state: "running", session_id: "s" });
-  await until(() => st!.kernel.sessions.get(cs)!.state === "busy", 5000, `${cs} busy`);
+  await until(() => st!.kernel.sessions.get(cs)!.state === "busy", `${cs} busy`);
 };
 
 describe("план v2: сообщения", () => {
@@ -38,10 +38,10 @@ describe("план v2: сообщения", () => {
     await st.open("lead");
     await st.open("kid", {}, "lead@laptop");
     await st.request("message", { to: "kid@laptop", text: "собери отчёт" }, "lead@laptop");
-    const got = String((await until(() => st!.proc("kid@laptop").inputs.at(-1), 5000, "ввод дочери")).message.content);
+    const got = String((await until(() => st!.proc("kid@laptop").inputs.at(-1), "ввод дочери")).message.content);
     expect(got).toBe('<fleet from="lead@laptop" kind="task">\nсобери отчёт\n</fleet>');
     await st.request("message", { to: "kid@laptop", text: "я сосед" }, "docs@server");
-    expect(String((await until(() => st!.proc("kid@laptop").inputs.at(1), 5000, "ввод от соседа")).message.content)).toBe('<fleet from="docs@server" kind="message">\nя сосед\n</fleet>');
+    expect(String((await until(() => st!.proc("kid@laptop").inputs.at(1), "ввод от соседа")).message.content)).toBe('<fleet from="docs@server" kind="message">\nя сосед\n</fleet>');
   });
 
   it("отмена сообщения: Claude отказал — sdk_error с позывным, сообщение остаётся в очереди", async () => {
@@ -85,7 +85,7 @@ describe("план v2: сообщения", () => {
     await st.request("session.watch", { to: CS }, PHONE);
     expect(await st.request("session.unwatch", { to: CS }, PULT)).toMatchObject({ ok: true });
     proc.send(bot("a1", "привет"));
-    const f = await until(() => st!.link.of("session.events")[0], 5000, "пачка");
+    const f = await until(() => st!.link.of("session.events")[0], "пачка");
     expect(f.to).toEqual([PHONE]);
   });
 });
@@ -94,7 +94,7 @@ describe("план v2: вопросы и разрешения", () => {
   const ask = async (name: string, tool: string, input: Record<string, unknown>, id: string, opts: Record<string, unknown> = {}, mode = "ask") => {
     const { proc } = await st!.open(name, { mode });
     const asked = proc.askWith(tool, input, opts, id);
-    await until(() => row(`${name}@laptop`).ask, 5000, "вопрос в строке");
+    await until(() => row(`${name}@laptop`).ask, "вопрос в строке");
     return { asked };
   };
   const RULE = [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm run build" }], behavior: "allow", destination: "session" }];
@@ -135,8 +135,8 @@ describe("план v2: вопросы и разрешения", () => {
     await st.request("session.watch", { to: CS }, PULT);
     st.proc(CS).abortAsk("p-1");
     expect(await asked).toEqual({ behavior: "deny", message: "cancelled" });
-    await until(() => row(CS).ask === null, 5000, "вопрос ушёл из строки");
-    await until(() => events(st!).some((e) => e.type === "ask.answered" && e.ask === "p-1" && e.answer === "cancelled"), 5000, "событие в ленте");
+    await until(() => row(CS).ask === null, "вопрос ушёл из строки");
+    await until(() => events(st!).some((e) => e.type === "ask.answered" && e.ask === "p-1" && e.answer === "cancelled"), "событие в ленте");
     expect(await st.request("answer", { to: CS, ask: "p-1", answer: "allow" }, PULT)).toMatchObject({ ok: false, error: "already_answered" });
   });
 });
@@ -149,10 +149,10 @@ describe("план v2: вести", () => {
     await st.request("message", { to: CS, text: "работай" }, PULT);
     st.holders.failInitNext = 1;
     proc.exit(1, "упал");
-    await until(() => st!.holders.procs.get(CS)?.failInit, 5000, "неготовый процесс");
+    await until(() => st!.holders.procs.get(CS)?.failInit, "неготовый процесс");
     st.holders.procs.get(CS)!.exit(1, "не поднялся");
-    await until(() => s.state === "failed", 5000, "failed");
-    await until(() => st!.services.of("reach.send").length === 1, 5000, "reach.send");
+    await until(() => s.state === "failed", "failed");
+    await until(() => st!.services.of("reach.send").length === 1, "reach.send");
     expect(st.services.of("reach.send")[0]).toMatchObject({ to: "~yuri@example.com", kind: "failed", callsign: CS });
     await tick();
     expect(st.services.of("reach.send")).toHaveLength(1);
@@ -165,7 +165,7 @@ describe("план v2: вести", () => {
     const wing = st.kernel.sessions.get("lead-wing@laptop")!;
     const before = st.proc("lead@laptop").inputs.length;
     st.proc("lead-wing@laptop").exit(1, "упал");
-    await until(() => st!.holders.spawns.filter((x) => x.id === "lead-wing@laptop").length === 2 && wing.state === "idle", 5000, "resume ведомого");
+    await until(() => st!.holders.spawns.filter((x) => x.id === "lead-wing@laptop").length === 2 && wing.state === "idle", "resume ведомого");
     await tick(40);
     expect(st.proc("lead@laptop").inputs.slice(before)).toEqual([]);
   });
@@ -179,7 +179,7 @@ describe("план v2: отказы отката", () => {
     await busy(CS);
     st.proc(CS).noInterrupt = true;
     const rewinding = st.request("session.rewind", { to: CS, upto: "h3" }, PULT);
-    await until(() => st!.proc(CS).interrupts === 1, 5000, "прерывание ушло");
+    await until(() => st!.proc(CS).interrupts === 1, "прерывание ушло");
     st.clock.advance(30_000);
     expect(await rewinding).toMatchObject({ ok: false, error: "busy" });
     expect(st.holders.spawns).toHaveLength(1);
@@ -193,12 +193,12 @@ describe("план v2: отказы отката", () => {
     withTalk(st, SIX);
     st.holders.failInitNext = 2;
     const rewinding = st.request("session.rewind", { to: CS, upto: "h3" }, PULT);
-    await until(() => st!.holders.spawns.length === 2 && st!.holders.procs.get(CS)?.initializes === 1, 5000, "новый процесс");
+    await until(() => st!.holders.spawns.length === 2 && st!.holders.procs.get(CS)?.initializes === 1, "новый процесс");
     st.holders.procs.get(CS)!.exit(1, "упал до готовности");
     expect(await rewinding).toMatchObject({ ok: false, error: "open_failed" });
-    await until(() => st!.holders.spawns.length === 3 && st!.holders.procs.get(CS)?.initializes === 1, 5000, "resume");
+    await until(() => st!.holders.spawns.length === 3 && st!.holders.procs.get(CS)?.initializes === 1, "resume");
     expect(st.sdk.last(CS)!.options).toMatchObject({ resumeSessionAt: "a2" });
     st.holders.procs.get(CS)!.exit(1, "упал снова");
-    await until(() => s.state === "failed", 5000, "failed");
+    await until(() => s.state === "failed", "failed");
   });
 });

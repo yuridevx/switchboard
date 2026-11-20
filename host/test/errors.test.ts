@@ -37,7 +37,7 @@ describe("беда сессии — в её ленту", () => {
     st.kernel.log.error("link_stopped", { why: "строка не о сессии" });
     st.kernel.log.warn("call", { callsign: "ghost@laptop", why: "такой сессии нет" });
     st.kernel.log.warn("call", { callsign: CS, status: 400, why: REFUSED });
-    await until(() => logs().length, 5000, "событие log в ленте");
+    await until(() => logs().length, "событие log в ленте");
     await tick(20);
     expect(logs()).toEqual([{ type: "log", uuid: expect.any(String), level: "warn", msg: "call", why: REFUSED, at: expect.any(Number) }]);
     // журнал — тот же: строка в ленте ничего в нём не меняет
@@ -50,10 +50,10 @@ describe("беда сессии — в её ленту", () => {
     const { proc } = await st.open("site");
     await st.request("session.watch", { to: CS }, PULT);
     proc.send(say("a1", "Сверил: 260 адресов."));
-    await until(() => feed().some((e) => e.uuid === "a1"), 5000, "ответ в ленте");
+    await until(() => feed().some((e) => e.uuid === "a1"), "ответ в ленте");
     st.kernel.log.warn("call", { callsign: CS, status: 400, why: REFUSED });
     proc.send(say("a2", "Продолжаю."));
-    await until(() => feed().some((e) => e.uuid === "a2"), 5000, "второй ответ в ленте");
+    await until(() => feed().some((e) => e.uuid === "a2"), "второй ответ в ленте");
     const live = feed().filter((e) => e.type === "log" || e.type === "assistant");
     expect(live.map((e) => e.uuid ?? e.type)).toEqual(["a1", logs()[0]!.uuid, "a2"]);
     // файл разговора строки не хранит: её отдаёт лента, за записью a1
@@ -74,7 +74,7 @@ describe("беда сессии — в её ленту", () => {
     const home = st.home, holders = st.holders;
     await st.kernel.shutdown("подмена");
     st = await stand({ modules: [chat(), machine()], home, holders });
-    await until(() => st!.kernel.sessions.get(CS)?.state === "idle", 5000, "сессия поднялась");
+    await until(() => st!.kernel.sessions.get(CS)?.state === "idle", "сессия поднялась");
     st.kernel.log.error("model_drift", { callsign: CS, why: "в документе одна модель, ответила другая" });
     const said = [say("a0", "Начало."), say("a1", "Сверил.")];
     (st.sdk as any).functions = new Proxy({}, { get: (_t, name) => async () => (name === "getSessionMessages" ? said : {}) });
@@ -90,7 +90,7 @@ describe("беда сессии — в её ленту", () => {
     await st.open("site");
     await st.request("session.watch", { to: CS }, PULT);
     st.kernel.log.warn("call", { callsign: CS, why: REFUSED });
-    await until(() => logs().length, 5000, "событие log в ленте");
+    await until(() => logs().length, "событие log в ленте");
     await tick(20);
     expect([seen, logs().length]).toEqual([1, 1]);
     expect(st.journal().filter((l) => l.word === "module_failed")).toMatchObject([{ level: "error", module: "host-broken", callsign: CS, why: "не смог показать" }]);
@@ -145,9 +145,9 @@ describe("беды Claude — одна таблица на машине", () => 
     const { proc } = await st.open("site");
     await st.request("session.watch", { to: CS }, PULT);
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
-    await until(() => st!.kernel.sessions.get(CS)!.state === "busy", 5000, "ход идёт");
+    await until(() => st!.kernel.sessions.get(CS)!.state === "busy", "ход идёт");
     await st.request("session.call", { to: CS, method: "interrupt" }, PULT);
-    await until(() => feed().some((e) => e.type === "result"), 5000, "итог хода в ленте");
+    await until(() => feed().some((e) => e.type === "result"), "итог хода в ленте");
     await tick(20);
     expect(journal("sdk.result")).toMatchObject([{ callsign: CS, level: "info", word: "interrupted" }]);
     expect(logs()).toEqual([]);
@@ -162,7 +162,7 @@ describe("беды Claude — одна таблица на машине", () => 
     proc.send(init);
     proc.send({ type: "result", subtype: "success", is_error: true, result: "API Error: Request rejected (429) · Subscription quota exhausted." });
     proc.send(init);
-    await until(() => logs().length === 2, 5000, "две строки беды в ленте");
+    await until(() => logs().length === 2, "две строки беды в ленте");
     await tick(20);
     expect(logs().map((e) => [e.level, e.msg, e.why])).toEqual([
       ["error", "sdk.init", "серверы инструментов не поднялись: ida"],

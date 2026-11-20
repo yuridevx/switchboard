@@ -36,9 +36,9 @@ describe("дать работу сессии", () => {
     // письмо остановленной — отказ; тикет — поднимает
     expect(await st.request("message", { to: "ops@laptop", text: "проверь ферму" }, PULT)).toMatchObject({ ok: false, error: "stopped" });
     expect(await give(st, "ops", "site-1", { step: "обход" })).toMatchObject({ ok: true, result: { callsign: "ops@laptop" } });
-    await until(() => s.state === "idle" || s.state === "busy", 5000, "сессия поднята");
+    await until(() => s.state === "idle" || s.state === "busy", "сессия поднята");
     const p = st.proc("ops@laptop");
-    await until(() => p.inputs.length > 0, 5000, "ввод у процесса");
+    await until(() => p.inputs.length > 0, "ввод у процесса");
     expect(lastInput(p)).toBe('<fleet from=".factory" kind="ticket" ticket="site-1" step="обход">\nТикет site-1: шапка сайта\n</fleet>');
     // шаг — новым ходом: ввод ждёт конца идущего хода
     expect(p.inputs.at(-1)!.priority).toBe("later");
@@ -50,7 +50,7 @@ describe("дать работу сессии", () => {
     st = await stand({ modules: [chat(), work()] });
     const { proc } = await st.open("cto");
     await give(st, "cto", "site-7");
-    await until(() => proc.inputs.length === 1, 5000, "шаг во вводе");
+    await until(() => proc.inputs.length === 1, "шаг во вводе");
     // пока ход шаг не взял, напоминать не о чем
     expect(reminded(await proc.hook("Stop", { stop_hook_active: false }))).toHaveLength(0);
     await take(proc);
@@ -63,7 +63,7 @@ describe("дать работу сессии", () => {
     await st.turn("cto@laptop");
     // следом посту пишет человек: его ход кончается без напоминания, хотя тикет ещё не сдан
     await st.request("message", { to: "cto@laptop", text: "какой прогресс?" }, PULT);
-    await until(() => proc.inputs.length === 2, 5000, "сообщение человека");
+    await until(() => proc.inputs.length === 2, "сообщение человека");
     await take(proc);
     expect(reminded(await proc.hook("Stop", { stop_hook_active: false }))).toHaveLength(0);
     await st.turn("cto@laptop");
@@ -71,7 +71,7 @@ describe("дать работу сессии", () => {
 
     // второй шаг: идёт фоновая работа — ход ещё вернётся сам; вердикт ушёл — напоминать не о чем
     await give(st, "cto", "site-8");
-    await until(() => proc.inputs.length === 3, 5000, "второй шаг");
+    await until(() => proc.inputs.length === 3, "второй шаг");
     await take(proc);
     expect(reminded(await proc.hook("Stop", { stop_hook_active: false, background_tasks: [{ id: "b1" }] }))).toHaveLength(0);
     await proc.hook("PostToolUse", { tool_name: "mcp__fleet__ticket_set", tool_input: { ticket: "site-8", verdict: "done" } });
@@ -86,10 +86,10 @@ describe("дать работу сессии", () => {
     const b = await first.open("dev-b");
     await give(first, "dev-a", "site-1");
     await give(first, "dev-b", "site-2");
-    await until(() => a.proc.inputs.length === 1 && b.proc.inputs.length === 1, 5000, "шаги во вводе");
+    await until(() => a.proc.inputs.length === 1 && b.proc.inputs.length === 1, "шаги во вводе");
     await first.kernel.shutdown("подмена");
     st = await stand({ holders, home: first.home, modules: [chat(), work()] });
-    await until(() => st!.kernel.sessions.get("dev-a@laptop")!.state === "idle" && st!.kernel.sessions.get("dev-b@laptop")!.state === "idle", 5000, "attach");
+    await until(() => st!.kernel.sessions.get("dev-a@laptop")!.state === "idle" && st!.kernel.sessions.get("dev-b@laptop")!.state === "idle", "attach");
     // процессы те же, ввод у них на руках: второй раз шаг не даётся
     expect(st.proc("dev-a@laptop")).toBe(a.proc);
     expect(a.proc.inputs).toHaveLength(1);
@@ -106,16 +106,16 @@ describe("дать работу сессии", () => {
     expect(await st.request("work.give", { to: "@laptop", name: "coder", ticket: "site-1", text: "чужой" }, PULT)).toMatchObject({ ok: false, error: "forbidden" });
     expect(await give(st, "ghost", "site-1")).toMatchObject({ ok: false, error: "no_session" });
     await give(st, "coder", "site-3");
-    await until(() => proc.inputs.length === 1, 5000, "шаг во вводе");
+    await until(() => proc.inputs.length === 1, "шаг во вводе");
     await take(proc);
     // процесс умер, второй не поднялся: сессия failed — машина говорит службе, что шаг встал
     proc.exit(1, "упал");
-    await until(() => st!.holders.procs.get("coder@laptop") !== proc && st!.holders.procs.get("coder@laptop")?.failInit !== undefined, 5000, "resume");
+    await until(() => st!.holders.procs.get("coder@laptop") !== proc && st!.holders.procs.get("coder@laptop")?.failInit !== undefined, "resume");
     const second = st.holders.procs.get("coder@laptop")!;
     second.failInit = true;
     second.exit(1, "не поднялся");
-    await until(() => s.state === "failed", 5000, "failed");
-    const told = await until(() => st!.services.of("ticket.set")[0], 5000, "вердикт машины");
+    await until(() => s.state === "failed", "failed");
+    const told = await until(() => st!.services.of("ticket.set")[0], "вердикт машины");
     expect(told).toMatchObject({ ticket: "site-3", verdict: "stop" });
     expect(String(told.note)).toContain("сбоем");
     // сессии failed работу не дают
@@ -133,11 +133,11 @@ describe("дать работу сессии", () => {
     expect(s.rec.by).toBe(".factory");
     expect(s.rec.spec.parent).toBeUndefined();
     const p = st.proc("site-9-s1@laptop");
-    await until(() => p.inputs.length === 1, 5000, "шаг во вводе");
+    await until(() => p.inputs.length === 1, "шаг во вводе");
     expect(lastInput(p)).toContain('kind="ticket" ticket="site-9" step="сделать"');
     // второй шаг той же сессии: она уже есть — документ не нужен, ввод встаёт в тот же разговор
     await give(st, "site-9-s1", "site-9", { step: "довести" });
-    await until(() => p.inputs.length === 2, 5000, "второй шаг во вводе");
+    await until(() => p.inputs.length === 2, "второй шаг во вводе");
     expect(st.kernel.sessions.size).toBe(1);
   });
 
@@ -151,13 +151,13 @@ describe("дать работу сессии", () => {
     // тикет создала сессия boss: вопрос исполнителя приходит ей, она отвечает инструментом answer
     await give(st, "dev", "site-3", { asker: "boss@laptop" });
     const asked = proc.ask("AskUserQuestion", question, "q-1");
-    await until(() => boss.inputs.some((m) => String(m.message.content).startsWith('<fleet from="dev@laptop" kind="question" ask="q-1">')), 5000, "вопрос у создателя тикета");
+    await until(() => boss.inputs.some((m) => String(m.message.content).startsWith('<fleet from="dev@laptop" kind="question" ask="q-1">')), "вопрос у создателя тикета");
     expect((await st.request("answer", { to: "dev@laptop", ask: "q-1", answer: "main" }, "boss@laptop")).ok).toBe(true);
     await asked;
     // тикет создал человек: вопрос уходит ему зовом
     await give(st, "dev", "site-4", { asker: PULT });
     void proc.ask("AskUserQuestion", question, "q-2");
-    expect(await until(() => st!.services.of("reach.send").find((f) => f.ask === "q-2"), 5000, "зов человека")).toMatchObject({ to: "~yuri@example.com", kind: "ask", callsign: "dev@laptop" });
+    expect(await until(() => st!.services.of("reach.send").find((f) => f.ask === "q-2"), "зов человека")).toMatchObject({ to: "~yuri@example.com", kind: "ask", callsign: "dev@laptop" });
   });
 
   // эталон 18 — чьё: слово пользователя («серия сессий с приёмкой»): «сдал» шагу с проверкой проходит через скрипт на машине сессии

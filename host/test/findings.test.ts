@@ -20,7 +20,7 @@ describe("находки: разговор", () => {
     st = await stand({ modules: [chat()] });
     const { proc, s } = await st.open("site");
     proc.send({ type: "system", subtype: "session_state_changed", state: "running" });
-    await until(() => s.state === "busy", 5000, "ход");
+    await until(() => s.state === "busy", "ход");
     const uuid = ((await st.request("message", { to: CS, text: "ещё одно" }, PULT)).result as any).uuid as string;
     expect(await st.request("message.cancel", { to: CS, uuid }, ANYA)).toMatchObject({ ok: false, error: "not_owner" });
     expect(st.sdk.last(CS)!.calls.some((c) => c.name === "cancelAsyncMessage")).toBe(false);

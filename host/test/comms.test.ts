@@ -25,7 +25,7 @@ async function family(o: Parameters<typeof stand>[0] = {}): Promise<Stand> {
   const s = await stand({ modules: [chat()], ...o });
   await s.open("boss");
   await s.request("session.open", { to: "@laptop", spec: { name: "kid", cwd: s.dir }, prompt: "проверь трафик" }, BOSS);
-  await until(() => s.proc(KID).inputs.length === 1, 5000, "задача у дочери");
+  await until(() => s.proc(KID).inputs.length === 1, "задача у дочери");
   return s;
 }
 
@@ -35,7 +35,7 @@ describe("итог хода: открытая задача", () => {
     st = await family();
     await st.request("message", { to: KID, text: "и логи посмотри" }, PULT);
     await st.turn(KID, [], "трафик чист, логи тоже");
-    await until(() => results(st!, BOSS, KID).length === 1, 5000, "итог у родителя");
+    await until(() => results(st!, BOSS, KID).length === 1, "итог у родителя");
     expect(results(st, BOSS, KID)).toEqual(["трафик чист, логи тоже"]);
   });
 
@@ -43,10 +43,10 @@ describe("итог хода: открытая задача", () => {
   it("дочь взяла задачу, запустила фон и ответила; человек написал ей «ну»; фон кончился, дочь ответила — оба итога у родителя, после второго задача сдана", async () => {
     st = await family();
     await st.turn(KID, [BG], "запустила проверку в фоне, жду");
-    await until(() => results(st!, BOSS, KID).length === 1, 5000, "первый итог");
+    await until(() => results(st!, BOSS, KID).length === 1, "первый итог");
     await st.request("message", { to: KID, text: "ну" }, PULT);
     await st.turn(KID, [BG_DONE], "Итог проверки: спуф в 3 из 88 пакетов");
-    await until(() => results(st!, BOSS, KID).length === 2, 5000, "второй итог");
+    await until(() => results(st!, BOSS, KID).length === 2, "второй итог");
     expect(results(st, BOSS, KID)).toEqual(["запустила проверку в фоне, жду", "Итог проверки: спуф в 3 из 88 пакетов"]);
     // чьё: факт прода — 62 таких хода в выборке; гейт — обмен, без которого поток работает
     await st.request("message", { to: KID, text: "спасибо, а что по логам?" }, PULT);
@@ -59,13 +59,13 @@ describe("итог хода: открытая задача", () => {
   it("дочь открыла свою дочь и ответила «жду»; пришёл итог её дочери, она ответила — оба итога у родителя", async () => {
     st = await family();
     await st.request("session.open", { to: "@laptop", spec: { name: "grand", cwd: st.dir }, prompt: "собери срез" }, KID);
-    await until(() => st!.proc(GRAND).inputs.length === 1, 5000, "задача у внучки");
+    await until(() => st!.proc(GRAND).inputs.length === 1, "задача у внучки");
     await st.turn(KID, [], "открыла внучку, жду");
-    await until(() => results(st!, BOSS, KID).length === 1, 5000, "первый итог");
+    await until(() => results(st!, BOSS, KID).length === 1, "первый итог");
     await st.turn(GRAND, [], "срез собран");
-    await until(() => results(st!, KID, GRAND).length === 1, 5000, "итог внучки у дочери");
+    await until(() => results(st!, KID, GRAND).length === 1, "итог внучки у дочери");
     await st.turn(KID, [], "срез собран, трафик чист");
-    await until(() => results(st!, BOSS, KID).length === 2, 5000, "второй итог");
+    await until(() => results(st!, BOSS, KID).length === 2, "второй итог");
     expect(results(st, BOSS, KID)).toEqual(["открыла внучку, жду", "срез собран, трафик чист"]);
   });
 
@@ -77,10 +77,10 @@ describe("итог хода: открытая задача", () => {
     const kid = first.proc(KID);
     await first.kernel.shutdown("подмена");
     st = await stand({ home, holders, modules: [chat()] });
-    await until(() => st!.kernel.sessions.get(KID)?.state === "idle" && st!.kernel.sessions.get(BOSS)?.state === "idle", 5000, "attach");
+    await until(() => st!.kernel.sessions.get(KID)?.state === "idle" && st!.kernel.sessions.get(BOSS)?.state === "idle", "attach");
     expect(st.proc(KID)).toBe(kid);
     await st.turn(KID, [], "трафик чист");
-    await until(() => results(st!, BOSS, KID).length === 1, 5000, "итог у родителя");
+    await until(() => results(st!, BOSS, KID).length === 1, "итог у родителя");
     expect(kid.inputs).toHaveLength(1);
   });
 
@@ -94,16 +94,16 @@ describe("итог хода: открытая задача", () => {
     const first = await family({ home, holders, modules: [chat(), slow] });
     const kid = first.proc(KID);
     kid.send({ type: "system", subtype: "session_state_changed", state: "running", session_id: "s" });
-    await until(() => first.kernel.sessions.get(KID)!.state === "busy", 5000, "дочь занята");
+    await until(() => first.kernel.sessions.get(KID)!.state === "busy", "дочь занята");
     const down = first.kernel.shutdown("подмена");
     kid.send({ type: "result", subtype: "success", result: "трафик чист", session_id: "s", user_message_uuids: [kid.inputs[0]!.uuid] });
     kid.send({ type: "system", subtype: "session_state_changed", state: "idle", session_id: "s" });
-    await until(() => first.journal().find((l) => l.msg === "report_kept"), 5000, "итог сохранён");
+    await until(() => first.journal().find((l) => l.msg === "report_kept"), "итог сохранён");
     expect(results(first, BOSS, KID)).toEqual([]);
     release();
     await down;
     st = await stand({ home, holders, modules: [chat()] });
-    await until(() => results(st!, BOSS, KID).length === 1, 5000, "итог у родителя после запуска");
+    await until(() => results(st!, BOSS, KID).length === 1, "итог у родителя после запуска");
     expect(results(st, BOSS, KID)).toEqual(["трафик чист"]);
     await tick(40);
     expect(results(st, BOSS, KID)).toHaveLength(1);
@@ -114,7 +114,7 @@ describe("итог хода: открытая задача", () => {
     st = await family();
     await st.request("session.stop", { to: BOSS }, PULT);
     await st.turn(KID, [], "трафик чист");
-    const line = await until(() => st!.journal().find((l) => l.msg === "report" && l.level === "warn"), 5000, "строка журнала");
+    const line = await until(() => st!.journal().find((l) => l.msg === "report" && l.level === "warn"), "строка журнала");
     expect(line).toMatchObject({ callsign: KID, to: BOSS, word: "stopped" });
     expect(st.link.rows(KID).at(-1)!.row).toMatchObject({ result: "трафик чист" });
   });
@@ -123,13 +123,13 @@ describe("итог хода: открытая задача", () => {
   it("запуск на машине кончился без ожидания — хозяйке приходит весть видом news, и ход по ней сдаёт итог родителю", async () => {
     st = await family({ modules: [chat(), shell()] });
     await st.turn(KID, [], "запустила скрипт, жду");
-    await until(() => results(st!, BOSS, KID).length === 1, 5000, "первый итог");
+    await until(() => results(st!, BOSS, KID).length === 1, "первый итог");
     const run = await st.request("shell.run", { to: "@laptop", script: "console.log(1)", shell: "node" }, KID);
     expect(run.ok).toBe(true);
-    const news = await until(() => got(st!, KID).find((t) => t.startsWith('<fleet from="@laptop" kind="news">')), 10_000, "весть о конце запуска");
+    const news = await until(() => got(st!, KID).find((t) => t.startsWith('<fleet from="@laptop" kind="news">')), "весть о конце запуска");
     expect(news).toContain("кончился");
     await st.turn(KID, [], "скрипт вернул 1");
-    await until(() => results(st!, BOSS, KID).length === 2, 5000, "второй итог");
+    await until(() => results(st!, BOSS, KID).length === 2, "второй итог");
   });
 });
 
@@ -181,11 +181,11 @@ describe("разрешение сессии, открытой сессией", (
     st.services.handlers["fleet.list"] = () => ({ machines: [{ name: "laptop", owner: "~yuri@example.com", online: true, since: 1 }], sessions: [], people: [] });
     await st.open("boss");
     await st.request("session.open", { to: "@laptop", spec: { name: "kid", cwd: st.dir, mode: "ask" }, prompt: "выложи" }, BOSS);
-    await until(() => st!.kernel.sessions.get(KID)?.state === "idle", 5000, "дочь готова");
+    await until(() => st!.kernel.sessions.get(KID)?.state === "idle", "дочь готова");
     void st.proc(KID).ask("Bash", { command: "git push origin main" }, "toolu_p1");
-    const sent = await until(() => st!.services.of("reach.send")[0], 5000, "зов человека");
+    const sent = await until(() => st!.services.of("reach.send")[0], "зов человека");
     expect(sent).toMatchObject({ to: "~yuri@example.com", kind: "ask", ask: "toolu_p1", callsign: KID });
-    const news = await until(() => got(st!, BOSS).find((t) => t.startsWith(`<fleet from="${KID}" kind="news">`)), 5000, "весть родителю");
+    const news = await until(() => got(st!, BOSS).find((t) => t.startsWith(`<fleet from="${KID}" kind="news">`)), "весть родителю");
     expect(news).toContain("Ждёт ответа человека: разрешение");
     expect(st.link.rows(KID).at(-1)!.row).toMatchObject({ ask: { id: "toolu_p1", to: "~yuri@example.com" } });
     // сессия такое решить не может — только человек

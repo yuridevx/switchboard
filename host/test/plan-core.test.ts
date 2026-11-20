@@ -22,7 +22,7 @@ describe("план v2: запуск Host", () => {
   it("держателей нет: живая сессия поднята resume тем же разговором, остановленная остаётся остановленной", async () => {
     st = await stand({ sessions: [{ callsign: CS }, { callsign: "old@laptop", stopped: true }] });
     const site = st.kernel.sessions.get(CS)!;
-    await until(() => site.state === "idle", 5000, "site idle");
+    await until(() => site.state === "idle", "site idle");
     expect((st.sdk.last(CS)!.options as any).resume).toBe("sid-" + CS);
     expect(st.holders.spawns.map((s) => s.id)).toEqual([CS]);
     expect(st.kernel.sessions.get("old@laptop")!.state).toBe("stopped");
@@ -38,7 +38,7 @@ describe("план v2: запуск Host", () => {
     await first.kernel.shutdown("подмена");
     st = await stand({ holders, home: first.home, sdkVersion: "0.3.321" });
     const again = st.kernel.sessions.get(CS)!;
-    await until(() => holders.spawns.length === 2 && again.state === "idle" && again.rec.sdk === "0.3.321", 5000, "перезапуск на новом SDK");
+    await until(() => holders.spawns.length === 2 && again.state === "idle" && again.rec.sdk === "0.3.321", "перезапуск на новом SDK");
     expect(holders.ops.filter((o) => o.op === "attach").length).toBeGreaterThan(0);
     expect((st.sdk.last(CS)!.options as any).resume).toBe(sid);
   });
@@ -65,7 +65,7 @@ describe("план v2: запуск Host", () => {
     expect(logged("orphan_kill")[0]).toMatchObject({ callsign: CS });
     refuse.compose = () => ({});
     expect(await st.request("session.start", { to: CS })).toMatchObject({ ok: true });
-    await until(() => s.state === "idle", 5000, "сессия поднята заново");
+    await until(() => s.state === "idle", "сессия поднята заново");
     expect(holders.procs.get(CS)!.pid).not.toBe(old.pid);
   });
 
@@ -81,7 +81,7 @@ describe("план v2: запуск Host", () => {
     const picky: Module = { name: "picky", compose(s) { if (s.callsign === "a@laptop") throw new Error("нет набора"); return {}; } };
     st = await stand({ modules: [picky], sessions: [{ callsign: "a@laptop" }, { callsign: "b@laptop" }] });
     const a = st.kernel.sessions.get("a@laptop")!, b = st.kernel.sessions.get("b@laptop")!;
-    await until(() => a.state === "failed" && b.state === "idle", 5000, "a failed, b idle");
+    await until(() => a.state === "failed" && b.state === "idle", "a failed, b idle");
     expect(st.link.rows("a@laptop").at(-1)!.row).toMatchObject({ state: "failed", error: expect.stringContaining("picky") });
     expect(logged("session_failed").some((l) => l.callsign === "a@laptop")).toBe(true);
   });
@@ -93,13 +93,13 @@ describe("план v2: процесс сессии", () => {
     st = await stand();
     st.holders.failInitNext = 1;
     const opening = st.request("session.open", { to: "@laptop", spec: { name: "site", cwd: st.dir } }, PULT);
-    await until(() => st!.holders.procs.get(CS)?.failInit && st!.holders.procs.get(CS)!.initializes === 1, 5000, "молчащий процесс");
+    await until(() => st!.holders.procs.get(CS)?.failInit && st!.holders.procs.get(CS)!.initializes === 1, "молчащий процесс");
     st.clock.advance(60_000);
     expect(await opening).toMatchObject({ ok: false, error: "open_failed" });
     expect(logged("initialize_late")[0]).toMatchObject({ callsign: CS });
     expect(st.holders.ops.some((o) => o.op === "kill" && o.id === CS)).toBe(true);
     const s = st.kernel.sessions.get(CS)!;
-    await until(() => st!.holders.spawns.length === 2 && s.state === "idle", 5000, "resume");
+    await until(() => st!.holders.spawns.length === 2 && s.state === "idle", "resume");
   });
 
   // чьё: код — вторая попытка ничего не даст, причина прямо в строке
@@ -110,7 +110,7 @@ describe("план v2: процесс сессии", () => {
     const { s, proc } = await st.open("site", { cwd });
     rmSync(cwd, { recursive: true });
     proc.exit(1, "spawn claude ENOENT: no such file or directory");
-    await until(() => s.state === "failed", 5000, "failed");
+    await until(() => s.state === "failed", "failed");
     expect(st.link.rows(CS).at(-1)!.row).toMatchObject({ state: "failed", error: expect.stringContaining("папки сессии нет") });
     expect(st.holders.spawns).toHaveLength(1);
   });
@@ -120,7 +120,7 @@ describe("план v2: процесс сессии", () => {
     st = await stand();
     const { s, proc } = await st.open("site");
     proc.exit(0, "", null, true);
-    await until(() => s.state === "stopped", 5000, "stopped");
+    await until(() => s.state === "stopped", "stopped");
     await tick();
     expect(st.holders.spawns).toHaveLength(1);
     expect(logged("session_os_stop")[0]).toMatchObject({ callsign: CS });
@@ -131,13 +131,13 @@ describe("план v2: процесс сессии", () => {
     st = await stand();
     st.holders.failInitNext = 2;
     const opening = st.request("session.open", { to: "@laptop", spec: { name: "site", cwd: st.dir } }, PULT);
-    await until(() => st!.holders.procs.get(CS)?.initializes === 1, 5000, "первый процесс");
+    await until(() => st!.holders.procs.get(CS)?.initializes === 1, "первый процесс");
     st.holders.procs.get(CS)!.exit(1, "упал до готовности");
     expect(await opening).toMatchObject({ ok: false, error: "open_failed" });
     const s = st.kernel.sessions.get(CS)!;
-    await until(() => st!.holders.spawns.length === 2 && st!.holders.procs.get(CS)?.initializes === 1, 5000, "resume");
+    await until(() => st!.holders.spawns.length === 2 && st!.holders.procs.get(CS)?.initializes === 1, "resume");
     st.holders.procs.get(CS)!.exit(1, "упал снова");
-    await until(() => s.state === "failed", 5000, "failed");
+    await until(() => s.state === "failed", "failed");
     expect(st.link.rows(CS).at(-1)!.row).toMatchObject({ state: "failed", error: expect.stringContaining("второй сбой до готовности") });
     expect(st.holders.spawns).toHaveLength(2);
   });
@@ -164,7 +164,7 @@ describe("план v2: стоп и старт сессии", () => {
     expect([lead.state, wing.state, lead.rec.stopped]).toEqual(["stopped", "stopped", true]);
     expect(st.holders.procs.has("lead@laptop")).toBe(false);
     expect(await st.request("session.start", { to: "lead@laptop" }, PULT)).toMatchObject({ ok: true });
-    await until(() => lead.state === "idle" && wing.state === "idle", 5000, "пара запущена");
+    await until(() => lead.state === "idle" && wing.state === "idle", "пара запущена");
     expect((st.sdk.last("lead@laptop")!.options as any).resume).toBe(sid);
     expect(lead.rec.stopped).toBe(false);
   });
@@ -175,11 +175,11 @@ describe("план v2: стоп и старт сессии", () => {
     const { s, proc } = await st.open("site");
     st.holders.failInitNext = 1;
     proc.exit(1, "упал");
-    await until(() => st!.holders.procs.get(CS)?.failInit, 5000, "неготовый процесс");
+    await until(() => st!.holders.procs.get(CS)?.failInit, "неготовый процесс");
     st.holders.procs.get(CS)!.exit(1, "не поднялся");
-    await until(() => s.state === "failed", 5000, "failed");
+    await until(() => s.state === "failed", "failed");
     expect(await st.request("session.start", { to: CS }, PULT)).toMatchObject({ ok: true });
-    await until(() => s.state === "idle", 5000, "idle");
+    await until(() => s.state === "idle", "idle");
     expect((st.link.rows(CS).at(-1)!.row as any).error).toBeUndefined();
   });
 
@@ -189,12 +189,12 @@ describe("план v2: стоп и старт сессии", () => {
     await st.request("session.stop", { to: CS }, PULT);
     st.holders.failInitNext = 2;
     const starting = st.request("session.start", { to: CS }, PULT);
-    await until(() => st!.holders.procs.get(CS)?.initializes === 1, 5000, "первый процесс");
+    await until(() => st!.holders.procs.get(CS)?.initializes === 1, "первый процесс");
     st.holders.procs.get(CS)!.exit(1, "упал до готовности");
     expect(await starting).toMatchObject({ ok: false, error: "open_failed" });
-    await until(() => st!.holders.spawns.length === 3 && st!.holders.procs.get(CS)?.initializes === 1, 5000, "resume");
+    await until(() => st!.holders.spawns.length === 3 && st!.holders.procs.get(CS)?.initializes === 1, "resume");
     st.holders.procs.get(CS)!.exit(1, "упал снова");
-    await until(() => s.state === "failed", 5000, "failed");
+    await until(() => s.state === "failed", "failed");
   });
 
   // устав: graceful shutdown — «доводит или отдаёт текущее»
@@ -203,7 +203,7 @@ describe("план v2: стоп и старт сессии", () => {
     const { s, proc } = await st.open("site");
     proc.busy = true;
     proc.send({ type: "system", subtype: "session_state_changed", state: "running", session_id: "s" });
-    await until(() => s.state === "busy", 5000, "busy");
+    await until(() => s.state === "busy", "busy");
     expect(await st.request("session.stop", { to: CS }, PULT)).toMatchObject({ ok: true });
     expect(proc.interrupts).toBe(1);
     const ops = st.holders.ops.filter((o) => o.id === CS).map((o) => o.op);
@@ -218,9 +218,9 @@ describe("план v2: стоп и старт сессии", () => {
     proc.busy = true;
     proc.noInterrupt = true;
     proc.send({ type: "system", subtype: "session_state_changed", state: "running", session_id: "s" });
-    await until(() => s.state === "busy", 5000, "busy");
+    await until(() => s.state === "busy", "busy");
     const stopping = st.request("session.stop", { to: CS }, PULT);
-    await until(() => proc.interrupts === 1, 5000, "прерывание ушло");
+    await until(() => proc.interrupts === 1, "прерывание ушло");
     st.clock.advance(30_000);
     expect(await stopping).toMatchObject({ ok: true });
     expect(st.holders.ops.some((o) => o.op === "kill" && o.id === CS)).toBe(true);
@@ -235,7 +235,7 @@ describe("план v2: связь и остановка Host", () => {
   it("запрос через соединение ждал ответа, соединение оборвалось — отказ offline сразу", async () => {
     st = await stand();
     const waiting = st.kernel.call(sessionStop, { to: "docs@server" });
-    await until(() => st!.link.of("session.stop").length === 1, 5000, "запрос ушёл");
+    await until(() => st!.link.of("session.stop").length === 1, "запрос ушёл");
     st.link.drop();
     await expect(waiting).rejects.toMatchObject({ word: "offline" });
     // и запрос, пришедший уже без соединения, — тоже сразу
@@ -247,7 +247,7 @@ describe("план v2: связь и остановка Host", () => {
     st = await stand();
     const { proc } = await st.open("site");
     st.link.stop();
-    await until(() => st!.exits.length === 1, 5000, "выход");
+    await until(() => st!.exits.length === 1, "выход");
     expect(st.exits).toEqual([0]);
     expect(logged("link_stopped")).toHaveLength(1);
     expect(proc.alive).toBe(true);
