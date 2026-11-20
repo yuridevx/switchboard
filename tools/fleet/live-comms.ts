@@ -143,11 +143,18 @@ await check(async (t: any) => {
 
   // свой позывной и правила сессия знает из слов Host: назвать их может только модель, которая понимает прочитанное
   if (!t.lacks("mind")) await stepTalk("правила пережили сжатие: сессия называет свой позывной и инструмент ответа соседу", async () => {
+    // почти пустой разговор Claude не сжимает: сначала дочь набирает разговор
+    for (let i = 1; i <= 2; i++) await child.turn(script(say(`часть ${i}: ` + "велосипед едет, пока крутятся колёса, цепь тянет звезду, а руль держит путь; ".repeat(25))));
     // сжатие встаёт в очередь ввода первым: вопрос идёт после него
     await t.must("session.call", { to: child.callsign, method: "compact" });
-    const a = (await child.turn("Назови одной строкой свой позывной во флоте и имя инструмента, которым отвечают на сообщение другой сессии (kind message).")).text;
-    if (!(await child.history()).some((e: any) => e.subtype === "compact_boundary")) throw new Error("сжатия в разговоре нет");
-    if (!a.includes(child.callsign) || !/\bmessage\b/.test(a)) throw new Error("ответ: " + a.slice(0, 120));
+    const uuid = await child.send("Назови одной строкой свой позывной во флоте и имя инструмента, которым отвечают на сообщение другой сессии (kind message).");
+    const a = (await child.ended(uuid)).text;
+    // сжатие в истории — запись-пересказ (isCompactSummary): у системных записей истории вида нет; пересказ стоит до вопроса
+    const h = await child.history();
+    const summary = h.findLastIndex((e: any) => e.isCompactSummary);
+    if (summary < 0 || summary > h.findIndex((e: any) => e.uuid === uuid)) throw new Error("сжатия до вопроса в разговоре нет");
+    // инструмент модель называет как видит его сама — mcp__fleet__message — или коротким именем message
+    if (!a.includes(child.callsign) || !/(?:\b|_)message\b/.test(a)) throw new Error("ответ: " + a.slice(0, 120));
     return short(a, 90);
   });
 
