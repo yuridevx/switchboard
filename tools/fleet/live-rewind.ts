@@ -12,11 +12,16 @@ await check(async (t: any) => {
   const flat = (text: string) => text.replace(/\s+/g, " ").trim();
   /** Сообщения человека в разговоре: без входящих от флота. */
   const humans = async (s: any) => ((await s.history()) as Ev[]).filter((e) => e.type === "user" && typeof e.message?.content === "string" && !String(e.message.content).startsWith("<"));
+  /** Виды записей разговора — для «видел» в красной строке. */
+  const kinds = (ev: Ev[]) => "записи разговора: " + (ev.map((e) => e.subtype ?? e.type).join(", ") || "нет");
   /** Разговор очищен: в истории след сброса и ни одного ответа модели. Очистка идёт вводом сессии — ответ на запрос приходит раньше неё. */
-  const cleared = (s: any) => t.wait(`разговор ${s.callsign} очищен`, async () => {
-    const ev = (await s.history()) as Ev[];
-    return ev.some((e) => e.type === "conversation_reset") && !ev.some((e) => e.type === "assistant");
-  });
+  const cleared = (s: any) => {
+    let ev: Ev[] = [];
+    return t.wait(`разговор ${s.callsign} очищен`, async () => {
+      ev = await s.history();
+      return ev.some((e) => e.type === "conversation_reset") && !ev.some((e) => e.type === "assistant");
+    }, () => kinds(ev));
+  };
 
   /* Откат и очистка одной сессии */
   let s: any, u1 = "", u2 = "", u3 = "";
@@ -154,7 +159,11 @@ await check(async (t: any) => {
     const before = (await news()).length;
     await t.must("session.call", { to: wing.callsign, method: "compact" });
     // сжатие идёт вводом сессии: его конец — граница сжатия в разговоре ведомого
-    await t.wait("граница сжатия в разговоре ведомого", async () => ((await wing.history()) as Ev[]).some((e) => e.subtype === "compact_boundary"));
+    let ev: Ev[] = [];
+    await t.wait("граница сжатия в разговоре ведомого", async () => {
+      ev = await wing.history();
+      return ev.some((e) => e.subtype === "compact_boundary");
+    }, () => kinds(ev));
     await wing.idle();
     // очистка человеком весть даёт — она же барьер: весть о сжатии, будь она, пришла бы ведущей раньше вести об очистке
     await t.must("session.rewind", { to: wing.callsign });
