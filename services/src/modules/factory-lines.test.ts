@@ -242,7 +242,7 @@ describe("фабрика: конвейер", () => {
     await s.ask("ticket.set", { ticket: b, note: "сначала спроси владельца про сроки" });
     await as(s, "cto@laptop", "ticket.set", { ticket: a, verdict: "done" });
     expect(gives(s).map((g) => g.ticket)).toEqual([a, b]);
-    expect(String(gives(s).at(-1)!.text)).toContain("Последняя заметка к тикету: сначала спроси владельца про сроки");
+    expect(String(gives(s).at(-1)!.text)).toContain("Заметки к тикету (1):\n— pult~yuri@example.com: сначала спроси владельца про сроки");
     expect(await s.ask("ticket.new", { project: "site", to: "nowhere", title: "Некому" })).toMatchObject({ ok: false, error: "no_dest" });
     expect(await s.ask("ticket.new", { project: "site", to: "design", tag: "magic", title: "Нет поста под метку" })).toMatchObject({ ok: false, error: "no_dest" });
     // бэклог → назначить конвейеру: срок у конвейера свой
@@ -320,8 +320,12 @@ describe("фабрика: правила входа", () => {
     expect(notes.map((n) => [n.by, n.verdict, n.text.includes("потерь за час: 4")])).toEqual(Array(3).fill([".factory", undefined, true]));
     expect(gives(s)).toHaveLength(1);
     expect(ruleLines(s).map((l) => [l.outcome, l.ticket, l.code])).toEqual([["ticket", "site-1", 1], ["note", "site-1", 1], ["note", "site-1", 1], ["note", "site-1", 1]]);
+    // три находки пришли, пока пост вёл тикет: «сдал» один раз возвращается с их текстом — пост закрывает тикет, зная о них
+    const unread = await as(s, "cto@laptop", "ticket.set", { ticket: "site-1", verdict: "done", note: "утечка закрыта" });
+    expect(unread).toMatchObject({ ok: false, error: "unread" });
+    expect(String(unread.why)).toContain("Заметки к тикету (3):");
+    expect(await as(s, "cto@laptop", "ticket.set", { ticket: "site-1", verdict: "done", note: "утечка закрыта" })).toMatchObject({ ok: true, result: { state: "done" } });
     // пост закрыл тикет — следующая находка заводит новый
-    await as(s, "cto@laptop", "ticket.set", { ticket: "site-1", verdict: "done", note: "утечка закрыта" });
     await ring(s, "counters");
     expect((await tickets(s)).map((t) => [t.id, t.state])).toEqual([["site-2", "work"], ["site-1", "done"]]);
     await close(s);

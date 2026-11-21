@@ -25,6 +25,10 @@ const take = async (p: FakeProc) => {
 };
 const reminded = (out: unknown[]) => out.filter((o) => (o as { decision?: string } | undefined)?.decision === "block") as { reason: string }[];
 const lines = (s: Stand) => s.journal().filter((l) => l.msg === "work");
+/** Ответ служб на ticket.list: тикет в состоянии state, шаг ведёт session. */
+const ticketIs = (s: Stand, state: string, session?: string) => {
+  s.services.handlers["ticket.list"] = (f) => ({ tickets: [{ id: f.ticket, project: "site", title: "Шапка", text: "", step: 0, state, ...(session ? { session } : {}), by: "~yuri@example.com", returns: 0, since: 1, moved: 1 }] });
+};
 
 describe("дать работу сессии", () => {
   // эталон 5 — чьё: факт (у Феникса письма остановленным сессиям терялись, 6 за день 16 ноября: отказ stopped никого не будит)
@@ -49,6 +53,8 @@ describe("дать работу сессии", () => {
   it("3 · ход, взявший шаг, без вердикта возвращён один раз; ход с человеком не возвращается; сданный шаг напоминания не получает", async () => {
     st = await stand({ modules: [chat(), work()] });
     const { proc } = await st.open("cto");
+    // шаг у сессии, пока тикет в работе у неё — так говорят службы
+    ticketIs(st, "work", "cto@laptop");
     await give(st, "cto", "site-7");
     await until(() => proc.inputs.length === 1, "шаг во вводе");
     // пока ход шаг не взял, напоминать не о чем
@@ -69,12 +75,12 @@ describe("дать работу сессии", () => {
     await st.turn("cto@laptop");
     expect(lines(st).map((l) => l.kind)).toEqual(["given", "reminded"]);
 
-    // второй шаг: идёт фоновая работа — ход ещё вернётся сам; вердикт ушёл — напоминать не о чем
+    // второй шаг: идёт фоновая работа — ход ещё вернётся сам; вердикт ушёл (тикет закрыт) — напоминать не о чем
     await give(st, "cto", "site-8");
     await until(() => proc.inputs.length === 3, "второй шаг");
     await take(proc);
     expect(reminded(await proc.hook("Stop", { stop_hook_active: false, background_tasks: [{ id: "b1" }] }))).toHaveLength(0);
-    await proc.hook("PostToolUse", { tool_name: "mcp__fleet__ticket_set", tool_input: { ticket: "site-8", verdict: "done" } });
+    ticketIs(st, "done", "cto@laptop");
     expect(reminded(await proc.hook("Stop", { stop_hook_active: false }))).toHaveLength(0);
   });
 
@@ -105,6 +111,8 @@ describe("дать работу сессии", () => {
     const { proc, s } = await st.open("coder");
     expect(await st.request("work.give", { to: "@laptop", name: "coder", ticket: "site-1", text: "чужой" }, PULT)).toMatchObject({ ok: false, error: "forbidden" });
     expect(await give(st, "ghost", "site-1")).toMatchObject({ ok: false, error: "no_session" });
+    // шаг всё ещё у этой сессии — так говорят службы
+    ticketIs(st, "work", "coder@laptop");
     await give(st, "coder", "site-3");
     await until(() => proc.inputs.length === 1, "шаг во вводе");
     await take(proc);
@@ -120,6 +128,56 @@ describe("дать работу сессии", () => {
     expect(String(told.note)).toContain("сбоем");
     // сессии failed работу не дают
     expect(await give(st, "coder", "site-4")).toMatchObject({ ok: false, error: "failed" });
+  });
+
+  // эталон 19 — чьё: факт — 121 из 218 заметок к тикету в работе не дошли до сессии (история флота 20–21 нояб.): отказ «сдал» с заметками не должен оставить ход без напоминания
+  it("19 · отказ «сдал» шаг не снимает: тикет всё ещё в работе у сессии — напоминание с отсрочкой; отложен, передан, закрыт — нет; службы молчат — нет и строка held", async () => {
+    st = await stand({ modules: [chat(), work()] });
+    const { proc } = await st.open("dev");
+    await give(st, "dev", "site-5");
+    await until(() => proc.inputs.length === 1, "шаг во вводе");
+    await take(proc);
+    // «сдал» получил отказ — тикет по-прежнему в работе у этой сессии: ход возвращается, ему названа отсрочка
+    ticketIs(st, "work", "dev@laptop");
+    const blocks = reminded(await proc.hook("Stop", { stop_hook_active: false }));
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]!.reason).toContain("site-5");
+    expect(blocks[0]!.reason).toContain("отложи шаг: in");
+    // шаг отложен, передан другой сессии или закрыт — он уже не у этой сессии
+    ticketIs(st, "ready", "dev@laptop");
+    expect(reminded(await proc.hook("Stop", { stop_hook_active: false }))).toHaveLength(0);
+    ticketIs(st, "work", "dev-2@laptop");
+    expect(reminded(await proc.hook("Stop", { stop_hook_active: false }))).toHaveLength(0);
+    ticketIs(st, "done", "dev@laptop");
+    expect(reminded(await proc.hook("Stop", { stop_hook_active: false }))).toHaveLength(0);
+    // службы не ответили — напоминания нет, причина в журнале
+    st.services.handlers["ticket.list"] = () => {
+      throw new Error("службы недоступны");
+    };
+    expect(reminded(await proc.hook("Stop", { stop_hook_active: false }))).toHaveLength(0);
+    expect(lines(st).filter((l) => l.kind === "held")).toMatchObject([{ callsign: "dev@laptop" }]);
+    expect(lines(st).filter((l) => l.kind === "reminded")).toHaveLength(1);
+  });
+
+  // эталон 20 — чьё: код — вердикт шагу даёт та, кто его ведёт
+  it("20 · шаг уже не её — «стоп» не уходит: сессия с шагом упала, а тикет в работе у другой сессии", async () => {
+    st = await stand({ modules: [chat(), work()] });
+    const { proc, s } = await st.open("coder");
+    ticketIs(st, "work", "coder-2@laptop");
+    await give(st, "coder", "site-3");
+    await until(() => proc.inputs.length === 1, "шаг во вводе");
+    await take(proc);
+    proc.exit(1, "упал");
+    await until(() => st!.holders.procs.get("coder@laptop") !== proc && st!.holders.procs.get("coder@laptop")?.failInit !== undefined, "resume");
+    const second = st.holders.procs.get("coder@laptop")!;
+    second.failInit = true;
+    second.exit(1, "не поднялся");
+    await until(() => s.state === "failed", "failed");
+    // машина спросила тикет, чей шаг
+    await until(() => st!.services.of("ticket.list").length > 0, "вопрос тикету");
+    // ещё один запрос туда и обратно — ответ тикета разобран
+    expect(await give(st, "coder", "site-4")).toMatchObject({ ok: false, error: "failed" });
+    expect(st.services.of("ticket.set")).toEqual([]);
   });
 
   it("сессии шага ещё нет — машина открывает её по документу из определения: папка создаётся, открыла служба «Фабрика», родителя нет", async () => {

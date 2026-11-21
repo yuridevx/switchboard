@@ -2,7 +2,7 @@
 // вердикт двигает тикет, потолок конвейера держит очередь, пауза не запускает новых шагов. Посты — сессии, которые уже есть в моке флота.
 // «Инфра» — плотная фабрика: конвейеры в несколько шагов, тикеты во всех состояниях. «Исследования» — редкая: посты с длинными названиями,
 // конвейеры в один шаг, два тикета и пауза.
-import { FACTORY, Refusal, termMs, type FactoryDef, type FactoryState, type Ticket, type TicketAct, type TicketNote, type Verdict } from "@sb/protocol";
+import { FACTORY, postSessions, Refusal, termMs, type FactoryDef, type FactoryState, type Ticket, type TicketAct, type TicketNote, type Verdict } from "@sb/protocol";
 import type { MockCtx } from "./screens.ts";
 
 type H = Record<string, (f: any) => unknown>;
@@ -10,8 +10,8 @@ const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
 const REPO = "example/sb-ops", LAB = "example/sb-lab";
 /** Проект по умолчанию — как у сессии, которая проект не называет. */
 const HOME = "infra";
-/** Тикет мока: заметки — всегда при нём. */
-type Row = Omit<Ticket, "notes" | "acts"> & { notes: TicketNote[] };
+/** Тикет мока: заметки — всегда при нём; held — сессия, которая отложила свой тикет: ей он и вернётся. */
+type Row = Omit<Ticket, "notes" | "acts"> & { notes: TicketNote[]; held?: string; /** сессия, которая вела прошлый шаг с сессией: «та же сессия» продолжает её */ ran?: string };
 type Add = (n: number, title: string, to: string | undefined, step: number, state: Row["state"], r?: Partial<Row>) => void;
 type Seed = { project: string; repo: string; commit: string; paused: boolean; def: FactoryDef; next: Record<string, number>; seq: number; fill: (add: Add) => void };
 
@@ -27,16 +27,21 @@ export function factoryHandlers(c: MockCtx): H {
     const tickets: Row[] = [];
     seed.fill((n, title, to, step, state, r = {}) => {
       const since = r.since ?? T - HOUR;
-      tickets.push({ id: `${project}-${n}`, project, title, text: "", ...(to ? { to } : {}), step, state, by: ME, returns: 0, since, moved: since, notes: [], ...r });
+      tickets.push({ id: `${project}-${n}`, project, title, text: "", ...(to ? { to } : {}), step, state, by: ME, returns: 0, since, moved: since, notes: [], ...(r.session ? { ran: r.session } : {}), ...r });
     });
 
     const lineOf = (t: Row) => (t.to ? def.lines[t.to] : undefined);
     const postOf = (t: Row) => (t.to ? def.posts[t.to] : undefined);
-    const working = (to: string) => tickets.filter((t) => t.to === to && t.state === "work").length;
+    /** Сессии постов: шаг, который ведёт пост, места под потолком не берёт. */
+    const crew = new Set(Object.entries(def.posts).flatMap(([name, p]) => postSessions(name, p)));
+    /** Сколько шагов конвейера идёт под его потолком: их ведут свежие сессии. */
+    const working = (to: string) => tickets.filter((t) => t.to === to && t.state === "work" && !(t.session && crew.has(t.session))).length;
+    const busy = (call: string) => tickets.some((x) => x.state === "work" && x.session === call);
     /** Шаг пошёл: сессия и срок — свой у шага, иначе конвейера или поста. */
     const run = (t: Row, session: string, term: string | undefined): void => {
       t.state = "work";
       t.session = session;
+      t.ran = session;
       if (term) t.until = now() + termMs(term);
     };
     /** Поставить тикет на его шаг: человек и событие — ждать; сессия — в работу, если есть место и нет паузы, иначе в очередь. */
@@ -47,9 +52,11 @@ export function factoryHandlers(c: MockCtx): H {
       const line = lineOf(t), post = postOf(t);
       if (!t.to) return void ((t.state = "ready"), delete t.session);
       if (post) {
-        // пост берёт тикеты по одному: занят и шагом конвейера, который ведёт его сессия
-        const call = `${t.to}${post.at}`;
-        if (fac.paused || tickets.some((x) => x.state === "work" && x.session === call)) return void (t.state = "ready");
+        // у поста одна очередь: тикет берёт первая свободная сессия; отложенный своей сессией возвращается ей же.
+        // Сессия занята и шагом конвейера, который она ведёт
+        const call = t.held ? (busy(t.held) ? undefined : t.held) : postSessions(t.to, post).find((x) => !busy(x));
+        if (fac.paused || !call) return void (t.state = "ready");
+        delete t.held;
         return run(t, call, post.for);
       }
       // тикет сессии по позывному: у сессии один тикет в работе
@@ -59,8 +66,17 @@ export function factoryHandlers(c: MockCtx): H {
         if (step.for) t.until = now() + termMs(step.for);
         return void (t.state = "wait");
       }
-      if (fac.paused || working(t.to) >= line.limit) return void (t.state = "ready");
-      run(t, step.post ? `${step.post}${def.posts[step.post]?.at ?? ""}` : step.session === "same" && t.session ? t.session : `${t.id}-s${t.step + 1}${line.at[0]}`, step.for ?? line.for);
+      if (step.post) {
+        // шаг ведёт пост: его берёт свободная сессия поста, потолок конвейера её не держит
+        const own = def.posts[step.post];
+        const call = own ? postSessions(step.post, own).find((x) => !busy(x)) : undefined;
+        return fac.paused || !call ? void (t.state = "ready") : run(t, call, step.for ?? own!.for);
+      }
+      // «та же сессия» продолжает ту, что вела прошлый шаг; это сессия поста — потолок её не держит, но она одна: занята — тикет ждёт её
+      const same = step.session === "same" ? t.ran : undefined;
+      if (same && crew.has(same)) return fac.paused || busy(same) ? void (t.state = "ready") : run(t, same, step.for ?? line.for);
+      if (fac.paused || working(t.to) >= (line.limit ?? Infinity)) return void (t.state = "ready");
+      run(t, same ?? `${t.id}-s${t.step + 1}${line.at?.[0] ?? ""}`, step.for ?? line.for);
     }
     /** Место освободилось или пауза снята — очередь идёт: старые первыми; отложенный ждёт своего момента. */
     function drain(): void {
@@ -103,6 +119,8 @@ export function factoryHandlers(c: MockCtx): H {
         };
         const say = (text: string, verdict?: Verdict) => (verdict || text) && t.notes.push({ at: now(), by: c.MY_ADDR, text, ...(verdict ? { verdict } : {}) });
         const halt = (why: string) => ((t.state = "stop"), (t.why = why), (t.moved = now()), delete t.until);
+        /** Первая заметка снимает отсрочку: отложенный тикет встаёт в очередь сразу. */
+        const wake = (x: Row) => x.state === "ready" && x.start && x.start > now() && (delete x.start, start(x));
         const line = lineOf(t);
         if (f.verdict) {
           no("verdict", "вердикт дают шагу в работе или ожидании");
@@ -110,8 +128,12 @@ export function factoryHandlers(c: MockCtx): H {
           if (f.verdict === "done") {
             t.returns = 0;
             if (f.pr) t.pr = f.pr;
-            if (!line || t.step + 1 >= line.steps.length) (t.state = "done"), (t.moved = now()), delete t.until;
-            else (t.step += 1), start(t);
+            if (!line || t.step + 1 >= line.steps.length) {
+              (t.state = "done"), (t.moved = now()), delete t.until;
+              // итог идёт тому, кто завёл: заметкой в тикет, с шага которого этот заведён; ждёт — просыпается
+              const up = tickets.find((x) => x.id === t.parent);
+              if (up) (up.notes.push({ at: now(), by: FACTORY, text: `${t.id} сдан: ${f.note ?? ""}`.trim() }), wake(up));
+            } else (t.step += 1), start(t);
           } else if (f.verdict === "stop") halt(String(f.note || "нужен человек"));
           else {
             t.returns += 1;
@@ -135,8 +157,13 @@ export function factoryHandlers(c: MockCtx): H {
           (t.to = f.to), (t.step = 0), delete t.session;
           // вставший тикет исполнителя меняет, но в очередь не идёт: его возвращает resume
           if (t.state !== "stop") start(t);
-        } else if (f.note) say(f.note);
-        else throw new Refusal("bad_input", "нечего менять: назовите verdict, resume, drop, to, for, pr или note");
+        } else if (f.in) {
+          // сессия откладывает свой тикет в работе тем же полем, что у нового тикета: место свободно, тикет вернётся ей по сроку или с первой заметкой
+          if (t.state !== "work") throw new Refusal("bad_state", `тикет ${t.id} — ${t.state}: откладывают шаг в работе`);
+          say(f.note ?? "");
+          (t.held = t.session), (t.state = "ready"), (t.start = now() + termMs(f.in)), (t.moved = now()), delete t.session, delete t.until;
+        } else if (f.note) (say(f.note), wake(t));
+        else throw new Refusal("bad_input", "нечего менять: назовите verdict, resume, drop, to, for, pr, in или note");
         drain();
         return { id: t.id, state: t.state, step: t.step };
       },
@@ -146,12 +173,13 @@ export function factoryHandlers(c: MockCtx): H {
   /* ===== «Инфра»: плотная фабрика ===== */
   const fresh = (n: number, step: number, at = "@server") => `infra-${n}-s${step + 1}${at}`;
   const infra = floor({
-    project: "infra", repo: REPO, commit: "a41c9e7d2f0b6c8e1a3d5f7092b4c6e8d0f1a2b3", paused: false, seq: 52,
+    project: "infra", repo: REPO, commit: "a41c9e7d2f0b6c8e1a3d5f7092b4c6e8d0f1a2b3", paused: false, seq: 58,
     def: {
       project: "infra", limit: 6, call: [ME],
       posts: {
         nightcheck: { title: "Оператор", at: "@server", cwd: "~/ops", key: "claude", model: "claude-sonnet-5-5", pieces: [`${REPO}/roles/operator`], for: "2h" },
         backup: { title: "Хранитель копий", at: "@base2", cwd: "~/ops", key: "claude", model: "claude-opus-5-5", pieces: [`${REPO}/roles/keeper`], for: "1d" },
+        coders: { title: "Кодеры служб", at: "@server", cwd: "~/ops", key: "claude", model: "claude-opus-5-5", pieces: [`${REPO}/roles/coder`], for: "8h", size: 3 },
       },
       lines: {
         intake: { title: "Приём заявок", limit: 1, for: "2h", at: ["@server"], cwd: "~/work/{id}", key: "claude", model: "claude-sonnet-5-5", steps: [{ name: "сбор", session: "new" }, { name: "триаж", session: "same" }, { name: "в тикеты", session: "same" }] },
@@ -180,7 +208,7 @@ export function factoryHandlers(c: MockCtx): H {
       add(43, "Предел запросов на входе", "change", 0, "work", { session: "nightcheck@server", by: fresh(46, 0), since: T - 35 * MIN, until: T + 85 * MIN, text: "Группа из 4 заявок: вход отдаёт 502 под нагрузкой. Готово: план с числами нагрузки и порогом, подтверждённым журналом." });
       add(45, "Ротация журналов входа", "change", 0, "ready", { by: fresh(46, 0), since: T - 30 * MIN });
       add(41, "Перенос журналов в архив", "change", 1, "wait", {
-        by: "audit@server", since: T - 25 * MIN,
+        by: "audit@server", since: T - 25 * MIN, ran: "nightcheck@server",
         text: "Журналы служб занимают 61 ГБ на /var. Нужен план переноса в архив: что переносить, как не потерять поиск, как откатить.\n\nГотово: план с проверкой на копии за неделю.",
         notes: [note(190, "audit@server", "Заявка команды: «журналы не должны занимать больше трети диска»."), note(25, "nightcheck@server", "План готов: docs/plans/logs-archive.md, 3 проверки на копии, 2 правки.", "done")],
       });
@@ -190,6 +218,17 @@ export function factoryHandlers(c: MockCtx): H {
       add(44, "Ночная выгрузка упала 3 раза из 10", "postmortem", 0, "work", { session: fresh(44, 0), by: ".hooks", on: "alerts", key: "ingest", since: T - 95 * MIN, until: T + 145 * MIN, text: "Тревога мониторинга: ночная выгрузка, 10 запусков, сбоев 3, все на шаге сверки.\n\nНайти общий признак по журналу и предложить правило запуска." });
       add(48, "Недельная ретроспектива", "backup", 0, "work", { session: "backup@base2", by: FACTORY, on: "retro", key: "retro", since: T - 3 * HOUR, until: T + 21 * HOUR, text: "" });
       add(49, "Место на дисках", "nightcheck", 0, "ready", { by: FACTORY, on: "disk", key: "disk", since: T - 6 * MIN, text: "проверка «node checks/disk.mjs» не прошла: код 1\n/var занят на 91 %", notes: [note(1, FACTORY, "проверка «node checks/disk.mjs» не прошла: код 1\n/var занят на 92 %")] });
+      // пост «Кодеры служб»: одна очередь на три сессии; третья отложила свой тикет до ответа и взяла следующий
+      add(53, "Вход: отказ 429 сверх 200 запросов в секунду", "coders", 0, "work", { session: "coders@server", by: "nightcheck@server", since: T - 48 * MIN, until: T + 7 * HOUR, text: "По плану тикета infra-43. Готово: три сценария предела зелёные." });
+      add(54, "Архив: поиск по перенесённым журналам", "coders", 0, "work", { session: "coders-2@server", by: "nightcheck@server", since: T - 20 * MIN, until: T + 7 * HOUR + 40 * MIN });
+      add(55, "Сверка выгрузки: повтор шага при сбое", "coders", 0, "ready", {
+        held: "coders-3@server", by: fresh(44, 0), since: T - 70 * MIN, moved: T - 12 * MIN, start: T + 35 * MIN,
+        text: "По разбору infra-44: сверка падает на первом сбое сети. Готово: повтор шага сверки, ночная выгрузка проходит 10 запусков из 10.",
+        notes: [note(12, "coders-3@server", "Жду оператора: сколько повторов допустимо за ночь — infra-57.")],
+      });
+      add(56, "Сертификаты стенда: обновление скриптом", "coders", 0, "work", { session: "coders-3@server", since: T - 11 * MIN, until: T + 7 * HOUR + 49 * MIN });
+      add(57, "Сколько повторов сверки допустимо за ночь", "ingest@server", 0, "work", { session: "ingest@server", by: "coders-3@server", parent: "infra-55", since: T - 12 * MIN, until: T + 48 * MIN, text: "Сверка идёт 4 минуты. Сколько повторов за ночь не сдвинет окно выгрузки?" });
+      add(58, "Журнал входа: строка на каждый отказ", "coders", 0, "ready", { by: "nightcheck@server", since: T - 5 * MIN });
       add(50, "Таблица владельцев служб", undefined, 0, "ready", { by: "audit@server", since: T - 26 * HOUR });
       add(51, "Ускорить сборку проверок: 9 минут на правку", undefined, 0, "ready", { since: T - 5 * HOUR, text: "Сессии ждут проверок по 9 минут на правку. Нужен замер шагов сборки и предложение." });
       add(52, "Проверить выкладку статики", "deploy@server", 0, "ready", { by: "deploy@server", since: T - 10 * MIN, start: T + 20 * MIN, text: "Через 20 минут после выкладки сверить ответы стенда." });

@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildPage } from "../build/page.mjs";
 import { definition } from "./factory.mjs";
+import * as queue from "./queue.mjs";
 import * as github from "./github.mjs";
 import { killHolders, killTree } from "./holders.mjs";
 import { MODELS, serve } from "./model.mjs";
@@ -144,8 +145,9 @@ async function up() {
   // GitHub: токены приложения выдаёт двойник, репозиторий кусочков — настоящий git на диске коробки (tools/box/github.mjs)
   hub = `http://127.0.0.1:${pGithub}`;
   githubApi = await github.serve(pGithub, (line) => fs.appendFileSync(path.join(state, "github.log"), line + "\n"), state);
-  // в том же репозитории — определение фабрики проекта коробки: его применяет проверка «конвейер»
-  const gitconfig = github.seed(state, { "factory.json": JSON.stringify(definition({ state, key: KEY, model: MODELS[0].id, machines: MACHINES }), null, 2) });
+  // в том же репозитории — определения фабрик двух проектов коробки: в корне — его применяет проверка «конвейер», в папке кусочка — «очередь поста»
+  const defs = { state, key: KEY, model: MODELS[0].id, machines: MACHINES };
+  const gitconfig = github.seed(state, { "factory.json": JSON.stringify(definition(defs), null, 2), [`${queue.FOLDER}/factory.json`]: JSON.stringify(queue.definition(defs), null, 2) });
   await call("github.setup", { code: "box" }, admin);
   await call("prefs.set", { scope: "fleet", name: "profiles.repos", value: [github.REPO] }, admin);
   // сборка идёт в каталог флота тем же шагом, которым её доводит выкладка; машины ставит и держит служба машины из этой сборки
@@ -172,6 +174,7 @@ async function up() {
   // два аккаунта Claude: их адрес — тот же двойник модели, он узнаёт аккаунт по токену без ключа провайдера
   for (const a of ACCOUNTS) await call("keys.set", { name: `${a}@box.test`, protocol: "claude", base: `http://127.0.0.1:${pModel}`, value: `sk-ant-oat01-box-${a}-0000000000000000` }, admin);
   await call("project.set", { project: "box", name: "Коробка", members: ["~owner@fleet.test"] }, admin);
+  await call("project.set", { project: queue.PROJECT, name: "Очередь", members: ["~owner@fleet.test"] }, admin);
   say(`флот ${FLEET}: машины ${MACHINES.join(", ")}, ключ ${KEY}, модели ${MODELS.map((m) => m.id).join(", ")}`);
 
   return { base, dev, admin, call };

@@ -113,6 +113,10 @@ export function createMock(o: MockOptions = {}) {
     ask: ask({ kind: "form", title: "Доступ к почтовому серверу", text: "Нужны данные почтового сервера для отправки заявок.", schema: { type: "object", required: ["host", "user"], properties: { host: { type: "string", title: "Сервер" }, port: { type: "number", title: "Порт", default: 587 }, user: { type: "string", title: "Пользователь" } } } }, 9) }));
   add(row("crawler@base2", "busy", "research", { title: "Сбор цен конкурентов", doing: "Обходит каталог цен", last: T - 3 * HOUR, pieces: ["base", "research"] }));
   add(row("backup@base2", "idle", "infra", { title: "Проверка резервных копий", last: T - 9 * HOUR, pieces: ["base", "ops"] }));
+  // пост «Кодеры» фабрики «Инфра»: одна очередь, три сессии
+  add(row("coders@server", "busy", "infra", { title: "Кодер служб", doing: "Правит src/entrance.ts", last: T - 1 * MIN, pieces: ["base", "ops"] }));
+  add(row("coders-2@server", "busy", "infra", { title: "Кодер служб", doing: "Гоняет проверки архива", last: T - 2 * MIN, pieces: ["base", "ops"] }));
+  add(row("coders-3@server", "busy", "infra", { title: "Кодер служб", doing: "Пишет скрипт обновления", last: T - 1 * MIN, pieces: ["base", "ops"] }));
 
   /* ===== Разговоры ===== */
   const talks = new Map<string, Ev[]>();
