@@ -27,6 +27,8 @@ export const rows = ({ fleet, device, machine, second, pairs = [], bigMb = "10" 
   ["тикеты", "live-tickets.ts", [fleet, device, machine], {}, "коробка руками", ALONE],
   // конвейер идёт по определению из репозитория кусочков коробки: на живом флоте такого репозитория у проверки нет
   ["конвейер", "live-lines.ts", [fleet, device], {}, "коробка", QUIET],
+  // очередь поста идёт по определению второго проекта коробки — из папки кусочка того же репозитория
+  ["очередь поста", "live-queue.ts", [fleet, device], {}, "коробка", QUIET],
   ["страница в браузере", "live-page.mjs", [fleet, device, machine], {}, "коробка флот прод", QUIET],
   ["разделы страницы", "live-bar.mjs", [fleet, device, machine], {}, "коробка руками прод", QUIET],
   ["оповещение о сбое", "live-alert.mjs", [fleet, device], {}, "флот", QUIET, ["push"]],

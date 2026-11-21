@@ -155,9 +155,9 @@ describe("фабрика: тикет сессии", () => {
     const acts = async (id: string, who = "kyura1", sayAs?: string) => ((await s.ask("ticket.list", { ticket: id }, who, sayAs)).result as { tickets: Ticket[] }).tickets[0]!.acts;
     // бэклог: вердикта нет — шаг никто не ведёт; человек назначает или снимает
     expect(await acts("site-1")).toEqual(["drop", "assign"]);
-    // в работе: человек даёт вердикт любому шагу; сессия — только своему; исполнителя у идущего шага не меняют
+    // в работе: человек даёт вердикт любому шагу; сессия — только своему; исполнителя у идущего шага меняет только сессия, которая его ведёт
     expect(await acts("site-2")).toEqual(["verdict", "drop"]);
-    expect(await acts("site-2", "klaptop", "coder@laptop")).toEqual(["verdict", "drop"]);
+    expect(await acts("site-2", "klaptop", "coder@laptop")).toEqual(["verdict", "drop", "assign"]);
     expect(await acts("site-2", "klaptop", "review@laptop")).toEqual(["drop"]);
     expect(await as(s, "review@laptop", "ticket.set", { ticket: "site-2", verdict: "done" })).toMatchObject({ ok: false, error: "not_yours" });
     // встал: вернуть в очередь, снять или назначить другому

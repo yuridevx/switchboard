@@ -1,8 +1,9 @@
 // «Дать работу»: служба «Фабрика» отдаёт сессии шаг тикета. Сессии с таким именем нет — открыть по документу; остановлена — поднять;
-// ввод — тегом вида ticket. Ход, который взял шаг и кончается без вердикта, возвращается один раз — штатным хуком остановки Claude Code.
+// ввод — тегом вида ticket. Ход, который взял шаг и кончается, а шаг всё ещё у сессии — ни вердикта, ни отсрочки, ни передачи, —
+// возвращается один раз штатным хуком остановки Claude Code. Держит ли сессия шаг, говорит тикет: машина его спрашивает, а не помнит.
 // Проверка шага — скрипт из определения: машина запускает его перед вердиктом «сдал» штатным хуком перед вызовом инструмента;
 // код не 0 — вердикт не уходит, тикету — возврат с выводом скрипта. Что проверять, знает тикет: машина спрашивает его в момент вердикта.
-// Записей о шагах модуль не держит: что шаг у сессии и что вердикт дан, записано в тикете. В памяти — только ввод, который дан,
+// Записей о шагах модуль не держит: что шаг у сессии и чем он кончился, записано в тикете. В памяти — только ввод, который дан,
 // пока ход его не взял и не кончился; после перезапуска Host восстанавливать нечего.
 import { randomUUID } from "node:crypto";
 import { checkOutcome, checkRun, FACTORY, type FileIn, Refusal, shellRun, type Spec, TICKET_SET_TOOL, ticketList, ticketSet } from "@sb/protocol";
@@ -17,8 +18,10 @@ const FROM = FACTORY;
 const SET_TOOL = TICKET_SET_TOOL;
 /** Предел хука проверки шага у Claude Code, секунды: сама проверка ограничена сроком из определения, он не больше предела запуска скрипта машины. */
 const CHECK_HOOK_S = RUN_MS / 1000;
-/** Шаг на руках у сессии: set — вердикт по нему в этом ходе уже ушёл. */
-type Step = { ticket: string; step?: string; set?: boolean };
+/** Предел хука конца хода, секунды: вопрос тикету «шаг ещё у сессии?»; службы не успели — ход кончается без напоминания. */
+const STOP_HOOK_S = 30;
+/** Шаг на руках у сессии. */
+type Step = { ticket: string; step?: string };
 
 export function make(): Module {
   let host: HostApi;
@@ -28,13 +31,35 @@ export function make(): Module {
   const taken = new Map<string, Step[]>();
   const word = (t: Step) => `тикет ${t.ticket}${t.step ? ` · шаг ${t.step}` : ""}`;
 
-  /** Процесса сессии больше нет, а шаг у неё: тикету — «стоп» с причиной. Служба не ответила — строка журнала: шаг закроет его срок. */
+  /** Тикет шага, если шаг всё ещё у этой сессии: в работе и ведёт его она. Сдан, отложен, передан, встал или тикета нет — null.
+   *  Правило одно — для проверки перед «сдал», напоминания в конце хода и «стопа» шагу умершей сессии. Службы не ответили — отказ тому, кто спросил. */
+  async function own(callsign: string, ticket: string) {
+    try {
+      const t = (await host.call(ticketList, { ticket })).tickets?.[0];
+      return t?.state === "work" && t.session === callsign ? t : null;
+    } catch (e) {
+      if ((e as Refusal).word === "no_ticket") return null;
+      throw e;
+    }
+  }
+  /** Шаг всё ещё у этой сессии; службы не ответили — неизвестно, строка журнала. */
+  async function held(callsign: string, t: Step): Promise<boolean | undefined> {
+    try {
+      return !!(await own(callsign, t.ticket));
+    } catch (e) {
+      host.log.warn("work", { callsign, kind: "held", word: (e as Refusal).word ?? "offline", why: `${word(t)}: тикет не ответил — ${(e as Error).message}` });
+      return undefined;
+    }
+  }
+
+  /** Процесса сессии больше нет, а шаг у неё: тикету — «стоп» с причиной. Шаг уже не её — не трогаем. Служба не ответила — строка журнала: шаг закроет его срок. */
   function lost(callsign: string, why: string): void {
-    const steps = [...(taken.get(callsign) ?? []).filter((t) => !t.set), ...[...given.values()].filter((g) => g.callsign === callsign)];
+    const steps = [...(taken.get(callsign) ?? []), ...[...given.values()].filter((g) => g.callsign === callsign)];
     taken.delete(callsign);
     for (const [uuid, g] of given) if (g.callsign === callsign) given.delete(uuid);
     for (const t of steps)
-      void host.call(ticketSet, { ticket: t.ticket, verdict: "stop", note: why }).catch((e: unknown) => host.log.warn("work", { callsign, kind: "lost", word: (e as Refusal).word ?? "offline", why: `${word(t)}: «стоп» не записан — ${(e as Error).message}` }));
+      void held(callsign, t).then((mine) => (mine === false ? undefined : host.call(ticketSet, { ticket: t.ticket, verdict: "stop", note: why })))
+        .catch((e: unknown) => host.log.warn("work", { callsign, kind: "lost", word: (e as Refusal).word ?? "offline", why: `${word(t)}: «стоп» не записан — ${(e as Error).message}` }));
   }
 
   return {
@@ -88,12 +113,12 @@ export function make(): Module {
                   if (input.tool_input?.verdict !== "done" || !id) return {};
                   let check;
                   try {
-                    const t = (await host.call(ticketList, { ticket: id }, { from: s.callsign })).tickets[0];
-                    if (t?.state !== "work" || t.session !== s.callsign) return {};
+                    const t = await own(s.callsign, id);
+                    if (!t) return {};
                     check = t.check;
                   } catch (e) {
                     // службы не ответили — не ответят и вердикту: отказ словом, сессия сдаст позже
-                    return (e as Refusal).word === "no_ticket" ? {} : deny(`Шаг не принят: не удалось узнать проверку шага — ${(e as Error).message}. Сдай ещё раз.`);
+                    return deny(`Шаг не принят: не удалось узнать проверку шага — ${(e as Error).message}. Сдай ещё раз.`);
                   }
                   if (!check) return {};
                   // как запустить проверку и что считать её исходом — одно на шаг и на правило входа: помощники договора
@@ -111,28 +136,21 @@ export function make(): Module {
               ],
             },
           ],
-          // вердикт ушёл — шаг сдан: этому ходу напоминать не о чем
-          PostToolUse: [
-            {
-              matcher: SET_TOOL,
-              hooks: [
-                async (input: { tool_input?: { ticket?: string } }) => {
-                  for (const t of taken.get(s.callsign) ?? []) if (t.ticket === input.tool_input?.ticket) t.set = true;
-                  return {};
-                },
-              ],
-            },
-          ],
-          // ход, взявший шаг, кончается без вердикта: вернуть один раз. Что возврат уже был, говорит сам хук; идёт фоновая работа — ход ещё вернётся сам
+          // ход, взявший шаг, кончается, а шаг всё ещё у сессии: вернуть один раз. Что возврат уже был, говорит сам хук; идёт фоновая работа —
+          // ход ещё вернётся сам. Сдан ли шаг, отложен или передан, говорит тикет: отказ «сдал» (проверка, непрочитанные заметки) шаг не снимает
           Stop: [
             {
+              timeout: STOP_HOOK_S,
               hooks: [
                 async (input: { stop_hook_active?: boolean; background_tasks?: unknown[] }) => {
-                  const open = (taken.get(s.callsign) ?? []).filter((t) => !t.set);
-                  if (!open.length || input.stop_hook_active || input.background_tasks?.length) return {};
+                  const mine = taken.get(s.callsign) ?? [];
+                  if (!mine.length || input.stop_hook_active || input.background_tasks?.length) return {};
+                  const open: Step[] = [];
+                  for (const t of mine) if (await held(s.callsign, t)) open.push(t);
+                  if (!open.length) return {};
                   host.log.info("work", { callsign: s.callsign, kind: "reminded", why: open.map(word).join(", ") });
                   const ids = open.map((t) => t.ticket).join(", ");
-                  return { decision: "block", reason: `Шаг не сдан: ${ids}. Сдай его инструментом ticket_set — verdict done (сделано), back (вернуть с замечанием) или stop (нужен человек), заметка — в note. Ждёшь свою дочернюю сессию — просто ответь, когда дождёшься.` };
+                  return { decision: "block", reason: `Шаг не сдан: ${ids}. Сдай его инструментом ticket_set — verdict done (сделано), back (вернуть с замечанием) или stop (нужен человек), заметка — в note. Ждёшь ответа, сборки или чужого тикета — отложи шаг: in со сроком (40m, 2h), он вернётся тебе по сроку или с первой заметкой. Ждёшь свою дочернюю сессию — просто ответь, когда дождёшься.` };
                 },
               ],
             },
