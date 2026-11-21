@@ -4,7 +4,7 @@
 // В цехе место отдано тикетам: то, что не меняется изо дня в день (названия дорожек, станции, свободные посты), стоит мелко и тихо,
 // подробности — в подсказке. Пустых разделов цех не рисует. Тикет и новый тикет — страницы со своим адресом. Правил экран не считает:
 // загрузку и то, что можно сделать с тикетом, отдают службы.
-import { factoryGet, factoryPause, peopleList, ticketList, ticketNew, ticketSet, type FactoryDef, type FactoryState, type InputOf, type RuleDef, type StepDef, type Ticket } from "@sb/protocol";
+import { factoryGet, factoryPause, peopleList, postSessions, ticketList, ticketNew, ticketSet, type FactoryDef, type FactoryState, type InputOf, type RuleDef, type StepDef, type Ticket } from "@sb/protocol";
 import { Badge, Button, Group, Select, Switch, Text, Textarea, TextInput, Tooltip } from "@mantine/core";
 import { IconBolt, IconBrandGithub, IconCheck, IconClock, IconHandFinger, IconPlus, IconWebhook } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { act } from "../api.ts";
 import { Failed, Lamp, personWord, useCall } from "../common.tsx";
-import { atStep, doerOf, DOER_WORD, eventWord, needsHuman, postCall, postStep, ruleWord, STATE_LAMP, STATE_WORD, stateWord, stepOf, targetsOf, VERDICT_WORD, waitsEvent, waitWord } from "../lib/factory.ts";
+import { atStep, doerOf, DOER_WORD, eventWord, needsHuman, postStep, ruleWord, STATE_LAMP, STATE_WORD, stateWord, stepOf, targetsOf, VERDICT_WORD, waitsEvent, waitWord } from "../lib/factory.ts";
 import { useLocal } from "../lib/local.ts";
 import { ago, byDay, day, hhmm, leftWord } from "../lib/time.ts";
 import { RoutePage } from "../shell/Page.tsx";
@@ -65,13 +65,14 @@ const whenWord = (t: Ticket) => (t.start && t.start > Date.now() ? `через $
  *  событие у ждущего, возврат. Всё встаёт в одну строку, пока помещается, и переносится под заголовок на узкой станции.
  *  Номер — в подсказке и на странице тикета.
  *  Состояние — знаком и видом плашки: залитая — шаг идёт, пунктир — очередь, жёлтая — ждёт человека, красная — встал. */
-function Tile({ def, t, onOpen, at }: { def: FactoryDef; t: Ticket; onOpen: () => void; /** станция — телефону: там тикеты стоят под рельсом одним столбцом */ at?: string }) {
+function Tile({ def, t, onOpen, at, who }: { def: FactoryDef; t: Ticket; onOpen: () => void; /** станция — телефону: там тикеты стоят под рельсом одним столбцом */ at?: string; /** сессия поста, которая ведёт тикет, — у поста на несколько сессий */ who?: string }) {
   const event = waitsEvent(def, t);
   return (
     <div className={`ftile ${t.state}${needsHuman(def, t) ? " human" : ""}`} role="button" tabIndex={0} title={t.id} data-ticket={t.id} onClick={(e) => (e.stopPropagation(), onOpen())} onKeyDown={onKey(onOpen)}>
       <span className="ftile-h"><Mark def={def} t={t} /><span className="clamp2">{t.title}</span></span>
       {t.state === "stop" && <span className="why">{t.why}</span>}
       {event && <span className="fnote trunc">{waitWord(def, t)}</span>}
+      {who && <span className="fnote mono">{who}</span>}
       {t.returns > 0 && <span className="chip warn">возврат {t.returns}</span>}
       <span className="fwhen">{at && <span className="fat">{at} · </span>}{whenWord(t)}</span>
     </div>
@@ -151,7 +152,7 @@ export function Factory() {
           <nav className="subtabs ftabs" role="tablist" aria-label="Разделы фабрики">
             {TABS.map(([id, word]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => go(factoryPath(project, id))}>{word}</button>)}
           </nav>
-          <Slots work={f.load.work} limit={f.def.limit} />
+          {f.def.limit !== undefined && <Slots work={f.load.work} limit={f.def.limit} />}
           <span className="grow" />
           <Tooltip label={`${f.repo} · применено ${hhmm(f.at)}`} events={TIP}><span className="chip mono" aria-label={`определение ${f.commit}`}>{f.commit.slice(0, 7)} · {ago(f.at)}</span></Tooltip>
           <Switch label="Пауза" checked={f.paused} onChange={async (e) => { const on = e.currentTarget.checked; if (await act(factoryPause, { project, on })) await refresh(); }} />
@@ -172,16 +173,17 @@ function Floor({ f, tickets, open }: View) {
   const calls = live.filter((t) => needsHuman(def, t)).sort(old);
   // пост: его очередь и шаг конвейера, которым он занят; без того и другого он свободен и стоит в ряду свободных
   const posts = Object.entries(def.posts).map(([name, p]) => {
-    const call = postCall(name, p.at);
-    return { name, call, title: `${p.title ?? name} · ${call}`, theirs: atStep(name, 0, tickets), step: postStep(name, call, live) };
+    // у поста одна очередь и одна или несколько сессий: первая зовётся именем поста
+    const calls = postSessions(name, p);
+    return { name, call: calls[0]!, calls, title: `${p.title ?? name} · ${calls.join(" ")}`, theirs: atStep(name, 0, tickets), step: calls.map((c) => postStep(name, c, live)).find(Boolean) };
   });
-  const idle = posts.filter((x) => !x.step && !x.theirs.length);
+  const idle = posts.filter((x) => !x.step && !x.theirs.length).flatMap((x) => x.calls.map((call) => ({ name: call.slice(0, call.indexOf("@")), call, title: x.title })));
   // сессия, которой тикет отдан по позывному, — тот же исполнитель с дорожкой, пока тикет открыт; порядок тикетов у поста и сессии —
   // тот же, что на шаге конвейера: одно правило
   const direct = live.filter((t) => t.to && !def.lines[t.to] && !def.posts[t.to]);
   const lanes = [
     ...posts.filter((x) => x.step || x.theirs.length).map((x) => ({ ...x, label: `Пост ${def.posts[x.name]!.title ?? x.name}`, post: x.name as string | undefined })),
-    ...[...new Set(direct.map((t) => t.to!))].map((call) => ({ name: call, call, title: call, theirs: atStep(call, 0, tickets), step: undefined as Ticket | undefined, label: `Сессия ${call}`, post: undefined as string | undefined })),
+    ...[...new Set(direct.map((t) => t.to!))].map((call) => ({ name: call, call, calls: [call], title: call, theirs: atStep(call, 0, tickets), step: undefined as Ticket | undefined, label: `Сессия ${call}`, post: undefined as string | undefined })),
   ];
   const lines = Object.entries(def.lines);
   const talk = (call: string) => () => go(`/work/${call}`);
@@ -202,8 +204,9 @@ function Floor({ f, tickets, open }: View) {
             return (
               <section key={name} className="flane" aria-label={`Конвейер ${l.title ?? name}`}>
                 <div className="fwho">
-                  <Tooltip label={l.at.join(" ")} events={TIP}><div className="t">{l.title ?? name}</div></Tooltip>
-                  <Slots work={f.load.lines[name]?.work ?? 0} limit={l.limit} />
+                  {/* потолок и машины есть только у конвейера со свежими сессиями шагов */}
+                  {l.at ? <Tooltip label={l.at.join(" ")} events={TIP}><div className="t">{l.title ?? name}</div></Tooltip> : <div className="t">{l.title ?? name}</div>}
+                  {l.limit !== undefined && <Slots work={f.load.lines[name]?.work ?? 0} limit={l.limit} />}
                 </div>
                 {/* станция с тикетами берёт ширину, пустая — только своё имя */}
                 <div className={`ftrack${one ? " one" : ""}`} style={one ? undefined : { gridTemplateColumns: at.map((here) => (here.length ? STATION : "max-content")).join(" ") }}>
@@ -218,17 +221,27 @@ function Floor({ f, tickets, open }: View) {
             );
           })}
 
-          {lanes.map(({ name, call, title, theirs, step, label, post }) => (
+          {lanes.map(({ name, call, calls, title, theirs, step, label, post }) => (
             <section key={call} className="flane" aria-label={label}>
-              <Tooltip label={title} events={TIP}>
-                <div className="fwho post" role="button" tabIndex={0} data-post={post} onClick={talk(call)} onKeyDown={onKey(talk(call))}>
-                  <div className="t"><Lamp state={sessions[call]?.state ?? "stopped"} /><span className="mono trunc">{name}</span></div>
+              {calls.length > 1 ? (
+                // пост на несколько сессий: имя очереди и лампа на каждую сессию — нажатие открывает её разговор
+                <div className="fwho" data-post={post}>
+                  <Tooltip label={title} events={TIP}><div className="t mono">{name}</div></Tooltip>
+                  <div className="fcrew">
+                    {calls.map((c) => <Tooltip key={c} label={c}><button type="button" aria-label={c} onClick={talk(c)}><Lamp state={sessions[c]?.state ?? "stopped"} /></button></Tooltip>)}
+                  </div>
                 </div>
-              </Tooltip>
+              ) : (
+                <Tooltip label={title} events={TIP}>
+                  <div className="fwho post" role="button" tabIndex={0} data-post={post} onClick={talk(call)} onKeyDown={onKey(talk(call))}>
+                    <div className="t"><Lamp state={sessions[call]?.state ?? "stopped"} /><span className="mono trunc">{name}</span></div>
+                  </div>
+                </Tooltip>
+              )}
               <div className="ftrack one">
                 <div className="fstop">
                   {step && <button type="button" className="fbusy" onClick={() => open(step)}><span className="lamp busy" aria-hidden />шаг конвейера <span className="mono">{step.id}</span></button>}
-                  {theirs.map((t) => <Tile key={t.id} def={def} t={t} onOpen={() => open(t)} />)}
+                  {theirs.map((t) => <Tile key={t.id} def={def} t={t} who={calls.length > 1 && t.session ? t.session.slice(0, t.session.indexOf("@")) : undefined} onOpen={() => open(t)} />)}
                 </div>
               </div>
             </section>
@@ -237,7 +250,7 @@ function Floor({ f, tickets, open }: View) {
           {idle.length > 0 && (
             <div className="fquiet" aria-label="Свободные посты">
               {idle.map(({ name, call, title }) => (
-                <Tooltip key={name} label={title}>
+                <Tooltip key={call} label={title}>
                   <button type="button" className="fchip" data-post={name} onClick={talk(call)}><Lamp state={sessions[call]?.state ?? "stopped"} /><span className="mono">{name}</span></button>
                 </Tooltip>
               ))}
@@ -361,6 +374,7 @@ export function TicketPage() {
         {t.until && open && t.until > Date.now() && <span className="chip">срок через {leftWord(t.until)}</span>}
         {t.pr && <span className="chip mono">{t.pr}</span>}
         {t.on && <span className="chip mono">{t.on}</span>}
+        {t.parent && <Button size="compact-xs" variant="default" className="mono" data-parent={t.parent} onClick={() => go(ticketPath(project, t.parent!))}>← {t.parent}</Button>}
         {t.start && t.start > Date.now() && <span className="chip">через {leftWord(t.start)}</span>}
         <span className="muted">от {byWord(t.by)} · {ago(t.since)}</span>
       </Group>
@@ -385,6 +399,7 @@ export function TicketPage() {
         <div className={`fact${t.state === "stop" ? " stop" : human ? " human" : ""}`}>
           <Textarea aria-label="Заметка" placeholder="Заметка" autosize minRows={2} value={note} onChange={(e) => setNote(e.currentTarget.value)} />
           <div className="fact-row">
+            {open && <Button variant="default" disabled={!note.trim()} data-act="note" onClick={() => set({}, "Заметка записана")}>Написать</Button>}
             {acts.includes("verdict") && <Button onClick={() => set({ verdict: "done" }, "Принято")}>Принять</Button>}
             {acts.includes("verdict") && <Button variant="default" onClick={() => set({ verdict: "back" }, "Возвращено")}>Вернуть</Button>}
             {acts.includes("resume") && <Button onClick={() => set({ resume: true }, "Возвращён в очередь")}>Вернуть в очередь</Button>}

@@ -60,7 +60,8 @@ describe("«Фабрика»", () => {
     expect(stepBox("Изменение службы", "слияние").getByText(/ждёт: PR слит · #212/)).toBeTruthy();
     const load = (await waitFor(() => apiModule.api.call(factoryGet, { project: "infra" }))).factory!.load.lines.change!;
     expect(within(screen.getByLabelText("Конвейер Изменение службы")).getByLabelText(`идёт ${load.work} из 2`)).toBeTruthy();
-    expect(load.work).toBe(2);
+    // в работе два шага, но «план» тикета infra-43 ведёт пост: потолок считает только свежие сессии шагов
+    expect(load.work).toBe(1);
     // вставший тикет — и на шаге, и первым блоком «Нужен человек», с причиной
     expect(within(screen.getByLabelText("Нужен человек")).getByText("стоп: срок вышел")).toBeTruthy();
     // тикет сессии по позывному и отложенный — дорожкой этой сессии
@@ -117,7 +118,7 @@ describe("«Фабрика»", () => {
     // тикет без исполнителя виден во вкладке «Бэклог» — туда экран и возвращается
     await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra/backlog"));
     const made = (await waitFor(() => apiModule.api.call(ticketList, { project: "infra" }))).tickets[0]!;
-    expect(made).toMatchObject({ id: "infra-53", title: "Сверить права архива", state: "ready" });
+    expect(made).toMatchObject({ id: "infra-59", title: "Сверить права архива", state: "ready" });
     expect(made.to).toBeUndefined();
     await waitFor(() => expect(within(screen.getByLabelText("Бэклог")).getByText("Сверить права архива")).toBeTruthy());
   });
@@ -205,6 +206,53 @@ describe("«Фабрика»", () => {
     expect(post.querySelector('[data-ticket="infra-49"]')!.classList.contains("ready")).toBe(true);
     fireEvent.click(step);
     await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra/t/infra-43"));
+  });
+
+  // чьё: дизайн «Пост — очередь роли», принят словом пользователя 21 нояб. («делай»)
+  it("пост на несколько сессий — одна дорожка: лампа на каждую сессию, на плашке в работе — имя сессии; лампа открывает её разговор", async () => {
+    open("/factory/infra");
+    const lane = await waitFor(() => screen.getByLabelText("Пост Кодеры служб"));
+    expect(screen.getAllByLabelText("Пост Кодеры служб")).toHaveLength(1);
+    expect([...lane.querySelectorAll("button[aria-label]")].map((x) => x.getAttribute("aria-label"))).toEqual(["coders@server", "coders-2@server", "coders-3@server"]);
+    // плашка тикета в работе называет сессию, которая его ведёт
+    const tile = (id: string) => within(lane.querySelector<HTMLElement>(`[data-ticket="${id}"]`)!);
+    expect(tile("infra-53").getByText("coders")).toBeTruthy();
+    expect(tile("infra-54").getByText("coders-2")).toBeTruthy();
+    expect(tile("infra-56").getByText("coders-3")).toBeTruthy();
+    fireEvent.click(within(lane).getByRole("button", { name: "coders-2@server" }));
+    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/work/coders-2@server"));
+  });
+
+  /** Метка отсрочки в строке состояния тикета: «через …»; «срок через …» — другая. */
+  const deferred = () => screen.queryByText(/^через /);
+
+  // чьё: дизайн «Пост — очередь роли»: первая заметка снимает отсрочку
+  it("«Написать» снимает отсрочку: заметка в истории, метки «через …» нет, тикет в очереди — его сессия занята", async () => {
+    open("/factory/infra/t/infra-55");
+    await waitFor(() => expect(deferred()).toBeTruthy());
+    const write = screen.getByRole("button", { name: "Написать" }) as HTMLButtonElement;
+    expect(write.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Заметка"), { target: { value: "Допустимо три повтора за ночь" } });
+    expect(write.disabled).toBe(false);
+    fireEvent.click(write);
+    await waitFor(() => expect(within(screen.getByLabelText("Заметки")).getByText("Допустимо три повтора за ночь")).toBeTruthy());
+    await waitFor(() => expect(deferred()).toBeNull());
+    const t = await waitFor(() => ticket("infra-55"));
+    expect([t.state, t.start, t.session]).toEqual(["ready", undefined, undefined]);
+  });
+
+  // чьё: дизайн «Пост — очередь роли»: итог тикета ложится заметкой в тикет, с шага которого он заведён
+  it("итог идёт заведшему: «Принять» закрывает тикет, у тикета-родителя — заметка «… сдан: …» и нет отсрочки", async () => {
+    open("/factory/infra/t/infra-57");
+    await waitFor(() => expect(document.querySelector('[data-parent="infra-55"]')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText("Заметка"), { target: { value: "не больше трёх" } });
+    fireEvent.click(screen.getByRole("button", { name: "Принять" }));
+    await waitFor(async () => expect((await ticket("infra-57")).state).toBe("done"));
+    // переход к тикету-родителю: итог лёг туда заметкой, отсрочка снята
+    fireEvent.click(document.querySelector<HTMLElement>('[data-parent="infra-55"]')!);
+    await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra/t/infra-55"));
+    await waitFor(() => expect(within(screen.getByLabelText("Заметки")).getByText("infra-57 сдан: не больше трёх")).toBeTruthy());
+    expect(deferred()).toBeNull();
   });
 
   it("пауза видна шапкой на любой вкладке, и на паузе у входов нет срока; вход показывает тикет, который держит открытым", async () => {
