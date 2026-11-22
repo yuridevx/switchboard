@@ -240,7 +240,7 @@ describe("«Работа»", () => {
 });
 
 describe("аккаунты и провайдеры", () => {
-  const acc = (name: string, o: Partial<Account> = {}): Account => ({ name, ok: true, keep: true, limits: [], ...o });
+  const acc = (name: string, o: Partial<Account> = {}): Account => ({ name, ok: true, limits: [], ...o });
   const key = (name: string, o: Partial<KeyRow> = {}): KeyRow => ({ name, protocol: CLAUDE, at: 1, tail: "…", keep: true, ...o });
   it("аккаунт — один столбец с числами флота; негодный токен виден", () => {
     const cols = columns([key("a@x.io"), key("b@x.io")], [acc("a@x.io", { limits: [{ name: "seven_day", used: 0.6, resets: 5 }] }), acc("b@x.io", { ok: false, why: "токен отозван" })]);
@@ -274,7 +274,7 @@ describe("аккаунты и провайдеры", () => {
     expect(new Set(claude.map((m) => m.family))).toEqual(new Set(["Fable", "Opus", "Sonnet", "Haiku"]));
     await expect(api.call(keysModels, { name: "nobody" })).rejects.toMatchObject({ word: "not_found" });
     const lines = (await api.call(logQuery, { msg: "account.", limit: 3 })).lines;
-    expect(lines.map((l) => l.msg)).toEqual(["account.moved", "account.moved", "account.full"]);
+    expect(lines.map((l) => l.msg)).toEqual(["account.moved", "account.use", "account.moved"]);
     expect(lines[0]!.at).toBeGreaterThan(lines[2]!.at);
     expect((await api.call(logQuery, { msg: "account.", account: "team@example.com" })).lines.map((l) => l.msg)).toEqual(["account.token"]);
   });

@@ -1,5 +1,5 @@
 // Аккаунты Claude на экране флота: аккаунт — ключ флота с протоколом claude; его числа — общие для флота, их отдаёт машина, которую спросил экран.
-import { CLAUDE, type Account, type KeyRow } from "@sb/protocol";
+import { CLAUDE, type Account, type KeyRow, type Use } from "@sb/protocol";
 
 export type LimitRow = Account["limits"][number];
 /** Столбец аккаунта: один на флот. */
@@ -10,6 +10,8 @@ export type Column = {
   why?: string;
   /** беречь запас недели под Fable */
   keep: boolean;
+  /** как флот пользуется аккаунтом: выключен, по счёту, первым */
+  use: Use;
   /** Claude ответил этой машине «аккаунт полон» */
   full: boolean;
   /** до какого времени действует токен, мс */
@@ -32,7 +34,7 @@ export function columns(keys: KeyRow[], accounts: Account[]): Column[] {
   return claudeKeys(keys).map((k) => {
     const a = accounts.find((x) => x.name === k.name);
     const bad = a && !a.ok;
-    return { name: k.name, ok: !bad, ...(bad ? { why: a.why ?? "Claude не принял токен" } : {}), keep: k.keep !== false, full: !!a?.full, ...(k.expires !== undefined ? { expires: k.expires } : {}), limits: a?.limits ?? [] };
+    return { name: k.name, ok: !bad, ...(bad ? { why: a.why ?? "Claude не принял токен" } : {}), keep: k.keep !== false, use: k.use ?? "auto", full: !!a?.full, ...(k.expires !== undefined ? { expires: k.expires } : {}), limits: a?.limits ?? [] };
   });
 }
 

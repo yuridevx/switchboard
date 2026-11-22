@@ -1,6 +1,7 @@
 // Аккаунты и модели сессий машины. Аккаунт Claude — ключ флота с протоколом claude: годовой токен, один на весь флот.
 // Машина держит токены только в памяти; у процесса сессии вместо токена слово-заглушка, настоящий ставит прокси.
 // Сессия привязана к аккаунту, пока кэш её разговора тёплый; новая и остывшая выбирают лучший по счёту (limits.ts). Порядка аккаунтов нет нигде.
+// Рычаг аккаунта (список ключей): токен выключенного аккаунта машина не берёт — ни вызова сессии, ни пробы им не сделать; «первым» — первый круг выбора.
 // Числа окон — из заголовков ответов Claude; они общие для флота: машина сообщает их службе ключей и берёт оттуда то, что видели другие. Каждый вызов, решение и событие аккаунта — строка журнала машины
 // (call, route, account.*): историю читают из ClickHouse, от него выбор не зависит.
 // Аккаунт без свежих ответов (новый, без сессий) машина пробует сама, когда её спрашивают об аккаунтах: разовый claude с ответом в одно слово
@@ -12,7 +13,7 @@ import { CLAUDE, findModels, keysLimits, keysList, keysModels, keysValue, LIMIT_
 import { limited } from "../../core/clock.ts";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
 import { cacheOf, hours, launchEnv, launchSig, procModel, wireModel, type Cache, type Pair } from "./pair.ts";
-import { choose, closed, FABLE, FIVE, fits, isFable, nextReset, read, refusalHeaders, shown, WEEK, type Account, type Candidate } from "./limits.ts";
+import { choose, closed, FABLE, FIVE, fits, isFable, isOff, nextReset, read, refusalHeaders, shown, WEEK, type Account, type Candidate } from "./limits.ts";
 
 /** Запись машины: окна и годность аккаунтов переживают подмену Host. */
 type Book = { accounts: Record<string, Account> };
@@ -142,23 +143,25 @@ export function make(): Module {
     return out;
   }
 
-  /** Аккаунты Claude флота: имена и флаги — из списка ключей, токены — в память. Один запрос на всех, кто ждёт. */
+  /** Аккаунты Claude флота: имена, флаг запаса и рычаг — из списка ключей, токены — в память. Токен выключенного аккаунта не берётся.
+   *  Один запрос на всех, кто ждёт. */
   function load(): Promise<void> {
     loading ??= (async () => {
       try {
         const { keys } = await limit(host.call(keysList, {}), READ_MS, `список ключей флота: службы не ответили за ${READ_MS / 1000} с`);
         const rows = keys.filter((k) => k.protocol === CLAUDE);
-        await Promise.all(rows.filter((k) => !tokens.has(k.name)).map(async (k) => {
+        const on = rows.filter((k) => k.use !== "off");
+        await Promise.all(on.filter((k) => !tokens.has(k.name)).map(async (k) => {
           const v = await limit(host.call(keysValue, { name: k.name }), READ_MS, `токен ${k.name}: службы не ответили`);
           tokens.set(k.name, v.value);
           if (v.base) bases.set(k.name, v.base);
         }));
-        for (const n of [...tokens.keys()]) if (!rows.some((k) => k.name === n)) (tokens.delete(n), bases.delete(n));
+        for (const n of [...tokens.keys()]) if (!on.some((k) => k.name === n)) (tokens.delete(n), bases.delete(n));
         write((all) => {
           for (const k of rows) {
             const was = all[k.name];
             // хвост значения сменился — токен новый: аккаунт снова в выборе
-            const a = (all[k.name] = { ...(was && was.tail === k.tail ? was : { limits: was?.limits ?? {}, ok: true }), keep: k.keep !== false, tail: k.tail });
+            const a = (all[k.name] = { ...(was && was.tail === k.tail ? was : { limits: was?.limits ?? {}, ok: true }), keep: k.keep !== false, use: k.use ?? "auto", tail: k.tail });
             // окна — общие для флота: что другая машина видела позже, то и верно
             for (const l of k.limits ?? []) {
               const at = l.at ?? 0;
@@ -231,7 +234,7 @@ export function make(): Module {
     // годного аккаунта нет — беда сессии: строка уровня warn уходит в её ленту, человек видит причину и час сброса сразу, а не после всех повторов claude
     host.log[account ? "info" : "warn"]("route", {
       callsign: s.callsign, ...(account ? { account } : {}), model: s.spec.model, why,
-      candidates: candidates.map((c) => ({ account: c.account, rem: pct(c.rem), hours: Math.round(c.hours * 10) / 10, warm: c.warm, score: pct(c.score) })),
+      candidates: candidates.map((c) => ({ account: c.account, rem: pct(c.rem), hours: Math.round(c.hours * 10) / 10, warm: c.warm, score: pct(c.score), ...(c.first ? { first: true } : {}) })),
     });
   }
 
@@ -270,7 +273,7 @@ export function make(): Module {
 
   async function readKey(name: string, project?: string): Promise<KeyConfig> {
     try {
-      const { value, keep: _keep, until, ...config } = await limit(host.call(keysValue, { name }), READ_MS, `ключ флота ${name}: службы не ответили за ${READ_MS / 1000} с`);
+      const { value, until, ...config } = await limit(host.call(keysValue, { name }), READ_MS, `ключ флота ${name}: службы не ответили за ${READ_MS / 1000} с`);
       values.set(name, value);
       if (until === undefined) untils.delete(name);
       else {
@@ -425,7 +428,8 @@ export function make(): Module {
       seatOf(s).update((x) => ({ ...x, cut: true, ...(pick.wait ? { wait: pick.wait } : {}) }));
       s.sync();
       plan();
-      const why = `годных аккаунтов Claude нет${pick.wait ? `: ближайший сброс в ${clock(pick.wait)}` : ""}`;
+      const allOff = Object.keys(all).length > 0 && Object.values(all).every(isOff);
+      const why = allOff ? "включённых аккаунтов Claude нет: все выключены" : `годных аккаунтов Claude нет${pick.wait ? `: ближайший сброс в ${clock(pick.wait)}` : ""}`;
       routed(s, undefined, why, pick.candidates);
       throw new Refusal("no_account", `${s.callsign}: ${why}`);
     }
@@ -434,10 +438,10 @@ export function make(): Module {
       routed(s, to, `${bound} полон: вызов ушёл на ${to}, привязка прежняя`, pick.candidates);
       return go(s.callsign, to);
     }
-    const reason = !bound ? (seat.account ? "прежний аккаунт выбыл" : "новая сессия") : !hot ? "кэш остыл, выбран заново" : !all[bound]!.ok ? "токен не принят" : isFull(bound) && skipped.has(bound) ? "аккаунт полон" : "лимит";
+    const reason = !bound ? (!seat.account ? "новая сессия" : isOff(all[seat.account]) ? "аккаунт выключен" : "прежний аккаунт выбыл") : !hot ? "кэш остыл, выбран заново" : !all[bound]!.ok ? "токен не принят" : isFull(bound) && skipped.has(bound) ? "аккаунт полон" : "лимит";
     seatOf(s).update((x) => ({ ...x, account: to, at: t, cut: undefined, wait: undefined }));
     s.sync();
-    routed(s, to, `${reason}${pick.spare ? " · из запаса Fable" : ""}`, pick.candidates);
+    routed(s, to, `${reason}${pick.first ? " · первым" : ""}${pick.spare ? " · из запаса Fable" : ""}`, pick.candidates);
     if (seat.account && seat.account !== to) host.log.info("account.moved", { callsign: s.callsign, account: to, from: seat.account, why: `${s.callsign}: ${seat.account} → ${to} · ${reason}` });
     return go(s.callsign, to);
   }
@@ -701,7 +705,7 @@ export function make(): Module {
           plan();
         }
         const t = now();
-        const accounts: AccountOut[] = Object.entries(book()).map(([name, a]) => ({ name, ok: a.ok, ...(a.why ? { why: a.why } : {}), limits: shown(a, t), keep: a.keep, ...(isFull(name) ? { full: true } : {}) }));
+        const accounts: AccountOut[] = Object.entries(book()).map(([name, a]) => ({ name, ok: a.ok, ...(a.why ? { why: a.why } : {}), limits: shown(a, t), ...(isFull(name) ? { full: true } : {}) }));
         return { accounts };
       },
     },

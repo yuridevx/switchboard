@@ -113,7 +113,7 @@ describe("архив: найденная запись и сводка", () => {
 });
 
 describe("аккаунты: время замера и срок токена", () => {
-  const acc = (limits: Account["limits"]): Account => ({ name: "a@b.c", ok: true, keep: true, limits });
+  const acc = (limits: Account["limits"]): Account => ({ name: "a@b.c", ok: true, limits });
   it("числа аккаунта — от машины, которую спросил экран; срок токена — от ключа флота", () => {
     const key = { name: "a@b.c", protocol: CLAUDE, at: T, tail: "…", keep: true, expires: T + 1 };
     const [c] = columns([key], [acc([{ name: "seven_day", used: 0.2, at: T }])]);

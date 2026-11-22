@@ -195,11 +195,20 @@ export type Protocol = z.infer<typeof Protocol>;
 /** Дополнения ключа провайдера: settings — настройки сессии на этом ключе; env — окружение сессии;
  *  cache — сколько минут живёт кэш разговора у этого провайдера: сам он срока не называет (нет или 0 — срок неизвестен). */
 const KeyOpts = { settings: z.record(z.string(), z.unknown()).optional(), env: z.record(z.string(), z.string()).optional(), cache: z.number().nonnegative().optional() };
+/** Как флот пользуется аккаунтом Claude: off — выключен: ни одного вызова его токеном, ни сессий, ни проб, ни каталога; first — первым: новая и остывшая
+ *  сессия любой модели сначала выбирает среди годных аккаунтов «первым»; auto — выбор по счёту. */
+export const USES = ["off", "auto", "first"] as const;
+export const Use = z.enum(USES);
+export type Use = z.infer<typeof Use>;
+/** Положение рычага словами — одно на флот: строка истории службы ключей и подсказки экрана аккаунтов. */
+export const USE_WORD: Record<Use, string> = { off: "выключен", auto: "по счёту", first: "первым" };
 /** Ключ флота — провайдер: один ключ открывает весь каталог его моделей. protocol — вид его API: им говорят с моделями, о которых провайдер не сказал иного. */
 export const KeyRow = z.object({
   name: z.string(), protocol: z.string(), base: z.string().optional(), at: z.number(), tail: z.string(), ...KeyOpts,
   /** у аккаунта Claude: беречь запас недели под Fable */
   keep: z.boolean().optional(),
+  /** у аккаунта Claude: как флот им пользуется */
+  use: Use.optional(),
   /** у аккаунта Claude: до какого времени действует токен, мс — год от записи значения */
   expires: z.number().optional(),
   /** сколько сессий флота сейчас идёт на этом ключе */
@@ -215,14 +224,14 @@ export const keysLimits = request("keys.limits", {
   input: z.object({ name: z.string(), limits: z.array(z.object({ name: z.string(), used: z.number(), resets: z.number().optional(), at: z.number() })) }), output: Done,
 });
 export const keysList = request("keys.list", {
-  owner: "keys", target: "service", tool: "Ключи флота — провайдеры моделей: аккаунты Claude (protocol claude, имя — почта) и ключи API провайдеров с адресом; число сессий на ключе. Значений в ответе нет. Модели провайдера — keys_models.", example: {}, reads: true,
+  owner: "keys", target: "service", tool: "Ключи флота — провайдеры моделей: аккаунты Claude (protocol claude, имя — почта) и ключи API провайдеров с адресом; число сессий на ключе. У аккаунта Claude — keep (беречь запас недели под Fable) и use (off — выключен, auto — по счёту, first — тратится первым). Значений в ответе нет. Модели провайдера — keys_models.", example: {}, reads: true,
   input: Empty, output: z.object({ keys: z.array(KeyRow) }),
 });
 /** value не задан — правятся только свойства уже записанного ключа. */
 export const keysSet = request("keys.set", {
   owner: "keys", target: "service", admin: true,
-  tool: "Записать ключ флота: name — имя (у аккаунта Claude — почта), protocol — вид API (claude — аккаунт Claude, value — токен claude setup-token; anthropic — Messages API; openai — OpenAI Responses API; meta — Meta; chatgpt — аккаунт ChatGPT, value — refresh-токен входа), value — значение ключа, base — адрес API провайдера, cache — сколько минут живёт кэш разговора у провайдера, keep — беречь запас недели аккаунта под Fable.", example: {"name":"router","protocol":"anthropic","base":"https://api.example.com"},
-  input: z.object({ name: z.string(), protocol: Protocol, value: z.string().optional(), base: z.string().optional(), keep: z.boolean().optional(), ...KeyOpts }), output: Done,
+  tool: "Записать ключ флота: name — имя (у аккаунта Claude — почта), protocol — вид API (claude — аккаунт Claude, value — токен claude setup-token; anthropic — Messages API; openai — OpenAI Responses API; meta — Meta; chatgpt — аккаунт ChatGPT, value — refresh-токен входа), value — значение ключа, base — адрес API провайдера, cache — сколько минут живёт кэш разговора у провайдера, keep — беречь запас недели аккаунта под Fable, use — как флот пользуется аккаунтом Claude: off — выключен (ни одного вызова, токен остаётся), first — тратить первым, auto — по счёту.", example: {"name":"router","protocol":"anthropic","base":"https://api.example.com"},
+  input: z.object({ name: z.string(), protocol: Protocol, value: z.string().optional(), base: z.string().optional(), keep: z.boolean().optional(), use: Use.optional(), ...KeyOpts }), output: Done,
 });
 /** Модель каталога провайдера, как её отдал сам провайдер: id — точное имя для документа сессии; family — семейство (группа в списке); window — окно контекста, токены;
  *  protocol — каким API с ней говорить: что объявил о модели провайдер, иначе — вид ключа. */
@@ -256,7 +265,7 @@ export const keysRemove = request("keys.remove", {
 /** Значение ключа — только машине. until — когда спросить значение снова, мс: есть у ключа, чьё значение стареет (токен доступа аккаунта ChatGPT). */
 export const keysValue = request("keys.value", {
   owner: "keys", target: "service", machineOnly: true,
-  input: z.object({ name: z.string() }), output: z.object({ value: z.string(), protocol: z.string(), base: z.string().optional(), keep: z.boolean().optional(), until: z.number().optional(), ...KeyOpts }),
+  input: z.object({ name: z.string() }), output: z.object({ value: z.string(), protocol: z.string(), base: z.string().optional(), until: z.number().optional(), ...KeyOpts }),
 });
 
 /* ===== GitHub (github) ===== */
@@ -304,7 +313,7 @@ export type LogRow = z.infer<typeof LogRow>;
 /** Чтение истории из ClickHouse, новые первыми. msg — имя строки или его начало: call — вызов модели, route — решение о выборе аккаунта, account. — события аккаунтов. */
 export const logQuery = request("log.query", {
   owner: "analytics", target: "service",
-  tool: "История флота из ClickHouse — строки журналов всех машин, новые первыми. msg — имя строки или его начало (call — вызовы модели, route — выбор аккаунта со счётом кандидатов, account. — события аккаунтов: переход, полон, окно закрыто, токен не годен); machine, session (позывной), account (почта), level; since и before — время, мс.", example: {"msg":"call","limit":20}, reads: true,
+  tool: "История флота из ClickHouse — строки журналов всех машин, новые первыми. msg — имя строки или его начало (call — вызовы модели, route — выбор аккаунта со счётом кандидатов, account. — события аккаунтов: переход, полон, окно закрыто, токен не годен, рычаг повёрнут); machine, session (позывной), account (почта), level; since и before — время, мс.", example: {"msg":"call","limit":20}, reads: true,
   input: z.object({ msg: z.string().optional(), machine: z.string().optional(), session: z.string().optional(), account: z.string().optional(), level: z.enum(["info", "warn", "error"]).optional(), since: z.number().optional(), before: z.number().optional(), limit: z.number().optional() }),
   output: z.object({ lines: z.array(LogRow), more: z.boolean() }),
 });

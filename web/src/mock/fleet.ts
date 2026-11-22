@@ -48,7 +48,12 @@ export function createMock(o: MockOptions = {}) {
   };
 
   /** Аккаунт Claude для новой сессии машины: первый с принятым токеном. */
-  const pickAccount = (m: string): string | undefined => accounts[m]?.find((a) => a.ok)?.name;
+  /** Выбор аккаунта новой сессии: выключенный не берётся, «первым» — раньше остальных. */
+  const pickAccount = (m: string): string | undefined => {
+    const use = (name: string) => keys.find((k) => k.name === name)?.use ?? "auto";
+    const fit = (accounts[m] ?? []).filter((a) => a.ok && use(a.name) !== "off");
+    return (fit.find((a) => use(a.name) === "first") ?? fit[0])?.name;
+  };
 
   /* ===== Сессии ===== */
   const M = "claude-fable-5-2";
@@ -201,7 +206,7 @@ export function createMock(o: MockOptions = {}) {
     const week = Math.min(1, fable + other), hold = keep ? Math.max(0, Math.min(CAP - fable, 1 - week)) : 0;
     return [{ name: "seven_day", used: week, fable, ...(hold ? { hold } : {}), resets: T + days * DAY, at: T - 2 * MIN }, { name: "seven_day_overage_included", used: Math.min(1, fable / CAP), resets: T + days * DAY, at: T - 2 * MIN }];
   };
-  const acct = (name: string, fable: number, other: number, days: number, more: Partial<Account> = {}): Account => ({ name, ok: true, limits: lim(fable, other, days), keep: true, ...more });
+  const acct = (name: string, fable: number, other: number, days: number, more: Partial<Account> = {}): Account => ({ name, ok: true, limits: lim(fable, other, days), ...more });
   /** Аккаунты Claude глазами машин: числа — из ответов Claude каждой машине; один аккаунт у двух машин — одни и те же числа. */
   const accounts: Record<string, Account[]> = {
     laptop: [acct("yuri@example.com", 0.37, 0.1, 3.2), acct("work@example.com", 0.495, 0.43, 5.4), acct("team@example.com", 0.36, 0.64, 1.9, { ok: false, why: "Claude не принял токен" })],
@@ -283,10 +288,10 @@ export function createMock(o: MockOptions = {}) {
     { id: "d2", kind: "telegram", person: ME, label: "Telegram: Switchboard", at: T - 20 * DAY },
   ];
   const YEAR = 365 * DAY;
-  const claudeKey = (name: string, daysAgo: number, keep = true): KeyRow => ({ name, protocol: CLAUDE, at: T - daysAgo * DAY, tail: "…" + name.slice(0, 2) + "AA", keep, expires: T - daysAgo * DAY + YEAR });
+  const claudeKey = (name: string, daysAgo: number, keep = true, use: KeyRow["use"] = "auto"): KeyRow => ({ name, protocol: CLAUDE, at: T - daysAgo * DAY, tail: "…" + name.slice(0, 2) + "AA", keep, use, expires: T - daysAgo * DAY + YEAR });
   /** Ключи флота: аккаунты Claude (годовые токены) и провайдеры. */
   const keys: KeyRow[] = [
-    claudeKey("yuri@example.com", 40), claudeKey("work@example.com", 12), claudeKey("team@example.com", 351), claudeKey("ops@example.com", 90), claudeKey("night@example.com", 3), claudeKey("anya@example.com", 200),
+    claudeKey("yuri@example.com", 40), claudeKey("work@example.com", 12), claudeKey("team@example.com", 351), claudeKey("ops@example.com", 90), claudeKey("night@example.com", 3, true, "first"), claudeKey("anya@example.com", 200),
     { name: "orca", protocol: "anthropic", base: "https://api.orca.example", at: T - 6 * DAY, tail: "…9f3c" },
     { name: "meta-muse", protocol: "meta", at: T - 2 * DAY, tail: "…a07d" },
     // провайдер, чей каталог моделей не отвечает: чтение без своего блока на экране — строкой в полосе наверху
@@ -300,6 +305,8 @@ export function createMock(o: MockOptions = {}) {
     ["account.closed", "laptop", 3 * HOUR + 10 * MIN, undefined, "work@example.com", "work: окно Fable закрыто до сброса"],
     ["account.token", "server", 2 * DAY, undefined, "team@example.com", "team: Claude не принял токен"],
   ] as const).map(([msg, machine, agoMs, session, account, text]) => ({ at: T - agoMs, machine, part: "host", level: msg === "account.token" ? "error" : msg === "account.moved" ? "info" : "warn", msg, ...(session ? { session } : {}), account, kind: msg.slice(msg.indexOf(".") + 1), text }));
+  // рычаг аккаунта повернул человек: строка службы ключей, значок — новое положение
+  moves.push({ at: T - 26 * MIN, machine: "", part: "services", level: "info", msg: "account.use", account: "night@example.com", kind: "first", text: `night: первым · ${ME}` });
   const prefs: Record<"me" | "fleet", Record<string, unknown>> = {
     me: { pins: ["site@laptop"], view: { work: "list" }, "models.pins": ["claude/claude-fable-5-2", "orca/glm-5.3", "orca/deepseek-v4"] },
     fleet: {
@@ -723,8 +730,9 @@ export function createMock(o: MockOptions = {}) {
             if (!was) limits.push({ ...l });
             else if ((l.at ?? 0) > (was.at ?? 0) || ((l.at ?? 0) === (was.at ?? 0) && l.used > was.used)) Object.assign(was, l);
           }
+          // настройки аккаунта называет только список ключей: в ответе машины их нет, запас недели под Fable — уже числом в окне
           const keep = k.keep !== false;
-          return { ...mine, keep, limits: limits.map((l) => (l.name === "seven_day" ? { ...l, hold: keep ? l.hold : undefined } : l)) };
+          return { ...mine, limits: limits.map((l) => (l.name === "seven_day" ? { ...l, hold: keep ? l.hold : undefined } : l)) };
         }),
       };
     },

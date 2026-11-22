@@ -7,26 +7,25 @@ const toMachine = z.object({ to: MachineAddr });
 
 /** Окно лимита аккаунта Claude, как его назвал последний ответ Claude этой машине. Доли 0..1; resets и at — мс.
  *  Имена: seven_day — неделя, seven_day_overage_included — окно Fable, five_hour — пять часов.
- *  У недели: fable — сколько из неё потратил Fable; hold — сколько свободной недели держится для Fable (у аккаунта с флагом keep). */
+ *  У недели: fable — сколько из неё потратил Fable; hold — сколько свободной недели держится для Fable (у аккаунта с флагом запаса). */
 export const Limit = z.object({ name: z.string(), used: z.number(), resets: z.number().optional(), at: z.number().optional(), fable: z.number().optional(), hold: z.number().optional() });
 /** Имя окна лимита словами — для строк журнала машины. */
 export const LIMIT_WORD: Record<string, string> = { seven_day: "неделя", seven_day_overage_included: "окно Fable", five_hour: "пять часов" };
-/** Аккаунт Claude глазами машины: имя — его почта, она же имя ключа флота с протоколом claude. Числа — только из ответов Claude этой машине. */
+/** Аккаунт Claude глазами машины: имя — его почта, она же имя ключа флота с протоколом claude. Числа — только из ответов Claude этой машине.
+ *  Настройки аккаунта — флаг запаса Fable и как флот им пользуется — называет только список ключей (keys.list). */
 export const Account = z.object({
   name: z.string(),
   /** токен принят; нет — why называет причину */
   ok: z.boolean(),
   why: z.string().optional(),
   limits: z.array(Limit),
-  /** беречь запас недели под Fable */
-  keep: z.boolean(),
   /** Claude ответил «аккаунт полон»: новые и остывшие сессии его пропускают, пока вызовов на нём не станет меньше */
   full: z.boolean().optional(),
 });
 export type Account = z.infer<typeof Account>;
 
 export const accountList = request("account.list", {
-  owner: "host-accounts", target: "machine", tool: "Аккаунты Claude флота через эту машину: окна лимитов — общие для флота (последние ответы Claude любой машине; аккаунт без свежих чисел машина пробует сама), принят ли токен этой машиной, флаг «беречь Fable», полон ли аккаунт. fresh: true — спросить окна у Claude заново у каждого аккаунта, и у закрытого: после ручного сброса лимитов. Какая сессия на каком аккаунте — поле account её строки.", example: { to: "@laptop" }, reads: true,
+  owner: "host-accounts", target: "machine", tool: "Аккаунты Claude флота через эту машину: окна лимитов — общие для флота (последние ответы Claude любой машине; аккаунт без свежих чисел машина пробует сама), принят ли токен этой машиной, полон ли аккаунт. Выключенный аккаунт машина не спрашивает: его числа — последние известные. fresh: true — спросить окна у Claude заново у каждого включённого аккаунта, и у закрытого: после ручного сброса лимитов. Какая сессия на каком аккаунте — поле account её строки; флаг запаса Fable и рычаг аккаунта (выключен, по счёту, первым) — в keys_list.", example: { to: "@laptop" }, reads: true,
   input: toMachine.extend({ fresh: z.boolean().optional() }), output: z.object({ accounts: z.array(Account) }),
 });
 export const keyCheck = request("key.check", {

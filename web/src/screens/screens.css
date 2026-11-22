@@ -113,11 +113,27 @@
 .acol-left { min-height: 16px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .acol .sdots { justify-content: center; min-height: 12px; max-width: 84px; }
 .acol-foot { display: flex; align-items: center; gap: 2px; }
+/* рычаг аккаунта: три положения в ряд; у всех столбцов на одной высоте */
+.uselever { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.uselever button { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 22px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.uselever button + button { border-left: 1px solid var(--line); }
+.uselever button:disabled { cursor: default; }
+.uselever button:not([aria-checked="true"]):not(:disabled):hover { background: var(--surface-2); color: var(--mantine-color-text); }
+.uselever button:focus-visible { outline: 2px solid var(--st-busy); outline-offset: -2px; }
+.uselever button[aria-checked="true"] { background: var(--surface-2); color: var(--mantine-color-text); }
+.uselever .use-off[aria-checked="true"] { background: var(--mantine-color-text); color: var(--mantine-color-body); }
+.uselever .use-first[aria-checked="true"] { background: var(--st-waiting); color: #fff; }
+/* выключенный аккаунт: числа известны, но флот им не пользуется */
+.acol.off .vbar, .acol.off .vcol b, .acol.off .acol-name, .acol.off .acol-left { opacity: .38; }
+.acol.off .vbar { filter: grayscale(1); }
+/* спящие сессии выключенного аккаунта: привязаны, пока не сделают вызов */
+.acol.off .sdots { opacity: .45; }
 .acol-foot .cacheclock { padding: 2px; min-height: 0; }
 .line.move { gap: 10px; font-size: 13px; padding: 4px 0; }
 .move-at { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .move-kind { flex: none; display: inline-flex; color: var(--muted); }
 .move-kind.full, .move-kind.closed { color: var(--st-waiting); }
+.move-kind.use { color: var(--mantine-color-text); }
 .move-kind.token { color: var(--st-failed); }
 .move-m { flex: none; font-size: 11.5px; }
 
