@@ -2,7 +2,7 @@
 // Нужен хотя бы один аккаунт Claude — ключ флота с протоколом claude. Модель сессий — SB2_CLAUDE_MODEL или самая дешёвая из каталога (Haiku).
 // Шаги: каталог Claude; ход без входа и час кэша; строки журнала вызова — на машине и в ClickHouse; негодный токен — аккаунт выбыл, сессии идут на годные;
 // «/model слова» сообщением; модель провайдера из каталога. Свой негодный аккаунт проверка заводит, обвязка убирает.
-// Части (SB2_PART): token — негодный аккаунт (меняет общее для флота: идёт одна); rest — остальное;
+// Части (SB2_PART): token — негодный аккаунт и рычаг аккаунта: «первым» и «выключен» (меняет общее для флота: идёт одна); rest — остальное;
 // provider — ключ провайдера: в список выпуска не входит — выпуск не зависит от чужого ключа и его предела трат. Запуск руками:
 // SB2_PART=provider [SB2_PROVIDER_KEY=имя] node tools/fleet/live-accounts.ts [флот] [устройство] [машина]
 import { CLAUDE } from "@sb/protocol";
@@ -101,6 +101,71 @@ await check(async (t: any) => {
   // Отказ по заказу умеет только двойник Claude (флот в коробке): заказ — сам токен аккаунта. Настоящему аккаунту токен не меняем:
   // шаг идёт, только когда адрес аккаунта — этот компьютер.
   const tame = (name: string, keys: Array<{ name: string; base?: string }>) => /^http:\/\/127\.0\.0\.1[:/]/.test(keys.find((k) => k.name === name)?.base ?? "");
+  // Рычаг аккаунта: «первым» и «выключен». Свойству нужны два годных аккаунта с равными окнами — так устроены двойники коробки:
+  // тогда без рычага выбор решают тёплые сессии, и шаг может назвать аккаунт, который по счёту проиграл бы.
+  /** Кандидат строки выбора, как его записала машина: остаток, часы до сброса, тёплые сессии. */
+  type Cand = { account: string; rem: number; hours: number; warm: number; first?: boolean };
+  /** Кто выиграл бы без рычага: счёт = остаток ÷ часы ÷ (1 + тёплые); при равном — у кого меньше тёплых, дальше — по имени. */
+  const beats = (a: Cand, b: Cand) => {
+    const sa = a.rem / a.hours / (1 + a.warm), sb = b.rem / b.hours / (1 + b.warm);
+    return Math.abs(sa - sb) > 1e-9 ? sa > sb : a.warm !== b.warm ? a.warm < b.warm : a.account < b.account;
+  };
+  /** Строка выбора сессии: её последнее решение с кандидатами. */
+  const routeOf = async (s: any): Promise<{ account: string; why?: string; candidates: Cand[] }> => {
+    const line = (await journal("route", s.callsign)).find((l) => l.account && Array.isArray(l.candidates));
+    if (!line) throw new Error(`строки выбора у ${s.callsign} нет`);
+    return line as any;
+  };
+  let lever = "", levered: any;
+  if (real.length > 1 && tame(real[0]!, (await t.must("keys.list", {})).keys)) await stepToken("рычаг «первым»: новая сессия идёт на аккаунт «первым», хотя по счёту выиграл бы другой; в строке выбора — пометка", async () => {
+    const s = await open("lev", { key: CLAUDE, model: cheap });
+    const on = (await settled(s, "аккаунт", (r) => r.account)).account;
+    // после этой сессии: кто из двух проиграл бы следующий выбор по счёту — тому и рычаг
+    const after = (await routeOf(s)).candidates.map((c) => ({ ...c, warm: c.warm + (c.account === on ? 1 : 0) }));
+    if (after.length !== 2) throw new Error("кандидатов в строке выбора не два: " + JSON.stringify(after));
+    lever = (beats(after[0]!, after[1]!) ? after[1]! : after[0]!).account;
+    await t.must("keys.set", { name: lever, protocol: CLAUDE, use: "first" });
+    t.defer(`рычаг ${lever}`, (go: any) => go("keys.set", { name: lever, protocol: CLAUDE, use: "auto" }));
+    // машина перечитала аккаунты: её ответ на список аккаунтов ждёт чтения
+    await t.must("account.list", { to: machine });
+    levered = await open("lev2", { key: CLAUDE, model: cheap });
+    const row = await settled(levered, "аккаунт", (r) => r.account);
+    if (row.account !== lever) throw new Error(`сессия на ${row.account}, «первым» стоит ${lever}`);
+    const route = await routeOf(levered);
+    const mine = route.candidates.find((c) => c.account === lever), other = route.candidates.find((c) => c.account !== lever);
+    if (!mine?.first) throw new Error("у кандидата «первым» нет пометки: " + JSON.stringify(route.candidates));
+    // посылка шага: без рычага выиграл бы сосед — иначе шаг ничего не доказал
+    if (!other || !beats(other, mine)) throw new Error("без рычага этот аккаунт выиграл бы и сам: " + JSON.stringify(route.candidates));
+    if (!String((route as any).why ?? "").includes("первым")) throw new Error("в причине выбора нет «первым»: " + (route as any).why);
+    return `${lever}: тёплых ${mine.warm} против ${other.warm} у ${other.account} — выбран он`;
+  });
+
+  if (lever) await stepToken("рычаг «выключен»: следующий вызов сессии идёт другим аккаунтом, причина перехода названа; выключенным вызовов нет; поворот — в истории флота", async () => {
+    const spent = (await journal("call", levered.callsign)).filter((l) => l.account === lever).length;
+    await t.must("keys.set", { name: lever, protocol: CLAUDE, use: "off" });
+    await t.must("account.list", { to: machine });
+    const word = `off-${t.tag}`;
+    await levered.turn(turn(say(word)));
+    const row = await settled(levered, `ответ «${word}» на другом аккаунте`, (r) => String(r.result).includes(word));
+    if (row.account === lever || !real.includes(row.account)) throw new Error(`ход кончился на ${row.account}, выключен ${lever}`);
+    const calls = (await journal("call", levered.callsign)).filter((l) => l.account === lever).length;
+    if (calls !== spent) throw new Error(`выключенным аккаунтом сделано вызовов: ${calls - spent}`);
+    const moved = (await journal("account.moved", levered.callsign)).find((l) => l.account === row.account);
+    if (!String(moved?.why ?? "").includes("аккаунт выключен")) throw new Error("причины перехода «аккаунт выключен» нет: " + JSON.stringify(moved));
+    // рычаг возвращён: следующим шагам нужны оба аккаунта
+    await t.must("keys.set", { name: lever, protocol: CLAUDE, use: "auto" });
+    await t.must("account.list", { to: machine });
+    // истории флота у флота нет (коробка без контейнера ClickHouse) — шаг кончается журналом машины
+    if (t.lacks("clickhouse")) return `${lever} → ${row.account}: аккаунт выключен`;
+    let seen = "строк нет";
+    await t.wait("строки о поворотах рычага в ClickHouse", async () => {
+      const kinds = (await t.must("log.query", { msg: "account.use", account: lever, limit: 20 })).lines.map((l: any) => l.kind);
+      seen = kinds.join(", ") || "строк нет";
+      return kinds.includes("first") && kinds.includes("off");
+    }, () => seen);
+    return `${lever} → ${row.account}: аккаунт выключен; в истории — ${seen}`;
+  });
+
   if (real.length > 1 && tame(real[0]!, (await t.must("keys.list", {})).keys)) await stepToken("лимит недели кончился посреди хода: ход дошёл на другом аккаунте, сессия отказа не видит", async () => {
     const s = await open("lim", { key: CLAUDE, model: cheap });
     const full = (await settled(s, "аккаунт", (r) => r.account)).account;

@@ -1,10 +1,10 @@
 // «Флот → Аккаунты»: аккаунты Claude — годовые токены, заведённые один раз на весь флот, столбцами на общей шкале; рядом — что система сделала с ними сама;
 // ниже — провайдеры: ключи флота, каждый открывает каталог своих моделей.
-import { accountList, CLAUDE, keyCheck, keysList, keysRemove, keysSet, logQuery, PROTOCOLS, type KeyRow, type LogRow } from "@sb/protocol";
+import { accountList, CLAUDE, keyCheck, keysList, keysRemove, keysSet, logQuery, PROTOCOLS, USE_WORD, USES, type KeyRow, type LogRow, type Use } from "@sb/protocol";
 import { ActionIcon, Button, CopyButton, Group, JsonInput, Menu, PasswordInput, Select, Stack, Text, Textarea, TextInput, Tooltip } from "@mantine/core";
 import { Page } from "../../shell/Page.tsx";
 import { notifications } from "@mantine/notifications";
-import { IconArrowsShuffle, IconCalendarWeek, IconCheck, IconCopy, IconDots, IconHourglass, IconKey, IconKeyOff, IconMail, IconPlugConnected, IconPlus, IconRefresh, IconSparkles, IconUsers } from "@tabler/icons-react";
+import { IconArrowsShuffle, IconCalendarWeek, IconCheck, IconCopy, IconDots, IconFlame, IconHourglass, IconKey, IconKeyOff, IconMail, IconPlugConnected, IconPlus, IconPower, IconRefresh, IconScale, IconSparkles, IconUsers } from "@tabler/icons-react";
 import { Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -82,10 +82,26 @@ function TokenForm({ email, onDone }: { email?: string; onDone: () => void }) {
   );
 }
 
+/** Рычаг аккаунта — как флот им пользуется: выключен (ни одного вызова, токен остаётся), по счёту, первым (тратится раньше остальных). */
+const USE_ICON: Record<Use, React.ReactNode> = { off: <IconPower size={13} />, auto: <IconScale size={13} />, first: <IconFlame size={13} /> };
+/** Подсказка положения — слово договора с большой буквы. */
+const useWord = (u: Use) => USE_WORD[u][0]!.toUpperCase() + USE_WORD[u].slice(1);
+function UseLever({ value, disabled, onChange }: { value: Use; disabled: boolean; onChange: (use: Use) => void }) {
+  return (
+    <span className="uselever" role="radiogroup" aria-label="Как флот пользуется аккаунтом">
+      {USES.map((u) => (
+        <Tooltip key={u} label={useWord(u)}>
+          <button type="button" role="radio" aria-checked={u === value} aria-label={useWord(u)} className={`use-${u}`} disabled={disabled} onClick={() => u !== value && onChange(u)}>{USE_ICON[u]}</button>
+        </Tooltip>
+      ))}
+    </span>
+  );
+}
+
 /** Столбец аккаунта на общей шкале флота: два столбика — неделя и Fable. Заливка — сколько потрачено; черта поперёк — сколько недели прошло
  *  (заливка выше черты — аккаунт тратится быстрее, чем идёт неделя); штрих сверху — запас недели под Fable; под столбиками — через сколько сброс,
  *  точки сессий, флаг запаса, кольцо срока токена. Негодный токен — красный ключ вместо флага. */
-function AccountColumn({ c, admin, onToken, onRemove, onKeep }: { c: Column; admin: boolean; onToken: () => void; onRemove: () => void; /** беречь ли запас недели под Fable */ onKeep: (keep: boolean) => void }) {
+function AccountColumn({ c, admin, onToken, onRemove, onKeep, onUse }: { c: Column; admin: boolean; onToken: () => void; onRemove: () => void; /** беречь ли запас недели под Fable */ onKeep: (keep: boolean) => void; onUse: (use: Use) => void }) {
   const bad = c.why ?? "Claude не принял токен";
   const keepWord = c.keep ? "Запас недели под Fable бережётся" : "Запас под Fable не бережётся: неделя целиком — любым моделям";
   const { week, fable } = meterOf(c.limits);
@@ -108,13 +124,14 @@ function AccountColumn({ c, admin, onToken, onRemove, onKeep }: { c: Column; adm
     );
   };
   return (
-    <div className={`acol${c.ok ? "" : " bad"}`} data-account={c.name}>
+    <div className={`acol${c.ok ? "" : " bad"}${c.ok && c.use !== "auto" ? ` ${c.use}` : ""}`} data-account={c.name} data-use={c.use}>
       <div className="acol-bars" title={reset && reset > now ? `сброс через ${leftWord(reset, now)}` : undefined}>
         {bar(week, "неделя, все модели", <IconCalendarWeek size={12} aria-hidden />)}
         {bar(fable, "неделя Fable", <IconSparkles size={12} aria-hidden />)}
       </div>
       <div className="acol-name trunc" title={c.name}>{c.name.slice(0, c.name.indexOf("@"))}{c.full && <IconUsers size={12} className="acol-full" aria-label="Аккаунт полон: новые сессии идут на другие" />}</div>
       <div className="acol-left">{c.ok && reset && reset > now ? leftWord(reset, now) : " "}</div>
+      {c.ok && <UseLever value={c.use} disabled={!admin} onChange={onUse} />}
       <SessionDots on={(s) => s.account === c.name} />
       <div className="acol-foot">
         {c.ok
@@ -138,6 +155,8 @@ function AccountColumn({ c, admin, onToken, onRemove, onKeep }: { c: Column; adm
 
 /** Вид события аккаунта — по концу имени строки: moved — переход, full — полон, closed — окно закрыто, token — токен не годен. */
 const MOVE_ICON: Record<string, React.ReactNode> = { moved: <IconArrowsShuffle size={14} />, full: <IconUsers size={14} />, closed: <IconHourglass size={14} />, token: <IconKeyOff size={14} /> };
+/** Строка о рычаге аккаунта: значок — его новое положение. */
+const moveIcon = (l: LogRow) => (moveKind(l) === "use" ? USE_ICON[l.kind as Use] : MOVE_ICON[moveKind(l)]);
 const moveKind = (l: LogRow) => l.msg.slice(l.msg.indexOf(".") + 1);
 
 /** Что система сделала с аккаунтами сама: переходы сессий, полные аккаунты, закрытые окна, негодные токены — строки истории флота. */
@@ -150,7 +169,7 @@ function Moves() {
       {lines.map((l, i) => (
         <div key={`${l.at}-${i}`} className="line move">
           <span className="move-at">{ago(l.at)}</span>
-          <span className={`move-kind ${moveKind(l)}`} aria-hidden>{MOVE_ICON[moveKind(l)]}</span>
+          <span className={`move-kind ${moveKind(l)}`} aria-hidden>{moveIcon(l)}</span>
           <span className="grow" style={{ overflowWrap: "anywhere" }}>{l.text ?? [l.session, l.account].filter(Boolean).join(" · ")}</span>
           <span className="mono muted move-m">{l.machine}</span>
         </div>
@@ -296,7 +315,7 @@ export function Accounts() {
         </Group>
         <div className="acct-split">
           <div className="acols">
-            {cols.map((c) => <AccountColumn key={c.name} c={c} admin={admin} onToken={() => setForm({ email: c.name })} onRemove={() => void drop(c)} onKeep={async (keep) => (await act(keysSet, { name: c.name, protocol: CLAUDE, keep })) && refresh()} />)}
+            {cols.map((c) => <AccountColumn key={c.name} c={c} admin={admin} onToken={() => setForm({ email: c.name })} onRemove={() => void drop(c)} onKeep={async (keep) => (await act(keysSet, { name: c.name, protocol: CLAUDE, keep })) && refresh()} onUse={async (use) => (await act(keysSet, { name: c.name, protocol: CLAUDE, use })) && (await refresh(), qc.invalidateQueries({ queryKey: ["log.query"] }))} />)}
           </div>
           <Moves />
         </div>

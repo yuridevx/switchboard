@@ -1,26 +1,27 @@
 // Ключи флота — провайдеры моделей: аккаунты Claude (годовой токен), аккаунты ChatGPT (вход, который служба обновляет сама) и ключи API провайдеров.
-// Значение получает только машина.
+// Значение получает только машина. Настройки аккаунта Claude — флаг запаса Fable и рычаг (выключен, по счёту, первым) — называет только список ключей.
 // Каталог моделей служба спрашивает у провайдера на каждый запрос и копии не держит.
-import { CLAUDE, Refusal, type Model, type Protocol } from "@sb/protocol";
+import { CLAUDE, errFields, Refusal, USE_WORD, type Model, type Protocol, type Use } from "@sb/protocol";
 import type { Ctx, Env, Module } from "../../env.ts";
 import { records } from "../../records.ts";
+import { line } from "../analytics/contract.ts";
 
 const NAME = "keys";
 const SCHEMA = [
   // provider — вид API ключа: в договоре он зовётся protocol
   "CREATE TABLE IF NOT EXISTS keys (name TEXT PRIMARY KEY, provider TEXT, value TEXT, base TEXT, at INTEGER)",
-  // дополнения ключа одним объектом: настройки и окружение сессии; у аккаунта Claude — флаг запаса Fable и когда записан токен
+  // дополнения ключа одним объектом: настройки и окружение сессии; у аккаунта Claude — флаг запаса Fable, рычаг и когда записан токен
   "CREATE TABLE IF NOT EXISTS keyopts (name TEXT PRIMARY KEY, opts TEXT NOT NULL)",
   // окна лимитов аккаунта Claude, одни на флот: что последней увидела любая машина
   "CREATE TABLE IF NOT EXISTS limits (name TEXT NOT NULL, win TEXT NOT NULL, used REAL NOT NULL, resets INTEGER, at INTEGER NOT NULL, PRIMARY KEY (name, win))",
 ];
 const db = (env: Env, fleet: string) => records(env, fleet, NAME, SCHEMA);
 
-/** keep — беречь запас недели под Fable; since — когда записано значение, мс. */
-type Opts = { settings?: Record<string, unknown>; env?: Record<string, string>; cache?: number; keep?: boolean; since?: number };
+/** keep — беречь запас недели под Fable; use — как флот пользуется аккаунтом (не записан — по счёту); since — когда записано значение, мс. */
+type Opts = { settings?: Record<string, unknown>; env?: Record<string, string>; cache?: number; keep?: boolean; use?: Use; since?: number };
 type Stored = { name: string; provider: string; value: string; base: string | null; at: number; opts: string | null };
 type Seen = { name: string; win: string; used: number; resets: number | null; at: number };
-type Input = { name: string; protocol: string; value?: string; base?: string; keep?: boolean; settings?: Record<string, unknown>; env?: Record<string, string>; cache?: number };
+type Input = { name: string; protocol: string; value?: string; base?: string; keep?: boolean; use?: Use; settings?: Record<string, unknown>; env?: Record<string, string>; cache?: number };
 
 const SELECT = "SELECT keys.name, keys.provider, keys.value, keys.base, keys.at, keyopts.opts AS opts FROM keys LEFT JOIN keyopts ON keyopts.name = keys.name";
 /** Токен `claude setup-token` действует год. */
@@ -100,14 +101,15 @@ async function chatgptCatalog(ctx: Ctx, name: string): Promise<{ models: Model[]
 }
 
 const optsOf = (s: Stored): Opts => (s.opts ? (JSON.parse(s.opts) as Opts) : {});
-/** Свойства ключа наружу: адрес, настройки и окружение сессии; у аккаунта Claude — флаг запаса. */
+/** Свойства ключа наружу — и в список, и машине с токеном: адрес, настройки и окружение сессии. */
 function extras(s: Stored) {
   const o = optsOf(s);
-  return {
-    ...(s.base ? { base: s.base } : {}), ...(o.settings ? { settings: o.settings } : {}), ...(o.env ? { env: o.env } : {}), ...(o.cache ? { cache: o.cache } : {}),
-    ...(s.provider === CLAUDE ? { keep: o.keep !== false } : {}),
-  };
+  return { ...(s.base ? { base: s.base } : {}), ...(o.settings ? { settings: o.settings } : {}), ...(o.env ? { env: o.env } : {}), ...(o.cache ? { cache: o.cache } : {}) };
 }
+/** Рычаг аккаунта Claude: не записан — по счёту. */
+const useOf = (s: Stored): Use => optsOf(s).use ?? "auto";
+/** Настройки аккаунта Claude — только в список ключей: флаг запаса и рычаг. */
+const accountOf = (s: Stored) => (s.provider === CLAUDE ? { keep: optsOf(s).keep !== false, use: useOf(s) } : {});
 const told = (ctx: Ctx) => ctx.platform.broadcast(ctx.fleet, { type: "changed", what: "keys", trace: ctx.trace }, "host");
 
 /** Сессии флота, которые сейчас идут на ключе: провайдер — по документу сессии, аккаунт Claude — по строке сессии. */
@@ -175,7 +177,7 @@ export const keys: Module = {
         keys: rows.map((s) => {
           const since = optsOf(s).since;
           return {
-            name: s.name, protocol: s.provider, at: s.at, tail: (s.provider === CHATGPT ? loginOf(s).access : s.value).slice(-4), ...extras(s),
+            name: s.name, protocol: s.provider, at: s.at, tail: (s.provider === CHATGPT ? loginOf(s).access : s.value).slice(-4), ...extras(s), ...accountOf(s),
             ...(s.provider === CLAUDE && since ? { expires: since + TOKEN_MS } : {}), sessions: on.get(s.name)?.length ?? 0,
             ...(s.provider === CLAUDE && limitsOf(s.name).length ? { limits: limitsOf(s.name) } : {}),
           };
@@ -201,14 +203,20 @@ export const keys: Module = {
         ...(i.env ?? before.env ? { env: i.env ?? before.env } : {}),
         // 0 — срок снят: провайдер его не называет, и человек больше не утверждает
         ...((i.cache ?? before.cache) ? { cache: i.cache ?? before.cache } : {}),
-        // у аккаунта Claude запас Fable бережётся, пока человек не снял флаг
-        ...(i.protocol === CLAUDE ? { keep: i.keep ?? before.keep ?? true, since: i.value !== undefined ? now : before.since } : {}),
+        // у аккаунта Claude запас Fable бережётся, пока человек не снял флаг; рычаг стоит, пока его не повернули
+        ...(i.protocol === CLAUDE ? { keep: i.keep ?? before.keep ?? true, ...((i.use ?? before.use) ? { use: i.use ?? before.use } : {}), since: i.value !== undefined ? now : before.since } : {}),
       };
+      const turned = i.protocol === CLAUDE && i.use !== undefined && i.use !== (was && was.provider === CLAUDE ? useOf(was) : "auto");
       await d.batch([
         ["INSERT OR REPLACE INTO keys (name, provider, value, base, at) VALUES (?, ?, ?, ?, ?)", i.name, i.protocol, login ? JSON.stringify(login) : (i.value ?? was!.value), i.base ?? was?.base ?? (i.protocol === CHATGPT ? CHATGPT_BASE : null), now],
         Object.keys(opts).length ? ["INSERT OR REPLACE INTO keyopts (name, opts) VALUES (?, ?)", i.name, JSON.stringify(opts)] : ["DELETE FROM keyopts WHERE name = ?", i.name],
       ]);
       await told(ctx);
+      // рычаг повёрнут: кто и как — строкой истории флота; история не ответила — рычаг всё равно повёрнут
+      if (turned) {
+        await line(ctx.env, ctx.fetch, ctx.fleet, { file: NAME, msg: "account.use", account: i.name, kind: i.use, text: `${i.name.split("@")[0]}: ${USE_WORD[i.use!]} · ${ctx.who.addr}`, data: { by: ctx.who.addr } })
+          .catch((e: unknown) => ctx.log.warn("строка истории о рычаге аккаунта не записалась", { module: NAME, account: i.name, ...errFields(e) }));
+      }
       return {};
     },
 
@@ -257,7 +265,7 @@ export const keys: Module = {
       return { value: s.value, protocol: s.provider, ...extras(s) };
     },
 
-    /** Каталог провайдера — его ответ на этот запрос. Каталог Claude — токеном первого аккаунта, который Claude принял. */
+    /** Каталог провайдера — его ответ на этот запрос. Каталог Claude — токеном первого включённого аккаунта, который Claude принял. */
     async "keys.models"(i: { name: string }, ctx) {
       const d = db(ctx.env, ctx.fleet);
       if (i.name !== CLAUDE) {
@@ -268,8 +276,11 @@ export const keys: Module = {
         if ("status" in r) throw new Refusal("catalog_failed", `каталог ${i.name}: ${r.why}`);
         return r;
       }
-      const accounts = await d.all<Stored>(`${SELECT} WHERE keys.provider = ? ORDER BY keys.name`, CLAUDE);
-      if (!accounts.length) throw new Refusal("no_account", "аккаунтов Claude у флота нет");
+      const all = await d.all<Stored>(`${SELECT} WHERE keys.provider = ? ORDER BY keys.name`, CLAUDE);
+      if (!all.length) throw new Refusal("no_account", "аккаунтов Claude у флота нет");
+      // токеном выключенного аккаунта к Claude не ходит никто
+      const accounts = all.filter((a) => useOf(a) !== "off");
+      if (!accounts.length) throw new Refusal("no_account", "включённых аккаунтов Claude у флота нет: все выключены");
       let why = "";
       for (const a of accounts) {
         const r = await catalog(ctx, a.base ?? ANTHROPIC, { authorization: `Bearer ${a.value}`, "anthropic-beta": "oauth-2025-04-20" }, CLAUDE);

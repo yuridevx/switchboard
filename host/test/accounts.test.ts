@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Module } from "../src/core/contract.ts";
 import { make as accounts, type AccountsApi } from "../src/modules/accounts/accounts.ts";
-import { choose, fits, type Account } from "../src/modules/accounts/limits.ts";
+import { choose, fits, nextReset, type Account } from "../src/modules/accounts/limits.ts";
 import { make as chat } from "../src/modules/chat/chat.ts";
 import { make as proxy } from "../src/modules/proxy/proxy.ts";
 import { signal, stand, until, type Stand } from "../stand/index.ts";
@@ -35,15 +35,17 @@ const CATALOG = [
 ];
 const ORCA = [{ id: "qwen-3.5-coder", window: 256_000 }, { id: "glm-5.3", window: 200_000 }];
 
-/** Запись аккаунта: неделя и окно Fable с часом сброса через hours часов. */
-type Preset = { week?: number; hours?: number; fable?: number; keep?: boolean };
+/** Запись аккаунта: неделя и окно Fable с часом сброса через hours часов; use — рычаг аккаунта. */
+type Preset = { week?: number; hours?: number; fable?: number; keep?: boolean; use?: Account["use"] };
 const record = (p: Preset): Account => ({
-  ok: true, keep: p.keep ?? false, limits: {
+  ok: true, keep: p.keep ?? false, ...(p.use ? { use: p.use } : {}), limits: {
     ...(p.week !== undefined ? { seven_day: { used: p.week, resets: T0 + (p.hours ?? 100) * HOUR, at: T0 } } : {}),
     ...(p.fable !== undefined ? { seven_day_overage_included: { used: p.fable, resets: T0 + (p.hours ?? 100) * HOUR, at: T0 } } : {}),
   },
 });
 const book = (all: Record<string, Preset>) => Object.fromEntries(Object.entries(all).map(([n, p]) => [n, record(p)]));
+/** Выбор аккаунта чистым правилом на часах T0. */
+const pick = (all: Record<string, Preset>, fable = false, warm: Record<string, number> = {}) => choose(book(all), fable, warm, T0);
 
 type Hit = { account: string; model: string; headers: IncomingHttpHeaders };
 type Reply = { status?: number; headers?: Record<string, string>; /** тело ответа: у отказа — что написал провайдер */ body?: unknown };
@@ -97,7 +99,7 @@ async function fleet(all: Record<string, Preset>, answer: (hit: Hit, n: number) 
   st.services.handlers["ticket.new"] = (f: any) => (raised.push(f), { id: "site-1" });
   /** limits — окна аккаунта, которые знает флот (служба ключей) */
   const names: { list: string[]; limits: Record<string, Array<{ name: string; used: number; resets?: number; at: number }>> } = { list: Object.keys(all), limits: {} };
-  st.services.handlers["keys.list"] = () => ({ keys: [...names.list.map((n) => ({ name: n, protocol: "claude", at: 1, tail: "tail", keep: all[n]?.keep ?? false, ...(names.limits[n] ? { limits: names.limits[n] } : {}) })), { name: "orca", protocol: "anthropic", base: api.url, at: 1, tail: "orca" }] });
+  st.services.handlers["keys.list"] = () => ({ keys: [...names.list.map((n) => ({ name: n, protocol: "claude", at: 1, tail: "tail", keep: all[n]?.keep ?? false, ...(all[n]?.use ? { use: all[n]!.use } : {}), ...(names.limits[n] ? { limits: names.limits[n] } : {}) })), { name: "orca", protocol: "anthropic", base: api.url, at: 1, tail: "orca" }] });
   st.services.handlers["keys.value"] = (f: any) => (f.name === "orca" ? { value: "sk-orca", protocol: "anthropic", base: api.url } : { value: `tok-${f.name}`, protocol: "claude", base: api.url });
   st.services.handlers["keys.models"] = (f: any) => ({ models: f.name === "claude" ? CATALOG : ORCA });
   st.services.handlers["prefs.get"] = () => ({ values: { "proxy.rules": [] } });
@@ -120,9 +122,19 @@ const routed = async (sid: string) => {
   return r.account;
 };
 
-describe("выбор аккаунта — правило", () => {
-  const pick = (all: Record<string, Preset>, fable = false, warm: Record<string, number> = {}) => choose(book(all), fable, warm, T0);
+/** Разовый claude стенда: делает через прокси тот же вызов, что сделал бы настоящий. */
+const liveCli = () => {
+  st!.sdk.cli = async (args, env) => {
+    st!.sdk.cliCalls.push({ args, env });
+    const sid = args[args.indexOf("--session-id") + 1]!, model = args[args.indexOf("--model") + 1]!;
+    const r = await fetch(`${env.ANTHROPIC_BASE_URL}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${env.CLAUDE_CODE_OAUTH_TOKEN}`, "x-claude-code-session-id": sid }, body: JSON.stringify({ model, messages: [{ role: "user", content: "ok" }] }) });
+    return { code: r.ok ? 0 : 1, out: await r.text() };
+  };
+};
+/** Запись машины в хранилище: аккаунты, как их записал модуль. */
+const stored = () => JSON.parse(readFileSync(join(st!.home, "store", "host-accounts.json"), "utf8")).machine.accounts as Record<string, Account>;
 
+describe("выбор аккаунта — правило", () => {
   // чьё: слово пользователя 11 нояб. — ближний сброс первым
   it("два годных аккаунта с равным остатком, сброс недели через 21 ч и через 3 дня — берётся аккаунт со сбросом через 21 ч", () => {
     expect(pick({ [A]: { week: 0.4, hours: 72 }, [B]: { week: 0.4, hours: 21 } }).account).toBe(B);
@@ -477,16 +489,6 @@ describe("провайдеры и модели", () => {
 });
 
 describe("проба окон аккаунта", () => {
-  /** Разовый claude стенда: делает через прокси тот же вызов, что сделал бы настоящий. */
-  const liveCli = () => {
-    st!.sdk.cli = async (args, env) => {
-      st!.sdk.cliCalls.push({ args, env });
-      const sid = args[args.indexOf("--session-id") + 1]!, model = args[args.indexOf("--model") + 1]!;
-      const r = await fetch(`${env.ANTHROPIC_BASE_URL}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${env.CLAUDE_CODE_OAUTH_TOKEN}`, "x-claude-code-session-id": sid }, body: JSON.stringify({ model, messages: [{ role: "user", content: "ok" }] }) });
-      return { code: r.ok ? 0 : 1, out: await r.text() };
-    };
-  };
-
   // чьё: слово пользователя 15 нояб. — «после добавления нет механизма, который показывает и опрашивает API по лимитам»
   it("аккаунт без единого вызова, спросили аккаунты машины — проба этим аккаунтом: в ответе его неделя и окно Fable; свежие числа второй раз не спрашиваются", async () => {
     const api = await fleet({ [A]: {} }, () => ({ headers: windows({ week: 0.37, fable: 0.42, hours: 40 }) }));
@@ -601,5 +603,134 @@ describe("проба окон аккаунта", () => {
     expect(api.hits).toHaveLength(1);
     expect(fresh[0]!.limits).toMatchObject([{ name: "seven_day", used: 1, resets: T0 + 40 * HOUR }]);
     expect(journal("account.closed")).toHaveLength(before);
+  });
+});
+
+describe("рычаг аккаунта", () => {
+  /** Рычаг повёрнут во «Флоте»: список ключей называет новое, машина перечитала аккаунты. */
+  const lever = async (all: Record<string, Preset>, name: string, use: Account["use"]) => {
+    all[name]!.use = use;
+    st!.link.deliver({ type: "changed", what: "keys" });
+    await until(() => stored()[name]?.use === use, `рычаг ${name} — ${use}`);
+  };
+
+  // чьё: слово пользователя 22 нояб. — «приоритизировать, чтобы быстрее использовать аккаунт»
+  it("«первым» со счётом 0,2 % в час против 4 % у аккаунта «по счёту» — выбран «первым»; решение и кандидат помечены first", () => {
+    const r = pick({ [A]: { week: 0.8, hours: 100, use: "first" }, [B]: { week: 0.2, hours: 20 } });
+    expect(r).toMatchObject({ account: A, first: true });
+    expect(r.candidates.map((c) => [c.account, c.first])).toEqual([[A, true], [B, undefined]]);
+  });
+
+  // чьё: код — между двумя «первым» решает счёт
+  it("два «первым» — выбран тот, у кого счёт выше; аккаунт «по счёту» с лучшим счётом не выбран", () => {
+    const r = pick({ [A]: { week: 0.8, hours: 100, use: "first" }, [B]: { week: 0.4, hours: 30, use: "first" }, [C]: { week: 0.1, hours: 10 } });
+    expect(r).toMatchObject({ account: B, first: true });
+  });
+
+  // чьё: код — закрытое окно недели выводит аккаунт из выбора
+  it("неделя «первым» выбрана до сброса — выбор среди остальных по счёту, решение без first", () => {
+    const r = pick({ [A]: { week: 1, hours: 5, use: "first" }, [B]: { week: 0.6, hours: 50 }, [C]: { week: 0.2, hours: 40 } });
+    expect(r.account).toBe(C);
+    expect(r.first).toBeUndefined();
+    expect(r.candidates.map((c) => c.account)).toEqual([B, C]);
+  });
+
+  // чьё: слово пользователя 22 нояб. — «приоритизировать»; «полон» обходят новые сессии — слово пользователя 15 нояб. «правильно балансить»
+  it("Claude ответил «аккаунт полон» аккаунту «первым» — новая сессия идёт на аккаунт «по счёту»", async () => {
+    await fleet({ [A]: { week: 0.8, hours: 100, use: "first" }, [B]: { week: 0.4, hours: 90 } });
+    const { s } = await st!.open("site", claude());
+    const flying = await mod().route(s.rec.sessionId);
+    expect(flying.account).toBe(A);
+    mod().answer(flying, { status: 429, headers: {}, path: "/v1/messages", ms: 1, hops: 0, waited: false });
+    expect((await listed()).find((a) => a.name === A)!.full).toBe(true);
+    const { s: fresh } = await st!.open("fresh", claude());
+    expect(await routed(fresh.rec.sessionId)).toBe(B);
+  });
+
+  // чьё: слово пользователя 15 нояб. — «менять аккаунт только при лимитах, пока кэш горячий»
+  it("сессия с тёплым кэшем на A, B повернули на «первым» — сессия осталась на A; новая сессия идёт на B", async () => {
+    const all: Record<string, Preset> = { [A]: { week: 0.4, hours: 21 }, [B]: { week: 0.4, hours: 72 } };
+    await fleet(all);
+    const { s } = await st!.open("site", claude(OPUS));
+    expect(await routed(s.rec.sessionId)).toBe(A);
+    await lever(all, B, "first");
+    expect(await routed(s.rec.sessionId)).toBe(A);
+    const { s: fresh } = await st!.open("fresh", claude(OPUS));
+    expect(await routed(fresh.rec.sessionId)).toBe(B);
+  });
+
+  // чьё: слово пользователя 22 нояб. — «все модели и Fable»
+  it("сессия Fable и сессия Opus — обе идут на «первым», хотя счёт у другого выше; в строке решения «первым» и пометка кандидата", async () => {
+    await fleet({ [A]: { week: 0.5, fable: 0.2, hours: 100, use: "first" }, [B]: { week: 0.1, fable: 0, hours: 20 } });
+    const { s: fable } = await st!.open("fable", claude(FABLE));
+    const { s: opus } = await st!.open("opus", claude(OPUS));
+    expect(await routed(fable.rec.sessionId)).toBe(A);
+    expect(await routed(opus.rec.sessionId)).toBe(A);
+    const lines = journal("route");
+    expect(lines.map((l) => l.callsign)).toEqual(["fable@laptop", "opus@laptop"]);
+    for (const l of lines) {
+      expect(l.why).toContain(" · первым");
+      expect(l.candidates.find((c: any) => c.account === A).first).toBe(true);
+    }
+  });
+
+  // чьё: слово пользователя 15 нояб. — «запас — флаг аккаунта»
+  it("у «первым» с флагом запаса вся свободная неделя — запас Fable: сессия Opus идёт на годный аккаунт «по счёту», сессия Fable — на «первым»", () => {
+    const all = { [A]: { week: 0.6, fable: 0.2, hours: 100, keep: true, use: "first" as const }, [B]: { week: 0.7, hours: 100 } };
+    const opus = pick(all, false);
+    expect(opus.account).toBe(B);
+    expect(opus.spare).toBeUndefined();
+    expect(pick(all, true)).toMatchObject({ account: A, first: true });
+  });
+
+  // чьё: слово пользователя 22 нояб. — «выключить аккаунт»
+  it("выключенный с лучшим счётом не годен и не в кандидатах — выбран другой", () => {
+    const all = { [A]: { week: 0.1, hours: 10, use: "off" as const }, [B]: { week: 0.6, hours: 100 } };
+    expect(fits(record(all[A]), false, T0)).toBe(false);
+    const r = pick(all);
+    expect(r.account).toBe(B);
+    expect(r.candidates.map((c) => c.account)).toEqual([B]);
+  });
+
+  // чьё: слово пользователя 22 нояб. — «выключить аккаунт»
+  it("аккаунт сессии выключили — следующий вызов идёт на другой, в журнале переход с причиной «аккаунт выключен»", async () => {
+    const all: Record<string, Preset> = { [A]: { week: 0.4, hours: 21 }, [B]: { week: 0.4, hours: 72 } };
+    await fleet(all);
+    const { s } = await st!.open("site", claude(OPUS));
+    expect(await routed(s.rec.sessionId)).toBe(A);
+    await lever(all, A, "off");
+    expect(await routed(s.rec.sessionId)).toBe(B);
+    expect(row().account).toBe(B);
+    expect(journal("account.moved")).toMatchObject([{ callsign: CS, account: B, from: A }]);
+    expect(journal("account.moved")[0].why).toContain("аккаунт выключен");
+  });
+
+  // чьё: слово пользователя 22 нояб. — «выключить аккаунт»: выключенного никто не ждёт
+  it("выключенный закрыт на 2 ч, включённый — на 10 ч: сессия ждёт сброса включённого; сброса выключенного не ждёт никто", () => {
+    const all = { [A]: { week: 1, hours: 2, use: "off" as const }, [B]: { week: 1, hours: 10 } };
+    const r = pick(all);
+    expect(r.account).toBeUndefined();
+    expect(r.wait).toBe(T0 + 10 * HOUR);
+    expect(nextReset(record(all[A]), T0)).toBe(Infinity);
+  });
+
+  // чьё: слово пользователя 22 нояб. — «выключить аккаунт»: ни одного вызова его токеном
+  it("выключенному ни токена, ни пробы: вопрос об аккаунтах, «заново» и обход пробуют только включённый; строка выключенного — с числами флота", async () => {
+    const api = await fleet({ [A]: { use: "off" }, [B]: {} }, () => ({ headers: windows({ week: 0.37, hours: 40 }) }));
+    liveCli();
+    // числа флота устарели — включённый с такими числами был бы спрошен
+    api.names.limits[A] = [{ name: "seven_day", used: 0.33, resets: T0 + 40 * HOUR, at: T0 - 600_000 }];
+    const rows = await listed();
+    expect(st!.services.of("keys.value").map((f) => f.name)).toEqual([B]);
+    expect(rows.find((a) => a.name === A)!.limits.map((l) => [l.name, l.used])).toEqual([["seven_day", 0.33]]);
+    await st!.request("account.list", { to: "@laptop", fresh: true });
+    // обход: первый — внутри срока, второй — когда флот о B не слышал дольше срока
+    st!.clock.advance(600_000);
+    await until(() => st!.clock.pending().includes(600_000), "первый обход кончился");
+    st!.clock.advance(600_000);
+    await until(() => api.hits.length === 3, "обход попробовал включённый");
+    expect(api.hits.map((h) => h.account)).toEqual([B, B, B]);
+    // каждая проба дошла до Claude: пробы выключенного, отказанной прокси, не было
+    expect(st!.sdk.cliCalls).toHaveLength(3);
   });
 });

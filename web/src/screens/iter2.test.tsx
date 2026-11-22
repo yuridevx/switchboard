@@ -29,7 +29,7 @@ vi.hoisted(() => {
 const T = 1_800_000_000_000;
 const quiet = () => createMock({ now: () => T, live: false, latency: 0 });
 const ask = (m: Mock) => createApi(m.transport);
-const acc = (name: string, o: Partial<Account> = {}): Account => ({ name, ok: true, keep: true, limits: [], ...o });
+const acc = (name: string, o: Partial<Account> = {}): Account => ({ name, ok: true, limits: [], ...o });
 const row = (callsign: string, backup?: boolean) => ({ callsign, state: "idle", spec: { name: callsign.split("@")[0]!, cwd: "~/p", ...(backup ? { backup } : {}) }, by: "~a@b.c", since: 0 }) as SessionRow;
 
 describe("выпуски: пачкой и по машинам", () => {
@@ -121,7 +121,7 @@ describe("аккаунты", () => {
   });
   it("аккаунт — ключ флота: в столбцы идут только ключи с протоколом claude; флаг запаса и «полон» видны", () => {
     const cols = columns([key("a@b.c", { keep: false }), { name: "orca", protocol: "anthropic", at: T, tail: "…" }], [acc("a@b.c", { full: true }), acc("gone@b.c")]);
-    expect(cols).toEqual([{ name: "a@b.c", ok: true, keep: false, full: true, limits: [] }]);
+    expect(cols).toEqual([{ name: "a@b.c", ok: true, keep: false, use: "auto", full: true, limits: [] }]);
   });
   it("мок отдаёт через машину аккаунты флота с окнами недели и Fable и временем замера", async () => {
     const r = await ask(quiet()).call(accountList, { to: "@laptop" });

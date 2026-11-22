@@ -260,16 +260,79 @@ describe("ключи флота: свойства и сессии", () => {
     const s = stand();
     const YEAR = 365 * DAY;
     await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", value: "sk-ant-oat01-aaaa1111" });
-    expect(await list(s)).toEqual([{ name: "yuri@example.com", protocol: "claude", at: Date.UTC(2026, 10, 15), tail: "1111", keep: true, expires: Date.UTC(2026, 10, 15) + YEAR, sessions: 0 }]);
+    expect(await list(s)).toEqual([{ name: "yuri@example.com", protocol: "claude", at: Date.UTC(2026, 10, 15), tail: "1111", keep: true, use: "auto", expires: Date.UTC(2026, 10, 15) + YEAR, sessions: 0 }]);
     vi.setSystemTime(Date.UTC(2026, 10, 20));
     await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", keep: false });
     expect(await list(s)).toMatchObject([{ keep: false, expires: Date.UTC(2026, 10, 15) + YEAR, tail: "1111" }]);
-    expect((await s.ask("keys.value", { name: "yuri@example.com" }, "klaptop")).result).toEqual({ value: "sk-ant-oat01-aaaa1111", protocol: "claude", keep: false });
+    expect((await s.ask("keys.value", { name: "yuri@example.com" }, "klaptop")).result).toEqual({ value: "sk-ant-oat01-aaaa1111", protocol: "claude" });
     // новый токен — новый год; флаг прежний
     await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", value: "sk-ant-oat01-bbbb2222" });
     expect(await list(s)).toMatchObject([{ keep: false, expires: Date.UTC(2026, 10, 20) + YEAR, tail: "2222" }]);
     // имя claude в документе сессии значит «аккаунты Claude флота»: ключ так не назвать
     expect(await s.ask("keys.set", { name: "claude", protocol: "anthropic", value: "v" })).toMatchObject({ ok: false, error: "bad_input" });
+  });
+
+  // слово пользователя 22 нояб.: выключить аккаунт Claude или приоритизировать, чтобы быстрее использовать (все модели и Fable)
+  it("рычаг аккаунта Claude хранится у ключа и назван только в списке: новый — по счёту; поворот без значения и новый токен прочих свойств и рычага не сбрасывают; машине с токеном рычаг не отдаётся", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2026, 10, 15));
+    const s = stand();
+    const row = async (name: string) => (await list(s)).find((k) => k.name === name)!;
+    await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", value: "sk-ant-oat01-aaaa1111", keep: false });
+    await s.ask("keys.set", { name: "orca", protocol: "anthropic", value: "sk-orca-9999" });
+    const fresh = await row("yuri@example.com");
+    expect(fresh.use).toBe("auto");
+    vi.setSystemTime(Date.UTC(2026, 10, 20));
+    expect((await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", use: "off" })).ok).toBe(true);
+    expect(await row("yuri@example.com")).toMatchObject({ use: "off", tail: "1111", keep: false, expires: fresh.expires });
+    // новый токен рычаг не сбрасывает
+    await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", value: "sk-ant-oat01-bbbb2222" });
+    expect(await row("yuri@example.com")).toMatchObject({ use: "off", tail: "2222", keep: false });
+    await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", use: "first" });
+    expect((await row("yuri@example.com")).use).toBe("first");
+    // машине — токен, а не настройки аккаунта
+    expect((await s.ask("keys.value", { name: "yuri@example.com" }, "klaptop")).result).toEqual({ value: "sk-ant-oat01-bbbb2222", protocol: "claude" });
+    // у ключа провайдера рычага нет
+    expect(await row("orca")).not.toHaveProperty("use");
+  });
+
+  // слово пользователя 22 нояб.: выключить аккаунт Claude или приоритизировать, чтобы быстрее использовать (все модели и Fable)
+  it("каталог моделей Claude не спрашивается токеном выключенного аккаунта; все выключены — отказ словом", async () => {
+    const s = stand();
+    await s.ask("keys.set", { name: "a@example.com", protocol: "claude", value: "sk-ant-oat01-a", use: "off" });
+    await s.ask("keys.set", { name: "b@example.com", protocol: "claude", value: "sk-ant-oat01-b" });
+    s.state.net = () => Response.json({ data: [{ id: "claude-haiku-5-5", max_input_tokens: 200_000 }] });
+    const asked = () => s.seen.net.filter((n) => n.url.includes("/v1/models")).map((n) => (n.init!.headers as Record<string, string>).authorization);
+    expect((await s.ask("keys.models", { name: "claude" }, "kanya1")).ok).toBe(true);
+    expect(asked()).toEqual(["Bearer sk-ant-oat01-b"]);
+    await s.ask("keys.set", { name: "b@example.com", protocol: "claude", use: "off" });
+    expect(await s.ask("keys.models", { name: "claude" }, "kanya1")).toMatchObject({ ok: false, error: "no_account", why: expect.stringContaining("выключены") });
+    expect(asked()).toEqual(["Bearer sk-ant-oat01-b"]);
+  });
+
+  // слово пользователя 22 нояб.: выключить аккаунт Claude или приоритизировать, чтобы быстрее использовать (все модели и Fable); строка истории — чьё: код
+  it("поворот рычага — одна строка истории флота: аккаунт, новое положение, кто повернул; без смены положения строки нет; история не ответила — рычаг всё равно повёрнут", async () => {
+    const s = stand(undefined, { env: { CH_URL: "https://ch.example" } });
+    const rows: Record<string, any>[] = [];
+    let down = false;
+    s.state.net = (url, init) => {
+      if (down) return new Response("down", { status: 503 });
+      const q = new URL(url).searchParams.get("query") ?? "";
+      if (q.startsWith("INSERT INTO sb2_log")) for (const l of String(init?.body).split("\n")) if (l) rows.push(JSON.parse(l));
+      return new Response("");
+    };
+    const turns = () => rows.filter((r) => r.msg === "account.use");
+    await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", value: "sk-ant-oat01-aaaa1111" });
+    await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", use: "first" });
+    expect(turns()).toEqual([expect.objectContaining({ account: "yuri@example.com", kind: "first", text: expect.stringContaining("pult~yuri@example.com") })]);
+    // то же положение ещё раз и правка одного флага запаса — не поворот
+    await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", use: "first" });
+    await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", keep: false });
+    expect(turns()).toHaveLength(1);
+    // история отвечает ошибкой: запись рычага не срывается, положение — у ключа
+    down = true;
+    expect((await s.ask("keys.set", { name: "yuri@example.com", protocol: "claude", use: "off" })).ok).toBe(true);
+    expect((await list(s))[0]!.use).toBe("off");
   });
 
   it("число сессий на ключе — по картине; проба удаления называет сессии и ничего не удаляет", async () => {

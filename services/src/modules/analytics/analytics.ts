@@ -53,15 +53,16 @@ function logRow(fleet: string, machine: string, file: string, pos: number, n: nu
   });
 }
 
-/** Строка истории от службы флота: file — имя службы, msg — имя строки; machine — машина, которой событие касается (строку без машины видит только админ).
+/** Строка истории от службы флота: file — имя службы, msg — имя строки; machine — машина, которой событие касается (строку без машины видит только админ);
+ *  account — аккаунт Claude, о котором строка: то же поле, что у строк машин.
  *  Ключ строки — время и случайный номер: повторов у неё нет. Аналитика не подключена — строки нет. */
-export async function line(env: Env, f: typeof fetch, fleet: string, l: { file: string; msg: string; machine?: string; session?: string; level?: "info" | "warn" | "error"; kind?: string; text?: string; data?: unknown }): Promise<void> {
+export async function line(env: Env, f: typeof fetch, fleet: string, l: { file: string; msg: string; machine?: string; session?: string; account?: string; level?: "info" | "warn" | "error"; kind?: string; text?: string; data?: unknown }): Promise<void> {
   if (!env.CH_URL) return;
   const at = Date.now();
   await ensure(env, f, LOG, CREATE_LOG);
   await ch(env, f, `INSERT INTO ${LOG} FORMAT JSONEachRow`, JSON.stringify({
     fleet, machine: l.machine ?? "", file: l.file, pos: at, n: Math.floor(Math.random() * 0xffffffff), at: at / 1000, part: "services", level: l.level ?? "info", msg: l.msg,
-    session: l.session ?? "", account: "", status: 0, kind: l.kind ?? "", text: l.text ?? "", data: l.data === undefined ? "" : JSON.stringify(l.data),
+    session: l.session ?? "", account: l.account ?? "", status: 0, kind: l.kind ?? "", text: l.text ?? "", data: l.data === undefined ? "" : JSON.stringify(l.data),
   }));
 }
 

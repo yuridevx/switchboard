@@ -1,13 +1,14 @@
 /// <reference types="node" />
 // Сценарии плана тестов страницы — экраны: аккаунты Claude и провайдеры, «Новая сессия», ClickHouse, нажатие на уведомление.
-import { analyticsState, CLAUDE, keysList, keysSet, ledgerRead, profileList, sessionOpen } from "@sb/protocol";
+import { accountList, analyticsState, CLAUDE, keysList, keysSet, ledgerRead, logQuery, profileList, sessionOpen, type KeyRow, type Use } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as apiModule from "../api.ts";
+import { byReset, columns } from "../lib/accounts.ts";
 import type { Mock } from "../mock/fleet.ts";
 import { NewForm } from "../shell/NewSession.tsx";
 import { Steps } from "../shell/Page.tsx";
@@ -113,6 +114,76 @@ describe("аккаунты Claude", () => {
     expect(asked()[0]!.fresh).toBe(true);
     expect(asked()[1]!.fresh).toBeUndefined();
     expect(new Set(asked().map((a) => a.to)).size).toBe(1);
+  });
+
+  // источник трёх тестов рычага: принятый дизайн «Рычаг аккаунта»; слово пользователя 22 нояб. — «возможность выключить Claude-аккаунт или приоритизировать,
+  // чтобы быстрее использовать (все модели и Fable)»; устав об интерфейсе — «форма одного уровня, поля не прячутся», «подписи без информации убираются»
+  const WORD: Record<Use, string> = { off: "Выключен", auto: "По счёту", first: "Первым" };
+  const checked = (col: HTMLElement) => within(col).getAllByRole("radio").filter((r) => r.getAttribute("aria-checked") === "true").map((r) => r.getAttribute("aria-label"));
+
+  it("2г · рычаг виден у каждого годного аккаунта и показывает положение из строки ключа; порядок столбцов от рычага не зависит", async () => {
+    const real = (await waitFor(() => apiModule.api.call(keysList, {}))).keys;
+    // один аккаунт выключен, у другого в строке ключа положения нет вовсе; «первым» — как в моке
+    const keys: KeyRow[] = real.map(({ use, ...k }) => (k.name === "work@example.com" ? k : { ...k, use: k.name === "yuri@example.com" ? "off" : use }));
+    const spy = stub("keys.list", () => ({ keys }));
+    page(<Accounts />);
+    // числа машины пришли: негодный токен виден
+    await waitFor(() => expect(document.querySelector("[data-account].bad")).toBeTruthy());
+    const cols = [...document.querySelectorAll<HTMLElement>("[data-account]")];
+    for (const col of cols) {
+      if (col.classList.contains("bad")) {
+        expect(within(col).queryByRole("radiogroup")).toBeNull();
+        continue;
+      }
+      expect(within(col).getAllByRole("radio").map((r) => r.getAttribute("aria-label"))).toEqual(["Выключен", "По счёту", "Первым"]);
+      expect(checked(col)).toEqual([WORD[keys.find((k) => k.name === col.getAttribute("data-account"))!.use ?? "auto"]]);
+    }
+    expect(checked(cols.find((c) => c.dataset.account === "work@example.com")!)).toEqual(["По счёту"]);
+    expect(checked(cols.find((c) => c.dataset.account === "night@example.com")!)).toEqual(["Первым"]);
+    expect(checked(cols.find((c) => c.dataset.account === "yuri@example.com")!)).toEqual(["Выключен"]);
+    // столбцы стоят там же, где стояли бы без рычага
+    const { accounts } = await spy.mock.results[spy.mock.calls.findIndex((c) => c[0] === accountList)]!.value;
+    expect(cols.map((c) => c.dataset.account)).toEqual(byReset(columns(keys.map(({ use: _, ...k }) => k), accounts)).map((c) => c.name));
+  });
+
+  it("2д · нажатие поворачивает рычаг одним запросом keys.set; отмеченное положение запроса не шлёт; не-админу рычаг недоступен", async () => {
+    page(<Accounts />);
+    const col = () => document.querySelector('[data-account="work@example.com"]') as HTMLElement;
+    await waitFor(() => expect(within(col()).getByRole("radiogroup")).toBeTruthy());
+    const spy = vi.spyOn(apiModule.api, "call");
+    fireEvent.click(within(col()).getByRole("radio", { name: "Выключен" }));
+    await waitFor(() => expect(col().getAttribute("data-use")).toBe("off"));
+    expect(called(spy, keysSet)).toEqual([{ name: "work@example.com", protocol: CLAUDE, use: "off" }]);
+    expect(col().classList.contains("off")).toBe(true);
+    expect(checked(col())).toEqual(["Выключен"]);
+    fireEvent.click(within(col()).getByRole("radio", { name: "Выключен" }));
+    expect(called(spy, keysSet)).toHaveLength(1);
+    act(() => useFleet.setState((s) => ({ you: { ...s.you!, admin: false } })));
+    for (const r of document.querySelectorAll<HTMLButtonElement>('[data-account] [role="radio"]')) expect(r.disabled).toBe(true);
+  });
+
+  it("2е · выключение на моке флота: занятые сессии уходят с аккаунта, спящие остаются; в ленте — кто и как повернул", async () => {
+    const name = "yuri@example.com";
+    const on = (state: string) => Object.values(mock.state.sessions).filter((s) => s.account === name && s.state === state).map((s) => s.callsign);
+    const busy = on("busy"), idle = on("idle");
+    expect(busy.length).toBeGreaterThan(0);
+    expect(idle.length).toBeGreaterThan(0);
+    await waitFor(() => apiModule.api.call(keysSet, { name, protocol: CLAUDE, use: "off" }));
+    for (const c of busy) expect(mock.state.sessions[c]!.account).not.toBe(name);
+    for (const c of idle) expect(mock.state.sessions[c]!.account).toBe(name);
+    const lines = () => waitFor(() => apiModule.api.call(logQuery, { msg: "account." })).then((r) => r.lines);
+    const me = useFleet.getState().you!.person;
+    const after = await lines();
+    expect(after.filter((l) => l.msg === "account.use" && l.account === name)).toEqual([expect.objectContaining({ kind: "off", text: expect.stringContaining(me) })]);
+    // переход называет сессию, новый аккаунт и причину — у каждой занятой, которой нашёлся другой аккаунт её машины
+    const moved = after.filter((l) => l.msg === "account.moved" && /аккаунт выключен/.test(l.text ?? ""));
+    expect(moved.length).toBeGreaterThan(0);
+    expect(moved.map((l) => l.session).sort()).toEqual(busy.filter((c) => mock.state.sessions[c]!.account).sort());
+    for (const l of moved) expect(l.account).toBe(mock.state.sessions[l.session!]!.account);
+    // обратно «по счёту»: строка о повороте, спящие по-прежнему на аккаунте
+    await waitFor(() => apiModule.api.call(keysSet, { name, protocol: CLAUDE, use: "auto" }));
+    expect((await lines()).filter((l) => l.msg === "account.use" && l.account === name).map((l) => l.kind).sort()).toEqual(["auto", "off"]);
+    for (const c of idle) expect(mock.state.sessions[c]!.account).toBe(name);
   });
 });
 

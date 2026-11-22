@@ -2,7 +2,7 @@
 // Формы — те же, что в договоре после первой волны итерации. Подключается одной строкой в fleet.ts: обработчики ложатся поверх прежних.
 import {
   type Account, type ArchPoint, type ArchSession, type DeviceRow, type Frame, type KeyRow, type LedgerEvent, type LogRow, type MachineRow, type ObsRow, type PassRow,
-  type PersonRow, type Piece, type Project, type ProxyRule, type RepoClone, type SessionRow, CLAUDE, machineOf, newId, Refusal,
+  type PersonRow, type Piece, type Project, type ProxyRule, type RepoClone, type SessionRow, type Use, CLAUDE, machineOf, newId, Refusal, USE_WORD,
 } from "@sb/protocol";
 
 type Ev = Record<string, any>;
@@ -143,14 +143,29 @@ export function screenHandlers(c: MockCtx): Record<string, (f: any) => unknown> 
       if (!k && !f.value) throw new Refusal("not_found", `ключа ${f.name} нет: первому сохранению нужно значение`);
       if (f.protocol === CLAUDE) {
         // аккаунт Claude: годовой токен виден каждой машине; новый токен — аккаунт снова годен
-        const next = { name: f.name, protocol: CLAUDE, at: k?.at ?? now(), tail: f.value ? "…" + String(f.value).slice(-4) : k!.tail, keep: f.keep ?? k?.keep ?? true, expires: f.value ? now() + 365 * DAY : k!.expires };
+        const use = f.use ?? k?.use ?? "auto";
+        const next = { name: f.name, protocol: CLAUDE, at: k?.at ?? now(), tail: f.value ? "…" + String(f.value).slice(-4) : k!.tail, keep: f.keep ?? k?.keep ?? true, use, expires: f.value ? now() + 365 * DAY : k!.expires };
+        const turned = !!k && f.use !== undefined && f.use !== (k.use ?? "auto");
         if (k) Object.assign(k, next);
         else keys.push(next);
+        if (turned) {
+          const short = String(f.name).split("@")[0];
+          // рычаг аккаунта: строка истории от службы ключей — кто и как повернул
+          moves.push({ at: now(), machine: "", part: "services", level: "info", msg: "account.use", account: f.name, kind: use, text: `${short}: ${USE_WORD[use as Use]} · ${c.ME}` } as LogRow);
+          // выключен: идущий вызов доходит, следующий вызов сессии — на другом аккаунте её машины; спящая сессия привязана, пока не сделает вызов
+          if (use === "off") for (const s of Object.values(sessions)) {
+            if (s.account !== f.name || s.state !== "busy") continue;
+            const m = machineOf(s.callsign) ?? "";
+            const to = accounts[m]?.find((a) => a.ok && a.name !== f.name && (keys.find((x) => x.name === a.name)?.use ?? "auto") !== "off")?.name;
+            c.setRow(s.callsign, { account: to });
+            if (to) moves.push({ at: now() + 1, machine: m, part: "host", level: "info", msg: "account.moved", session: s.callsign, account: to, kind: "moved", text: `${s.callsign.split("@")[0]}: ${short} → ${to.split("@")[0]} · аккаунт выключен` } as LogRow);
+          }
+        }
         for (const [m, list] of Object.entries(accounts)) {
           if (!machines[m]?.online) continue;
           const a = list.find((x) => x.name === f.name);
           if (a && f.value) Object.assign(a, { ok: true, why: undefined });
-          else if (!a) list.push({ name: f.name, ok: true, limits: [], keep: next.keep });
+          else if (!a) list.push({ name: f.name, ok: true, limits: [] });
         }
         return {};
       }

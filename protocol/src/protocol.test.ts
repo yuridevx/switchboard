@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { PING_MS, socketLink } from "./client.ts";
-import { accountList, CLAUDE, contract, createApi, fail, findModels, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, fleetList, Kind, notice, sessionOpen, Spec, TOOL_METHODS, TOOL_TEXT_MAX, toolText, z, type Transport } from "./index.ts";
+import { accountList, CLAUDE, contract, createApi, fail, findModels, keysList, keysSet, keysValue, kindOf, machineOf, ok, parseFrame, parsePass, personOf, request, fleetList, Kind, notice, sessionOpen, Spec, TOOL_METHODS, TOOL_TEXT_MAX, toolText, z, type Transport } from "./index.ts";
 
 describe("protocol", () => {
   it("адреса по форме; голое имя — не адрес", () => {
@@ -78,9 +78,15 @@ describe("инструменты: одна таблица для страниц�
     for (const gone of ["account.login", "account.code", "account.remove", "slot.set", "slot.swap"]) expect(contract.request(gone)).toBeUndefined();
     const call = contract.request("session.call")!;
     for (const method of ["models", "usage"]) expect(call.input.safeParse({ to: "a@b", method }).success).toBe(false);
-    // аккаунт глазами машины: имя, окна из ответов Claude, флаг запаса; очередей в ответе нет
-    const account = { name: "a@b.c", ok: true, limits: [{ name: "seven_day", used: 0.4, resets: 1 }], keep: true };
-    expect(accountList.output.parse({ accounts: [{ ...account, kind: "claude" }], slots: [] })).toEqual({ accounts: [account] });
+    // аккаунт глазами машины: имя, окна из ответов Claude; очередей и настроек аккаунта в ответе нет — флаг запаса и рычаг называет список ключей
+    const account = { name: "a@b.c", ok: true, limits: [{ name: "seven_day", used: 0.4, resets: 1 }] };
+    expect(accountList.output.parse({ accounts: [{ ...account, kind: "claude", keep: true, use: "first" }], slots: [] })).toEqual({ accounts: [account] });
+    const key = { name: "a@b.c", protocol: "claude", at: 1, tail: "1111", keep: true, use: "first" };
+    expect(keysList.output.parse({ keys: [key] })).toEqual({ keys: [key] });
+    expect(keysSet.input.safeParse({ name: "a@b.c", protocol: "claude", use: "off" }).success).toBe(true);
+    expect(keysSet.input.safeParse({ name: "a@b.c", protocol: "claude", use: "last" }).success).toBe(false);
+    // ответ с токеном несёт токен, а не настройки аккаунта
+    expect(keysValue.output.parse({ value: "v", protocol: "claude", keep: true, use: "off" })).toEqual({ value: "v", protocol: "claude" });
     expect(contract.tools().map((d) => d.name)).toEqual(expect.arrayContaining(["keys.models", "log.query", "account.list"]));
     expect(contract.request("log.write")!.machineOnly).toBe(true);
   });
