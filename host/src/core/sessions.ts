@@ -126,13 +126,15 @@ export function coreModule(k: Kernel): Module {
       return { callsign: s.callsign, ...(wing ? { wing } : {}) };
     },
 
-    async "session.update"({ to, patch: given, pair }: { to: string; patch: SpecPatch & { wing?: string | null }; pair?: boolean }, ctx) {
+    async "session.update"({ to, patch: given, pair }: { to: string; patch: SpecPatch & { wing?: string | null; parent?: string | null }; pair?: boolean }, ctx) {
       const s = session(to);
       const view = s.facade(self);
-      // wing: null — снять ведомого; в документ null не идёт
+      // wing: null — снять ведомого, parent: null — снять родителя; в документ null не идёт
       const dropWing = given.wing === null;
-      const { wing: _wing, ...rest } = given;
-      const patch = (dropWing ? rest : given) as SpecPatch;
+      const dropParent = given.parent === null;
+      // ведомый без ведущего — не пара: её снимает ведущий, вместе с сессией ведомого
+      if (dropParent && [...k.sessions.values()].some((x) => x.rec.spec.wing === to)) throw new Refusal("pair_inside", `${to} — ведомый: пару снимает ведущий, patch { wing: null }`);
+      const patch = Object.fromEntries(Object.entries(given).filter(([, v]) => v !== null)) as SpecPatch;
       const keys = Object.keys(patch).filter((key) => (patch as Record<string, unknown>)[key] !== undefined);
       await k.checkSpec(patch as Record<string, unknown>, s);
       const cwd = patch.cwd === undefined ? s.rec.cwd : k.folder(patch.cwd);
@@ -150,6 +152,11 @@ export function coreModule(k: Kernel): Module {
       const before = { spec: s.rec.spec, cwd: s.rec.cwd };
       s.rec.spec = { ...s.rec.spec, ...patch };
       s.rec.cwd = cwd;
+      if (dropParent) {
+        // итоги ходов и вести прежнему родителю больше не идут: их шлют по этому ключу
+        const { parent: _was, ...left } = s.rec.spec;
+        s.rec.spec = left;
+      }
       if (dropWing && s.rec.spec.wing) {
         await toWing(sessionRemove, s.rec.spec.wing, ctx);
         const { wing: _gone, ...left } = s.rec.spec;

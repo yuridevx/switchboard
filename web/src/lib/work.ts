@@ -74,11 +74,8 @@ export function dropTarget(rects: Array<{ id: string; group: string; top: number
 /** Строка дерева списка: сессия, её глубина под родителем и ведомый, если она ведёт пару. */
 export type TreeRow = { s: SessionRow; depth: number; wing?: SessionRow; /** под строкой есть дочерние: её можно свернуть */ kids?: true; /** строка свёрнута: потомки, которых она прячет */ folded?: SessionRow[] };
 
-/** Кто дал сессии задачу: родитель из документа или сессия, которая её открыла. */
-export const parentOf = (p: Picture, s: SessionRow): string | undefined => {
-  const up = s.spec.parent ?? (p.sessions[s.by] ? s.by : undefined);
-  return up && up !== s.callsign ? up : undefined;
-};
+/** Под кем сессия стоит в списке: родитель из её документа. Его ставит машина при открытии и снимает session.update с parent: null — тогда сессия стоит в корне проекта. */
+export const parentOf = (_p: Picture, s: SessionRow): string | undefined => (s.spec.parent && s.spec.parent !== s.callsign ? s.spec.parent : undefined);
 
 /** Дерево списка: ведомый своей строкой не стоит — он виден в строке ведущего; дочерние идут под родителем с отступом. nested false — без отступов, пары всё равно одной строкой.
  * closed — свёрнутые строки: их потомки в список не идут, а лежат у строки в folded. */

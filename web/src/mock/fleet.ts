@@ -69,7 +69,7 @@ export function createMock(o: MockOptions = {}) {
     const name = callsign.slice(0, callsign.indexOf("@"));
     return {
       callsign, state, by: ME, since: T - 8 * HOUR, last: T - 30 * MIN,
-      spec: { name, cwd: cwd ?? `~/projects/${name}`, model: model ?? M, key: CLAUDE, effort: "high", mode: mode ?? "all", pieces: pieces ?? ["base"], backup: true, ...(project ? { project } : {}) },
+      spec: { name, cwd: cwd ?? `~/projects/${name}`, model: model ?? M, key: CLAUDE, effort: "high", mode: mode ?? "all", pieces: pieces ?? ["base"], backup: true, ...(project ? { project } : {}), ...(/^[a-z0-9-]+@/.test(rest.by ?? "") ? { parent: rest.by } : {}) },
       account: "yuri@example.com", cache: filled(context, 0, windowOf({ key: CLAUDE, model: model ?? M })), ...rest,
     };
   };
@@ -538,6 +538,9 @@ export function createMock(o: MockOptions = {}) {
         if (!catalogs[key]?.models.some((x) => x.id === model)) throw new Refusal("no_model", `у провайдера ${key} нет модели ${model}`);
         setRow(c, { account: key === CLAUDE ? (s.account ?? pickAccount(machineOf(c) ?? "")) : undefined, answers: undefined });
       }
+      // как Host: parent: null снимает родителя, в документ null не идёт
+      const free = patch.parent === null;
+      if (free) delete patch.parent;
       let wing: string | undefined;
       if (patch.wing === null) {
         const was = s.spec.wing;
@@ -555,6 +558,11 @@ export function createMock(o: MockOptions = {}) {
           patch.wing = wing;
         }
         setRow(c, { spec: { ...s.spec, ...patch } });
+      }
+      if (free) {
+        const spec = { ...sessions[c]!.spec };
+        delete spec.parent;
+        setRow(c, { spec });
       }
       // посреди хода модель, усилие, аккаунт, кусочки и папка вступают в силу с новым процессом — после хода
       const keys = Object.keys(f.patch ?? {});

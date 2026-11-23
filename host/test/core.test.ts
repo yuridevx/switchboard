@@ -171,6 +171,22 @@ describe("ядро Host", () => {
     expect(st.proc("lead@laptop").inputs).toHaveLength(1);
   });
 
+  // чьё: слово пользователя 23 нояб. — «возможность у сессии удалять парента и просто держать в руте проекта из мсп»
+  it("дочь сняла с себя родителя: в строке картины его нет, итог её хода родителю не уходит; ведомому — отказ словом", async () => {
+    st = await stand({ modules: [chat()] });
+    await st.open("lead");
+    await st.request("session.open", { to: "@laptop", spec: { name: "kid", cwd: st.dir }, prompt: "проверь тесты" }, "lead@laptop");
+    await until(() => st!.proc("kid@laptop").inputs.length === 1, "задача дошла");
+    expect(await st.request("session.update", { to: "kid@laptop", patch: { parent: null } }, "kid@laptop")).toMatchObject({ ok: true });
+    expect(st.kernel.sessions.get("kid@laptop")!.rec.spec).not.toHaveProperty("parent");
+    expect(st.link.rows("kid@laptop").at(-1)!.row).not.toHaveProperty("spec.parent");
+    await st.turn("kid@laptop", [], "тесты зелёные");
+    await st.settle("lead@laptop");
+    expect(st.proc("lead@laptop").inputs).toHaveLength(0);
+    await st.request("session.update", { to: "lead@laptop", patch: {}, pair: true });
+    expect(await st.request("session.update", { to: "lead-wing@laptop", patch: { parent: null } })).toMatchObject({ ok: false, error: "pair_inside" });
+  });
+
   it("пара: стоп и удаление ведущего уносят ведомого", async () => {
     st = await stand();
     await st.open("wing");

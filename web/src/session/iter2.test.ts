@@ -16,7 +16,9 @@ import { pairRows } from "./Inspector.tsx";
 const ME = "~yuri@example.com";
 const row = (callsign: string, r: Partial<SessionRow> & { parent?: string; wing?: string; pieces?: string[] } = {}): SessionRow => {
   const { parent, wing, pieces, ...rest } = r;
-  return { callsign, state: "idle", by: "pult" + ME, since: 1, last: 1, spec: { name: callsign.split("@")[0]!, cwd: "~/p", ...(parent ? { parent } : {}), ...(wing ? { wing } : {}), ...(pieces ? { pieces } : {}) }, ...rest };
+  // как на машине: сессию, открытую сессией, ядро записывает её дочерью
+  const up = parent ?? (rest.by?.includes("~") === false ? rest.by : undefined);
+  return { callsign, state: "idle", by: "pult" + ME, since: 1, last: 1, spec: { name: callsign.split("@")[0]!, cwd: "~/p", ...(up ? { parent: up } : {}), ...(wing ? { wing } : {}), ...(pieces ? { pieces } : {}) }, ...rest };
 };
 const machine = (name: string, online = true): MachineRow => ({ name, online, owner: ME, since: 1 });
 const picture = (rows: SessionRow[], machines: MachineRow[] = [machine("laptop"), machine("server")]): Picture => ({
@@ -54,6 +56,11 @@ describe("«Работа»: дерево и пара", () => {
   ];
   const calls = (list: SessionRow[] = []) => list.map((s) => s.callsign);
   const shape = (closed: string[], nested = true) => treeOf(picture(site), site, nested, closed).map((r) => [r.s.callsign, r.depth, !!r.kids, r.folded && calls(r.folded)]);
+  // чьё: слово пользователя — «удалять парента и просто держать в руте проекта»
+  it("родителя в документе нет — сессия стоит в корне, хотя открыла её сессия", () => {
+    const free = site.map((s) => (s.callsign === "shots@laptop" ? { ...s, spec: { ...s.spec, parent: undefined } } : s));
+    expect(treeOf(picture(free), free).map((r) => [r.s.callsign, r.depth])).toEqual([["site@laptop", 0], ["css@laptop", 1], ["shots@laptop", 0], ["diff@laptop", 1]]);
+  });
   // чьё: слово пользователя — «скрывать и раскрывать вложенные сессии»
   it("свёрнутый родитель прячет всех потомков в свою строку и светит теми, кто работает и ждёт", () => {
     expect(shape(["site@laptop"])).toEqual([["site@laptop", 0, true, ["shots@laptop", "diff@laptop", "css@laptop"]]]);

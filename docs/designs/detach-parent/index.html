@@ -1,0 +1,269 @@
+<title>Сессия без родителя</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* раскладка: сверху список до и после вызова; ниже путь вызова от сессии до списка, эталоны картинками, гейт, порядок */
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
+  --accent: #1f7a63; --accent-soft: #dcefe8; --new: #b8590f; --new-soft: #fbe9d7; --code: #f0eee7; --chg: #fff3b0;
+  --busy: #2f6fde; --wait: #cf7a00; --idle: #2e8b63; --fail: #cf3a34;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --code: #232a26; --chg: #4a4318;
+  --busy: #6f9cf5; --wait: #f0b040; --idle: #58c493; --fail: #ef8a80; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --code: #232a26; --chg: #4a4318;
+  --busy: #6f9cf5; --wait: #f0b040; --idle: #58c493; --fail: #ef8a80; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 Inter, system-ui, sans-serif; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
+main { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
+h1, h2 { font-family: "Space Grotesk", Inter, sans-serif; text-wrap: balance; margin: 0; }
+h1 { font-size: 34px; line-height: 1.1; }
+h2 { font-size: 21px; }
+.lead { color: var(--muted); max-width: 62ch; margin: 8px 0 0; }
+section { display: flex; flex-direction: column; gap: 14px; border-radius: 14px; }
+section.read > h2::after { content: " ✓ прочитал"; font: 500 12px Inter, sans-serif; color: var(--accent); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+.chg { background: var(--chg); border-radius: 4px; }
+.say { border-left: 3px solid var(--accent); background: var(--soft); border-radius: 0 10px 10px 0; padding: 10px 14px; min-height: 44px; }
+.say b { font-weight: 600; }
+.say pre { margin: 8px 0 0; }
+pre { font: 12.5px/1.45 "JetBrains Mono", ui-monospace, monospace; background: var(--code); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 0; }
+code { font: 12.5px "JetBrains Mono", ui-monospace, monospace; background: var(--code); border-radius: 4px; padding: 1px 5px; }
+
+/* список до и после: два снимка и стрелка нажатия между ними */
+.pairshot { display: grid; grid-template-columns: minmax(0, 279px) 64px minmax(0, 279px); gap: 14px; align-items: start; justify-content: center; }
+.pairshot .press { align-self: center; text-align: center; color: var(--new); font: 500 12px Inter, sans-serif; }
+.pairshot .press svg { display: block; margin: 0 auto 2px; }
+.pairshot .press path { stroke: var(--new); stroke-width: 2; fill: none; }
+@media (max-width: 700px) { .pairshot { grid-template-columns: minmax(0, 279px); } .pairshot .press svg { transform: rotate(90deg); } }
+.anat-in { position: relative; }
+.anat-in img { display: block; width: 100%; border-radius: 8px; border: 1px solid var(--line); }
+.cap { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.hot { position: absolute; border: 2px solid var(--new); border-radius: 7px; background: none; padding: 0; cursor: pointer; opacity: 0.55; }
+.hot:hover, .hot:focus-visible, .hot.on { opacity: 1; background: color-mix(in srgb, var(--new) 14%, transparent); outline: none; }
+
+.dia { overflow-x: auto; }
+.dia svg { display: block; min-width: 700px; width: 100%; height: auto; }
+.dia text { font: 500 13px Inter, sans-serif; fill: var(--fg); }
+.dia text.s { font-size: 11.5px; fill: var(--muted); font-weight: 400; }
+.n rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.n.dev rect { fill: var(--new-soft); stroke: var(--new); }
+.n.rule rect { fill: var(--accent-soft); stroke: var(--accent); }
+.a path { stroke: var(--muted); stroke-width: 1.8; fill: none; }
+.a.press path { stroke: var(--new); }
+.a.press text { fill: var(--new); }
+.dia .head { fill: var(--muted); }
+.dia .head.press { fill: var(--new); }
+[data-i] { cursor: pointer; }
+svg [data-i]:hover rect, svg [data-i].on rect { stroke-width: 2.8; }
+svg [data-i]:hover path, svg [data-i].on path { stroke-width: 3.2; }
+svg [data-i]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.tile b { display: block; font: 600 26px "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
+.tile span { color: var(--muted); font-size: 13px; }
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; align-items: start; }
+figure { margin: 0; min-width: 0; }
+figure img { width: 100%; max-width: 300px; border: 1px solid var(--line); border-radius: 10px; display: block; }
+figure.ph img { max-width: 390px; }
+figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+
+/* эталоны: маленькое дерево на входе → строки списка на выходе */
+.ets { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.et { display: flex; flex-direction: column; gap: 10px; }
+.et h3 { font: 600 14px Inter, sans-serif; margin: 0; }
+.et .io { display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); gap: 8px; align-items: center; }
+.et .ar { text-align: center; color: var(--muted); }
+.et small { color: var(--muted); font-size: 11.5px; }
+.mini { display: flex; flex-direction: column; gap: 4px; font: 12px/1.3 "JetBrains Mono", ui-monospace, monospace; background: var(--soft); border-radius: 8px; padding: 8px; min-width: 0; }
+.mini.out { background: var(--accent-soft); }
+.mini .r { display: flex; align-items: center; gap: 5px; padding-left: calc(var(--d, 0) * 13px); white-space: nowrap; }
+.mini .r.sel { outline: 2px solid var(--fg); outline-offset: 1px; border-radius: 4px; }
+.mini .c { width: 9px; color: var(--muted); flex: none; text-align: center; }
+.mini .k { margin-left: auto; display: inline-flex; gap: 3px; }
+.mini .set { color: var(--new); border-top: 1px dashed var(--line); padding-top: 4px; margin-top: 2px; white-space: normal; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; background: var(--idle); }
+.dot.busy { background: var(--busy); } .dot.wait { background: var(--wait); } .dot.fail { background: var(--fail); }
+
+.forks { display: flex; flex-direction: column; gap: 12px; }
+.fork { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.fork .opt { border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--card); min-width: 0; }
+.fork .opt.rec { border-color: var(--accent); background: var(--accent-soft); }
+.fork .opt b { display: block; margin-bottom: 4px; }
+.fork .opt span { font-size: 13px; color: var(--muted); }
+.gate { font: 12.5px/1.6 "JetBrains Mono", ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+ol.steps { list-style: none; counter-reset: st; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+ol.steps li { counter-increment: st; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 4px 10px; }
+ol.steps li::before { content: counter(st); grid-row: span 2; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 600 13px "Space Grotesk", sans-serif; display: grid; place-items: center; }
+ol.steps .done { font-size: 13px; color: var(--muted); }
+ol.steps .done b { color: var(--accent); font-weight: 600; }
+.mini .r[data-i] { border-radius: 4px; cursor: pointer; }
+.mini .r[data-i]:hover, .mini .r[data-i].on { outline: 2px solid var(--new); outline-offset: 1px; }
+.a.off path { stroke: var(--fail); stroke-dasharray: 5 4; }
+.a.off text { fill: var(--fail); }
+.dia .head.off { fill: var(--fail); }
+.pairmini { display: grid; grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1fr); gap: 14px; align-items: center; }
+.pairmini .press { text-align: center; color: var(--new); font: 500 12px "JetBrains Mono", monospace; }
+.pairmini .press svg { display: block; margin: 0 auto 4px; }
+.pairmini .press path { stroke: var(--new); stroke-width: 2; fill: none; }
+.pairmini .mini { font-size: 13.5px; padding: 12px; gap: 7px; }
+.pairmini .grp { color: var(--muted); font: 600 11px Inter, sans-serif; text-transform: uppercase; letter-spacing: .06em; }
+@media (max-width: 700px) { .pairmini { grid-template-columns: minmax(0, 1fr); } .pairmini .press svg { transform: rotate(90deg); } }
+</style>
+<main>
+<header>
+  <h1>Сессия без родителя</h1>
+  <p class="lead">Сессия одним вызовом снимает с себя родителя: в списке встаёт в корень проекта и больше ему не отчитывается.</p>
+</header>
+
+<section id="b-list" data-block>
+  <h2>Список до и после вызова</h2>
+  <div class="card">
+    <div class="pairmini">
+      <div class="mini"><span class="grp">Проект «Сайт»</span><span class="r" data-i="l-site"><span class="c">▾</span><i class="dot busy"></i>site</span><span class="r" style="--d:1" data-i="l-shots"><span class="c">▾</span><i class="dot wait"></i>shots</span><span class="r" style="--d:2" data-i="l-diff"><span class="c"></span><i class="dot"></i>diff</span><span class="r" style="--d:1" data-i="l-css"><span class="c"></span><i class="dot busy"></i>css</span></div>
+      <div class="press"><svg width="56" height="20" viewBox="0 0 56 20" aria-hidden="true"><path d="M2 10h48m-8-7 8 7-8 7"/></svg>shots:<br>parent: null</div>
+      <div class="mini out"><span class="grp">Проект «Сайт»</span><span class="r" data-i="r-site"><span class="c">▾</span><i class="dot busy"></i>site</span><span class="r" style="--d:1" data-i="r-css"><span class="c"></span><i class="dot busy"></i>css</span><span class="r" data-i="r-shots"><span class="c">▾</span><i class="dot wait"></i>shots</span><span class="r" style="--d:1" data-i="r-diff"><span class="c"></span><i class="dot"></i>diff</span></div>
+    </div>
+  </div>
+  <div class="say" aria-live="polite"><b>shots вышла в корень.</b> Проект тот же, её собственная дочерняя diff осталась под ней. Нажмите на строку.</div>
+  <div class="grid">
+    <div class="card tile"><b>0</b><span>новых инструментов, запросов и кадров: тот же session_update</span></div>
+    <div class="card tile"><b>1</b><span>новое значение в договоре: parent: null</span></div>
+    <div class="card tile"><b>2 → 1</b><span>мест, где решается «под кем стоит сессия»</span></div>
+    <div class="card tile"><b>0</b><span>изменений на экране: кнопок и подписей нет</span></div>
+  </div>
+</section>
+
+<section id="b-how" data-block>
+  <h2>Путь вызова</h2>
+  <div class="card dia">
+    <svg viewBox="0 0 760 260" role="img" aria-label="Сессия зовёт инструмент session_update с parent null; машина убирает родителя из документа сессии; строка сессии уходит в картину флота; список ставит сессию в корень проекта. Итог хода прежнему родителю больше не идёт.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" class="head"/></marker>
+        <marker id="ahp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" class="head press"/></marker>
+        <marker id="aho" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" class="head off"/></marker>
+      </defs>
+      <g class="n dev" data-i="d-kid"><rect x="16" y="28" width="150" height="62" rx="10"/><text x="91" y="55" text-anchor="middle">Сессия shots</text><text class="s" x="91" y="74" text-anchor="middle">дочерняя site</text></g>
+      <g class="n rule" data-i="d-host"><rect x="256" y="28" width="170" height="62" rx="10"/><text x="341" y="55" text-anchor="middle">Машина</text><text class="s" x="341" y="74" text-anchor="middle">документ сессии</text></g>
+      <g class="n" data-i="d-fleet"><rect x="486" y="28" width="120" height="62" rx="10"/><text x="546" y="55" text-anchor="middle">Картина</text><text class="s" x="546" y="74" text-anchor="middle">флота</text></g>
+      <g class="n" data-i="d-list"><rect x="650" y="28" width="96" height="62" rx="10"/><text x="698" y="55" text-anchor="middle">Список</text><text class="s" x="698" y="74" text-anchor="middle">«Работы»</text></g>
+      <g class="n" data-i="d-parent"><rect x="256" y="178" width="170" height="62" rx="10"/><text x="341" y="205" text-anchor="middle">Сессия site</text><text class="s" x="341" y="224" text-anchor="middle">прежний родитель</text></g>
+      <g class="a press" data-i="a-call"><path d="M166 59H252" marker-end="url(#ahp)"/><text class="s" x="209" y="48" text-anchor="middle">parent: null</text><path d="M166 36H252V78H166z" style="stroke:none" fill="transparent"/></g>
+      <g class="a" data-i="a-row"><path d="M426 59H482" marker-end="url(#ah)"/><path d="M426 40H482V78H426z" style="stroke:none" fill="transparent"/></g>
+      <g class="a" data-i="a-list"><path d="M606 59H646" marker-end="url(#ah)"/><path d="M606 40H646V78H606z" style="stroke:none" fill="transparent"/></g>
+      <g class="a off" data-i="a-report"><path d="M91 90V209H252" marker-end="url(#aho)"/><text class="s" x="172" y="200" text-anchor="middle">итог хода ✕</text><path d="M78 90H252V222H78z" style="stroke:none" fill="transparent"/></g>
+    </svg>
+  </div>
+  <div class="say" aria-live="polite"><b>Один вызов — три следствия.</b> Родителя нет в документе; строка в списке встаёт в корень; итоги ходов прежнему родителю не идут. Нажмите на блок или стрелку.</div>
+</section>
+
+<section id="b-etalons" data-block>
+  <h2>Эталоны</h2>
+  <div class="ets">
+    <div class="card et"><h3>Дочь сняла родителя посреди задачи</h3>
+      <div class="io">
+        <div class="mini"><span class="r">kid · parent: lead</span><span class="r">задача от lead взята</span><span class="set">session_update kid { parent: null }</span></div>
+        <div class="ar">→</div>
+        <div class="mini out"><span class="r">kid · parent: —</span><span class="r">ход кончился</span><span class="r">у lead входящих: 0</span></div>
+      </div><small>чьё: слово пользователя — «удалять парента и просто держать в руте проекта из мсп»</small></div>
+    <div class="card et"><h3>Список: родителя нет — корень</h3>
+      <div class="io">
+        <div class="mini"><span class="r"><span class="c">▾</span><i class="dot busy"></i>site</span><span class="r" style="--d:1"><span class="c">▾</span><i class="dot wait"></i>shots</span><span class="r" style="--d:2"><span class="c"></span><i class="dot"></i>diff</span><span class="r" style="--d:1"><span class="c"></span><i class="dot busy"></i>css</span><span class="set">shots: родителя в документе нет, открыла её site</span></div>
+        <div class="ar">→</div>
+        <div class="mini out"><span class="r"><span class="c">▾</span><i class="dot busy"></i>site</span><span class="r" style="--d:1"><span class="c"></span><i class="dot busy"></i>css</span><span class="r"><span class="c">▾</span><i class="dot wait"></i>shots</span><span class="r" style="--d:1"><span class="c"></span><i class="dot"></i>diff</span></div>
+      </div><small>чьё: слово пользователя — то же</small></div>
+    <div class="card et"><h3>Напарник в паре — отказ словом</h3>
+      <div class="io">
+        <div class="mini"><span class="r">lead · wing: lead-wing</span><span class="set">session_update lead-wing { parent: null }</span></div>
+        <div class="ar">→</div>
+        <div class="mini out"><span class="r" style="white-space:normal">отказ pair_inside: «пару снимает ведущий, wing: null»</span></div>
+      </div><small>чьё: код — пара снимается одним способом</small></div>
+  </div>
+</section>
+
+<section id="b-gate" data-block>
+  <h2>Гейт</h2>
+  <div class="card gate">Гейт: дубликаты ответственности 0 → 0 · состояния 0 → 0 · логики 1 → 0 · смысла 0 → 0 · других 0 → 0 · лишние коммуникации 0 → 0 · циклы 0 → 0
+Числа: инструменты, запросы, кадры — новых 0 · значения договора +1 (parent: null) · отказы — новых 0 (pair_inside) · эталоны +2 · живые шаги +1 · модули, каналы, секреты, настройки — без изменений
+Работа: маленькая — новое значение существующего ключа; запрос, кадр и хранилище те же
+Сделано:
+  1. Юнификация · снять родителя · тем же приёмом, каким снимают напарника: null в правке документа · выигрыш: новых инструментов 0
+  2. Дубликат логики · «под кем стоит сессия» решали машина (родитель в документе) и страница (ещё и «кто открыл») · остаётся документ · выигрыш: 2 места → 1; без этого снятый родитель в списке не был бы виден
+  3. Less is More · итоги и вести прежнему родителю · отдельного выключателя нет: их шлют по тому же ключу документа · выигрыш: новых полей 0
+  4. YAGNI · кнопка на странице, смена родителя на другого, возврат под родителя · не делаются: слово — «из MCP», вызов есть у человека и у сессии
+Развилки пользователю: нет
+Не трогал как редакторское: подписи «дочерние» на странице
+Слепой архитектор: не шёл — слово пользователя</div>
+</section>
+
+<section id="b-order" data-block>
+  <h2>Порядок реализации</h2>
+  <ol class="steps">
+    <li><div>Договор и машина: <code>parent: null</code> в правке документа убирает родителя; напарнику — отказ словом; строка в описании инструмента и в справке сессий.</div>
+      <div class="done"><b>Готово:</b> <code>npx vitest run test/core.test.ts</code> в части машины — 16 из 16, новый эталон 1.</div></li>
+    <li><div>Страница: под кем стоит сессия — только родитель из документа; подделка флота пишет родителя так же, как машина.</div>
+      <div class="done"><b>Готово:</b> <code>npx vitest run src/session/iter2.test.ts src/screens/screens.test.tsx</code> — 78 из 78, новый эталон 1; мест с правилом 2 → 1.</div></li>
+    <li><div>Слияние; на тестовый флот выкладывает CI; живой шаг: дочерняя снимает родителя инструментом и встаёт в корень списка в браузере.</div>
+      <div class="done"><b>Готово:</b> живой список зелёный, шаг «дочерняя сняла родителя» — 1 снимок.</div></li>
+    <li><div>Прод — по слову пользователя «фаст в прод».</div>
+      <div class="done"><b>Готово:</b> выкладка на прод зелёная, тот же живой шаг на проде — 1.</div></li>
+  </ol>
+</section>
+</main>
+
+<script>
+// пояснения частей: нажатие на строку списка, блок или стрелку диаграммы
+(() => {
+  const J = (o) => "<pre>" + JSON.stringify(o, null, 2).replace(/</g, "&lt;") + "</pre>";
+  const SAY = {
+    "l-site": ["site — родитель.", "Открыла shots и css: они стоят под ней с отступом, итоги их ходов по её задачам приходят ей сами."],
+    "l-shots": ["shots — дочерняя.", "Её открыла site. Сейчас она под site и отчитывается ей."],
+    "l-diff": ["diff — дочерняя shots.", "Связь shots и diff вызов не трогает."],
+    "l-css": ["css — дочерняя.", "Остаётся под site."],
+    "r-site": ["site после вызова.", "Под ней осталась только css. Итогов и вестей от shots она больше не получает; написать shots может как любой соседке."],
+    "r-shots": ["shots в корне проекта.", "Проект тот же — он записан в её документе с открытия. Работает дальше, разговор и папка те же."],
+    "r-diff": ["diff осталась под shots.", "У shots по-прежнему шеврон: свои дочерние уходят в корень вместе с ней."],
+    "r-css": ["css на месте.", "Вызов касается одной сессии."],
+    "d-kid": ["Сессия shots.", "Зовёт инструмент на свой позывной. Так же его может позвать человек или другая сессия."],
+    "d-host": ["Машина.", "Хранит документ сессии. Убирает из него родителя и больше ничего не меняет: процесс сессии не перезапускается, разговор идёт дальше. Напарнику в паре отказывает словом — пару снимает ведущая."],
+    "d-fleet": ["Картина флота.", "Получает строку сессии целиком, как после любой правки документа."],
+    "d-list": ["Список «Работы».", "Ставит сессию под родителем из её документа. Родителя нет — корень проекта. Раньше страница ещё смотрела, кто сессию открыл; теперь правило одно."],
+    "d-parent": ["Прежний родитель.", "Его не спрашивают и не уведомляют. Сообщения от него приходят shots обычным сообщением соседки, а не задачей."],
+    "a-call": ["Вызов инструмента.", "Тот же session_update, которым меняют модель и проект. Так же снимают напарника: wing: null." + J({ name: "session_update", arguments: { to: "shots@laptop", patch: { parent: null } } }) + "Ответ:" + J({ now: [], later: [] })],
+    "a-row": ["Строка сессии.", "Уходит в картину флота без поля родителя." + J({ callsign: "shots@laptop", state: "busy", by: "site@laptop", spec: { name: "shots", cwd: "~/projects/site", project: "site" } })],
+    "a-list": ["Картина — странице.", "Тем же кадром, что всегда; страница пересобирает дерево."],
+    "a-report": ["Итог хода больше не уходит.", "Пока родитель был, итог каждого хода по его задаче шёл ему сам. Снят посреди задачи — итог этого хода уже не уходит. Вести о сбое и вопросах тоже."],
+  };
+  const show = (el) => {
+    const sec = el.closest("section");
+    const [title, body] = SAY[el.dataset.i];
+    for (const x of sec.querySelectorAll("[data-i].on")) x.classList.remove("on");
+    el.classList.add("on");
+    sec.querySelector(".say").innerHTML = "<b>" + title + "</b> " + body;
+  };
+  for (const el of document.querySelectorAll("[data-i]")) {
+    el.addEventListener("click", () => show(el));
+    if (el.tagName !== "BUTTON") { el.setAttribute("tabindex", "0"); el.setAttribute("role", "button"); el.addEventListener("keydown", (e) => e.key === "Enter" && show(el)); }
+  }
+})();
+</script>
+<script>
+// метки «прочитал»: клавиша A (латинская или русская) над блоком
+(() => {
+  const KEY = "detach-parent.read";
+  let read = [];
+  try { read = JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch {}
+  let over = null;
+  const draw = () => { for (const s of document.querySelectorAll("[data-block]")) s.classList.toggle("read", read.includes(s.id)); };
+  for (const s of document.querySelectorAll("[data-block]")) s.addEventListener("mouseenter", () => (over = s));
+  document.addEventListener("keydown", (e) => {
+    if (!(e.code === "KeyA" || e.key === "a" || e.key === "A" || e.key === "ф" || e.key === "Ф") || e.ctrlKey || e.metaKey || e.altKey || !over) return;
+    read = read.includes(over.id) ? read.filter((x) => x !== over.id) : [...read, over.id];
+    try { localStorage.setItem(KEY, JSON.stringify(read)); } catch {}
+    draw();
+  });
+  draw();
+})();
+</script>
