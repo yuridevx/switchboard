@@ -136,8 +136,8 @@ export const sessionOpen = request("session.open", {
 
 export const sessionUpdate = request("session.update", {
   owner: "host", target: "session",
-  tool: "Изменить документ сессии. Бери, чтобы сменить модель, режим или проект сессии или открыть себе ведомого. patch — ключи для замены: key и model (провайдер и точное имя из keys_models, меняются вместе), effort, mode, fast, style, thinking, title, pieces, project (номер из people_list), backup, cwd. wing: null — снять ведомого; pair: true — открыть ведомого <имя>-wing. Ответ: now — что подействовало сразу, later — что вступит в силу после хода, wing — позывной открытого ведомого.", example: {"to":"site@laptop","patch":{"effort":"high"}},
-  input: z.object({ to: Callsign, patch: SpecPatch.extend({ wing: Callsign.nullable().optional() }), pair: z.boolean().optional() }),
+  tool: "Изменить документ сессии. Бери, чтобы сменить модель, режим или проект сессии или открыть себе ведомого. patch — ключи для замены: key и model (провайдер и точное имя из keys_models, меняются вместе), effort, mode, fast, style, thinking, title, pieces, project (номер из people_list), backup, cwd. wing: null — снять ведомого; parent: null — снять с сессии родителя: в списке она встаёт в корень проекта, итоги её ходов родителю больше не идут; pair: true — открыть ведомого <имя>-wing. Ответ: now — что подействовало сразу, later — что вступит в силу после хода, wing — позывной открытого ведомого.", example: {"to":"site@laptop","patch":{"effort":"high"}},
+  input: z.object({ to: Callsign, patch: SpecPatch.extend({ wing: Callsign.nullable().optional(), parent: Callsign.nullable().optional() }), pair: z.boolean().optional() }),
   /** now — что подействовало сразу; later — что вступит в силу после хода, с новым процессом */
   output: z.object({ now: z.array(z.string()), later: z.array(z.string()), wing: Callsign.optional() }).loose(),
 });

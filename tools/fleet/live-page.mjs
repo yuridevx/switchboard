@@ -1,5 +1,5 @@
 // Живая проверка страницы на настоящем флоте: node tools/fleet/live-page.mjs <флот> <устройство с пропуском> <машина>
-// Принимает приглашение в браузере, открывает сессию, пишет ей и ждёт ответа, сворачивает её дочернюю в списке.
+// Принимает приглашение в браузере, открывает сессию, пишет ей и ждёт ответа, сворачивает её дочернюю в списке, снимает с дочерней родителя.
 // Снимки шагов — dist/live/page. Ошибка страницы или строка error её консоли — красный.
 import path from "node:path";
 import { check } from "./harness.mjs";
@@ -45,9 +45,19 @@ await check(async (t) => {
     if (await row.count()) throw new Error("после перезагрузки дочерняя раскрыта");
     await shot("4-folded");
   });
+  await t.step("дочерняя сняла родителя инструментом session_update — в списке она встала в корень, у бывшего родителя сворачивать нечего", async () => {
+    const res = await t.fetch(t.base + "/mcp", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + t.key }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "session_update", arguments: { to: kid.callsign, patch: { parent: null } } } }) });
+    const j = await res.json();
+    if (j.error || j.result?.isError) throw new Error("session_update отказал: " + JSON.stringify(j.error ?? j.result).slice(0, 300));
+    const list = page.locator('section[aria-label="Работа"]');
+    // свёрнутая дочерняя вышла из-под родителя: её строка снова в списке, а кнопки «Показать дочерние» у родителя больше нет
+    await list.locator(`.row[data-call="${kid.callsign}"]`).waitFor();
+    await list.getByRole("button", { name: "Показать дочерние: " + s.callsign }).waitFor({ state: "detached" });
+    await shot("5-root");
+  });
   await t.step("экран «Наблюдение» показывает запросы", async () => {
     await page.goto(t.base + "/#/observe");
     await page.getByText("message").first().waitFor();
-    await shot("5-observe");
+    await shot("6-observe");
   });
 });
