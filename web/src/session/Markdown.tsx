@@ -60,6 +60,26 @@ function Code({ lang, code, children }: { lang: string; code: string; children: 
   );
 }
 
+// одни и те же функции на каждый показ: новая функция — для React новый компонент, и блоки кода со схемами собирались бы заново на каждом куске ответа
+const COMPONENTS: ComponentProps<typeof ReactMarkdown>["components"] = {
+  a: ({ node: _, href, children, ...rest }) => {
+    // сноска и возврат от неё — прокруткой внутри текста: адрес страницы занят экранами
+    if (href?.startsWith("#") && ("data-footnote-ref" in rest || "data-footnote-backref" in rest)) {
+      const id = PREFIX + href.slice(1);
+      return <a {...rest} href={`#${id}`} onClick={(e) => toFootnote(e, id)}>{children}</a>;
+    }
+    return <a href={safeHref(href)} target="_blank" rel="noreferrer noopener">{children}</a>;
+  },
+  // data: — только картинка
+  img: ({ node: _, src, ...rest }) => <img {...rest} src={typeof src === "string" && (!/^data:/i.test(src) || /^data:image\//i.test(src)) ? src : undefined} loading="lazy" referrerPolicy="no-referrer" />,
+  pre: ({ children }) => {
+    const el = Array.isArray(children) ? children[0] : children;
+    const cls = isValidElement(el) ? String((el.props as { className?: string }).className ?? "") : "";
+    return <Code lang={/language-([\w-]+)/.exec(cls)?.[1] ?? ""} code={textOf(children).replace(/\n$/, "")}>{children}</Code>;
+  },
+};
+const asIs = (url: string) => url;
+
 export default function Markdown({ text }: { text: string }) {
   return (
     <div className="md">
@@ -67,24 +87,8 @@ export default function Markdown({ text }: { text: string }) {
         remarkPlugins={[remarkGfm]}
         rehypePlugins={REHYPE}
         remarkRehypeOptions={NO_PREFIX}
-        urlTransform={(url) => url}
-        components={{
-          a: ({ node: _, href, children, ...rest }) => {
-            // сноска и возврат от неё — прокруткой внутри текста: адрес страницы занят экранами
-            if (href?.startsWith("#") && ("data-footnote-ref" in rest || "data-footnote-backref" in rest)) {
-              const id = PREFIX + href.slice(1);
-              return <a {...rest} href={`#${id}`} onClick={(e) => toFootnote(e, id)}>{children}</a>;
-            }
-            return <a href={safeHref(href)} target="_blank" rel="noreferrer noopener">{children}</a>;
-          },
-          // data: — только картинка
-          img: ({ node: _, src, ...rest }) => <img {...rest} src={typeof src === "string" && (!/^data:/i.test(src) || /^data:image\//i.test(src)) ? src : undefined} loading="lazy" referrerPolicy="no-referrer" />,
-          pre: ({ children }) => {
-            const el = Array.isArray(children) ? children[0] : children;
-            const cls = isValidElement(el) ? String((el.props as { className?: string }).className ?? "") : "";
-            return <Code lang={/language-([\w-]+)/.exec(cls)?.[1] ?? ""} code={textOf(children).replace(/\n$/, "")}>{children}</Code>;
-          },
-        }}
+        urlTransform={asIs}
+        components={COMPONENTS}
       >
         {fenceHtml(text)}
       </ReactMarkdown>

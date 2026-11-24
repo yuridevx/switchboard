@@ -2,7 +2,7 @@
 import { SEND_TOOL, SITE_TOOL, type SessionRow } from "@sb/protocol";
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -185,6 +185,20 @@ describe("файлы: сессия отправила", () => {
     await waitFor(() => expect(document.querySelector('[data-step="file"] img.svgview')).toBeTruthy());
     fireEvent.click(blocks[0]!.querySelector("button.linkbtn")!);
     expect(blocks[0]!.querySelector("pre")?.textContent).toContain("sequenceDiagram");
+  });
+
+  it("схема не собирается заново, пока ответ пишется дальше: тот же рисунок на месте", async () => {
+    const scheme = "~~~mermaid\nsequenceDiagram\n  C->>H: file_send\n~~~";
+    const wrap = (text: string) => <MantineProvider><Md text={text} /></MantineProvider>;
+    const { rerender } = render(wrap(scheme));
+    const img = await waitFor(() => { const el = document.querySelector("img.svgview"); expect(el).toBeTruthy(); return el!; });
+    // ответ дописался после схемы — рисунок тот же узел страницы
+    rerender(wrap(scheme + "\n\nДальше идёт текст"));
+    expect(document.querySelector("img.svgview")).toBe(img);
+    // схема дописывается и на этом куске не разбирается — прежний рисунок остаётся
+    rerender(wrap(scheme.replace("file_send", "file_send\n  это не схема")));
+    await act(() => vi.advanceTimersByTimeAsync(20));
+    expect(document.querySelector("img.svgview")).toBe(img);
   });
 
   it("эталон 21 · содержимого нет или вызов отказан: слово на месте файла, лента цела", async () => {
