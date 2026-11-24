@@ -1,5 +1,5 @@
 // Схема mermaid: отдельный кусок сборки, грузится при первой схеме. Текст схемы — в SVG, SVG — картинкой: как картинка он не исполняет скриптов.
-// Схема не разобралась (в том числе пока ответ ещё пишется) — показывается её текст.
+// Схема не разобралась — показывается её текст; пока ответ пишется, на месте остаётся последний разобранный рисунок.
 import mermaid from "mermaid";
 import { useEffect, useId, useState } from "react";
 import { svgUrl } from "./html.tsx";
@@ -14,8 +14,8 @@ export default function Mermaid({ code, onClick }: { code: string; onClick?: () 
     (async () => {
       const fine = await mermaid.parse(code, { suppressErrors: true });
       const out = fine ? (await mermaid.render(id, code)).svg : "";
-      if (on) setSvg(out);
-    })().catch(() => on && setSvg(""));
+      if (on) setSvg((was) => out || was || "");
+    })().catch(() => on && setSvg((was) => was || ""));
     return () => { on = false; };
   }, [code, id]);
   if (svg === null) return null;
