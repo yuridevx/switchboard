@@ -1,7 +1,7 @@
-// Эталоны «Фабрики»: очередь поста из нескольких сессий, возврат той же сессии, пост вне потолка; сессия откладывает и передаёт свой тикет;
+// Эталоны «Фабрики»: очередь поста из нескольких сессий, возврат той же сессии; сессия усыпляет и передаёт свой тикет;
 // заметки доходят до сессии разом при выдаче и отказом перед «сдал»; итог тикета ложится заметкой заведшему.
 import { describe, expect, it } from "vitest";
-import type { FactoryState, Ticket } from "@sb/protocol";
+import type { Ticket } from "@sb/protocol";
 import type { Outside } from "../env.ts";
 import { appliedFleet } from "../../test/factory.ts";
 import type { Stand } from "../../test/stand.ts";
@@ -10,11 +10,6 @@ import { fire } from "./clock/clock.ts";
 const POST = (extra: Record<string, unknown> = {}) => ({ at: "@laptop", cwd: "~/work/post", key: "claude", model: "claude-opus-5-5", for: "1d", ...extra });
 /** Определение проекта «site»: пост coders из двух сессий (coders@laptop и coders-2@laptop) и пост cto из одной. */
 const DEF = { project: "site", posts: { coders: POST({ size: 2, cwd: "~/work/coders" }), cto: POST() } };
-/** Конвейер из одних постов: без потолка, машин и папки. */
-const SLICE = { steps: [{ name: "код", post: "coders" }, { name: "приёмка", post: "cto" }] };
-/** Конвейер свежих сессий с потолком один. */
-const FRESH = { limit: 1, for: "2h", at: ["@laptop"], cwd: "~/work/{id}", key: "claude", model: "claude-sonnet-5-5", steps: [{ name: "сделать", session: "new" }] };
-
 const CH = { CH_URL: "https://ch.test:8443/" };
 const applied = (def: unknown = DEF) => appliedFleet(def, CH);
 const sent = (s: Stand, type: string) => s.seen.delivered.filter((f) => f.type === type);
@@ -26,7 +21,6 @@ const as = (s: Stand, callsign: string, type: string, fields: Record<string, unk
 const make = async (s: Stand, to: string, title: string, extra: Record<string, unknown> = {}) => ((await s.ask("ticket.new", { project: "site", to, title, ...extra })).result as { id: string }).id;
 /** Сработать по всем срокам часов флота до момента at. */
 const tick = (s: Stand, at: number) => fire(s.env, s.fleet, outside(s), at);
-const load = async (s: Stand) => ((await s.ask("factory.get", { project: "site" })).result as { factory: FactoryState }).factory.load;
 /** Строки истории «ticket», которые записали службы: вид движения и данные. */
 const ticketLines = (s: Stand): Record<string, unknown>[] =>
   s.seen.net
@@ -64,63 +58,30 @@ describe("фабрика: очередь поста", () => {
   });
 
   // эталон 20 — чьё: код — возврат ведёт та сессия, что вела шаг
-  it("20 · возврат идёт той же сессии: пока она занята, тикет ждёт её, а не свободную вторую сессию поста", async () => {
-    const { s } = await applied({ ...DEF, lines: { slice: SLICE } });
-    const t = await make(s, "slice", "Срез");
-    expect(await one(s, t)).toMatchObject({ state: "work", step: 0, session: "coders@laptop" });
-    expect(await as(s, "coders@laptop", "ticket.set", { ticket: t, verdict: "done", note: "срез готов" })).toMatchObject({ ok: true, result: { state: "ready", step: 1 } });
-    expect(await one(s, t)).toMatchObject({ state: "work", step: 1, session: "cto@laptop" });
-    // та же сессия занята другим тикетом
-    const other = await make(s, "coders", "Другое");
-    expect(await one(s, other)).toMatchObject({ state: "work", session: "coders@laptop" });
-    const n = gives(s).length;
-    expect(await as(s, "cto@laptop", "ticket.set", { ticket: t, verdict: "back", note: "нет эталона" })).toMatchObject({ ok: true, result: { state: "ready", step: 0 } });
-    // вторая сессия поста свободна, но возврат ей не отдан
-    const waiting = await one(s, t);
-    expect(waiting.state).toBe("ready");
-    expect(waiting.session).toBeUndefined();
-    expect(gives(s)).toHaveLength(n);
-    expect(gives(s).filter((g) => g.name === "coders-2")).toEqual([]);
-    // та же сессия освободилась — возврат у неё
-    await as(s, "coders@laptop", "ticket.set", { ticket: other, verdict: "done" });
-    expect(await one(s, t)).toMatchObject({ state: "work", step: 0, session: "coders@laptop", returns: 1 });
-    expect(lastGive(s, t)).toMatchObject({ name: "coders", step: "код" });
+  it("20 · возврат идёт той же сессии: свободна и первая сессия поста, а возврат уходит той, что вела тикет", async () => {
+    const { s } = await applied();
+    const a = await make(s, "coders", "Первое");
+    const t = await make(s, "coders", "Срез");
+    expect(await one(s, t)).toMatchObject({ state: "work", session: "coders-2@laptop" });
+    // первая сессия поста освободилась
+    await as(s, "coders@laptop", "ticket.set", { ticket: a, verdict: "done" });
+    expect(await s.ask("ticket.set", { ticket: t, verdict: "back", note: "нет эталона" })).toMatchObject({ ok: true, result: { state: "ready" } });
+    expect(await one(s, t)).toMatchObject({ state: "work", session: "coders-2@laptop", returns: 1 });
+    expect(gives(s).filter((g) => g.ticket === t).map((g) => g.name)).toEqual(["coders-2", "coders-2"]);
     expect(String(lastGive(s, t).text)).toContain("Вернули с замечанием: нет эталона");
-  });
-
-  // эталон 21 — чьё: факт — определение проекта применяли 41 раз за 27 часов, потолок правили руками (история флота 20–21 нояб.)
-  it("21 · пост не занимает потолок: свежий шаг занял потолок проекта — тикет конвейера из постов всё равно в работе; загрузка считает только свежий шаг", async () => {
-    const { s, file, result } = await applied({ ...DEF, limit: 1, lines: { fresh: FRESH, slice: SLICE } });
-    // конвейер из одних постов без limit, at и cwd применяется
-    expect(result).toMatchObject({ lines: 2 });
-    const f = await make(s, "fresh", "Свежий шаг");
-    expect(await one(s, f)).toMatchObject({ state: "work" });
-    const t = await make(s, "slice", "Срез постом");
-    expect(await one(s, t)).toMatchObject({ state: "work", session: "coders@laptop" });
-    // потолок держится для свежих шагов
-    const g = await make(s, "fresh", "Второй свежий");
-    expect(await one(s, g)).toMatchObject({ state: "ready" });
-    expect(await load(s)).toMatchObject({ work: 1, lines: { fresh: { work: 1 }, slice: { work: 0 } } });
-    // конвейер со свежей сессией без потолка — не применяется
-    const { limit: _, ...unlimited } = FRESH;
-    file.text = JSON.stringify({ ...DEF, limit: 1, lines: { fresh: unlimited, slice: SLICE } });
-    file.sha = "c2";
-    const r = await s.ask("factory.apply", { project: "site", repo: "team/roles" });
-    expect(r).toMatchObject({ ok: false, error: "bad_factory" });
-    expect(r.why).toContain("lines.fresh:");
   });
 });
 
-describe("фабрика: сессия откладывает и передаёт свой тикет", () => {
+describe("фабрика: сессия усыпляет и передаёт свой тикет", () => {
   // эталон 22 — чьё: факт — 0 из 25 тикетов «разбуди меня» дошли до сессии, пока она вела шаг (история флота 20–21 нояб.)
   it("22 · отложила свой тикет — взяла следующий: место свободно сразу; чужой шаг отложить нельзя", async () => {
     const { s } = await applied();
     const a = await make(s, "cto", "Ждёт сборки");
     const b = await make(s, "cto", "Следующий");
     expect(await one(s, b)).toMatchObject({ state: "ready" });
-    expect(await as(s, "cto@laptop", "ticket.set", { ticket: a, in: "40m", note: "жду сборку 812" })).toMatchObject({ ok: true, result: { state: "ready" } });
+    expect(await as(s, "cto@laptop", "ticket.set", { ticket: a, in: "40m", note: "жду сборку 812" })).toMatchObject({ ok: true, result: { state: "wait" } });
     const later = await one(s, a);
-    expect(later.state).toBe("ready");
+    expect(later.state).toBe("wait");
     expect(later.session).toBeUndefined();
     expect(later.start! - Date.now()).toBeGreaterThan(39.5 * 60_000);
     expect(later.start! - Date.now()).toBeLessThanOrEqual(40 * 60_000);
@@ -134,24 +95,24 @@ describe("фабрика: сессия откладывает и передаё�
   });
 
   // эталон 23 — чьё: запрос PoE2 — «по событию дело возвращается той же сессии»
-  it("23 · заметка снимает отсрочку: тикет ждёт свою сессию, а не свободную вторую; сдав текущий, она получает его с обеими заметками", async () => {
+  it("23 · разбуженный тикет ждёт свою сессию, а не свободную вторую; сдав текущий, она получает его с обеими заметками", async () => {
     const { s } = await applied();
     const a = await make(s, "coders", "Ждёт ответа владельца");
     await as(s, "coders@laptop", "ticket.set", { ticket: a, in: "40m", note: "жду ответ владельца" });
     const b = await make(s, "coders", "Пока другое");
     expect(await one(s, b)).toMatchObject({ state: "work", session: "coders@laptop" });
-    expect((await one(s, a)).start).toBeDefined();
-    // человек пишет заметку в отложенный тикет — отсрочка снята
-    await s.ask("ticket.set", { ticket: a, note: "владелец ответил: да" });
+    expect(await one(s, a)).toMatchObject({ state: "wait" });
+    // человек будит тикет с заметкой: срок снят, тикет в очереди своей сессии
+    expect(await s.ask("ticket.set", { ticket: a, resume: true, note: "владелец ответил: да" })).toMatchObject({ ok: true, result: { state: "ready" } });
     const woke = await one(s, a);
     expect(woke.start).toBeUndefined();
     expect(woke.state).toBe("ready");
     expect(gives(s).filter((g) => g.name === "coders-2")).toEqual([]);
-    // своя сессия сдала текущий — отложенный у неё, с обеими заметками
+    // своя сессия сдала текущий — разбуженный у неё, с обеими заметками
     await as(s, "coders@laptop", "ticket.set", { ticket: b, verdict: "done" });
     expect(await one(s, a)).toMatchObject({ state: "work", session: "coders@laptop" });
     expect(String(lastGive(s, a).text)).toContain("Заметки к тикету (2):\n— coders@laptop: жду ответ владельца\n— pult~yuri@example.com: владелец ответил: да");
-    expect(ticketLines(s).filter((l) => l.kind === "wake")).toMatchObject([{ ticket: a }]);
+    expect(ticketLines(s).filter((l) => l.kind === "resume")).toMatchObject([{ ticket: a }]);
   });
 
   // эталон 24 — чьё: запрос PoE2 — «жду события или срока»
@@ -161,7 +122,7 @@ describe("фабрика: сессия откладывает и передаё�
     await as(s, "coders@laptop", "ticket.set", { ticket: a, in: "40m", note: "жду выкладку" });
     const start = (await one(s, a)).start!;
     expect(await tick(s, start - 1)).toBe(0);
-    expect(await one(s, a)).toMatchObject({ state: "ready" });
+    expect(await one(s, a)).toMatchObject({ state: "wait" });
     expect(await tick(s, start)).toBe(1);
     expect(await one(s, a)).toMatchObject({ state: "work", session: "coders@laptop" });
     expect(lastGive(s, a)).toMatchObject({ name: "coders" });
@@ -183,7 +144,7 @@ describe("фабрика: сессия откладывает и передаё�
     expect(await as(s, "coders-2@laptop", "ticket.set", { ticket: a, to: "cto" })).toMatchObject({ ok: false, error: "bad_state" });
     expect(await as(s, "coders@laptop", "ticket.set", { ticket: a, to: "cto", note: "это к CTO: граница модулей" })).toMatchObject({ ok: true });
     const moved = await one(s, a);
-    expect(moved).toMatchObject({ id: a, to: "cto", step: 0, state: "work", session: "cto@laptop" });
+    expect(moved).toMatchObject({ id: a, to: "cto", state: "work", session: "cto@laptop" });
     expect(moved.notes!.map((n) => [n.by, n.text])).toEqual([["pult~yuri@example.com", "смотри дизайн очереди"], ["coders@laptop", "это к CTO: граница модулей"]]);
     expect(lastGive(s, a)).toMatchObject({ name: "cto" });
     expect(await one(s, c)).toMatchObject({ state: "work", session: "coders@laptop" });
@@ -193,26 +154,31 @@ describe("фабрика: сессия откладывает и передаё�
 
 describe("фабрика: заметки и итог доходят до сессии", () => {
   // эталон 25 — чьё: запрос PoE2 — «итог чужой работы» приходит событием, а не опросом
-  it("25 · итог идёт заведшему: тикет, заведённый сессией со своего шага, помнит его; сдан или встал — заметка в тикет заведшего, отсрочка снята", async () => {
+  it("25 · итог идёт заведшему: тикет, заведённый сессией со своего тикета в работе, помнит его; сдан или встал — заметка в тикет заведшего; спящего заведшего заметка не будит", async () => {
     const { s } = await applied();
     const a = await make(s, "coders", "Большая задача");
     expect(await one(s, a)).toMatchObject({ session: "coders@laptop" });
     const b = ((await as(s, "coders@laptop", "ticket.new", { project: "site", to: "cto", title: "Решение по границе" })).result as { id: string }).id;
-    expect((await one(s, b)).parent).toBe(a);
-    // тикет, заведённый человеком, заведшего шага не помнит
-    expect((await one(s, a)).parent).toBeUndefined();
-    await as(s, "coders@laptop", "ticket.set", { ticket: a, in: "2h", note: "жду решение CTO" });
-    expect((await one(s, a)).start).toBeDefined();
-    await as(s, "cto@laptop", "ticket.set", { ticket: b, verdict: "done", note: "граница по контракту" });
-    const back = await one(s, a);
-    expect(back).toMatchObject({ state: "work", session: "coders@laptop" });
-    expect(back.start).toBeUndefined();
-    expect(back.notes!.at(-1)).toMatchObject({ by: ".factory", text: `${b} сдан: граница по контракту` });
-    expect(back.notes!.at(-1)!.verdict).toBeUndefined();
-    // потомок встал — заведшему причина
     const c = ((await as(s, "coders@laptop", "ticket.new", { project: "site", to: "cto", title: "Доступ к репо" })).result as { id: string }).id;
+    expect((await one(s, b)).parent).toBe(a);
+    expect((await one(s, c)).parent).toBe(a);
+    // тикет, заведённый человеком, заведшего не помнит
+    expect((await one(s, a)).parent).toBeUndefined();
+    await as(s, "coders@laptop", "ticket.set", { ticket: a, in: "2h", note: "займусь после решений CTO" });
+    await as(s, "cto@laptop", "ticket.set", { ticket: b, verdict: "done", note: "граница по контракту" });
+    const slept = await one(s, a);
+    expect(slept).toMatchObject({ state: "wait" });
+    expect(slept.start).toBeDefined();
+    expect(slept.notes!.at(-1)).toMatchObject({ by: ".factory", text: `${b} сдан: граница по контракту` });
+    expect(slept.notes!.at(-1)!.verdict).toBeUndefined();
+    // потомок встал — заведшему причина
     expect(await as(s, "cto@laptop", "ticket.set", { ticket: c, verdict: "stop", note: "нужен доступ владельца" })).toMatchObject({ ok: true, result: { state: "stop" } });
     expect((await one(s, a)).notes!.at(-1)).toMatchObject({ by: ".factory", text: `${c} встал: нужен доступ владельца` });
+    expect((await one(s, a)).state).toBe("wait");
+    // разбуженный — у своей сессии с обоими итогами
+    await s.ask("ticket.set", { ticket: a, resume: true });
+    expect(await one(s, a)).toMatchObject({ state: "work", session: "coders@laptop" });
+    for (const part of [`${b} сдан: граница по контракту`, `${c} встал: нужен доступ владельца`]) expect(String(lastGive(s, a).text)).toContain(part);
   });
 
   // эталон 26 — чьё: факт — 121 из 218 заметок к тикету в работе не дошли до сессии, которая его вела (история флота 20–21 нояб.)

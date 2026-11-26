@@ -27,7 +27,7 @@ const reminded = (out: unknown[]) => out.filter((o) => (o as { decision?: string
 const lines = (s: Stand) => s.journal().filter((l) => l.msg === "work");
 /** Ответ служб на ticket.list: тикет в состоянии state, шаг ведёт session. */
 const ticketIs = (s: Stand, state: string, session?: string) => {
-  s.services.handlers["ticket.list"] = (f) => ({ tickets: [{ id: f.ticket, project: "site", title: "Шапка", text: "", step: 0, state, ...(session ? { session } : {}), by: "~yuri@example.com", returns: 0, since: 1, moved: 1 }] });
+  s.services.handlers["ticket.list"] = (f) => ({ tickets: [{ id: f.ticket, project: "site", title: "Шапка", text: "", state, ...(session ? { session } : {}), by: "~yuri@example.com", returns: 0, since: 1, moved: 1 }] });
 };
 
 describe("дать работу сессии", () => {
@@ -39,11 +39,11 @@ describe("дать работу сессии", () => {
     expect(s.state).toBe("stopped");
     // письмо остановленной — отказ; тикет — поднимает
     expect(await st.request("message", { to: "ops@laptop", text: "проверь ферму" }, PULT)).toMatchObject({ ok: false, error: "stopped" });
-    expect(await give(st, "ops", "site-1", { step: "обход" })).toMatchObject({ ok: true, result: { callsign: "ops@laptop" } });
+    expect(await give(st, "ops", "site-1")).toMatchObject({ ok: true, result: { callsign: "ops@laptop" } });
     await until(() => s.state === "idle" || s.state === "busy", "сессия поднята");
     const p = st.proc("ops@laptop");
     await until(() => p.inputs.length > 0, "ввод у процесса");
-    expect(lastInput(p)).toBe('<fleet from=".factory" kind="ticket" ticket="site-1" step="обход">\nТикет site-1: шапка сайта\n</fleet>');
+    expect(lastInput(p)).toBe('<fleet from=".factory" kind="ticket" ticket="site-1">\nТикет site-1: шапка сайта\n</fleet>');
     // шаг — новым ходом: ввод ждёт конца идущего хода
     expect(p.inputs.at(-1)!.priority).toBe("later");
     expect(lines(st)).toMatchObject([{ callsign: "ops@laptop", kind: "given" }]);
@@ -142,9 +142,9 @@ describe("дать работу сессии", () => {
     const blocks = reminded(await proc.hook("Stop", { stop_hook_active: false }));
     expect(blocks).toHaveLength(1);
     expect(blocks[0]!.reason).toContain("site-5");
-    expect(blocks[0]!.reason).toContain("отложи шаг: in");
+    expect(blocks[0]!.reason).toContain("усыпи свой: after");
     // шаг отложен, передан другой сессии или закрыт — он уже не у этой сессии
-    ticketIs(st, "ready", "dev@laptop");
+    ticketIs(st, "wait", "dev@laptop");
     expect(reminded(await proc.hook("Stop", { stop_hook_active: false }))).toHaveLength(0);
     ticketIs(st, "work", "dev-2@laptop");
     expect(reminded(await proc.hook("Stop", { stop_hook_active: false }))).toHaveLength(0);
@@ -184,7 +184,7 @@ describe("дать работу сессии", () => {
     st = await stand({ modules: [chat(), work()] });
     const cwd = join(st.dir, "line", "site-9");
     expect(existsSync(cwd)).toBe(false);
-    const r = await give(st, "site-9-s1", "site-9", { step: "сделать", spec: { name: "site-9-s1", cwd, title: "Шапка · сделать" } });
+    const r = await give(st, "site-9-s1", "site-9", { spec: { name: "site-9-s1", cwd, title: "Шапка · сделать" } });
     expect(r).toMatchObject({ ok: true, result: { callsign: "site-9-s1@laptop" } });
     const s = st.kernel.sessions.get("site-9-s1@laptop")!;
     expect(existsSync(cwd)).toBe(true);
@@ -192,9 +192,9 @@ describe("дать работу сессии", () => {
     expect(s.rec.spec.parent).toBeUndefined();
     const p = st.proc("site-9-s1@laptop");
     await until(() => p.inputs.length === 1, "шаг во вводе");
-    expect(lastInput(p)).toContain('kind="ticket" ticket="site-9" step="сделать"');
+    expect(lastInput(p)).toContain('kind="ticket" ticket="site-9"');
     // второй шаг той же сессии: она уже есть — документ не нужен, ввод встаёт в тот же разговор
-    await give(st, "site-9-s1", "site-9", { step: "довести" });
+    await give(st, "site-9-s1", "site-9");
     await until(() => p.inputs.length === 2, "второй шаг во вводе");
     expect(st.kernel.sessions.size).toBe(1);
   });
@@ -223,8 +223,8 @@ describe("дать работу сессии", () => {
     st = await stand({ modules: [chat(), shell(), work()] });
     const { proc } = await st.open("dev");
     let run = "echo test-7-red; exit 1";
-    st.services.handlers["ticket.list"] = (f) => ({ tickets: [{ id: f.ticket, project: "site", title: "Срезы", text: "", step: 2, state: "work", session: "dev@laptop", by: "~yuri@example.com", returns: 0, since: 1, moved: 1, check: { run, for: "30s" } }] });
-    st.services.handlers["ticket.set"] = (f) => ({ id: f.ticket, state: "work", step: 2 });
+    st.services.handlers["ticket.list"] = (f) => ({ tickets: [{ id: f.ticket, project: "site", title: "Срезы", text: "", state: "work", session: "dev@laptop", by: "~yuri@example.com", returns: 0, since: 1, moved: 1, check: { run, for: "30s" } }] });
+    st.services.handlers["ticket.set"] = (f) => ({ id: f.ticket, state: "work" });
     const denied = (out: unknown[]) => out.map((o) => (o as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } } | undefined)?.hookSpecificOutput).filter((o) => o?.permissionDecision === "deny");
     const done = () => proc.hook("PreToolUse", { tool_name: "mcp__fleet__ticket_set", tool_input: { ticket: "site-5", verdict: "done", note: "готово" } });
     // первый «сдал»: скрипт вернул 1 — вердикт не ушёл, машина записала возврат с выводом скрипта
@@ -244,12 +244,12 @@ describe("дать работу сессии", () => {
     expect(lines(st).filter((l) => l.kind === "checked")).toHaveLength(2);
     // вердикт не «сдал» и шаг без проверки скрипт не запускают
     await proc.hook("PreToolUse", { tool_name: "mcp__fleet__ticket_set", tool_input: { ticket: "site-5", verdict: "stop", note: "вопрос" } });
-    st.services.handlers["ticket.list"] = (f) => ({ tickets: [{ id: f.ticket, project: "site", title: "Ревью", text: "", step: 3, state: "work", session: "dev@laptop", by: "~yuri@example.com", returns: 0, since: 1, moved: 1 }] });
+    st.services.handlers["ticket.list"] = (f) => ({ tickets: [{ id: f.ticket, project: "site", title: "Ревью", text: "", state: "work", session: "dev@laptop", by: "~yuri@example.com", returns: 0, since: 1, moved: 1 }] });
     expect(denied(await done())).toHaveLength(0);
     expect(lines(st).filter((l) => l.kind === "checked")).toHaveLength(2);
     // вторая неудача подряд: службы ставят тикет в «стоп» — сессии сказано больше не сдавать
-    st.services.handlers["ticket.list"] = (f) => ({ tickets: [{ id: f.ticket, project: "site", title: "Срезы", text: "", step: 2, state: "work", session: "dev@laptop", by: "~yuri@example.com", returns: 1, since: 1, moved: 1, check: { run: "exit 3", for: "30s" } }] });
-    st.services.handlers["ticket.set"] = (f) => ({ id: f.ticket, state: "stop", step: 2 });
+    st.services.handlers["ticket.list"] = (f) => ({ tickets: [{ id: f.ticket, project: "site", title: "Срезы", text: "", state: "work", session: "dev@laptop", by: "~yuri@example.com", returns: 1, since: 1, moved: 1, check: { run: "exit 3", for: "30s" } }] });
+    st.services.handlers["ticket.set"] = (f) => ({ id: f.ticket, state: "stop" });
     expect(denied(await done())[0]!.permissionDecisionReason).toContain("тикет ждёт человека");
   }, 60_000);
 });

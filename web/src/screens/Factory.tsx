@@ -1,26 +1,24 @@
-// «Фабрика»: три вкладки. «Цех» — работа в ходу: сверху тикеты, которые ждут человека; ниже дорожки исполнителей: конвейер — рельс
-// со станциями-шагами, пост или сессия с работой — дорожка в одну станцию; тикет стоит на своей станции. «Бэклог» — тикеты до и после
-// работы: без исполнителя и закрытые по дням. «Входы» — что заводит тикеты само, со всеми подробностями определения.
-// В цехе место отдано тикетам: то, что не меняется изо дня в день (названия дорожек, станции, свободные посты), стоит мелко и тихо,
+// «Фабрика»: три вкладки. «Цех» — работа в ходу: сверху тикеты, которые ждут человека; ниже дорожки исполнителей — пост или сессия
+// с работой: тикеты в работе, очередь и спящие. «Бэклог» — тикеты до и после работы: без исполнителя и закрытые по дням.
+// «Входы» — что заводит тикеты само, со всеми подробностями определения.
+// В цехе место отдано тикетам: то, что не меняется изо дня в день (названия дорожек, свободные посты), стоит мелко и тихо,
 // подробности — в подсказке. Пустых разделов цех не рисует. Тикет и новый тикет — страницы со своим адресом. Правил экран не считает:
-// загрузку и то, что можно сделать с тикетом, отдают службы.
-import { factoryGet, factoryPause, peopleList, postSessions, ticketList, ticketNew, ticketSet, type FactoryDef, type FactoryState, type InputOf, type RuleDef, type StepDef, type Ticket } from "@sb/protocol";
+// очереди постов и то, что можно сделать с тикетом, отдают службы.
+import { factoryGet, factoryPause, peopleList, postSessions, ticketList, ticketNew, ticketSet, type FactoryDef, type FactoryState, type InputOf, type RuleDef, type Ticket } from "@sb/protocol";
 import { Badge, Button, Group, Select, Switch, Text, Textarea, TextInput, Tooltip } from "@mantine/core";
-import { IconBolt, IconBrandGithub, IconCheck, IconClock, IconHandFinger, IconPlus, IconWebhook } from "@tabler/icons-react";
+import { IconClock, IconHandFinger, IconPlus, IconWebhook } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { act } from "../api.ts";
 import { Failed, Lamp, personWord, useCall } from "../common.tsx";
-import { atStep, doerOf, DOER_WORD, eventWord, needsHuman, postStep, ruleWord, STATE_LAMP, STATE_WORD, stateWord, stepOf, targetsOf, VERDICT_WORD, waitsEvent, waitWord } from "../lib/factory.ts";
+import { needsHuman, ofDoer, postStep, ruleWord, sleepWord, STATE_LAMP, stateWord, targetsOf, VERDICT_WORD } from "../lib/factory.ts";
 import { useLocal } from "../lib/local.ts";
 import { ago, byDay, day, hhmm, leftWord } from "../lib/time.ts";
 import { RoutePage } from "../shell/Page.tsx";
 import { useFleet } from "../store/fleet.ts";
 
 const REFETCH = 15_000;
-/** Шире станция с тикетами не растёт: плашка остаётся плашкой, а не строкой во весь экран. */
-const STATION = "minmax(0, 272px)";
 /** Подсказка с подробностями определения — тем, что не нужно видеть каждый день: по наведению, фокусу и касанию. */
 const TIP = { hover: true, focus: true, touch: true } as const;
 /** Вкладки: цех — без имени в адресе. */
@@ -37,54 +35,39 @@ function useRefresh() {
   return () => Promise.all([qc.invalidateQueries({ queryKey: [ticketList.name] }), qc.invalidateQueries({ queryKey: [factoryGet.name] })]);
 }
 
-/** Кто исполняет шаг и чем он проверяется — словами для подсказки станции. */
-function stepWord(step: StepDef): string {
-  const d = doerOf(step);
-  const who = d.kind === "post" ? `пост ${d.name}` : d.kind === "event" ? `событие: ${eventWord(d.name!)}` : DOER_WORD[d.kind];
-  return step.check ? `${who} · проверка: ${step.check.run}` : who;
-}
-/** Станция рельса — шаг конвейера: имя; кто исполняет и чем проверяется — в подсказке. От станции к следующей идёт стрелка. */
-function Station({ step, last }: { step: StepDef; last: boolean }) {
-  return (
-    <div className="fstop-head">
-      <Tooltip label={stepWord(step)} events={TIP}><span>{step.name}</span></Tooltip>
-      {!last && <span className="frail" aria-hidden />}
-    </div>
-  );
-}
-
-/** Знак состояния тикета: лампа цветом состояния; у ждущего события — значок события: человеку там делать нечего. */
-function Mark({ def, t }: { def: FactoryDef; t: Ticket }) {
-  if (waitsEvent(def, t)) return <span className="fmark" role="img" aria-label={STATE_WORD.wait}><IconBolt size={12} stroke={2} /></span>;
+/** Знак состояния тикета: лампа цветом состояния. */
+function Mark({ t }: { t: Ticket }) {
   return <span className={`lamp ${t.dropped ? "stopped" : STATE_LAMP[t.state]}`} role="img" aria-label={stateWord(t)} />;
 }
-/** Сколько тикет стоит на месте; отложенный — через сколько встанет в очередь. */
-const whenWord = (t: Ticket) => (t.start && t.start > Date.now() ? `через ${leftWord(t.start)}` : ago(t.moved));
+/** Сколько тикет стоит на месте. */
+const whenWord = (t: Ticket) => ago(t.moved);
+/** Чего ждёт спящий тикет: названных тикетов и своего срока. */
+const sleeps = (t: Ticket) => sleepWord(t, t.start && t.start > Date.now() ? leftWord(t.start) : undefined);
 
-/** Плашка тикета на станции: заголовок целиком и сколько стоит; между ними — только то, что есть что сказать: причина у вставшего,
- *  событие у ждущего, возврат. Всё встаёт в одну строку, пока помещается, и переносится под заголовок на узкой станции.
+/** Плашка тикета в дорожке: заголовок целиком и сколько стоит; между ними — только то, что есть что сказать: причина у вставшего,
+ *  кого ждёт спящий, срочность, возврат. Всё встаёт в одну строку, пока помещается, и переносится под заголовок на узкой дорожке.
  *  Номер — в подсказке и на странице тикета.
- *  Состояние — знаком и видом плашки: залитая — шаг идёт, пунктир — очередь, жёлтая — ждёт человека, красная — встал. */
-function Tile({ def, t, onOpen, at, who }: { def: FactoryDef; t: Ticket; onOpen: () => void; /** станция — телефону: там тикеты стоят под рельсом одним столбцом */ at?: string; /** сессия поста, которая ведёт тикет, — у поста на несколько сессий */ who?: string }) {
-  const event = waitsEvent(def, t);
+ *  Состояние — знаком и видом плашки: залитая — в работе, пунктир — очередь, жёлтая — спит, красная — встал. */
+function Tile({ t, onOpen, who }: { t: Ticket; onOpen: () => void; /** сессия поста, которая ведёт тикет, — у поста на несколько сессий */ who?: string }) {
   return (
-    <div className={`ftile ${t.state}${needsHuman(def, t) ? " human" : ""}`} role="button" tabIndex={0} title={t.id} data-ticket={t.id} onClick={(e) => (e.stopPropagation(), onOpen())} onKeyDown={onKey(onOpen)}>
-      <span className="ftile-h"><Mark def={def} t={t} /><span className="clamp2">{t.title}</span></span>
+    <div className={`ftile ${t.state}`} role="button" tabIndex={0} title={t.id} data-ticket={t.id} onClick={(e) => (e.stopPropagation(), onOpen())} onKeyDown={onKey(onOpen)}>
+      <span className="ftile-h"><Mark t={t} /><span className="clamp2">{t.title}</span></span>
       {t.state === "stop" && <span className="why">{t.why}</span>}
-      {event && <span className="fnote trunc">{waitWord(def, t)}</span>}
+      {t.state === "wait" && <span className="fnote trunc" data-sleep>{sleeps(t)}</span>}
       {who && <span className="fnote mono">{who}</span>}
+      {t.first && t.state === "ready" && <span className="chip warn" data-first>срочный</span>}
       {t.returns > 0 && <span className="chip warn">возврат {t.returns}</span>}
-      <span className="fwhen">{at && <span className="fat">{at} · </span>}{whenWord(t)}</span>
+      <span className="fwhen">{whenWord(t)}</span>
     </div>
   );
 }
 
 /** Строка тикета в списке: знак состояния, номер, заголовок, время. Место или причина — в той же строке (цех) либо,
  *  на вкладке «Бэклог», второй строкой под заголовком: там заголовок виден целиком. */
-function TicketRow({ def, t, onOpen, where, why, sub, when }: { def: FactoryDef; t: Ticket; onOpen: () => void; where?: string; why?: string; /** вторая строка под заголовком */ sub?: string; when?: string }) {
+function TicketRow({ t, onOpen, where, why, sub, when }: { t: Ticket; onOpen: () => void; where?: string; why?: string; /** вторая строка под заголовком */ sub?: string; when?: string }) {
   return (
     <div className={sub === undefined ? "frow" : "frow two"} role="button" tabIndex={0} data-ticket={t.id} onClick={onOpen} onKeyDown={onKey(onOpen)}>
-      <Mark def={def} t={t} />
+      <Mark t={t} />
       <span className="mono muted fid">{t.id}</span>
       <span className="ftitle">{t.title}</span>
       {sub === undefined && <span className="fwhere">{why && <span className="why">{why}</span>}{why && where ? " · " : ""}{where}</span>}
@@ -94,24 +77,18 @@ function TicketRow({ def, t, onOpen, where, why, sub, when }: { def: FactoryDef;
   );
 }
 
-/** Потолок: деление — место под шаг, залитое — шаг идёт; число рядом — когда делений больше, чем видно с одного взгляда. */
-function Slots({ work, limit }: { work: number; limit: number }) {
-  const word = `идёт ${work} из ${limit}`;
-  return (
-    <Tooltip label={`${word} — потолок`} events={TIP}>
-      <span className="fslots" data-load role="img" aria-label={word}>
-        {limit <= 8 && Array.from({ length: limit }, (_, i) => <i key={i} className={i < work ? "on" : undefined} />)}
-        {limit > 4 && <span>{work} из {limit}</span>}
-      </span>
-    </Tooltip>
-  );
+/** Очередь поста числами служб: сколько ждёт, сколько ждёт старший, сколько срочных. Пустая очередь — ничего. */
+function Queue({ load }: { load?: FactoryState["load"][string] }) {
+  if (!load?.ready) return null;
+  const words = [`ждёт ${load.ready}`, ...(load.oldest ? [`старший ${ago(Date.now() - load.oldest)}`] : []), ...(load.first ? [`срочных ${load.first}`] : [])];
+  return <span className="fslots" data-load>{words.join(" · ")}</span>;
 }
 
-const RULE_ICON = (r: RuleDef) => (r.github ? IconBrandGithub : r.hook ? IconWebhook : r.every || r.cron ? IconClock : IconHandFinger);
-/** Имя исполнителя для человека: название конвейера или поста из определения, иначе как есть (позывной сессии). */
-const toWord = (def: FactoryDef, to: string) => def.lines[to]?.title ?? def.posts[to]?.title ?? to;
-/** Место тикета словами: конвейер и шаг, пост или сессия. */
-const whereWord = (def: FactoryDef, t: Ticket) => (t.to ? (stepOf(def, t) ? `${toWord(def, t.to)} · ${stepOf(def, t)!.name}` : toWord(def, t.to)) : "бэклог");
+const RULE_ICON = (r: RuleDef) => (r.hook ? IconWebhook : r.every || r.cron ? IconClock : IconHandFinger);
+/** Имя исполнителя для человека: название поста из определения, иначе как есть (позывной сессии). */
+const toWord = (def: FactoryDef, to: string) => def.posts[to]?.title ?? to;
+/** Место тикета словами: пост или сессия. */
+const whereWord = (def: FactoryDef, t: Ticket) => (t.to ? toWord(def, t.to) : "бэклог");
 const old = (a: Ticket, b: Ticket) => a.since - b.since;
 
 type View = { f: FactoryState; tickets: Ticket[]; open: (t: Ticket) => void };
@@ -152,7 +129,6 @@ export function Factory() {
           <nav className="subtabs ftabs" role="tablist" aria-label="Разделы фабрики">
             {TABS.map(([id, word]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => go(factoryPath(project, id))}>{word}</button>)}
           </nav>
-          {f.def.limit !== undefined && <Slots work={f.load.work} limit={f.def.limit} />}
           <span className="grow" />
           <Tooltip label={`${f.repo} · применено ${hhmm(f.at)}`} events={TIP}><span className="chip mono" aria-label={`определение ${f.commit}`}>{f.commit.slice(0, 7)} · {ago(f.at)}</span></Tooltip>
           <Switch label="Пауза" checked={f.paused} onChange={async (e) => { const on = e.currentTarget.checked; if (await act(factoryPause, { project, on })) await refresh(); }} />
@@ -170,57 +146,32 @@ function Floor({ f, tickets, open }: View) {
   const sessions = useFleet((s) => s.sessions);
   const def = f.def;
   const live = tickets.filter((t) => t.state !== "done");
-  const calls = live.filter((t) => needsHuman(def, t)).sort(old);
-  // пост: его очередь и шаг конвейера, которым он занят; без того и другого он свободен и стоит в ряду свободных
+  const calls = live.filter(needsHuman).sort(old);
+  // пост: его очередь и тикет по позывному, которым занята его сессия; без того и другого он свободен и стоит в ряду свободных
   const posts = Object.entries(def.posts).map(([name, p]) => {
     // у поста одна очередь и одна или несколько сессий: первая зовётся именем поста
     const calls = postSessions(name, p);
-    return { name, call: calls[0]!, calls, title: `${p.title ?? name} · ${calls.join(" ")}`, theirs: atStep(name, 0, tickets), step: calls.map((c) => postStep(name, c, live)).find(Boolean) };
+    return { name, call: calls[0]!, calls, title: `${p.title ?? name} · ${calls.join(" ")}`, theirs: ofDoer(name, tickets), step: calls.map((c) => postStep(name, c, live)).find(Boolean) };
   });
   const idle = posts.filter((x) => !x.step && !x.theirs.length).flatMap((x) => x.calls.map((call) => ({ name: call.slice(0, call.indexOf("@")), call, title: x.title })));
-  // сессия, которой тикет отдан по позывному, — тот же исполнитель с дорожкой, пока тикет открыт; порядок тикетов у поста и сессии —
-  // тот же, что на шаге конвейера: одно правило
-  const direct = live.filter((t) => t.to && !def.lines[t.to] && !def.posts[t.to]);
+  // сессия, которой тикет отдан по позывному, — тот же исполнитель с дорожкой, пока тикет открыт; порядок тикетов у поста и сессии — одно правило
+  const direct = live.filter((t) => t.to && !def.posts[t.to]);
   const lanes = [
     ...posts.filter((x) => x.step || x.theirs.length).map((x) => ({ ...x, label: `Пост ${def.posts[x.name]!.title ?? x.name}`, post: x.name as string | undefined })),
-    ...[...new Set(direct.map((t) => t.to!))].map((call) => ({ name: call, call, calls: [call], title: call, theirs: atStep(call, 0, tickets), step: undefined as Ticket | undefined, label: `Сессия ${call}`, post: undefined as string | undefined })),
+    ...[...new Set(direct.map((t) => t.to!))].map((call) => ({ name: call, call, calls: [call], title: call, theirs: ofDoer(call, tickets), step: undefined as Ticket | undefined, label: `Сессия ${call}`, post: undefined as string | undefined })),
   ];
-  const lines = Object.entries(def.lines);
   const talk = (call: string) => () => go(`/work/${call}`);
 
   return (
     <>
       {calls.length > 0 && (
         <section className="fcall" aria-label="Нужен человек">
-          {calls.map((t) => <TicketRow key={t.id} def={def} t={t} where={whereWord(def, t)} why={t.state === "stop" ? `стоп: ${t.why ?? ""}` : undefined} onOpen={() => open(t)} />)}
+          {calls.map((t) => <TicketRow key={t.id} t={t} where={whereWord(def, t)} why={`стоп: ${t.why ?? ""}`} onOpen={() => open(t)} />)}
         </section>
       )}
 
-      {(lines.length > 0 || posts.length > 0 || lanes.length > 0) && (
+      {(posts.length > 0 || lanes.length > 0) && (
         <section className="ffloor" aria-label="Цех">
-          {lines.map(([name, l]) => {
-            const at = l.steps.map((_, i) => atStep(name, i, tickets));
-            const one = l.steps.length === 1;
-            return (
-              <section key={name} className="flane" aria-label={`Конвейер ${l.title ?? name}`}>
-                <div className="fwho">
-                  {/* потолок и машины есть только у конвейера со свежими сессиями шагов */}
-                  {l.at ? <Tooltip label={l.at.join(" ")} events={TIP}><div className="t">{l.title ?? name}</div></Tooltip> : <div className="t">{l.title ?? name}</div>}
-                  {l.limit !== undefined && <Slots work={f.load.lines[name]?.work ?? 0} limit={l.limit} />}
-                </div>
-                {/* станция с тикетами берёт ширину, пустая — только своё имя */}
-                <div className={`ftrack${one ? " one" : ""}`} style={one ? undefined : { gridTemplateColumns: at.map((here) => (here.length ? STATION : "max-content")).join(" ") }}>
-                  {l.steps.map((st, i) => (
-                    <div key={i} className="fstop" aria-label={`Шаг ${st.name}`}>
-                      {!one && <Station step={st} last={i === l.steps.length - 1} />}
-                      {at[i]!.map((t) => <Tile key={t.id} def={def} t={t} at={one ? undefined : st.name} onOpen={() => open(t)} />)}
-                    </div>
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-
           {lanes.map(({ name, call, calls, title, theirs, step, label, post }) => (
             <section key={call} className="flane" aria-label={label}>
               {calls.length > 1 ? (
@@ -230,18 +181,20 @@ function Floor({ f, tickets, open }: View) {
                   <div className="fcrew">
                     {calls.map((c) => <Tooltip key={c} label={c}><button type="button" aria-label={c} onClick={talk(c)}><Lamp state={sessions[c]?.state ?? "stopped"} /></button></Tooltip>)}
                   </div>
+                  <Queue load={post ? f.load[post] : undefined} />
                 </div>
               ) : (
                 <Tooltip label={title} events={TIP}>
                   <div className="fwho post" role="button" tabIndex={0} data-post={post} onClick={talk(call)} onKeyDown={onKey(talk(call))}>
                     <div className="t"><Lamp state={sessions[call]?.state ?? "stopped"} /><span className="mono trunc">{name}</span></div>
+                    <Queue load={post ? f.load[post] : undefined} />
                   </div>
                 </Tooltip>
               )}
               <div className="ftrack one">
                 <div className="fstop">
-                  {step && <button type="button" className="fbusy" onClick={() => open(step)}><span className="lamp busy" aria-hidden />шаг конвейера <span className="mono">{step.id}</span></button>}
-                  {theirs.map((t) => <Tile key={t.id} def={def} t={t} who={calls.length > 1 && t.session ? t.session.slice(0, t.session.indexOf("@")) : undefined} onOpen={() => open(t)} />)}
+                  {step && <button type="button" className="fbusy" onClick={() => open(step)}><span className="lamp busy" aria-hidden />занят <span className="mono">{step.id}</span></button>}
+                  {theirs.map((t) => <Tile key={t.id} t={t} who={calls.length > 1 && t.session ? t.session.slice(0, t.session.indexOf("@")) : undefined} onOpen={() => open(t)} />)}
                 </div>
               </div>
             </section>
@@ -262,12 +215,6 @@ function Floor({ f, tickets, open }: View) {
   );
 }
 
-/** Первая строка текста тикета — если она говорит больше заголовка. */
-const preview = (t: Ticket) => {
-  const line = t.text.split("\n").find((x) => x.trim())?.trim();
-  return line && line !== t.title ? line : undefined;
-};
-
 /** «Бэклог» — тикеты до и после работы: слева без исполнителя, старые первыми; справа закрытые по дням, свежие выше. */
 function Backlog({ f, tickets, open }: View) {
   const def = f.def;
@@ -277,7 +224,7 @@ function Backlog({ f, tickets, open }: View) {
     <div className="fstore">
       <section aria-label="Бэклог">
         {backlog.length > 0
-          ? <div className="ffloor flist">{backlog.map((t) => <TicketRow key={t.id} def={def} t={t} sub={[`от ${byWord(t.by)}`, preview(t)].filter(Boolean).join(" · ")} onOpen={() => open(t)} />)}</div>
+          ? <div className="ffloor flist">{backlog.map((t) => <TicketRow key={t.id} t={t} sub={`от ${byWord(t.by)}`} onOpen={() => open(t)} />)}</div>
           : <div className="fnone">Тикетов без исполнителя нет</div>}
       </section>
       <section aria-label="Закрытые" className="fdays">
@@ -286,7 +233,7 @@ function Backlog({ f, tickets, open }: View) {
             <div key={word}>
               <h2 className="fgrp">{word}</h2>
               <div className="ffloor flist">
-                {rows.map((t) => <TicketRow key={t.id} def={def} t={t} sub={`${t.to ? toWord(def, t.to) : "бэклог"}${t.dropped ? " · снят" : ""}`} when={hhmm(t.moved)} onOpen={() => open(t)} />)}
+                {rows.map((t) => <TicketRow key={t.id} t={t} sub={`${t.to ? toWord(def, t.to) : "бэклог"}${t.dropped ? " · снят" : ""}`} when={hhmm(t.moved)} onOpen={() => open(t)} />)}
               </div>
             </div>
           ))
@@ -316,7 +263,7 @@ function Inputs({ f, tickets, open }: View) {
             <span className="fwhere">→ {toWord(def, r.to)}</span>
             <span className="fwhen">{next !== undefined ? `через ${leftWord(next)}` : ""}</span>
             <div className="frule-made">
-              {made.map((t) => <button key={t.id} type="button" className="fchip" data-ticket={t.id} onClick={() => open(t)}><Mark def={def} t={t} /><span className="mono">{t.id}</span>{whenWord(t)}</button>)}
+              {made.map((t) => <button key={t.id} type="button" className="fchip" data-ticket={t.id} onClick={() => open(t)}><Mark t={t} /><span className="mono">{t.id}</span>{whenWord(t)}</button>)}
             </div>
           </div>
         );
@@ -325,7 +272,7 @@ function Inputs({ f, tickets, open }: View) {
   );
 }
 
-/** Страница тикета: путь по станциям конвейера, состояние, текст, заметки с вердиктами и то, что с ним можно сделать, — список действий называют службы. */
+/** Страница тикета: исполнитель, состояние, кого ждёт, текст, заметки с вердиктами и то, что с ним можно сделать, — список действий называют службы. */
 export function TicketPage() {
   const { project = "", id = "" } = useParams();
   const go = useNavigate();
@@ -340,42 +287,28 @@ export function TicketPage() {
   if (one.error || got.error) return <RoutePage title={id} home={home}><Failed error={one.error ?? got.error} /></RoutePage>;
   if (!def || !t) return <RoutePage title={id} home={home}>{null}</RoutePage>;
 
-  const line = t.to ? def.lines[t.to] : undefined;
   const acts = t.acts ?? [];
   const open = t.state !== "done";
-  const human = needsHuman(def, t);
   const set = async (input: Omit<InputOf<typeof ticketSet>, "ticket" | "note">, done: string) => {
     if (await act(ticketSet, { ticket: t.id, ...(note.trim() ? { note: note.trim() } : {}), ...input }, done)) (setNote(""), await refresh());
   };
   return (
     <RoutePage home={home} title={<><span className="mono">{t.id}</span> · {t.title}</>}>
       <div className="fpath" aria-label="Место тикета">
-        {line && <Text size="sm" fw={600} mr={6}>{line.title ?? t.to}</Text>}
-        {line
-          ? line.steps.map((s, i) => {
-            const now = i === t.step && open, past = i < t.step || !open;
-            return (
-              <span key={i} className={`fpath-st${now ? " now" : past ? " past" : ""}`}>
-                {past && <span className="fdoer" role="img" aria-label="пройден"><IconCheck size={14} stroke={2} /></span>}
-                <Tooltip label={stepWord(s)} events={TIP}><span aria-current={now ? "step" : undefined}>{s.name}</span></Tooltip>
-                {i < line.steps.length - 1 && <span className="frail" aria-hidden />}
-              </span>
-            );
-          })
-          : <span className="fpath-st now"><span>{t.to ? toWord(def, t.to) : "бэклог"}</span></span>}
+        <span className="fpath-st now"><span>{t.to ? toWord(def, t.to) : "бэклог"}</span></span>
       </div>
       <Group gap={8} wrap="wrap" className="fstate" style={{ fontSize: 13.5 }}>
-        <Mark def={def} t={t} />
-        <span data-state={t.state} className={t.state === "stop" ? "why" : undefined}>{t.state === "wait" ? waitWord(def, t) : t.state === "stop" ? `стоп: ${t.why ?? ""}` : stateWord(t)}</span>
+        <Mark t={t} />
+        <span data-state={t.state} className={t.state === "stop" ? "why" : undefined}>{t.state === "wait" ? sleepWord({}, t.start && t.start > Date.now() ? leftWord(t.start) : undefined) : t.state === "stop" ? `стоп: ${t.why ?? ""}` : stateWord(t)}</span>
+        {t.after?.map((id) => <Button key={id} size="compact-xs" variant="default" className="mono" data-after={id} onClick={() => go(ticketPath(project, id))}>{id}</Button>)}
+        {open && t.state !== "work" && <Switch size="xs" label="Срочный" checked={!!t.first} onChange={async (e) => { const first = e.currentTarget.checked; if (await act(ticketSet, { ticket: t.id, first }, first ? "Срочный" : "Обычный")) await refresh(); }} />}
         {t.session && open && (sessions[t.session]
           ? <Button size="compact-xs" variant="default" className="mono" onClick={() => go(`/work/${t.session}`)}>{t.session}</Button>
           : <span className="mono muted">{t.session}</span>)}
         {t.returns > 0 && <span className="chip warn">возврат {t.returns}</span>}
         {t.until && open && t.until > Date.now() && <span className="chip">срок через {leftWord(t.until)}</span>}
-        {t.pr && <span className="chip mono">{t.pr}</span>}
         {t.on && <span className="chip mono">{t.on}</span>}
         {t.parent && <Button size="compact-xs" variant="default" className="mono" data-parent={t.parent} onClick={() => go(ticketPath(project, t.parent!))}>← {t.parent}</Button>}
-        {t.start && t.start > Date.now() && <span className="chip">через {leftWord(t.start)}</span>}
         <span className="muted">от {byWord(t.by)} · {ago(t.since)}</span>
       </Group>
       {t.text && <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{t.text}</div>}
@@ -396,13 +329,13 @@ export function TicketPage() {
       )}
 
       {acts.length > 0 && (
-        <div className={`fact${t.state === "stop" ? " stop" : human ? " human" : ""}`}>
+        <div className={`fact${t.state === "stop" ? " stop" : ""}`}>
           <Textarea aria-label="Заметка" placeholder="Заметка" autosize minRows={2} value={note} onChange={(e) => setNote(e.currentTarget.value)} />
           <div className="fact-row">
             {open && <Button variant="default" disabled={!note.trim()} data-act="note" onClick={() => set({}, "Заметка записана")}>Написать</Button>}
             {acts.includes("verdict") && <Button onClick={() => set({ verdict: "done" }, "Принято")}>Принять</Button>}
             {acts.includes("verdict") && <Button variant="default" onClick={() => set({ verdict: "back" }, "Возвращено")}>Вернуть</Button>}
-            {acts.includes("resume") && <Button onClick={() => set({ resume: true }, "Возвращён в очередь")}>Вернуть в очередь</Button>}
+            {acts.includes("resume") && <Button onClick={() => set({ resume: true }, t.state === "wait" ? "Разбужен" : "Возвращён в очередь")}>{t.state === "wait" ? "Разбудить" : "Вернуть в очередь"}</Button>}
             {acts.includes("assign") && (
               <span className="fassign">
                 <Select aria-label="Куда" placeholder="Куда" data={targetsOf(def)} value={to} onChange={setTo} />
@@ -417,9 +350,9 @@ export function TicketPage() {
   );
 }
 
-/** Значение «без исполнителя» в поле «Куда»: имени конвейера и поста с @ не бывает. */
+/** Значение «без исполнителя» в поле «Куда»: имени поста с @ не бывает. */
 const BACKLOG = "@";
-/** Новый тикет: заголовок, текст, куда. Экран возвращается туда, где тикет виден: с исполнителем — в цех, без него — в бэклог. */
+/** Новый тикет: заголовок, текст, куда и срочность. Экран возвращается туда, где тикет виден: с исполнителем — в цех, без него — в бэклог. */
 export function NewTicket() {
   const { project = "" } = useParams();
   const go = useNavigate();
@@ -428,9 +361,10 @@ export function NewTicket() {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [to, setTo] = useState(BACKLOG);
+  const [first, setFirst] = useState(false);
   const def = one.data?.factory?.def;
   const create = async () => {
-    if (!(await act(ticketNew, { project, title: title.trim(), text, ...(to === BACKLOG ? {} : { to }) }, "Тикет создан"))) return;
+    if (!(await act(ticketNew, { project, title: title.trim(), text, ...(to === BACKLOG ? {} : { to }), ...(first ? { first } : {}) }, "Тикет создан"))) return;
     await refresh();
     go(factoryPath(project, to === BACKLOG ? "backlog" : ""));
   };
@@ -439,6 +373,7 @@ export function NewTicket() {
       <TextInput label="Заголовок" value={title} onChange={(e) => setTitle(e.currentTarget.value)} autoFocus />
       <Textarea label="Текст" autosize minRows={4} value={text} onChange={(e) => setText(e.currentTarget.value)} />
       <Select label="Куда" allowDeselect={false} data={[{ value: BACKLOG, label: "Бэклог" }, ...(def ? targetsOf(def) : [])]} value={to} onChange={(v) => v !== null && setTo(v)} />
+      <Switch label="Срочный" checked={first} onChange={(e) => setFirst(e.currentTarget.checked)} />
       <Group><Button disabled={!title.trim()} onClick={create}>Создать</Button></Group>
     </RoutePage>
   );

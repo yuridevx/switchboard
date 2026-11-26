@@ -60,7 +60,6 @@ export function GitHub() {
         <div className="card">
           <Text>Приложение <a href={app.data.url} target="_blank" rel="noreferrer">{app.data.name}</a> установлено.</Text>
           <Group gap={6}>{(app.data.repos ?? []).map((r) => <Badge key={r} variant="default" className="mono">{r}</Badge>)}{!app.data.repos?.length && <Text size="sm" className="muted">Репозиториев пока нет</Text>}</Group>
-          {app.data.events === false && <Text size="sm" c="orange">События репозиториев этому приложению не приходят: слияние PR не сдаёт шаг тикета. {admin ? "Замените приложение — новое подпишется на события." : "Заменить приложение может админ флота."}</Text>}
           <Group>
             {app.data.url && <Button component="a" href={`${app.data.url}/installations/new`} target="_blank" rel="noreferrer" size="xs" variant="default">Доступ на GitHub</Button>}
           </Group>

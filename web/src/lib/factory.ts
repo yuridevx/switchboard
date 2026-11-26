@@ -1,47 +1,29 @@
-// «Фабрика»: слова и отображение экрана. Правил здесь нет: сколько шагов идёт, хватает ли места и что можно сделать с тикетом, отвечают службы
-// (загрузка — в ответе factory.get, действия — в acts тикета, спрошенного по номеру).
-import type { FactoryDef, RuleDef, StepDef, Ticket, TicketState, Verdict } from "@sb/protocol";
+// «Фабрика»: слова и отображение экрана. Правил здесь нет: сколько ждёт в очереди поста и что можно сделать с тикетом, отвечают службы
+// (очереди — в load ответа factory.get, действия — в acts тикета, спрошенного по номеру).
+import type { FactoryDef, RuleDef, Ticket, TicketState, Verdict } from "@sb/protocol";
 
-export type DoerKind = "new" | "same" | "post" | "human" | "event";
-/** Кто исполняет шаг — по полям шага определения; у поста и события — ещё имя. */
-export const doerOf = (s: StepDef): { kind: DoerKind; name?: string } =>
-  s.session ? { kind: s.session } : s.post ? { kind: "post", name: s.post } : s.human ? { kind: "human" } : { kind: "event", name: s.wait };
-export const DOER_WORD: Record<DoerKind, string> = { new: "свежая сессия", same: "та же сессия", post: "пост", human: "человек", event: "событие" };
-const EVENT: Record<string, string> = { "pr.merged": "PR слит", "upstream.moved": "апстрим сдвинулся" };
-export const eventWord = (kind: string): string => EVENT[kind] ?? kind;
 export const VERDICT_WORD: Record<Verdict, string> = { done: "сдал", back: "вернул", stop: "стоп" };
-export const STATE_WORD: Record<TicketState, string> = { ready: "в очереди", work: "в работе", wait: "ждёт", stop: "стоп", done: "закрыт" };
+export const STATE_WORD: Record<TicketState, string> = { ready: "в очереди", work: "в работе", wait: "спит", stop: "стоп", done: "закрыт" };
 /** Состояние тикета словом: снятый без работы — «снят». */
 export const stateWord = (t: Pick<Ticket, "state" | "dropped">): string => (t.dropped ? "снят" : STATE_WORD[t.state]);
 /** Лампа плашки тикета — те же цвета, что у сессий: работает, ждёт, сбой. */
 export const STATE_LAMP: Record<TicketState, string> = { ready: "off", work: "busy", wait: "waiting", stop: "failed", done: "idle" };
 
-/** Шаг, на котором стоит тикет: у тикета поста, сессии и бэклога шагов нет. */
-export const stepOf = (def: FactoryDef, t: Pick<Ticket, "to" | "step">): StepDef | undefined => (t.to ? def.lines[t.to]?.steps[t.step] : undefined);
-/** Событие, которого ждёт тикет: шаг-ожидание; у шага человека его нет. */
-export const waitsEvent = (def: FactoryDef, t: Pick<Ticket, "to" | "step" | "state">): string | undefined => (t.state === "wait" ? stepOf(def, t)?.wait : undefined);
-/** Тикет ждёт человека: шаг человека или стоп — дальше его двигает только человек. */
-export const needsHuman = (def: FactoryDef, t: Pick<Ticket, "to" | "step" | "state">): boolean => t.state === "stop" || (t.state === "wait" && !waitsEvent(def, t));
-/** Чего ждёт тикет: человека или события; у события — его слово и номер PR. */
-export function waitWord(def: FactoryDef, t: Ticket): string {
-  const event = waitsEvent(def, t);
-  return event ? `ждёт: ${eventWord(event)}${t.pr ? ` · ${t.pr.slice(t.pr.indexOf("#"))}` : ""}` : "ждёт человека";
-}
-/** Тикет, которым занят пост помимо своей очереди: шаг конвейера, который ведёт его сессия. */
+/** Тикет ждёт человека: встал — дальше его двигает только человек. */
+export const needsHuman = (t: Pick<Ticket, "state">): boolean => t.state === "stop";
+/** Номер тикета без проекта — для тесной плашки: «#12». */
+const short = (id: string) => "#" + id.slice(id.lastIndexOf("-") + 1);
+/** Чего ждёт спящий тикет: названных тикетов и (или) своего срока; left — слово срока, его считает экран. */
+export const sleepWord = (t: Pick<Ticket, "after">, left?: string): string =>
+  [t.after?.length ? `ждёт ${t.after.map(short).join(", ")}` : "", left ? (t.after?.length ? `не дольше ${left}` : `спит ещё ${left}`) : ""].filter(Boolean).join(" · ") || "спит";
+/** Тикет, которым занята сессия поста помимо его очереди: отданный ей по позывному. */
 export const postStep = (name: string, call: string, tickets: Ticket[]): Ticket | undefined => tickets.find((t) => t.state === "work" && t.session === call && t.to !== name);
-/** Тикеты исполнителя на шаге в порядке показа: идущие и ждущие — первыми, очередь — после них, старые раньше.
- *  У поста и у сессии, которой тикет отдан по позывному, шаг один — нулевой. */
-export function atStep(line: string, step: number, tickets: Ticket[]): Ticket[] {
-  const rank = (t: Ticket) => (t.state === "ready" ? 1 : 0);
-  return tickets.filter((t) => t.to === line && t.step === step && t.state !== "done").sort((a, b) => rank(a) - rank(b) || a.since - b.since);
+/** Тикеты исполнителя в порядке показа: в работе — первыми, потом вставшие, за ними очередь так, как её раздают службы (срочные, потом старшие), спящие — последними. */
+export function ofDoer(to: string, tickets: Ticket[]): Ticket[] {
+  const rank = (t: Ticket) => (t.state === "work" ? 0 : t.state === "stop" ? 1 : t.state === "wait" ? 4 : t.first ? 2 : 3);
+  return tickets.filter((t) => t.to === to && t.state !== "done").sort((a, b) => rank(a) - rank(b) || a.since - b.since);
 }
-/** Вход правила словами: срок, адрес с секретом, GitHub; без входа правило зовут по имени. */
-export const ruleWord = (r: RuleDef): string =>
-  r.github ? `GitHub · ${eventWord(r.github)}${r.every ? ` · каждые ${r.every}` : ""}` : r.hook ? "адрес с секретом" : r.every ? `каждые ${r.every}` : r.cron ? `${r.cron}${r.tz ? ` · ${r.tz}` : ""}` : "по имени";
-/** Позывной поста: имя и машина из определения. */
-export const postCall = (name: string, at: string): string => `${name}${at}`;
-/** Куда можно назначить тикет с экрана: конвейеры и посты проекта. */
-export const targetsOf = (def: FactoryDef): { value: string; label: string }[] => [
-  ...Object.entries(def.lines).map(([name, l]) => ({ value: name, label: l.title ?? name })),
-  ...Object.entries(def.posts).map(([name, p]) => ({ value: name, label: p.title ?? name })),
-];
+/** Вход правила словами: срок или адрес с секретом; без входа правило зовут по имени. */
+export const ruleWord = (r: RuleDef): string => (r.hook ? "адрес с секретом" : r.every ? `каждые ${r.every}` : r.cron ? `${r.cron}${r.tz ? ` · ${r.tz}` : ""}` : "по имени");
+/** Куда можно назначить тикет с экрана: посты проекта. */
+export const targetsOf = (def: FactoryDef): { value: string; label: string }[] => Object.entries(def.posts).map(([name, p]) => ({ value: name, label: p.title ?? name }));

@@ -1,7 +1,5 @@
 // GitHub для флота в коробке. Git — настоящий: репозиторий кусочков лежит на диске коробки, машины клонируют и отправляют как обычно —
 // адрес https://github.com/ подменяет настройка самого git (insteadOf) в его общем файле настроек, который коробка даёт машинам.
-// Событие приложения флоту шлёт тоже двойник: POST /box/deliver { url, event, payload } — он подписывает тело секретом, который назвал
-// при создании приложения, и доставляет на адрес флота, как это делает GitHub.
 // Токены приложения GitHub на раннере не получить, поэтому пять запросов API о них отвечает двойник; подпись приложения он сверяет по-настоящему.
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -12,8 +10,6 @@ import { pathToFileURL } from "node:url";
 
 /** Репозиторий кусочков коробки: владелец/имя, как на GitHub. */
 export const REPO = "box/pieces";
-/** Чужой репозиторий, от которого «ответвлён» репозиторий коробки: у него есть только голова основной ветки — её двигает POST /box/upstream. */
-export const UPSTREAM = "box/upstream";
 /** Что в нём лежит: кусочек reviewer — ставит модель и несёт один скил; его ищут проверки «Новой сессии» и второй машины.
  *  Кусочек notes — с памятью: индекс и одна запись; его ищет проверка «память флота». */
 const FILES = {
@@ -57,14 +53,6 @@ export function serve(port, log = () => {}, state = "") {
   const APP = 1, INSTALL = 7;
   /** Секрет подписи событий приложения: GitHub называет его один раз — в ответе на создание приложения. */
   const SECRET = crypto.randomBytes(20).toString("hex");
-  /** Голова основной ветки чужого репозитория. */
-  let upstream = crypto.randomBytes(20).toString("hex");
-  /** Доставка события флоту: тело подписано секретом приложения. */
-  const deliver = async ({ url, event, payload }) => {
-    const raw = JSON.stringify(payload);
-    const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-github-event": event, "x-hub-signature-256": "sha256=" + crypto.createHmac("sha256", SECRET).update(raw).digest("hex") }, body: raw, signal: AbortSignal.timeout(60_000) });
-    return { status: r.status, body: await r.text() };
-  };
   /** Подпись приложения в Authorization: Bearer <JWT RS256> — сверяется ключом, который двойник выдал при создании приложения. */
   const signedByApp = (req) => {
     const [head, body, sign] = (/^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "").split(".");
@@ -76,18 +64,6 @@ export function serve(port, log = () => {}, state = "") {
     const url = new URL(req.url, "http://github.box");
     const send = (status, body) => (log(`${req.method} ${url.pathname} → ${status}`), res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body)));
     if (req.method === "POST" && /^\/app-manifests\/[\w-]+\/conversions$/.test(url.pathname)) return send(201, { id: APP, slug: "switchboard-box", owner: { login: "box" }, pem: privateKey.export({ type: "pkcs1", format: "pem" }), webhook_secret: SECRET });
-    // чужой репозиторий: сдвинуть голову ветки; голова — с отпечатком, условный запрос на прежнюю получает 304
-    if (req.method === "POST" && url.pathname === "/box/upstream") return (upstream = crypto.randomBytes(20).toString("hex")), send(200, { sha: upstream });
-    if (req.method === "GET" && url.pathname === `/repos/${UPSTREAM}/commits/HEAD` && /^token ghs_box_/.test(req.headers.authorization ?? "")) {
-      const etag = `"${upstream.slice(0, 16)}"`;
-      if (req.headers["if-none-match"] === etag) return (log(`GET ${url.pathname} → 304`), res.writeHead(304, { etag }).end());
-      return (log(`GET ${url.pathname} → 200`), res.writeHead(200, { "content-type": "application/json", etag }).end(JSON.stringify({ sha: upstream })));
-    }
-    if (req.method === "POST" && url.pathname === "/box/deliver") {
-      const parts = [];
-      req.on("data", (d) => parts.push(d));
-      return void req.on("end", () => deliver(JSON.parse(Buffer.concat(parts).toString("utf8"))).then((r) => send(200, r), (e) => send(502, { message: String(e?.message ?? e) })));
-    }
     const token = /^token (.+)$/.exec(req.headers.authorization ?? "")?.[1];
     if (req.method === "GET" && url.pathname === "/installation/repositories") return token?.startsWith("ghs_box_") ? send(200, { repositories: [{ full_name: REPO }] }) : send(401, { message: "Bad credentials" });
     // чтение репозитория токеном установки: голова основной ветки и файл на названном коммите

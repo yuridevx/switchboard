@@ -1,3 +1,3 @@
 // Вход модуля GitHub для соседей служб: файл репозитория на голове основной ветки; принятое событие приложения флота — подпись сверена,
 // событие разобрано; чтение чужого репозитория — голова его ветки и состояние PR.
-export { eventsPath, file, head, type PrEvent, pull, reader, received } from "./github.ts";
+export { eventsPath, file, type PrEvent, received } from "./github.ts";
