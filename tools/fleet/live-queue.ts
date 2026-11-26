@@ -216,7 +216,8 @@ process.stdout.write(git("rev-parse", "HEAD").trim());`)).trim();
     if (!gone || !stays) throw new Error(`тикеты ведут не обе сессии поста: ${held.map((x) => x.session).join(", ")}`);
     const commit = await resize(1);
     const r = await t.must("factory.apply", { project: PROJECT, repo: `${REPO}/${FOLDER}` });
-    if (r.commit !== commit || r.closed.length !== 1 || r.closed[0] !== second || r.failed.length) throw new Error(`применено не то: ${JSON.stringify({ commit: r.commit, want: commit, closed: r.closed, failed: r.failed })}`);
+    // коммит применения с коммитом правки не сверяется: в тот же репозиторий кусочков в это время пишут соседние проверки — сверяется применённое
+    if (r.closed.length !== 1 || r.closed[0] !== second || r.failed.length || (await factory()).def.posts[PAIR].size !== 1) throw new Error(`применено не то: ${JSON.stringify({ commit: r.commit, pushed: commit, closed: r.closed, failed: r.failed })}`);
     // первая сессия занята — тикет ушедшей ждёт в очереди поста
     const queued = await one(gone.id);
     if (queued.state !== "ready" || queued.session) throw new Error(`тикет ушедшей сессии — ${queued.state}${queued.session ? ` у ${queued.session}` : ""}`);
@@ -226,7 +227,8 @@ process.stdout.write(git("rev-parse", "HEAD").trim());`)).trim();
     // определение — как было: повторный прогон начинается с поста на две сессии
     const was = await resize(PAIR_SIZE);
     const r2 = await t.must("factory.apply", { project: PROJECT, repo: `${REPO}/${FOLDER}` });
-    if (r2.commit !== was || r2.closed.length || r2.failed.length || (await factory()).def.posts[PAIR].size !== PAIR_SIZE) throw new Error(`определение не вернулось: ${JSON.stringify(r2)}`);
+    const back = (await factory()).def.posts[PAIR].size;
+    if (r2.closed.length || r2.failed.length || back !== PAIR_SIZE) throw new Error(`определение не вернулось: ${JSON.stringify({ commit: r2.commit, pushed: was, size: back, closed: r2.closed, failed: r2.failed })}`);
     return `коммит ${commit.slice(0, 7)}: закрыта ${second}, её ${gone.id} — в очереди, взяла ${first}; коммит ${was.slice(0, 7)} — снова ${PAIR_SIZE} сессии`;
   });
 });
