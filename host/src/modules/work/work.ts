@@ -20,8 +20,8 @@ const SET_TOOL = TICKET_SET_TOOL;
 const CHECK_HOOK_S = RUN_MS / 1000;
 /** Предел хука конца хода, секунды: вопрос тикету «шаг ещё у сессии?»; службы не успели — ход кончается без напоминания. */
 const STOP_HOOK_S = 30;
-/** Шаг на руках у сессии. */
-type Step = { ticket: string; step?: string };
+/** Тикет на руках у сессии. */
+type Step = { ticket: string };
 
 export function make(): Module {
   let host: HostApi;
@@ -29,7 +29,7 @@ export function make(): Module {
   const given = new Map<string, Step & { callsign: string }>();
   /** шаги, которые взял идущий ход сессии */
   const taken = new Map<string, Step[]>();
-  const word = (t: Step) => `тикет ${t.ticket}${t.step ? ` · шаг ${t.step}` : ""}`;
+  const word = (t: Step) => `тикет ${t.ticket}`;
 
   /** Тикет шага, если шаг всё ещё у этой сессии: в работе и ведёт его она. Сдан, отложен, передан, встал или тикета нет — null.
    *  Правило одно — для проверки перед «сдал», напоминания в конце хода и «стопа» шагу умершей сессии. Службы не ответили — отказ тому, кто спросил. */
@@ -68,7 +68,7 @@ export function make(): Module {
       host = h;
     },
     requests: {
-      async "work.give"(i: { name: string; spec?: Spec; ticket: string; step?: string; on?: string; key?: string; text: string; files?: FileIn[]; asker?: string }, ctx: Ctx) {
+      async "work.give"(i: { name: string; spec?: Spec; ticket: string; on?: string; key?: string; text: string; files?: FileIn[]; asker?: string }, ctx: Ctx) {
         if (ctx.from !== FROM) throw new Refusal("forbidden", "работу сессии даёт служба «Фабрика»: создайте тикет — ticket.new");
         const callsign = `${i.name}@${host.machine}`;
         let s = host.session(callsign);
@@ -89,10 +89,10 @@ export function make(): Module {
         // вопросы сессии по этому шагу идут тому, кто дал задачу тикетом, — как вопросы дочери идут родителю
         if (i.asker) host.module<ChatApi>("host-chat")?.asked(callsign, i.asker);
         const uuid = randomUUID();
-        given.set(uuid, { callsign, ticket: i.ticket, ...(i.step ? { step: i.step } : {}) });
+        given.set(uuid, { callsign, ticket: i.ticket });
         // шаг — новым ходом: ввод ждёт конца идущего хода, а не вклинивается в него. Иначе следующий шаг той же сессии
         // приходил бы посреди хода, которым она сдаёт прошлый, и напоминание о вердикте относилось бы не к тому ходу
-        s.input(envelope(FROM, "ticket", text, { ticket: i.ticket, step: i.step, on: i.on, key: i.key }), { priority: "later", uuid });
+        s.input(envelope(FROM, "ticket", text, { ticket: i.ticket, on: i.on, key: i.key }), { priority: "later", uuid });
         host.log.info("work", { callsign, kind: "given", why: word(i) });
         return { callsign };
       },
@@ -150,7 +150,7 @@ export function make(): Module {
                   if (!open.length) return {};
                   host.log.info("work", { callsign: s.callsign, kind: "reminded", why: open.map(word).join(", ") });
                   const ids = open.map((t) => t.ticket).join(", ");
-                  return { decision: "block", reason: `Шаг не сдан: ${ids}. Сдай его инструментом ticket_set — verdict done (сделано), back (вернуть с замечанием) или stop (нужен человек), заметка — в note. Ждёшь ответа, сборки или чужого тикета — отложи шаг: in со сроком (40m, 2h), он вернётся тебе по сроку или с первой заметкой. Ждёшь свою дочернюю сессию — просто ответь, когда дождёшься.` };
+                  return { decision: "block", reason: `Шаг не сдан: ${ids}. Сдай его инструментом ticket_set — verdict done (сделано), back (вернуть с замечанием) или stop (нужен человек), заметка — в note. Ждёшь чужого тикета — усыпи свой: after с его номером, он вернётся тебе с итогом; ждёшь времени — in со сроком (40m, 2h). Ждёшь свою дочернюю сессию — просто ответь, когда дождёшься.` };
                 },
               ],
             },
@@ -167,7 +167,7 @@ export function make(): Module {
           const g = given.get(u as string);
           if (!g) continue;
           given.delete(u as string);
-          taken.set(cs, [...(taken.get(cs) ?? []), { ticket: g.ticket, ...(g.step ? { step: g.step } : {}) }]);
+          taken.set(cs, [...(taken.get(cs) ?? []), { ticket: g.ticket }]);
         }
         if (msg?.type === "result") taken.delete(cs);
       },

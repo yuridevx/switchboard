@@ -45,5 +45,5 @@ export async function appliedFleet(def: unknown, env?: Partial<Env>) {
   const s = await factoryFleet(file, env);
   const r = await s.ask("factory.apply", { project: "site", repo: "team/roles" });
   expect(r).toMatchObject({ ok: true });
-  return { s, file, result: r.result as { commit: string; posts: number; lines: number; rules: number; opened: string[]; failed: unknown[] } };
+  return { s, file, result: r.result as { commit: string; posts: number; rules: number; opened: string[]; closed: string[]; failed: unknown[] } };
 }

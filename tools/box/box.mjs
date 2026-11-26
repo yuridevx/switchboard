@@ -91,7 +91,7 @@ async function teardown() {
   telegramApi?.close();
 }
 
-let model, githubApi, telegramApi, human, hub;
+let model, githubApi, telegramApi, human;
 async function up() {
   buildPage(root);
   say("страница собрана");
@@ -143,9 +143,8 @@ async function up() {
   await call("reach.bot", { token: telegram.TOKEN }, admin);
   human = `http://127.0.0.1:${pTelegram}`;
   // GitHub: токены приложения выдаёт двойник, репозиторий кусочков — настоящий git на диске коробки (tools/box/github.mjs)
-  hub = `http://127.0.0.1:${pGithub}`;
   githubApi = await github.serve(pGithub, (line) => fs.appendFileSync(path.join(state, "github.log"), line + "\n"), state);
-  // в том же репозитории — определения фабрик двух проектов коробки: в корне — его применяет проверка «конвейер», в папке кусочка — «очередь поста»
+  // в том же репозитории — определения фабрик двух проектов коробки: в корне — его применяет проверка «правила входа», в папке кусочка — «очередь поста»
   const defs = { state, key: KEY, model: MODELS[0].id, machines: MACHINES };
   const gitconfig = github.seed(state, { "factory.json": JSON.stringify(definition(defs), null, 2), [`${queue.FOLDER}/factory.json`]: JSON.stringify(queue.definition(defs), null, 2) });
   await call("github.setup", { code: "box" }, admin);
@@ -182,7 +181,7 @@ async function up() {
 
 /** Команда в окружении коробки; код выхода — её. */
 const run = (dev) => new Promise((done) => {
-  const env = { ...process.env, SB2_DEV: dev, SB2_KEY: KEY, SB2_MODEL: MODELS[0].id, SB2_SWITCH: [KEY, ...DIALECTS.map((d) => `${KEY}-${d}`)].map((k, i) => `${k}/${MODELS[i % MODELS.length].id}`).join(" "), SB2_WITHOUT: WITHOUT, SB2_TG_HUMAN: human, SB2_GITHUB: hub };
+  const env = { ...process.env, SB2_DEV: dev, SB2_KEY: KEY, SB2_MODEL: MODELS[0].id, SB2_SWITCH: [KEY, ...DIALECTS.map((d) => `${KEY}-${d}`)].map((k, i) => `${k}/${MODELS[i % MODELS.length].id}`).join(" "), SB2_WITHOUT: WITHOUT, SB2_TG_HUMAN: human };
   delete env.SB2_ENV;
   const child = spawn(command[0], command.slice(1), { cwd: process.cwd(), stdio: "inherit", env, shell: win });
   child.on("error", (e) => (console.error(`команда не запустилась: ${e.message}`), done(1)));

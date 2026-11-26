@@ -6,7 +6,7 @@ import { errFields, type FileIn, MAX_FRAME, newId, Refusal, sha256hex } from "@s
 import { log, outbound, type Deps, type Env, type Module, type Outside } from "../../env.ts";
 import { records } from "../../records.ts";
 import { line } from "../analytics/contract.ts";
-import { event, hookable, prEvent } from "../factory/contract.ts";
+import { event, hookable } from "../factory/contract.ts";
 import { store } from "../files/contract.ts";
 import { eventsPath, received } from "../github/contract.ts";
 
@@ -84,8 +84,8 @@ export async function hook(req: Request, env: Env, deps: Deps): Promise<Response
   }
 }
 
-/** Событие приложения GitHub флота: POST /github/<флот>. Подпись не сошлась — 401, тикеты на месте; событие о PR — вердикт тикетам, которые его ждут.
- *  Строка истории «hook» — у события с верной подписью: что пришло и скольким тикетам дан вердикт. */
+/** Событие приложения GitHub флота: POST /github/<флот>. Подпись не сошлась — 401. Событие с верной подписью — строка истории «hook»: что пришло;
+ *  тикетов оно не двигает. */
 export async function githubHook(req: Request, env: Env, deps: Deps): Promise<Response> {
   const fleet = /^\/github\/([a-z0-9][a-z0-9_-]{0,62})$/i.exec(new URL(req.url).pathname)?.[1];
   if (!fleet || req.method !== "POST") return Response.json({ error: "not_found" }, { status: 404 });
@@ -96,9 +96,8 @@ export async function githubHook(req: Request, env: Env, deps: Deps): Promise<Re
     const raw = await req.text();
     if (raw.length > MAX_FRAME) throw new Refusal("too_large", `тело больше ${MAX_FRAME} байт`);
     const e = await received(env, fleet, req.headers, raw);
-    const tickets = e ? await prEvent(env, w, fleet, e, newId("t")) : [];
-    await line(env, w.fetch, fleet, { file: NAME, msg: "hook", kind: "200", text: e ? `${e.pr}: ${e.outcome}` : "", data: { path, event: kind, status: 200, ...(e ? { pr: e.pr, outcome: e.outcome, tickets } : {}) } }).catch((x: unknown) => w.log.warn("строка истории входа не записалась", errFields(x)));
-    return Response.json({ tickets });
+    await line(env, w.fetch, fleet, { file: NAME, msg: "hook", kind: "200", text: e ? `${e.pr}: ${e.outcome}` : "", data: { path, event: kind, status: 200, ...(e ? { pr: e.pr, outcome: e.outcome } : {}) } }).catch((x: unknown) => w.log.warn("строка истории входа не записалась", errFields(x)));
+    return Response.json({});
   } catch (e) {
     if (e instanceof Refusal) {
       // флота с таким адресом может и не быть: строка — в журнал служб, а не в историю флота

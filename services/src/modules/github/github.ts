@@ -67,34 +67,6 @@ const installUrl = (slug: string) => `https://github.com/apps/${slug}/installati
 const readApp = (ctx: Net) => db(ctx.env, ctx.fleet).first<App>("SELECT id, slug, owner, pem FROM app WHERE one = 1");
 const issue = async (ctx: Net, installation: number, auth: string, body: object) => json<{ token: string; expires_at: string }>(await api(ctx, "POST", `/app/installations/${installation}/access_tokens`, auth, body));
 
-/** Доступ на чтение чужого репозитория: токен установки приложения в своём репозитории проекта — публичное видно любому токену.
- *  Токен живёт час и не хранится: на каждый опрос — свой. */
-export async function reader(ctx: Net, own: string): Promise<string> {
-  const app = await readApp(ctx);
-  if (!app) throw new Refusal("no_app", "приложения ещё нет: github.setup не делали");
-  const auth = jwt(app);
-  const found = await api(ctx, "GET", `/repos/${own}/installation`, auth);
-  if (found.status === 404) throw new Refusal("not_installed", `приложение не допущено к ${own}: ${installUrl(app.slug)}`);
-  return `token ${(await issue(ctx, json<{ id: number }>(found).id, auth, { repositories: [own.split("/")[1]], permissions: { metadata: "read" } })).token}`;
-}
-
-/** Голова основной ветки репозитория. etag — отпечаток прошлого ответа: голова прежняя — null, и запрос в предел GitHub не идёт. */
-export async function head(ctx: Net, auth: string, repo: string, etag?: string): Promise<{ sha: string; etag?: string } | null> {
-  const got = await api(ctx, "GET", `/repos/${repo}/commits/HEAD`, auth, undefined, etag);
-  if (got.status === 304) return null;
-  return { sha: json<{ sha: string }>(got).sha, ...(got.etag ? { etag: got.etag } : {}) };
-}
-
-/** PR чужого репозитория глазами флота: открыт, слит или закрыт; review — последнее ревью с просьбой правок: его номер и слова. */
-export async function pull(ctx: Net, auth: string, pr: string): Promise<{ state: "open" | "merged" | "closed"; review?: { id: number; text: string; by: string } }> {
-  const [repo, n] = pr.split("#");
-  const p = json<{ state: string; merged?: boolean }>(await api(ctx, "GET", `/repos/${repo}/pulls/${n}`, auth));
-  if (p.merged) return { state: "merged" };
-  if (p.state === "closed") return { state: "closed" };
-  const asked = (await pages(ctx, `/repos/${repo}/pulls/${n}/reviews`, auth, (list: { id: number; state: string; body?: string | null; user?: { login?: string } }[]) => list)).findLast((r) => r.state === "CHANGES_REQUESTED");
-  return { state: "open", ...(asked ? { review: { id: asked.id, text: asked.body ?? "", by: asked.user?.login ?? "" } } : {}) };
-}
-
 /** Адрес, на который GitHub шлёт события приложения флота. */
 export const eventsPath = (fleet: string) => `/github/${fleet}`;
 

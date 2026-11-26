@@ -153,6 +153,8 @@
 .fslots i { width: 6px; height: 12px; border-radius: 2px; border: 1.5px solid var(--st-stopped); }
 .fslots i.on { background: var(--st-busy); border-color: var(--st-busy); }
 .fslots span { margin-left: 3px; }
+/* числа очереди поста — в узкой колонке имени: переносятся, а не уходят под тикеты */
+.fwho .fslots { white-space: normal; }
 
 /* поверхность цеха: дорожки и ряд свободных постов на одной плашке, между ними — линии */
 .ffloor { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
