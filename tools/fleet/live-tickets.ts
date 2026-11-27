@@ -57,8 +57,8 @@ await check(async (t) => {
     return `${id}: вердикт done от ${s.callsign}, сессия ${up}`;
   });
 
-  // сайту нужны подписанные ссылки хранилища и свой адрес — в коробке их нет
-  if (!t.lacks("r2"))
+  // сайту нужен свой поддомен — в коробке его нет
+  if (!t.lacks("sites"))
     await t.step("комментарии сайта уходят одним тикетом сессии, которая его выложила", async () => {
       const name = "tk-" + t.tag;
       t.defer("сайт " + name, async (go: (type: string, fields: unknown) => Promise<{ ok: boolean; error?: string }>) => {

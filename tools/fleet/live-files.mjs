@@ -128,7 +128,8 @@ await check(async (t) => {
     if (!r.ok && r.error !== "no_site") return r;
   });
   let siteUrl = "";
-  await t.step("сессия выкладывает сайт из 3 файлов: открывается на своём адресе, файлы байт в байт, панель и база на месте, пропуск страницы ему не виден", async () => {
+  // сайту нужен свой поддомен — в коробке его нет
+  if (!t.lacks("sites")) await t.step("сессия выкладывает сайт из 3 файлов: открывается на своём адресе, файлы байт в байт, панель и база на месте, пропуск страницы ему не виден", async () => {
     await s.turn(script(
       tool("Write", { file_path: `${s.cwd}/out/site/index.html`, content: `<!doctype html><meta charset="utf-8"><title>ждёт</title><link rel="stylesheet" href="site.css"><h1>Отчёт ${t.tag}</h1><script src="js/site.js"></script>` }),
       tool("Write", { file_path: `${s.cwd}/out/site/site.css`, content: "h1 { color: rgb(1, 2, 3); }" }),
@@ -163,7 +164,7 @@ await check(async (t) => {
     return site.url;
   });
 
-  await t.step("база сайта одна: строку сессии читает страница; сессия удаляет сайт — адрес отвечает 404", async () => {
+  if (!t.lacks("sites")) await t.step("база сайта одна: строку сессии читает страница; сессия удаляет сайт — адрес отвечает 404", async () => {
     await s.turn(script(
       tool("mcp__fleet__site_db", { name: siteName, sql: "CREATE TABLE live (tag TEXT)" }),
       tool("mcp__fleet__site_db", { name: siteName, sql: "INSERT INTO live VALUES (?)", params: [t.tag] }),
@@ -206,7 +207,7 @@ await check(async (t) => {
     const lines = await t.wait("строки журнала о каждой загрузке, отправке и сайте", async () => {
       const got = await journal();
       n = count(got);
-      return n.file_upload >= 3 && n.file_send >= 2 && n.site_publish >= 1 && got;
+      return n.file_upload >= 3 && n.file_send >= 2 && n.site_publish >= (t.lacks("sites") ? 0 : 1) && got;
     }, () => `строк журнала: ${JSON.stringify(n)}`);
     if (!lines.filter((l) => l.msg === "file_send" || l.msg === "file_upload").every((l) => /^[0-9a-f]{64}$/.test(l.hash) && typeof l.size === "number")) throw new Error("в строке журнала нет хэша или размера");
     return JSON.stringify(n);
