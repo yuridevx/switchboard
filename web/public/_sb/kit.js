@@ -104,7 +104,8 @@ body.sb-c, body.sb-c * { cursor: crosshair !important; }
     pins.replaceChildren(...notes.map((n, i) => {
       const at = spot(find(blockOf(n.block) ?? document.body, n.el));
       const p = el("button", "sb-pin" + (n.ticket ? " sb-sent" : ""), String(i + 1)); p.type = "button";
-      p.style.left = at.x + "px"; p.style.top = at.top + "px";
+      // метка у правого края экрана не выходит за него: страница не должна стать шире
+      p.style.left = Math.min(at.x, (document.documentElement.clientWidth || 600) - 22) + "px"; p.style.top = at.top + "px";
       p.onclick = () => open(n);
       return p;
     }));
