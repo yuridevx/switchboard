@@ -16,15 +16,13 @@
   --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
   --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --code: #232a26; --chg: #4a4318;
   --busy: #6f9cf5; --wait: #f0b040; --wait-soft: #3a2c12; --fail: #ef8a80; --note: #3b3516; --note-line: #7d6f24; color-scheme: dark }
-body { background: var(--bg); color: var(--fg); font: 15px/1.5 Inter, system-ui, sans-serif; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 120px; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 Inter, system-ui, sans-serif; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 96px; }
 main { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
 h1, h2 { font-family: "Space Grotesk", Inter, sans-serif; text-wrap: balance; margin: 0; }
 h1 { font-size: 34px; line-height: 1.1; }
 h2 { font-size: 21px; }
 .lead { color: var(--muted); max-width: 66ch; margin: 8px 0 0; }
-section { display: flex; flex-direction: column; gap: 14px; border-radius: 14px; scroll-margin-top: 16px; }
-section.read > h2::after { content: " ✓ просмотрено"; font: 500 12px Inter, sans-serif; color: var(--accent); }
-section.over > h2 { text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 6px; }
+section { display: flex; flex-direction: column; gap: 14px; border-radius: 14px; scroll-margin-top: 16px; padding: 14px; margin: -14px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
 .chg { background: var(--chg); border-radius: 4px; }
 .say { border-left: 3px solid var(--accent); background: var(--soft); border-radius: 0 10px 10px 0; padding: 10px 14px; min-height: 44px; }
@@ -113,29 +111,6 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; }
 .step p.done { color: var(--fg); margin-top: 6px; }
 .step p.done::before { content: "Готово: "; font-weight: 600; color: var(--accent); }
 
-/* панель страницы — работает на этой странице как пример */
-#kit { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--card); border-top: 1px solid var(--line); padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
-#kit .in { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
-#kit .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-#kit button { font: 500 14px Inter, sans-serif; color: var(--fg); background: var(--soft); border: 1.5px solid transparent; border-radius: 9px; padding: 7px 12px; cursor: pointer; }
-#kit button.on { border-color: var(--accent); color: var(--accent); }
-#kit button.go { background: var(--accent); color: var(--bg); margin-left: auto; }
-#kit button.go:disabled { background: var(--soft); color: var(--muted); cursor: default; }
-#kit textarea { width: 100%; box-sizing: border-box; min-height: 64px; font: 14px/1.4 Inter, sans-serif; color: var(--fg); background: var(--bg); border: 1.5px solid var(--accent); border-radius: 9px; padding: 8px 10px; resize: vertical; }
-section[data-block] { position: relative; }
-section[data-block] { padding: 14px; margin: -14px; background: var(--chg); }
-section[data-block].read { background: none; }
-section[data-block] .chg, section[data-block].chg { background-color: transparent; }
-section[data-block]:not(.read) { background: var(--chg); }
-body.kit-c, body.kit-c * { cursor: crosshair !important; }
-.pin { position: absolute; z-index: 5; width: 28px; height: 28px; transform: translate(0, -100%); border-radius: 50% 50% 50% 3px; border: 2px solid var(--card); background: #f2b705; color: #1c211f; font: 600 13px Inter, sans-serif; cursor: pointer; padding: 0; box-shadow: 0 1px 4px rgb(0 0 0 / 0.3); }
-.kit-hot { outline: 2px solid #f2b705; outline-offset: 2px; border-radius: 4px; }
-.pin.sent { background: var(--muted); color: var(--card); }
-#kit-pop { position: absolute; z-index: 15; width: min(300px, 100%); box-sizing: border-box; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 6px 24px rgb(0 0 0 / 0.25); }
-#kit-pop p { margin: 0; white-space: pre-wrap; word-break: break-word; }
-#kit-pop textarea { width: 100%; box-sizing: border-box; min-height: 64px; font: 14px/1.4 Inter, sans-serif; color: var(--fg); background: var(--bg); border: 1.5px solid var(--accent); border-radius: 9px; padding: 8px 10px; resize: vertical; }
-#kit-pop button { align-self: flex-start; font: 500 13px Inter, sans-serif; color: var(--fg); background: var(--soft); border: none; border-radius: 8px; padding: 5px 10px; cursor: pointer; }
-#kit-pop .where { color: var(--muted); font-size: 12.5px; }
 </style>
 
 <main>
@@ -213,7 +188,7 @@ body.kit-c, body.kit-c * { cursor: crosshair !important; }
 </section>
 
 <section id="panel" data-block>
-  <h2>Панель: попробуй здесь</h2>
+  <h2>Панель</h2>
   <div class="card keys">
     <div class="key"><div class="cap">C</div><span class="chg" data-chg="u-pin"><b>Комментарий</b>элемент под курсором обведён, нажатие привязывает комментарий к нему; выделен текст — сразу к его элементу</span></div>
     <div class="key"><div class="cap">A</div><span class="chg" data-chg="u-seen"><b>Просмотрено</b>непросмотренный блок жёлтый целиком; A гасит фон; новая правка в блоке — он снова жёлтый</span></div>
@@ -224,7 +199,7 @@ body.kit-c, body.kit-c * { cursor: crosshair !important; }
     <button data-i="sw-marks">Только метки<small>comments: false</small></button>
     <button data-i="sw-none">Без панели<small>comments: false, marks: false <span class="chg" data-chg="arch-kit-none">· sb.db остаётся</span></small></button>
   </div>
-  <div class="say">Панель внизу этой страницы — пример: метки-комментарии и «просмотрено» живут в этом браузере, «Отправить» показывает тикет в блоке ниже. Нажми метку — откроется комментарий.</div>
+  <div class="say">На сайте флота панель этой страницы настоящая: комментарии и «просмотрено» лежат в базе сайта, «Отправить» заводит тикет.</div>
 </section>
 
 <section id="ticket" data-block>
@@ -362,14 +337,6 @@ https://inbox-k7m2x9qa4c3f8t2w-s.pfarm.app/ · коммит a1b2c3d
 </section>
 </main>
 
-<div id="kit"><div class="in">
-  <div class="row">
-    <button id="kit-c" type="button">💬 Комментарий · C</button>
-    <button id="kit-a" type="button">✓ Просмотрено · A</button>
-    <button id="kit-go" class="go" type="button" disabled>Отправить</button>
-  </div>
-</div></div>
-
 <script>
 // пояснения к блокам и стрелкам
 (() => {
@@ -454,127 +421,5 @@ https://inbox-k7m2x9qa4c3f8t2w-s.pfarm.app/ · коммит a1b2c3d
     el.addEventListener("click", () => show(el));
     if (el.tagName !== "BUTTON") { el.setAttribute("tabindex", "0"); el.setAttribute("role", "button"); el.addEventListener("keydown", (e) => e.key === "Enter" && show(el)); }
   }
-})();
-</script>
-<script>
-// панель: «просмотрено» — клавиша A (латинская или русская), снимает жёлтый фон правок блока; комментарии — клавиша C: комментарий привязан к элементу страницы, метка стоит у его угла; «Отправить» — тикет. Здесь — пример: всё хранится в браузере.
-(() => {
-  const KEY = "sites-design.kit3";
-  let st = { seen: {}, pins: [], sent: 0 };
-  try { st = { ...st, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") }; } catch {}
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} };
-  const $ = (id) => document.getElementById(id);
-  const blocks = [...document.querySelectorAll("[data-block]")];
-  const title = (s) => s.querySelector("h2").textContent;
-  const el = (tag, cls, text) => { const x = document.createElement(tag); if (cls) x.className = cls; if (text != null) x.textContent = text; return x; };
-  // правки блока: просмотрен он, пока в нём нет правки, которой человек ещё не видел
-  const chgOf = (s) => [...(s.matches("[data-chg]") ? [s] : []), ...s.querySelectorAll("[data-chg]")].filter((e) => !e.closest(".say")).map((e) => e.dataset.chg);
-  const viewed = (s) => !!st.seen[s.id] && chgOf(s).every((c) => st.seen[s.id].includes(c));
-  // якорь комментария — элемент: его имя на схеме либо путь от блока по номерам детей
-  const pick = (t) => t.closest("[data-i]") ?? t.closest("svg") ?? t;
-  const pathOf = (s, e) => { if (e === s) return ""; if (e.dataset?.i) return `[data-i="${e.dataset.i}"]`; const p = []; for (let x = e; x && x !== s; x = x.parentElement) p.unshift([...x.parentElement.children].indexOf(x)); return p.join("/"); };
-  const find = (s, path) => { if (!path) return s; if (path[0] === "[") return s.querySelector(path) ?? s; let x = s; for (const i of path.split("/")) x = x?.children[+i]; return x ?? s; };
-  const nameOf = (e) => (e.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
-  let over = null, mode = null, hot = null;
-  const pop = el("div"); pop.id = "kit-pop";
-
-  const light = (e) => { hot?.classList.remove("kit-hot"); hot = e; hot?.classList.add("kit-hot"); };
-  const setMode = (m) => { mode = m; document.body.classList.toggle("kit-c", m === "c"); if (!m) light(null); draw(); };
-  const closePop = () => { pop.remove(); light(null); };
-  // где элемент стоит внутри блока: метка — у правого верхнего угла, пузырь — под элементом
-  const spot = (s, e) => { const a = s.getBoundingClientRect(), b = e.getBoundingClientRect(); return { x: b.right - a.left, top: b.top - a.top, bottom: b.bottom - a.top }; };
-  const place = (s, e) => {
-    s.append(pop); light(e);
-    const w = s.clientWidth || 600, at = spot(s, e);
-    pop.style.left = Math.max(0, Math.min(at.x - 150, w - Math.min(300, w))) + "px";
-    pop.style.top = at.bottom + 8 + "px";
-  };
-  const ask = (s, e, quote) => {
-    const text = el("textarea"); text.setAttribute("aria-label", "Комментарий"); text.id = "kit-text";
-    const keep = () => { const t = text.value.trim(); if (t) { st.pins.push({ id: Date.now(), block: s.id, path: pathOf(s, e), label: nameOf(e), quote, text: t, ticket: null }); save(); } closePop(); draw(); };
-    text.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closePop(); if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); keep(); } });
-    pop.replaceChildren(...(quote ? [el("div", "where", "«" + quote + "»")] : []), text);
-    place(s, e); text.focus();
-  };
-  const open = (p) => {
-    const kids = [...(p.quote ? [el("div", "where", "«" + p.quote + "»")] : []), el("p", "", p.text)];
-    if (p.ticket) kids.push(el("div", "where", "тикет " + p.ticket));
-    else { const b = el("button", "", "Удалить"); b.type = "button"; b.onclick = () => { st.pins = st.pins.filter((x) => x.id !== p.id); save(); closePop(); draw(); }; kids.push(b); }
-    pop.replaceChildren(...kids);
-    place($(p.block), find($(p.block), p.path));
-  };
-
-  const draw = () => {
-    for (const s of blocks) s.classList.toggle("read", viewed(s));
-    for (const x of document.querySelectorAll(".pin")) x.remove();
-    st.pins.forEach((p, i) => {
-      const s = $(p.block); if (!s) return;
-      const at = spot(s, find(s, p.path));
-      const b = el("button", "pin" + (p.ticket ? " sent" : ""), String(i + 1)); b.type = "button";
-      b.style.left = at.x - 8 + "px"; b.style.top = at.top + 8 + "px";
-      b.setAttribute("aria-label", "Комментарий " + (i + 1));
-      b.onclick = () => open(p);
-      s.append(b);
-    });
-    const drafts = st.pins.filter((p) => !p.ticket).length;
-    $("kit-go").disabled = !drafts;
-    $("kit-go").textContent = drafts ? "Отправить · " + drafts : "Отправить";
-    $("kit-c").classList.toggle("on", mode === "c");
-    $("kit-a").classList.toggle("on", mode === "a");
-  };
-
-  const mark = (s) => { if (viewed(s)) delete st.seen[s.id]; else st.seen[s.id] = chgOf(s); save(); draw(); };
-  const send = () => {
-    const drafts = st.pins.filter((p) => !p.ticket);
-    if (!drafts.length) return;
-    const id = "design-" + (12 + st.sent++);
-    const lines = drafts.map((p, i) => `${i + 1}. Блок «${title($(p.block))}» · элемент «${p.label}»` + (p.quote ? `\n   > ${p.quote}` : "") + `\n   ${p.text.replace(/\n/g, "\n   ")}`);
-    $("ticket-body").textContent = `Комментарии к сайту sites · ${drafts.length}\nhttps://sites-k7m2x9qa4c3f8t2w-s.pfarm.app/ · коммит a1b2c3d\n\n${lines.join("\n\n")}`;
-    for (const p of drafts) p.ticket = id;
-    save(); closePop(); draw();
-    $("ticket").scrollIntoView({ block: "start" });
-  };
-
-  const inKit = (t) => t.closest("#kit, .pin, #kit-pop");
-  for (const s of blocks) {
-    s.addEventListener("mouseenter", () => { over = s; s.classList.add("over"); });
-    s.addEventListener("mouseleave", () => s.classList.remove("over"));
-  }
-  // в режиме комментария элемент под курсором обведён
-  document.addEventListener("mouseover", (e) => { const t = e.target; if (mode === "c" && t instanceof Element && !inKit(t) && t.closest("[data-block]")) light(pick(t)); });
-  // нажатие в режиме комментария выбирает элемент и не доходит до страницы; режим «просмотрено» с панели — для телефона
-  document.addEventListener("click", (e) => {
-    const t = e.target;
-    if (!(t instanceof Element) || inKit(t)) return;
-    if (!mode) return closePop();
-    const s = t.closest("[data-block]");
-    if (!s) return;
-    e.preventDefault(); e.stopPropagation();
-    const m = mode; setMode(null);
-    m === "a" ? mark(s) : ask(s, pick(t), "");
-  }, true);
-  $("kit-c").onclick = () => setMode(mode === "c" ? null : "c");
-  $("kit-a").onclick = () => setMode(mode === "a" ? null : "a");
-  $("kit-go").onclick = send;
-  window.addEventListener("resize", draw);
-
-  document.addEventListener("keydown", (e) => {
-    const t = e.target;
-    if (e.ctrlKey || e.metaKey || e.altKey || (t instanceof Element && t.matches("input, textarea, select, [contenteditable]"))) return;
-    if (e.key === "Escape") { setMode(null); return closePop(); }
-    // клавиша узнаётся по месту на клавиатуре (code), а не по букве: раскладка любая
-    if (e.code === "KeyA" && over) mark(over);
-    else if (e.code === "KeyC") {
-      e.preventDefault();
-      // выделен текст — комментарий сразу к элементу с этим текстом; иначе режим: следующее нажатие выбирает элемент
-      const sel = window.getSelection?.(); const quote = String(sel ?? "").trim().slice(0, 200);
-      const node = quote && sel.rangeCount ? sel.getRangeAt(0).commonAncestorContainer : null;
-      const e2 = node && (node.nodeType === 1 ? node : node.parentElement);
-      const s = e2?.closest("[data-block]");
-      if (s && !inKit(e2)) ask(s, pick(e2), quote);
-      else setMode(mode === "c" ? null : "c");
-    }
-  });
-  draw();
 })();
 </script>
