@@ -1,5 +1,5 @@
 // Службы: выпуски, журнал флота, архив сессий, связь с людьми, настройки, ключи флота, GitHub, аналитика, наблюдение.
-import { Callsign, Done, Empty, Name, Person, request, z } from "../define.ts";
+import { Callsign, Done, Empty, Name, Person, request, SiteName, z } from "../define.ts";
 import { Hash, SdkEvent, Spec } from "./session.ts";
 import { HostMetrics, Limit } from "./machine.ts";
 
@@ -382,9 +382,30 @@ export const filesGet = request("files.get", {
   input: z.object({ hash: Hash, name: z.string().optional() }),
   output: z.object({ url: z.string() }),
 });
-/** Записать список файлов сайта: путь → хэш. site — номер сайта: его выводит Host из своего секрета, позывного сессии и папки. Отдаёт сайт этот же Worker по адресу /s/<номер>/, без пропуска. */
-export const filesSite = request("files.site", {
-  owner: "files", target: "service", machineOnly: true,
-  input: z.object({ site: z.string().regex(/^[0-9a-f]{32}$/), files: z.array(z.object({ path: z.string(), hash: Hash, size: z.number() })) }),
+/* ===== Сайты (sites) ===== */
+
+/** Записать сайт: список «путь → хэш» и настройки. Имя новое — сайту выдаётся адрес (с секретом либо названный в address), имя есть — адрес прежний,
+ *  запись заменяется целиком. Зовёт машина после загрузки содержимого; callsign — сессия, которая выкладывает: по ней берётся проект и исполнитель тикетов. */
+export const sitesPut = request("sites.put", {
+  owner: "sites", target: "service", machineOnly: true,
+  input: z.object({
+    name: SiteName, address: SiteName.optional(), callsign: Callsign,
+    files: z.array(z.object({ path: z.string(), hash: Hash, size: z.number() })),
+    commit: z.string().optional(), dirty: z.boolean().optional(), comments: z.boolean().optional(), marks: z.boolean().optional(), feedback: z.string().optional(),
+  }),
   output: z.object({ url: z.string() }),
+});
+export const siteRemove = request("site.remove", {
+  owner: "sites", target: "service",
+  tool: "Удалить сайт флота по имени: адрес перестаёт отвечать, база сайта стирается, имя свободно. name — имя, под которым сайт выложен (site_publish). Отказ: no_site — сайта с таким именем во флоте нет.",
+  example: { name: "inbox" },
+  input: z.object({ name: SiteName }),
+  output: z.object({ removed: z.boolean() }),
+});
+export const siteDb = request("site.db", {
+  owner: "sites", target: "service",
+  tool: "Запрос SQL (SQLite) к базе сайта флота. У каждого сайта своя база: её же читает и пишет код страницы функцией sb.db(sql, ...params). Бери, чтобы завести таблицы сайта, наполнить их данными, прочитать то, что записала страница, и комментарии человека: таблица sb_comments (block, el, label, quote, text, ticket, reply — ответ человеку пишешь в reply) и sb_marks (block, seen). name — имя сайта, sql — один запрос, params — значения для знаков «?». Ответ: rows — строки. Отказы: no_site, bad_sql — с текстом ошибки SQLite.",
+  example: { name: "inbox", sql: "select id, block, label, quote, text from sb_comments where ticket is null" },
+  input: z.object({ name: SiteName, sql: z.string().min(1), params: z.array(z.union([z.string(), z.number(), z.null()])).optional() }),
+  output: z.object({ rows: z.array(z.record(z.string(), z.unknown())) }),
 });

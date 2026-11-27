@@ -1,7 +1,7 @@
 // Живая проверка «Файлов сессии» на настоящем флоте: node tools/fleet/live-files.mjs [флот] [устройство] [машина]
 // Своя сессия на машине (провайдер и модель — SB2_KEY и SB2_MODEL), настоящий браузер на выложенной странице:
 //   человек загружает файл из поля ввода → файл в хранилище и в папке сессии; сессия читает загруженное; сессия отправляет файл инструментом —
-//   содержимое мимо её разговора; сессия поднимает сайт — он открывается в песочнице; большой файл с телефона в папку сессии и обратно — секунды.
+//   содержимое мимо её разговора; сессия выкладывает сайт — он открывается на своём адресе, с панелью и своей базой, и удаляется; большой файл с телефона в папку сессии и обратно — секунды.
 // Размер большого файла — SB2_BIG_MB (по умолчанию 100). KEEP=1 — сессию не убирать. Снимки — dist/live/files.
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -121,29 +121,39 @@ await check(async (t) => {
     return `файл 300 000 знаков (~75 000 токенов), в контексте сессии ${(await s.row())?.cache?.size ?? "?"} токенов, содержимого в разговоре 0; вызовов file_send: ${calls}`;
   });
 
-  await t.step("сессия поднимает сайт из 3 файлов: открывается по адресу, стили и скрипт по относительным путям, пропуск страницы ему не виден", async () => {
+  const siteName = "live-" + t.tag;
+  t.defer("сайт " + siteName, async (go) => {
+    const r = await go("site.remove", { name: siteName });
+    // удалён шагом проверки — убирать нечего
+    if (!r.ok && r.error !== "no_site") return r;
+  });
+  let siteUrl = "";
+  await t.step("сессия выкладывает сайт из 3 файлов: открывается на своём адресе, файлы байт в байт, панель и база на месте, пропуск страницы ему не виден", async () => {
     await s.turn(script(
       tool("Write", { file_path: `${s.cwd}/out/site/index.html`, content: `<!doctype html><meta charset="utf-8"><title>ждёт</title><link rel="stylesheet" href="site.css"><h1>Отчёт ${t.tag}</h1><script src="js/site.js"></script>` }),
       tool("Write", { file_path: `${s.cwd}/out/site/site.css`, content: "h1 { color: rgb(1, 2, 3); }" }),
       tool("Write", { file_path: `${s.cwd}/out/site/js/site.js`, content: `document.title = "loaded-${t.tag}";` }),
-      tool("mcp__fleet__site_publish", { to: s.callsign, dir: "out/site", title: "Отчёт" }),
+      tool("mcp__fleet__site_publish", { to: s.callsign, dir: "out/site", name: siteName, title: "Отчёт" }),
       say("поднято"),
     ));
     const site = answerOf(await s.history(), "site_publish", (i) => String(i.dir).replace(/\\/g, "/").replace(/\/$/, "").endsWith("out/site"));
-    if (!/\/s\/[0-9a-f]{32}\/$/.test(site.url) || site.files !== 3 || "sent" in site) throw new Error(`ответ сайта не тот: ${JSON.stringify(site)}`);
-    // сайт — во вкладке того же окна, где у страницы лежит пропуск: песочница закрывает его и здесь
+    if (!new RegExp("^https://" + siteName + "-[a-z2-7]{16}-[a-z]\\.[a-z0-9.-]+/$").test(site.url) || site.files !== 3 || "sent" in site) throw new Error(`ответ сайта не тот: ${JSON.stringify(site)}`);
+    siteUrl = site.url;
+    // файл стилей уходит байт в байт
+    const css = await fetch(site.url + "site.css");
+    if (css.status !== 200 || (await css.text()) !== "h1 { color: rgb(1, 2, 3); }") throw new Error(`site.css отдан не тот: ${css.status}`);
+    // сайт — во вкладке того же окна, где у страницы лежит пропуск: у сайта свой адрес, хранилище страницы флота ему не видно
     const tab = await page.context().newPage();
     try {
-      const res = await tab.goto(site.url);
-      if (res.headers()["content-security-policy"] !== "sandbox allow-scripts allow-forms allow-popups") throw new Error("сайт отдан без заголовка песочницы");
+      await tab.goto(site.url);
       await tab.waitForFunction((tag) => document.title === "loaded-" + tag, t.tag);
-      const seen = await tab.evaluate(() => {
-        let store;
-        try { localStorage.getItem("x"); store = "open"; } catch (e) { store = e.name; }
-        return { h1: document.querySelector("h1")?.textContent, color: getComputedStyle(document.querySelector("h1")).color, store, origin: location.origin, self: window.origin };
-      });
+      await tab.locator("#sb-kit .sb-bar").waitFor();
+      const seen = await tab.evaluate(async () => ({
+        h1: document.querySelector("h1")?.textContent, color: getComputedStyle(document.querySelector("h1")).color,
+        keys: Object.keys(localStorage).length, one: await window.sb.db("SELECT 1 AS n"), site: window.sb.site.name,
+      }));
       if (seen.h1 !== `Отчёт ${t.tag}` || seen.color !== "rgb(1, 2, 3)") throw new Error(`сайт показан не тот: ${JSON.stringify(seen)}`);
-      if (seen.store !== "SecurityError" || seen.self !== "null") throw new Error(`сайт не в песочнице: ${JSON.stringify(seen)}`);
+      if (seen.keys !== 0 || seen.one?.[0]?.n !== 1 || seen.site !== siteName) throw new Error(`сайт не на своём адресе или без базы: ${JSON.stringify(seen)}`);
     } finally {
       await tab.close();
     }
@@ -151,6 +161,21 @@ await check(async (t) => {
     await page.frameLocator('.fileshow[data-site] iframe.htmlframe').last().locator("h1").waitFor();
     await page.screenshot({ path: path.join(t.shots(), `files-${t.machine}-1280.png`) });
     return site.url;
+  });
+
+  await t.step("база сайта одна: строку сессии читает страница; сессия удаляет сайт — адрес отвечает 404", async () => {
+    await s.turn(script(
+      tool("mcp__fleet__site_db", { name: siteName, sql: "CREATE TABLE live (tag TEXT)" }),
+      tool("mcp__fleet__site_db", { name: siteName, sql: "INSERT INTO live VALUES (?)", params: [t.tag] }),
+      say("записано"),
+    ));
+    const read = await (await fetch(siteUrl + "_sb/db", { method: "POST", body: JSON.stringify({ sql: "SELECT tag FROM live" }) })).json();
+    if (read.rows?.[0]?.tag !== t.tag) throw new Error(`страница не видит строку сессии: ${JSON.stringify(read)}`);
+    await s.turn(script(tool("mcp__fleet__site_remove", { name: siteName }), say("удалено")));
+    answerOf(await s.history(), "site_remove", (i) => i.name === siteName);
+    const gone = await fetch(siteUrl);
+    if (gone.status !== 404) throw new Error(`удалённый сайт отвечает ${gone.status}`);
+    return `строка сессии прочитана страницей; после удаления ${gone.status}`;
   });
 
   await t.step(`телефон: файл ${BIG_MB} МиБ в папку сессии и обратно — хэш сходится`, async () => {

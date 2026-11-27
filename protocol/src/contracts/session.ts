@@ -1,5 +1,5 @@
 // Сессия: документ, строка картины, жизненный цикл (ядро Host) и разговор (модуль chat).
-import { Callsign, Done, Empty, frame, MachineAddr, Name, Person, request, z } from "../define.ts";
+import { Callsign, Done, Empty, frame, MachineAddr, Name, Person, request, SiteName, z } from "../define.ts";
 
 /** Состояния сессии. */
 export const SessionState = z.enum(["starting", "idle", "busy", "waiting", "stopping", "stopped", "failed"]);
@@ -255,15 +255,19 @@ export const fileSend = request("file.send", {
   input: z.object({ to: Callsign, path: z.string().min(1), title: z.string().optional() }),
   output: FileIn,
 });
-/** Поднять папку статики сайтом: Host кладёт в хранилище файлы, которых там ещё нет, и записывает список «путь → хэш». Адрес у папки сессии постоянный:
- *  повторный вызов обновляет сайт на том же адресе. Отдаёт сайт Worker из хранилища, машина на пути показа не стоит. Нет index.html — no_index; to — не свой позывной — not_self. */
+/** Выложить папку статики сайтом флота: Host кладёт в хранилище файлы, которых там ещё нет, и записывает сайт у службы сайтов под именем name.
+ *  Адрес у имени постоянный: повторный вызов обновляет сайт на том же адресе. Отдаёт сайт Worker из хранилища, машина на пути показа не стоит.
+ *  Нет index.html — no_index; to — не свой позывной — not_self; адрес из address занят — taken. */
 export const sitePublish = request("site.publish", {
   owner: "host-files", target: "session",
-  tool: "Поднять папку со статикой сайтом: страницы, стили, скрипты, картинки. В ответе — адрес; человек увидит сайт в ленте и откроет в новой вкладке. Повторный вызов с той же папкой обновляет сайт на том же адресе, грузятся только изменённые файлы. В папке должен быть index.html; файлы и папки с точки и node_modules в сайт не идут. Сайт открывается в песочнице браузера: localStorage и cookies ему недоступны. to — свой позывной, dir — папка, title — подпись.",
-  example: { to: "site@laptop", dir: "out/site", title: "Отчёт за сутки" },
-  input: z.object({ to: Callsign, dir: z.string().min(1), title: z.string().optional() }),
+  tool: "Выложить папку со статикой сайтом флота на свой адрес: страницы, стили, скрипты, картинки. В ответе — адрес; человек увидит сайт в ленте и откроет в новой вкладке. name — имя сайта во флоте: повторный вызов с тем же именем (из любой сессии флота) обновляет сайт на том же адресе, грузятся только изменённые файлы. Адрес выдаётся сам, с секретом: открыть сайт может только тот, у кого ссылка. address — назвать адрес вручную при первой выкладке: такой сайт открыт каждому, кто наберёт адрес; занят — отказ taken. На страницах сайта работает панель: человек ставит комментарии к элементам (клавиша C), отмечает блоки просмотренными (клавиша A; блок — элемент с data-block и id) и отправляет все комментарии одним тикетом. comments: false, marks: false — выключить. feedback — кому идёт тикет с комментариями: пост проекта или позывной; не назван — тебе. У сайта своя база SQLite: код страницы зовёт её функцией sb.db(sql, ...params) (её даёт скрипт панели, он есть на каждой странице), ты — инструментом site_db. В папке должен быть index.html; файлы и папки с точки и node_modules в сайт не идут. Папка в git — ответ называет commit, с которого выложено; dirty — в папке есть правки вне коммита. to — свой позывной, dir — папка, title — подпись. Удалить сайт — site_remove.",
+  example: { to: "site@laptop", dir: "out/site", name: "report", title: "Отчёт за сутки" },
+  input: z.object({
+    to: Callsign, dir: z.string().min(1), name: SiteName, address: SiteName.optional(), title: z.string().optional(),
+    comments: z.boolean().optional(), marks: z.boolean().optional(), feedback: z.string().optional(),
+  }),
   /** files и size — весь сайт; сколько файлов пришлось загрузить, говорит строка журнала машины */
-  output: z.object({ url: z.string(), files: z.number(), size: z.number() }),
+  output: z.object({ url: z.string(), files: z.number(), size: z.number(), commit: z.string().optional(), dirty: z.boolean().optional() }),
 });
 
 /** Смотреть ленту. after — номер последнего события, которое у зрителя есть: в ответе events — пропущенное с этого номера;

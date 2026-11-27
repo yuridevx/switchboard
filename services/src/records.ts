@@ -17,6 +17,8 @@ export interface Db {
   batch(ops: Op[]): Promise<Row[][]>;
   /** Будильник объекта: at — когда разбудить (мс), null — снять. */
   alarm(at: number | null): Promise<void>;
+  /** Стереть объект целиком: таблицы, будильник. */
+  wipe(): Promise<void>;
 }
 
 /** Срок будильника пришёл: записи того же объекта — через db(схема), без обращения к себе по сети. */
@@ -28,9 +30,10 @@ export function onAlarm(module: string, run: Bell): void {
   BELLS.set(module, run);
 }
 
-const dbOf = (batch: (ops: Op[]) => Promise<Row[][]>, alarm: (at: number | null) => Promise<void>): Db => ({
+const dbOf = (batch: (ops: Op[]) => Promise<Row[][]>, alarm: (at: number | null) => Promise<void>, wipe: () => Promise<void>): Db => ({
   batch,
   alarm,
+  wipe,
   all: async <T>(sql: string, ...params: Value[]) => (await batch([[sql, ...params]]))[0] as T[],
   first: async <T>(sql: string, ...params: Value[]) => ((await batch([[sql, ...params]]))[0]![0] ?? null) as T | null,
   run: async (sql, ...params) => void (await batch([[sql, ...params]])),
@@ -54,6 +57,13 @@ export class Records extends DurableObject<Env> {
     return this.ctx.storage.transactionSync(() => ops.map(([text, ...params]) => sql.exec(text, ...params).toArray() as Row[]));
   }
 
+  /** Стереть всё, что объект хранит; схема применится заново при следующем обращении. */
+  async wipe(): Promise<void> {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    this.applied.clear();
+  }
+
   /** Поставить или снять будильник. Имя объекта запоминается: срок придёт без запроса, и обработчику надо знать, чей это объект. */
   async wake(name: string, at: number | null): Promise<void> {
     if (at === null) return this.ctx.storage.deleteAlarm();
@@ -68,7 +78,7 @@ export class Records extends DurableObject<Env> {
     const [fleet, module, scope] = name.split("/");
     const run = BELLS.get(module!);
     if (!run) throw new Error(`будильник ${name}: у модуля нет обработчика в этой сборке`);
-    await run(this.env, fleet!, (schema) => dbOf(async (ops) => this.run(schema, ops), (at) => this.wake(name, at)), scope);
+    await run(this.env, fleet!, (schema) => dbOf(async (ops) => this.run(schema, ops), (at) => this.wake(name, at), () => this.wipe()), scope);
   }
 }
 
@@ -86,5 +96,6 @@ export function records(env: Env, fleet: string, module: string, schema: string[
   return dbOf(
     (ops) => guard(async () => (await stub.run(schema, ops)) as Row[][]),
     (at) => guard(async () => void (await stub.wake(name, at))),
+    () => guard(async () => void (await stub.wipe())),
   );
 }

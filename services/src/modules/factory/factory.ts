@@ -519,6 +519,34 @@ async function found(env: Env, w: Outside, fleet: string, project: string, def: 
   return { id: idOf(project, made.n), note: false };
 }
 
+type Asked = { project: string; to?: string; title: string; text?: string; key?: string; for?: string; in?: string; after?: string[]; first?: boolean; files?: FileIn[]; by: string };
+
+/** Новый тикет по просьбе: исполнитель — пост проекта или сессия флота со сроком; запись и её место. Правило одно для пришедшего и для соседней службы. */
+async function make(env: Env, w: Outside, fleet: string, i: Asked): Promise<{ def: FactoryDef | null; made: Stored }> {
+  const def = (await applied(env, fleet, i.project))?.def ?? null;
+  const now = Date.now();
+  if (i.to !== undefined && !def?.posts?.[i.to]) {
+    if (kindOf(i.to) !== "session") throw new Refusal("no_dest", `исполнителя ${i.to} нет: поста с таким именем у проекта ${i.project} нет; сессии — позывной вида site@laptop`);
+    if (!i.for) throw new Refusal("no_term", "тикету сессии нужен срок работы: for — 20m, 2h, 1d");
+    if (!(await within(w.platform.sessions(fleet), CALL_MS, "платформа не назвала сессии")).some((s) => s.callsign === i.to)) throw new Refusal("no_session", `сессии ${i.to} нет во флоте`);
+  }
+  if ((i.in || i.after) && i.to === undefined) throw new Refusal("bad_input", "спать может тикет с исполнителем: назовите to");
+  const after = i.after ? await blockers(env, fleet, i.project, null, i.after) : undefined;
+  const made = await create(
+    env, w, fleet, i.project, def,
+    { title: i.title, text: i.text ?? "", to: i.to ?? null, by: i.by, key: i.key, files: i.files, term: i.for ? termMs(i.for) : null, first: i.first, after, ...(i.in ? { start: now + termMs(i.in) } : {}) },
+    now,
+  );
+  return { def, made };
+}
+
+/** Тикет от соседней службы: проект называет она, участие в проекте не сверяется — пришедшего с пропуском за ней нет. Ответ — номер тикета. */
+export async function raise(env: Env, w: Outside, fleet: string, i: Asked & { trace: string }): Promise<{ id: string }> {
+  const { def, made } = await make(env, w, fleet, i);
+  await settle(env, w, fleet, i.project, def, null, made, "new", i.by, i.title, i.trace);
+  return { id: idOf(i.project, made.n) };
+}
+
 /** Событие правила входа по его имени — зов ticket.new {on} и запрос на адрес с секретом. Правила нет — отказ no_rule. Проект на паузе событие
  *  не теряет: тикет встаёт в очередь и ждёт снятия паузы. */
 export async function event(env: Env, w: Outside, fleet: string, e: Found & { project: string; rule: string; source: Source; trace: string }): Promise<{ id: string; note: boolean }> {
@@ -644,20 +672,7 @@ export const factory: Module = {
         return { id: (await event(ctx.env, outside(ctx), ctx.fleet, { project, rule: i.on, source: "name", key: i.key, text: i.text ?? "", files: i.files, by: ctx.who.addr, trace: ctx.trace })).id };
       }
       if (!i.title) throw new Refusal("bad_input", "тикету нужно название: title");
-      const def = (await applied(ctx.env, ctx.fleet, project))?.def ?? null;
-      const now = Date.now();
-      if (i.to !== undefined && !def?.posts?.[i.to]) {
-        if (kindOf(i.to) !== "session") throw new Refusal("no_dest", `исполнителя ${i.to} нет: поста с таким именем у проекта ${project} нет; сессии — позывной вида site@laptop`);
-        if (!i.for) throw new Refusal("no_term", "тикету сессии нужен срок работы: for — 20m, 2h, 1d");
-        if (!(await within(ctx.platform.sessions(ctx.fleet), CALL_MS, "платформа не назвала сессии")).some((s) => s.callsign === i.to)) throw new Refusal("no_session", `сессии ${i.to} нет во флоте`);
-      }
-      if ((i.in || i.after) && i.to === undefined) throw new Refusal("bad_input", "спать может тикет с исполнителем: назовите to");
-      const after = i.after ? await blockers(ctx.env, ctx.fleet, project, null, i.after) : undefined;
-      const made = await create(
-        ctx.env, outside(ctx), ctx.fleet, project, def,
-        { title: i.title, text: i.text ?? "", to: i.to ?? null, by: ctx.who.addr, key: i.key, files: i.files, term: i.for ? termMs(i.for) : null, first: i.first, after, ...(i.in ? { start: now + termMs(i.in) } : {}) },
-        now,
-      );
+      const { def, made } = await make(ctx.env, outside(ctx), ctx.fleet, { ...i, title: i.title, project, by: ctx.who.addr });
       // тикет, заведённый сессией со своего тикета в работе, помнит его: итог ляжет туда заметкой
       if (kindOf(ctx.who.addr) === "session") {
         const d = db(ctx.env, ctx.fleet, project);

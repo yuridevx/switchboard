@@ -57,6 +57,36 @@ await check(async (t) => {
     return `${id}: вердикт done от ${s.callsign}, сессия ${up}`;
   });
 
+  // сайту нужны подписанные ссылки хранилища и свой адрес — в коробке их нет
+  if (!t.lacks("r2"))
+    await t.step("комментарии сайта уходят одним тикетом сессии, которая его выложила", async () => {
+      const name = "tk-" + t.tag;
+      t.defer("сайт " + name, async (go: (type: string, fields: unknown) => Promise<{ ok: boolean; error?: string }>) => {
+        const r = await go("site.remove", { name });
+        if (!r.ok && r.error !== "no_site") return r;
+      });
+      await s.turn(script(
+        tool("Write", { file_path: `${s.cwd}/site/index.html`, content: `<!doctype html><meta charset="utf-8"><section id="a" data-block><h2>Блок ${t.tag}</h2></section>` }),
+        tool("mcp__fleet__site_publish", { to: s.callsign, dir: "site", name }),
+        say("выложено"),
+      ));
+      const blocks = (await s.history()).flatMap((e: any) => (Array.isArray(e.message?.content) ? e.message.content : []));
+      const use = blocks.findLast((b: any) => b.type === "tool_use" && String(b.name).endsWith("site_publish"));
+      const res = blocks.find((b: any) => b.type === "tool_result" && b.tool_use_id === use?.id);
+      const url = JSON.parse(typeof res?.content === "string" ? res.content : (res?.content ?? []).map((c: any) => c.text ?? "").join("")).url as string;
+      const post = async (path: string, body: unknown) => (await fetch(url + path, { method: "POST", body: JSON.stringify(body) })).json();
+      for (const text of ["первый " + t.tag, "второй", "третий"]) await post("_sb/db", { sql: "INSERT INTO sb_comments (block, el, label, text, at) VALUES ('a', '0', 'Блок', ?, 1)", params: [text] });
+      const sent = await post("_sb/submit", {});
+      if (!sent.ticket || sent.comments !== 3) throw new Error(`отправка комментариев: ${JSON.stringify(sent)}`);
+      const made = await one(sent.ticket);
+      // тикет снимается сразу: работа по нему в проверку не входит
+      await t.must("ticket.set", { ticket: sent.ticket, drop: true, note: "живая проверка кончена" });
+      if (made.by !== ".sites" || made.to !== s.callsign || !made.text.includes("первый " + t.tag) || !made.title.endsWith("· 3")) throw new Error(`тикет с комментариями не тот: ${JSON.stringify(made)}`);
+      const again = await post("_sb/submit", {});
+      if (again.ticket !== null) throw new Error(`повторная отправка завела тикет: ${JSON.stringify(again)}`);
+      return `3 комментария → 1 тикет ${sent.ticket} для ${made.to}`;
+    });
+
   if (!t.lacks("clickhouse"))
     await t.step("история флота по имени строки «ticket» отдаёт движения тикета: создан, дан, сдан", async () => {
       const want = ["new", "given", "done"];

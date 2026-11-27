@@ -5,7 +5,10 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  "assets": { "directory": "../web/dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/call", "/mcp", "/f/*", "/m/*", "/health", "/health/platform", "/manifest.webmanifest", "/i", "/telegram/*", "/h/*", "/github/*", "/s/*", "/token", "/.well-known/*"] },
+  "assets": { "directory": "../web/dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": true },
+  // Сайты флота: поддомены с хвостом «-t» идут сюда; запись DNS «*.pfarm.app» одна на оба флота. Маршрут со звёздочкой без хвоста
+  // перехватил бы чужие поддомены зоны, поэтому у каждого флота свой хвост.
+  "routes": [{ "pattern": "*-t.pfarm.app/*", "zone_name": "pfarm.app" }],
   "services": [{ "binding": "PLATFORM", "service": "sb2-platform", "entrypoint": "Platform" }],
   "durable_objects": { "bindings": [{ "name": "RECORDS", "class_name": "Records" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Records"] }],
@@ -14,7 +17,7 @@
     "producers": [{ "binding": "ANALYTICS", "queue": "sb2-analytics" }],
     "consumers": [{ "queue": "sb2-analytics", "max_batch_size": 10, "max_retries": 3 }]
   },
-  "vars": { "FILES_BUCKET": "sb2-files", "VAPID_SUB": "mailto:fleet@example.com" },
+  "vars": { "FILES_BUCKET": "sb2-files", "VAPID_SUB": "mailto:fleet@example.com", "SITES_HOST": "-t.pfarm.app" },
   // Прод — отдельный Worker sb2-services-prod со своей платформой, бакетом и очередью: wrangler --env prod.
   "env": {
     "prod": {
@@ -22,7 +25,8 @@
       "routes": [
         { "pattern": "pult.pfarm.app", "custom_domain": true },
         { "pattern": "phone.pfarm.app", "custom_domain": true },
-        { "pattern": "relay.pfarm.app", "custom_domain": true }
+        { "pattern": "relay.pfarm.app", "custom_domain": true },
+        { "pattern": "*-s.pfarm.app/*", "zone_name": "pfarm.app" }
       ],
       "workers_dev": true,
       "services": [{ "binding": "PLATFORM", "service": "sb2-platform-prod", "entrypoint": "Platform" }],
@@ -33,7 +37,7 @@
         "producers": [{ "binding": "ANALYTICS", "queue": "sb2-analytics-prod" }],
         "consumers": [{ "queue": "sb2-analytics-prod", "max_batch_size": 10, "max_retries": 3 }]
       },
-      "vars": { "FILES_BUCKET": "sb2-files-prod", "VAPID_SUB": "mailto:fleet@example.com" }
+      "vars": { "FILES_BUCKET": "sb2-files-prod", "VAPID_SUB": "mailto:fleet@example.com", "SITES_HOST": "-s.pfarm.app" }
     }
   }
   // Секреты (wrangler secret put): R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, VAPID_PRIVATE, CH_URL, CH_USER, CH_PASSWORD.

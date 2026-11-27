@@ -1,4 +1,5 @@
 // Эталоны машины (дизайн «Файлы сессии», 5–14, 23, 24): номер эталона — номер теста. Хранилище — локальный сервер, служба файлов — подделка стенда.
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
@@ -62,7 +63,8 @@ async function storage(s: Stand) {
   // служба файлов: ссылки на загрузку — только для хэшей, которых в хранилище нет
   s.services.handlers["files.put"] = (f) => ({ upload: Object.fromEntries((f.files as Array<{ hash: string }>).filter((x) => !blobs.has(x.hash)).map((x) => [x.hash, `${store.url}/b/${x.hash}`])) });
   s.services.handlers["files.get"] = (f) => ({ url: `${store.url}/b/${String(f.hash)}` });
-  s.services.handlers["files.site"] = (f) => ({ url: `https://fleet.test/s/${String(f.site)}/` });
+  // служба сайтов: адрес у имени постоянный
+  s.services.handlers["sites.put"] = (f) => ({ url: `https://${String(f.address ?? f.name + "-secret")}-t.fleet.test/` });
   return store;
 }
 
@@ -114,7 +116,7 @@ describe("файлы: сессия отправляет файл", () => {
     expect(await st.request("file.send", { to: CS, path: "." }, CS)).toMatchObject({ ok: false, error: "no_file" });
     expect(await st.request("file.send", { to: "docs@laptop", path: "a.txt" }, CS)).toMatchObject({ ok: false, error: "not_self" });
     expect(await st.request("file.send", { to: CS, path: "a.txt" }, PULT)).toMatchObject({ ok: false, error: "not_self" });
-    expect(await st.request("site.publish", { to: "docs@laptop", dir: "." }, CS)).toMatchObject({ ok: false, error: "not_self" });
+    expect(await st.request("site.publish", { to: "docs@laptop", dir: ".", name: "report" }, CS)).toMatchObject({ ok: false, error: "not_self" });
     expect(store.puts).toHaveLength(0);
   });
 });
@@ -200,14 +202,17 @@ describe("файлы: сессия поднимает сайт", () => {
     write(dir, "out/site/node_modules/x/index.js", "чужое");
   };
 
-  it("эталон 11 · сайт из папки out/site: список «путь → хэш» записан; ответ — адрес", async () => {
+  it("эталон 11 · сайт из папки out/site: список «путь → хэш» записан у службы сайтов под именем; ответ — адрес", async () => {
     st = await stand({ modules: [chat(), files()] });
     const store = await storage(st);
     await st.open("site");
     site(st.dir);
-    const r = (await st.request("site.publish", { to: CS, dir: "out/site", title: "Отчёт за сутки" }, CS)).result as { url: string; files: number; size: number };
-    const list = st.services.of("files.site")[0]! as any;
-    expect(list.site).toMatch(/^[0-9a-f]{32}$/);
+    const r = (await st.request("site.publish", { to: CS, dir: "out/site", name: "report", title: "Отчёт за сутки", feedback: "design", marks: false }, CS)).result as { url: string; files: number; size: number };
+    const list = st.services.of("sites.put")[0]! as any;
+    // имя, сессия и настройки идут службе как названы; чего сессия не назвала, того в записи нет
+    expect(list).toMatchObject({ name: "report", callsign: CS, feedback: "design", marks: false });
+    expect(Object.keys(list)).not.toContain("comments");
+    expect(Object.keys(list)).not.toContain("address");
     // файлы с точки и node_modules в сайт не идут
     const size = (t: string) => Buffer.byteLength(t);
     const whole = size("<h1>Отчёт</h1>") + size("console.log(1)") + size("h1 { color: teal }");
@@ -216,9 +221,9 @@ describe("файлы: сессия поднимает сайт", () => {
       { path: "js/app.js", hash: sha("console.log(1)"), size: 14 },
       { path: "site.css", hash: sha("h1 { color: teal }"), size: 18 },
     ]);
-    expect(r).toEqual({ url: `https://fleet.test/s/${list.site}/`, files: 3, size: whole });
+    expect(r).toEqual({ url: "https://report-secret-t.fleet.test/", files: 3, size: whole });
     expect(store.puts.sort()).toEqual(list.files.map((f: { hash: string }) => f.hash).sort());
-    expect(journal("site_publish")).toMatchObject([{ callsign: CS, site: list.site, files: 3, size: whole, sent: 3 }]);
+    expect(journal("site_publish")).toMatchObject([{ callsign: CS, site: "report", url: r.url, files: 3, size: whole, sent: 3 }]);
   });
 
   it("эталон 12 · повтор с одним изменённым файлом и после очистки разговора: загружен 1 файл — число в строке журнала; адрес тот же", async () => {
@@ -227,20 +232,47 @@ describe("файлы: сессия поднимает сайт", () => {
     const { s } = await st.open("site");
     await st.open("docs");
     site(st.dir);
-    const first = (await st.request("site.publish", { to: CS, dir: "out/site" }, CS)).result as { url: string };
+    const first = (await st.request("site.publish", { to: CS, dir: "out/site", name: "report" }, CS)).result as { url: string };
     write(st.dir, "out/site/site.css", "h1 { color: navy }");
-    // очистка разговора меняет его номер — адрес сайта от него не зависит
+    // очистка разговора меняет его номер — адрес сайта от него не зависит: он у имени
     s.rec.sessionId = "sid-после-очистки";
-    const again = (await st.request("site.publish", { to: CS, dir: join(st.dir, "out", "site") }, CS)).result as { url: string };
+    const again = (await st.request("site.publish", { to: CS, dir: join(st.dir, "out", "site"), name: "report" }, CS)).result as { url: string };
     expect(again.url).toBe(first.url);
     expect(store.puts).toHaveLength(4);
     expect(store.puts.at(-1)).toBe(sha("h1 { color: navy }"));
     expect(journal("site_publish").map((l) => l.sent)).toEqual([3, 1]);
-    // другая сессия и другая папка — другой адрес
-    const other = (await st.request("site.publish", { to: "docs@laptop", dir: "out/site" }, "docs@laptop")).result as { url: string };
+    // то же имя из другой сессии — тот же сайт; адрес, названный вручную, идёт службе как назван
+    const other = (await st.request("site.publish", { to: "docs@laptop", dir: "out/site", name: "report" }, "docs@laptop")).result as { url: string };
+    expect(other.url).toBe(first.url);
+    expect(st.services.of("sites.put").map((x: any) => x.callsign)).toEqual([CS, CS, "docs@laptop"]);
     write(st.dir, "out/second/index.html", "<p>второй</p>");
-    const second = (await st.request("site.publish", { to: CS, dir: "out/second" }, CS)).result as { url: string };
-    expect(new Set([first.url, other.url, second.url]).size).toBe(3);
+    const second = (await st.request("site.publish", { to: CS, dir: "out/second", name: "second", address: "inbox" }, CS)).result as { url: string };
+    expect(second.url).toBe("https://inbox-t.fleet.test/");
+  });
+
+  // чьё: слово пользователя 27 нояб. (дизайн «Сайты флота», пункт 7): сайт помнит коммит, с которого выложен
+  it("эталон 14 · папка в git: ответ и запись сайта называют коммит; правка вне коммита — dirty; папка не в git — коммита нет", async () => {
+    st = await stand({ modules: [chat(), files()] });
+    await storage(st);
+    await st.open("site");
+    site(st.dir);
+    const plain = (await st.request("site.publish", { to: CS, dir: "out/site", name: "plain" }, CS)).result as { commit?: string };
+    expect(plain.commit).toBeUndefined();
+    expect(Object.keys(st.services.of("sites.put")[0]!)).not.toContain("commit");
+    const root = join(st.dir, "out", "site");
+    const git = (...args: string[]) => execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { encoding: "utf8" });
+    // то, что в сайт не идёт, git не видит: иначе папка никогда не «в коммите»
+    write(st.dir, "out/site/.gitignore", [".env", "node_modules", ""].join("\n"));
+    git("init", "-q");
+    git("add", ".gitignore", "index.html", "site.css", "js");
+    git("commit", "-q", "-m", "сайт");
+    const head = git("rev-parse", "--short", "HEAD").trim();
+    const clean = (await st.request("site.publish", { to: CS, dir: "out/site", name: "report" }, CS)).result as { commit?: string; dirty?: boolean };
+    expect(clean).toMatchObject({ commit: head, dirty: false });
+    expect(st.services.of("sites.put").at(-1)).toMatchObject({ commit: head, dirty: false });
+    write(st.dir, "out/site/site.css", "h1 { color: navy }");
+    const dirty = (await st.request("site.publish", { to: CS, dir: "out/site", name: "report" }, CS)).result as { commit?: string; dirty?: boolean };
+    expect(dirty).toMatchObject({ commit: head, dirty: true });
   });
 
   it("эталон 13 · в папке нет index.html — отказ словом сессии", async () => {
@@ -248,10 +280,10 @@ describe("файлы: сессия поднимает сайт", () => {
     const store = await storage(st);
     await st.open("site");
     write(st.dir, "out/site/site.css", "h1 {}");
-    expect(await st.request("site.publish", { to: CS, dir: "out/site" }, CS)).toMatchObject({ ok: false, error: "no_index" });
-    expect(await st.request("site.publish", { to: CS, dir: "нет-такой" }, CS)).toMatchObject({ ok: false, error: "no_index" });
+    expect(await st.request("site.publish", { to: CS, dir: "out/site", name: "report" }, CS)).toMatchObject({ ok: false, error: "no_index" });
+    expect(await st.request("site.publish", { to: CS, dir: "нет-такой", name: "report" }, CS)).toMatchObject({ ok: false, error: "no_index" });
     expect(store.puts).toHaveLength(0);
-    expect(st.services.of("files.site")).toHaveLength(0);
+    expect(st.services.of("sites.put")).toHaveLength(0);
   });
 });
 
@@ -299,12 +331,12 @@ describe("файлы: тикет, история, предел", () => {
     write(st.dir, "out/site/z.css", "h1 { color: teal }");
     // второй файл хранилище не принимает: предел действия выходит
     store.hang.add(sha("h1 { color: teal }"));
-    expect(await st.request("site.publish", { to: CS, dir: "out/site" }, CS)).toMatchObject({ ok: false, error: "timeout" });
+    expect(await st.request("site.publish", { to: CS, dir: "out/site", name: "report" }, CS)).toMatchObject({ ok: false, error: "timeout" });
     expect(store.puts).toEqual([sha("<h1>Отчёт</h1>")]);
-    expect(st.services.of("files.site")).toHaveLength(0);
+    expect(st.services.of("sites.put")).toHaveLength(0);
     // повтор: первый файл уже в хранилище — грузится только недостающий
     store.hang.clear();
-    expect((await st.request("site.publish", { to: CS, dir: "out/site" }, CS)).ok).toBe(true);
+    expect((await st.request("site.publish", { to: CS, dir: "out/site", name: "report" }, CS)).ok).toBe(true);
     expect(store.puts).toEqual([sha("<h1>Отчёт</h1>"), sha("h1 { color: teal }")]);
     // файл человека не уложился в предел: принятая половина остаётся черновиком, повтор сообщения докачивает остальное с места обрыва
     const { proc } = await st.open("docs");

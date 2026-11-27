@@ -84,6 +84,8 @@ export const KeeperAddr = z.string().regex(/^\.keeper@[a-z0-9][a-z0-9_-]{0,62}$/
 export const Person = z.string().regex(/^~[^\s@~]+@[^\s@~]+\.[^\s@~]+$/, "человек вида ~a@b.c");
 export const Device = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}~[^\s@~]+@[^\s@~]+\.[^\s@~]+$/i, "устройство вида pult~a@b.c");
 export const Name = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/i);
+/** Имя сайта во флоте и адрес сайта, названный вручную: часть имени узла — строчные буквы, цифры и дефис. */
+export const SiteName = z.string().regex(/^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/, "имя сайта: строчные латинские буквы, цифры и дефис, до 40 знаков");
 export const Empty = z.object({});
 export const Done = z.object({}).loose();
 export { z };

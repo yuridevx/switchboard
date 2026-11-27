@@ -26,6 +26,8 @@ export interface Env {
   GITHUB_API?: string;
   /** адрес API бота Telegram; не задан — https://api.telegram.org */
   TELEGRAM_API?: string;
+  /** хвост адресов сайтов флота: сайт живёт на <адрес><хвост>, например «-t.pfarm.app»; не задан — сайтов у флота нет */
+  SITES_HOST?: string;
   /** отпечаток кода и страницы, из которых выложен Worker: ставит выкладка */
   DIGEST?: string;
   /** закрытый ключ VAPID — JWK строкой */
