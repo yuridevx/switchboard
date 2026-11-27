@@ -111,7 +111,8 @@ async function up() {
   // «database is locked»). Первым стоит вход (tools/box/storage): подписанную ссылку принимает сам, всё остальное отдаёт службам привязкой.
   // Настройки из --var до второго Worker'а не доходят, поэтому у служб — производная настройка: та же, что в репо, с адресами коробки.
   const product = JSON.parse(fs.readFileSync(path.join(root, "services/wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, ""));
-  const { env: _prod, ...local } = product;
+  // маршруты сайтов в коробку не идут: с ними wrangler подменяет адрес запроса адресом зоны, и подпись ссылки хранилища не сходится
+  const { env: _prod, routes: _routes, ...local } = product;
   const bucket = product.r2_buckets[0].bucket_name;
   const secret = { R2_ACCESS_KEY_ID: "box", R2_SECRET_ACCESS_KEY: "box-secret-0000" };
   const ch = history ? { CH_URL: history.origin, CH_USER: decodeURIComponent(history.username) || "default", CH_PASSWORD: decodeURIComponent(history.password) } : {};
