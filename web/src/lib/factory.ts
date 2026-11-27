@@ -9,8 +9,8 @@ export const stateWord = (t: Pick<Ticket, "state" | "dropped">): string => (t.dr
 /** Лампа плашки тикета — те же цвета, что у сессий: работает, ждёт, сбой. */
 export const STATE_LAMP: Record<TicketState, string> = { ready: "off", work: "busy", wait: "waiting", stop: "failed", done: "idle" };
 
-/** Тикет ждёт человека: встал — дальше его двигает только человек. */
-export const needsHuman = (t: Pick<Ticket, "state">): boolean => t.state === "stop";
+/** Тикет ждёт человека: так говорит его строка. Правило — у служб: вставший тикет, которым занят надзиратель, человека не ждёт. */
+export const needsHuman = (t: Pick<Ticket, "human">): boolean => t.human === true;
 /** Номер тикета без проекта — для тесной плашки: «#12». */
 const short = (id: string) => "#" + id.slice(id.lastIndexOf("-") + 1);
 /** Чего ждёт спящий тикет: названных тикетов и (или) своего срока; left — слово срока, его считает экран. */

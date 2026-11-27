@@ -64,9 +64,12 @@ export function cacheOf(u: Usage, model: string, pair: Pair, was: Cache | undefi
   return { at, size, read, ...(ttl ? { ttl } : {}), model };
 }
 
+/** Разговор большой: его стоит сжать — при простое и на границе тикетов. Порог один. */
+export const big = (c: Cache): boolean => c.size >= COMPACT_FROM;
+
 /** До какого времени кэш тёплый и когда сжать разговор при простое: оба часа считаются здесь. */
 export function hours(c: Cache): { until?: number; compact?: number } {
   if (!c.ttl) return {};
   const until = c.at + c.ttl;
-  return { until, ...(c.size >= COMPACT_FROM && c.ttl > COMPACT_BEFORE_MS ? { compact: until - COMPACT_BEFORE_MS } : {}) };
+  return { until, ...(big(c) && c.ttl > COMPACT_BEFORE_MS ? { compact: until - COMPACT_BEFORE_MS } : {}) };
 }

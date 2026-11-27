@@ -112,7 +112,9 @@ export function factoryHandlers(c: MockCtx): H {
     function view(t: Row, full: boolean): Ticket {
       const { notes, target: _target, term: _term, ran: _ran, text, files, ...rest } = t;
       const check = t.state === "work" && t.to ? def.posts[t.to]?.check : undefined;
-      return { ...rest, ...(check ? { check: { ...check, run: check.run.replaceAll("{id}", t.id) } } : {}), ...(full ? { text: text ?? "", notes, ...(files ? { files } : {}) } : {}) };
+      // вставший ждёт человека, если им не занят надзиратель: открытый тикет правила stop называет его ключом
+      const human = t.state === "stop" && !tickets.some((o) => o.on === "stop" && o.key === t.id && o.state !== "done");
+      return { ...rest, ...(human ? { human } : {}), ...(check ? { check: { ...check, run: check.run.replaceAll("{id}", t.id) } } : {}), ...(full ? { text: text ?? "", notes, ...(files ? { files } : {}) } : {}) };
     }
     /** Очереди постов: в работе, в очереди (спящие не в счёт), срочных и сколько ждёт старший. */
     const load = (): FactoryState["load"] =>
@@ -243,6 +245,7 @@ export function factoryHandlers(c: MockCtx): H {
         { name: "retro", title: "Недельная ретроспектива", cron: "0 9 * * 1", tz: "Europe/Kyiv", to: "backup" },
         { name: "alerts", title: "Тревоги мониторинга", hook: true, to: "postmortem" },
         { name: "model", title: "Ответила не та модель", to: "nightcheck" },
+        { name: "stop", title: "Тикет встал", to: "nightcheck" },
       ],
     },
     next: { disk: T + 4 * MIN, retro: T + 4 * DAY },
@@ -273,6 +276,9 @@ export function factoryHandlers(c: MockCtx): H {
       add(44, "Ночная выгрузка упала 3 раза из 10", "postmortem", "work", { session: "postmortem@server", by: ".hooks", on: "alerts", key: "ingest", since: T - 95 * MIN, until: T + 145 * MIN, text: "Тревога мониторинга: ночная выгрузка, 10 запусков, сбоев 3, все на шаге сверки.\n\nНайти общий признак по журналу и предложить правило запуска." });
       add(48, "Недельная ретроспектива", "backup", "work", { session: "backup@base2", by: FACTORY, on: "retro", key: "retro", since: T - 3 * HOUR, until: T + 21 * HOUR });
       add(36, "Сжатие резервных копий", "backup", "ready", { by: "audit@server", since: T - 3 * HOUR });
+      // тикет встал от платформы: им занят надзиратель — пост правила stop; человека он не ждёт
+      add(31, "Сверка копии за неделю", "backup", "stop", { ran: "backup@base2", by: "audit@server", why: "ход кончился без вердикта: жду, пока освободится диск", since: T - 40 * MIN, notes: [note(9, "@base2", "ход кончился без вердикта: жду, пока освободится диск", "stop")] });
+      add(32, "Тикет встал", "nightcheck", "ready", { by: FACTORY, on: "stop", key: "infra-31", since: T - 9 * MIN, text: "infra-31 встал: ход кончился без вердикта: жду, пока освободится диск\nСверка копии за неделю" });
       // бэклог: без исполнителя
       add(50, "Таблица владельцев служб", undefined, "ready", { by: "audit@server", since: T - 26 * HOUR });
       add(51, "Ускорить сборку проверок: 9 минут на правку", undefined, "ready", { since: T - 5 * HOUR, text: "Сессии ждут проверок по 9 минут на правку. Нужен замер шагов сборки и предложение." });

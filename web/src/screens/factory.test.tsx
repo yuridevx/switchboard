@@ -116,7 +116,7 @@ describe("«Фабрика»", () => {
     const all = (await waitFor(() => apiModule.api.call(ticketList, { project: "infra" }))).tickets;
     // у исполнителя сначала в работе, потом вставший, потом очередь, как её раздают службы: срочный, потом старшие; спящие — последними
     expect(ofDoer("coders", all).map((t) => t.id)).toEqual(["infra-53", "infra-54", "infra-39", "infra-59", "infra-38", "infra-58", "infra-55"]);
-    expect(f.def.on.map(ruleWord)).toEqual(["каждые 10m", "0 9 * * 1 · Europe/Kyiv", "адрес с секретом", "по имени"]);
+    expect(f.def.on.map(ruleWord)).toEqual(["каждые 10m", "0 9 * * 1 · Europe/Kyiv", "адрес с секретом", "по имени", "по имени"]);
     const by = (id: string) => all.find((t) => t.id === id)!;
     expect(sleepWord(by("infra-55"))).toBe("ждёт #57");
     expect(sleepWord(by("infra-52"), "20м")).toBe("спит ещё 20м");
@@ -139,6 +139,18 @@ describe("«Фабрика»", () => {
     expect(tileOf("infra-39").classList.contains("stop")).toBe(true);
     expect(tileOf("infra-55").classList.contains("wait")).toBe(true);
     expect(ids(call)).not.toContain("infra-55");
+  });
+
+  // чьё: факт — полоса показывала каждый «стоп»: за неделю 29 «стопов» платформы встали бы в неё рядом с 16 по слову сессии
+  it("в полосе «Нужен человек» — только тикеты, которые ждут человека по своей строке: вставший, которым занят надзиратель, стоит лишь в дорожке поста", async () => {
+    open("/factory/infra");
+    const call = await waitFor(() => screen.getByLabelText("Нужен человек"));
+    // встали три тикета — три красные плашки в дорожках; infra-31 разбирает надзиратель: тикет правила stop стоит в его очереди
+    await waitFor(() => expect(tileOf("infra-31")).toBeTruthy());
+    expect([...document.querySelectorAll(".ftile.stop")].map((x) => x.getAttribute("data-ticket")).sort()).toEqual(["infra-31", "infra-39", "infra-41"]);
+    expect(ids(lane("Пост Оператор"))).toContain("infra-32");
+    // в полосе — только те, кого строка тикета называет ждущими человека
+    expect(ids(call)).toEqual(["infra-39", "infra-41"]);
   });
 
   it("до и после работы тикет лежит во вкладке «Бэклог»: в цехе его нет", async () => {
@@ -188,7 +200,7 @@ describe("«Фабрика»", () => {
     const post = await waitFor(() => screen.getByLabelText("Пост Оператор"));
     // чьё: код — у сессии один тикет в работе; сессия поста занята тикетом, отданным ей по позывному
     const busy = within(post).getByRole("button", { name: /занят infra-43/ });
-    expect(ids(post)).toEqual(["infra-41", "infra-49"]);
+    expect(ids(post)).toEqual(["infra-41", "infra-32", "infra-49"]);
     expect(post.querySelector('[data-ticket="infra-49"]')!.classList.contains("ready")).toBe(true);
     fireEvent.click(busy);
     await waitFor(() => expect(screen.getByTestId("at").textContent).toBe("/factory/infra/t/infra-43"));

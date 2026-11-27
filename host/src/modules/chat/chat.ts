@@ -59,6 +59,8 @@ export type ChatApi = {
   /** Задачу сессии callsign дал from: ему пойдут её вопросы — как вопросы дочери идут родителю. Зовёт тот, кто даёт работу не сообщением.
    *  Сессия называется позывным: хранилище сессии у каждого модуля своё. */
   asked(callsign: string, from: string): void;
+  /** Идущий или последний ход сессии начал человек: его сообщение ход взял первым. Host только что поднялся и хода ещё не видел — нет. */
+  human(callsign: string): boolean;
 };
 /** Всё входящее от флота — один тег с отправителем и видом. Собирает и разбирает его только этот модуль: вид следует из пути сообщения, а не из текста. */
 export const envelope = (from: string, kind: Kind, text: string, attrs: Attrs = {}): string =>
@@ -133,6 +135,12 @@ export function make(): Module {
   const lastUuid = new Map<string, string>();
   /** текст итога идущего хода */
   const results = new Map<string, string>();
+  /** от кого сообщение, которое ход ещё не взял: по нему видно, кто начал ход */
+  const senders = new Map<string, string>();
+  /** идущий ход уже взял своё первое сообщение */
+  const begun = new Set<string>();
+  /** идущий или последний ход начал человек */
+  const led = new Map<string, boolean>();
   const part = (s: SessionApi): Part => s.store<Part>().get() ?? {};
   const merge = (s: SessionApi, p: Part) => s.store<Part>().update((cur) => ({ ...cur, ...p }));
   /** Входящее от флота — во ввод сессии тегом своего вида. Задача родителя, итог своей дочери и весть о своей работе запоминаются: ход, который их возьмёт, откроет задачу родителя. */
@@ -158,6 +166,7 @@ export function make(): Module {
   function deliver(s: SessionApi, from: string, text: string, body: string, uuid: string, priority: Priority): { queued: boolean; uuid: string } {
     const to = s.callsign;
     s.input(body, { priority, uuid });
+    senders.set(uuid, from);
     push(to, seen({ type: "user", uuid, from, at: host.clock.now(), message: { role: "user", content: body } }));
     lastUuid.set(to, uuid);
     // сессия занята — сообщение ждёт в очереди: его видно зрителям и его можно отменить
@@ -328,7 +337,7 @@ export function make(): Module {
 
   return {
     name: "host-chat",
-    api: { asked: (callsign, from) => void merge(session(callsign), { asker: from }) } satisfies ChatApi,
+    api: { asked: (callsign, from) => void merge(session(callsign), { asker: from }), human: (callsign) => led.get(callsign) === true } satisfies ChatApi,
     start(h) {
       host = h;
     },
@@ -484,9 +493,16 @@ export function make(): Module {
         // ход взял сообщения: процесс называет их номера на ответах модели и на итоге хода
         const taken = (msg as { user_message_uuids?: unknown }).user_message_uuids;
         for (const uuid of Array.isArray(taken) ? (taken as string[]) : msg?.type === "user" && typeof msg.uuid === "string" ? [msg.uuid as string] : []) {
+          // первая запись хода говорит, кто его начал: сообщение человека — человек; тикет, команда, итог фоновой работы — нет
+          if (!begun.has(cs)) {
+            begun.add(cs);
+            led.set(cs, isHuman(senders.get(uuid) ?? ""));
+          }
+          senders.delete(uuid);
           status(cs, uuid, "taken");
           took(s, uuid);
         }
+        if (msg?.type === "result") begun.delete(cs);
         track(s, msg);
       },
       state(s, state: SessionState, was: SessionState) {

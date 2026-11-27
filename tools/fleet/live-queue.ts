@@ -3,27 +3,33 @@
 // 1. Очередь: три тикета посту на две сессии — два идут сразу, третий ждёт; первый вердикт освобождает сессию — третий берёт она.
 // 2. Отсрочка: тикет, отложенный при создании, заметка не будит — будит resume; сессия заводит вопрос, усыпляет свой тикет и берёт
 //    следующий; итог вопроса ложится заметкой в спящий тикет, не будя его; resume возвращает его той же сессии.
-// 3. Заметки: событие входа ложится заметкой в тикет в работе; «сдал» сессии, которая заметки не видела, не закрывает тикет; ход кончился
-//    без вердикта — сессии приходит напоминание; повторный «сдал» принят.
+// 3. Заметки: событие входа ложится заметкой в тикет в работе; «сдал» сессии, которая заметки не видела, не закрывает тикет;
+//    повторный «сдал» принят.
 // 4. Ожидание тикета: сессия усыпляет свой тикет до итога тикета другого поста и берёт следующий; итог будит спящий — он идёт той же сессии.
 // 5. Срочный впереди: у занятого поста срочный тикет идёт раньше старших.
-// 6. Уборка сессии: определение без второй сессии поста останавливает её; её тикет в работе возвращается в очередь и уходит первой.
+// 6. Конец хода: ход с тикетом в работе кончился без вердикта — напоминание, кончился снова — «стоп»; тикет идёт надзирателю; после возврата
+//    он у той же сессии, а встав второй раз, ждёт человека.
+// 7. Предмет: у поста «по предмету» тикет того же предмета идёт в тот же разговор, перед тикетом другого предмета разговор начинается заново.
+// 8. Уборка сессии: определение без второй сессии поста останавливает её; её тикет в работе возвращается в очередь и уходит первой.
 // Шаги сессий — сценарии хода (tools/fleet/turn.mjs). Проверка ждёт состояние тикета, а не время: что сессия занята, держит её же шаг без вердикта.
 import { REPO } from "../box/github.mjs";
-import { DESK, FOLDER, GATE, PAIR, PAIR_SIZE, PROJECT } from "../box/queue.mjs";
+import { DESK, FOLDER, GATE, LANE, PAIR, PAIR_SIZE, POSTS, PROJECT, WATCH } from "../box/queue.mjs";
 import { check } from "./harness.mjs";
 import { say, tool, turn } from "./turn.mjs";
 
 type Note = { at: number; verdict?: string; by: string; text: string };
-type Ticket = { id: string; state: string; why?: string; to?: string; session?: string; parent?: string; after?: string[]; first?: boolean; start?: number; on?: string; text?: string; since: number; notes?: Note[] };
+type Ticket = { id: string; state: string; why?: string; to?: string; session?: string; parent?: string; after?: string[]; first?: boolean; start?: number; on?: string; key?: string; human?: boolean; text?: string; since: number; notes?: Note[] };
 type Reply = { ok: boolean; error?: string; result?: any };
 type Go = (type: string, fields: unknown) => Promise<Reply>;
 
 const SET = "mcp__fleet__ticket_set", NEW = "mcp__fleet__ticket_new";
 /** Шаги сессии: сдать тикет — свой ({id} — его номер) или названный. */
 const done = (note: string, ticket = "{id}") => turn(tool(SET, { ticket, verdict: "done", note }), say("шаг сдан"));
-/** Шаги сессии: ответить и кончить ход — шаг остаётся у неё, сессия занята. */
-const hold = (word: string) => turn(say(word));
+/** Шаги сессии: держать тикет, не сдавая. «В работе» значит, что сессия работает: ход с тикетом без вердикта кончается напоминанием и «стопом»,
+ *  кроме хода, за которым осталась фоновая работа, — её сессия и оставляет. */
+const hold = (word: string) => turn(tool("Bash", { command: "sleep 600", run_in_background: true }), say(word));
+/** Шаги сессии: кончить ход без вердикта и без фоновой работы. Строка после шагов — настоящей модели: поддельная на напоминание отвечает сама. */
+const quit = (word: string) => `${turn(say(word))}\nПридёт напоминание о несданном тикете — снова ответь тем же словом и больше ничего не делай: проверяется, что тикет встанет.`;
 /** Текст тикета без сценария: шаги придут заметкой — текст повторяется при каждой выдаче, заметка — нет. */
 const LATER = "Живая проверка: шаги придут заметками.";
 
@@ -50,7 +56,7 @@ await check(async (t) => {
   const owned = new Set<string>();
   const adopt = () => {
     for (const [cs, row] of Object.entries(t.picture.sessions) as [string, { cwd: string }][])
-      if (!owned.has(cs) && [PAIR + "@", PAIR + "-2@", DESK + "@"].some((p) => cs.startsWith(p))) (owned.add(cs), t.own(cs, row.cwd));
+      if (!owned.has(cs) && [PAIR + "@", PAIR + "-2@", DESK + "@", LANE + "@", WATCH + "@"].some((p) => cs.startsWith(p))) (owned.add(cs), t.own(cs, row.cwd));
   };
   /** Тикет дошёл до нужного состояния; встал — отказ сразу, ждать нечего. */
   const reach = (id: string, what: string, ok: (x: Ticket) => boolean): Promise<Ticket> => {
@@ -65,10 +71,10 @@ await check(async (t) => {
   const busy = (id: string) => reach(id, `тикет ${id} в работе`, (x) => x.state === "work" && !!x.session);
 
   let desk = "", machine = "";
-  await t.step("определение проекта применено из папки кусочка: пост на две сессии и пост на одну", async () => {
+  await t.step("определение проекта применено из папки кусочка: пост на две сессии, пост на одну, пост «по предмету» и надзиратель", async () => {
     const r = await t.must("factory.apply", { project: PROJECT, repo: `${REPO}/${FOLDER}` });
     const f = await factory();
-    if (f.commit !== r.commit || r.posts !== 2 || f.def.posts[PAIR]?.size !== PAIR_SIZE || r.failed.length || r.closed.length) throw new Error(`применено не то: ${JSON.stringify({ posts: r.posts, pair: f.def.posts[PAIR], failed: r.failed, closed: r.closed })}`);
+    if (f.commit !== r.commit || r.posts !== POSTS || f.def.posts[PAIR]?.size !== PAIR_SIZE || f.def.posts[LANE]?.context !== "thread" || !f.def.on.some((x: { name: string; to: string }) => x.name === "stop" && x.to === WATCH) || r.failed.length || r.closed.length) throw new Error(`применено не то: ${JSON.stringify({ posts: r.posts, pair: f.def.posts[PAIR], failed: r.failed, closed: r.closed })}`);
     machine = f.def.posts[DESK].at.slice(1);
     desk = `${DESK}@${machine}`;
     // прошлый прогон мог оставить фабрику на паузе
@@ -119,33 +125,21 @@ await check(async (t) => {
     return `${a}: заметка не разбудила, resume — да; ${desk} завела ${q.id}, усыпила свой тикет и сдала ${c}; итог ${q.id} лёг в спящий, resume вернул его ей же`;
   });
 
-  await t.step("заметки: «сдал» с непрочитанной заметкой не закрывает тикет; ход кончился без вердикта — напоминание; повторный «сдал» принят", async () => {
+  await t.step("заметки: «сдал» с непрочитанной заметкой не закрывает тикет; повторный «сдал» принят", async () => {
     const { url } = await t.must("hook.url", { project: PROJECT, name: GATE });
     const key = "queue-" + tag;
     // второе событие с тем же ключом сессия шлёт сама, посреди своего хода: оно ложится заметкой в её тикет в работе — от имени входа, не её
     const again = `node -e "fetch(process.argv[1],{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key:process.argv[2],text:'second'})}).then(r=>process.exit(r.status===202?0:1))" ${url} ${key}`;
-    const steps = turn(tool("Bash", { command: again }), tool(SET, { ticket: "{id}", verdict: "done", note: "первый" }), say("кончила"));
+    const steps = turn(tool("Bash", { command: again }), tool(SET, { ticket: "{id}", verdict: "done", note: "первый" }), tool(SET, { ticket: "{id}", verdict: "done", note: "второй" }), say("кончила"));
     const res = await t.fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key, text: steps }) });
     const got = (await res.json()) as { id?: string; error?: string; why?: string };
     if (res.status !== 202 || !got.id) throw new Error(`событие не принято: ${res.status} ${got.error ?? ""} ${got.why ?? ""}`);
     const e = mine(got.id);
-    // ход, взявший шаг, кончился, а шаг всё ещё у сессии: машина напомнила — строка журнала машины
-    let seen = "строки напоминания нет";
-    await t.wait("напоминание сессии о несданном шаге", async () => {
-      adopt();
-      const lines: { msg: string; kind?: string; callsign?: string; why?: string }[] = (await t.must("machine.journal", { to: "@" + machine, part: "host", limit: 200 })).lines;
-      const mineLines = lines.filter((l) => l.msg === "work" && l.callsign === desk);
-      seen = `строк «work» сессии ${mineLines.length}: ${mineLines.slice(0, 4).map((l) => l.kind).join(", ")}`;
-      return mineLines.some((l) => l.kind === "reminded" && String(l.why).includes(e));
-    }, () => seen);
-    const held = await one(e);
-    const notes = held.notes ?? [];
-    if (held.state !== "work" || notes.some((n) => n.verdict) || !notes.some((n) => n.by === ".hooks" && n.text === "second")) throw new Error(`после отказа тикет ${held.state}: ${JSON.stringify(notes.map((n) => [n.by, n.verdict, n.text.slice(0, 30)]))}`);
-    // заметка сессии показана отказом — повторный «сдал» проходит
-    await t.must("message", { to: desk, text: done("второй", e) });
+    // первый «сдал» отклонён отказом unread с текстом заметки входа — повторный проходит: вердикт один, второй
     const closed = await reach(e, "повторный «сдал» принят", (x) => x.state === "done");
-    if (verdict(closed)?.by !== desk || verdict(closed)?.text !== "второй") throw new Error(`вердикт не тот: ${JSON.stringify(verdict(closed))}`);
-    return `${e}: первый «сдал» отклонён заметкой входа, сессии пришло напоминание, второй «сдал» принят`;
+    const notes = closed.notes ?? [];
+    if (verdict(closed)?.by !== desk || verdict(closed)?.text !== "второй" || notes.filter((n) => n.verdict).length !== 1 || !notes.some((n) => n.by === ".hooks" && n.text === "second")) throw new Error(`вердикт не тот: ${JSON.stringify(notes.map((n) => [n.by, n.verdict, n.text.slice(0, 30)]))}`);
+    return `${e}: первый «сдал» отклонён заметкой входа, второй «сдал» принят`;
   });
 
   await t.step("ожидание тикета: сессия усыпляет свой тикет до итога чужого и берёт следующий; итог будит спящий — он идёт той же сессии", async () => {
@@ -185,6 +179,62 @@ await check(async (t) => {
     const at = got.map((x) => verdict(x)!);
     if (at.some((v) => v.by !== desk) || !(at[0]!.at < at[1]!.at && at[1]!.at < at[2]!.at)) throw new Error(`порядок сдачи: ${JSON.stringify(got.map((x, i) => [x.id, at[i]!.by, at[i]!.at]))}`);
     return `очередь стола: в работе 1, ждут 3, срочных 1; сдано по порядку ${u} (срочный), ${n1}, ${n2}`;
+  });
+
+  const lane = () => `${LANE}@${machine}`;
+  /** Строки журнала машины о тикетах сессии: «дан», «напомнила», «встал». */
+  const workLines = async (callsign: string): Promise<{ kind?: string; why?: string }[]> =>
+    ((await t.must("machine.journal", { to: "@" + machine, part: "host", limit: 400 })).lines as { msg: string; kind?: string; callsign?: string; why?: string }[]).filter((l) => l.msg === "work" && l.callsign === callsign);
+
+  await t.step("конец хода: ход без вердикта — напоминание, снова — «стоп»; тикет идёт надзирателю; после возврата он у той же сессии, второй «стоп» ждёт человека", async () => {
+    const x = await make(LANE, "Ход без вердикта", { key: "turn-" + tag, text: quit("жду") });
+    /** Тикет встал от платформы n раз: столько заметок «стоп» с её причиной. */
+    const fallen = (n: number) => {
+      let last: Ticket | undefined;
+      return t.wait(`тикет ${x} встал от платформы, раз ${n}`, async () => {
+        adopt();
+        last = await one(x);
+        return last.state === "stop" && (last.notes ?? []).filter((m) => m.verdict === "stop" && m.text.startsWith("ход кончился без вердикта")).length === n && last;
+      }, () => (last ? `тикет ${last.state}${last.why ? `: ${last.why}` : ""}` : "тикета нет")) as Promise<Ticket>;
+    };
+    const first = await fallen(1);
+    const who = first.session;
+    if (who !== lane() || !String(first.why).startsWith("ход кончился без вердикта")) throw new Error(`встал не так: ${JSON.stringify({ session: first.session, why: first.why })}`);
+    // машина сначала напомнила, потом поставила «стоп»
+    const kinds = (await workLines(lane())).filter((l) => String(l.why).includes(x)).map((l) => l.kind);
+    if (!kinds.includes("reminded") || !kinds.includes("stopped")) throw new Error(`строки машины о тикете: ${kinds.join(", ") || "нет"}`);
+    // надзирателю — тикет правила stop с номером вставшего в ключе; пока он открыт, вставший человека не ждёт
+    const watch = (await all()).filter((o) => o.on === "stop" && o.key === x);
+    if (watch.length !== 1 || watch[0]!.to !== WATCH) throw new Error(`тикетов надзирателю о ${x}: ${JSON.stringify(watch.map((o) => [o.id, o.to, o.state]))}`);
+    const o = mine(watch[0]!.id);
+    await reach(o, "надзиратель разобрал свой тикет", (y) => y.state === "done");
+    // возврат: тикет идёт той же сессии; ход снова без вердикта — второй «стоп» надзирателю не идёт, тикет ждёт человека
+    await t.must("ticket.set", { ticket: x, resume: true, note: "возвращён проверкой" });
+    const second = await fallen(2);
+    const again = (await all()).filter((y) => y.on === "stop" && y.key === x);
+    const row = (await all()).find((y) => y.id === x);
+    if (second.session !== who || again.length !== 1 || row?.human !== true) throw new Error(`второй «стоп»: ${JSON.stringify({ session: second.session, watch: again.length, human: row?.human })}`);
+    return `${x}: напоминание и «стоп» у ${who}; надзирателю ${o}; после возврата — та же сессия, второй «стоп» ждёт человека`;
+  });
+
+  await t.step("предмет: тикет того же предмета — в тот же разговор, перед тикетом другого предмета разговор начинается заново", async () => {
+    const a = "place-a-" + tag, b = "place-b-" + tag;
+    const ids: string[] = [];
+    // по одному: следующий заводится, когда прошлый сдан, — порядок выдачи задан
+    for (const [title, key] of [["Предмет А · 1", a], ["Предмет А · 2", a], ["Предмет Б · 1", b]] as const) {
+      const id = await make(LANE, title, { key, text: done("срез сдан") });
+      const closed = await reach(id, `тикет ${id} сдан`, (y) => y.state === "done");
+      if (verdict(closed)?.by !== lane()) throw new Error(`${id} сдала ${verdict(closed)?.by}`);
+      ids.push(id);
+    }
+    // что сделала машина на границе, говорит её строка «дан»: «разговор заново» — была очистка
+    const given = (await workLines(lane())).filter((l) => l.kind === "given");
+    const fresh = ids.map((id) => { const l = given.find((g) => String(g.why).includes(id)); if (!l) throw new Error(`строки «дан» о ${id} нет`); return String(l.why).includes("разговор заново"); });
+    if (fresh.join() !== "true,false,true") throw new Error(`очистка перед тикетами: ${fresh.join(", ")} — ждали да, нет, да`);
+    // все тикеты предмета — одним списком
+    const same = ((await t.must("ticket.list", { project: PROJECT, key: a })).tickets as Ticket[]).map((y) => y.id).sort();
+    if (same.join() !== [ids[0], ids[1]].sort().join()) throw new Error(`тикеты предмета ${a}: ${same.join(", ")}`);
+    return `${ids[0]} — разговор заново, ${ids[1]} того же предмета — продолжен, ${ids[2]} другого предмета — заново; по ключу отдано ${same.length}`;
   });
 
   await t.step("уборка сессии: определение без второй сессии поста — она остановлена, её тикет в очереди поста и уходит первой", async () => {

@@ -129,7 +129,8 @@ const SHOTS = [
   ["consent", "path:/consent?still&client_id=https://claude.ai/oauth/client.json&redirect_uri=https://claude.ai/api/mcp/auth_callback&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&state=s1"],
 ].filter(([name]) => name.includes(only));
 
-const browser = await chromium.launch({ channel: "chrome" });
+// на Windows системный Chrome на свежем профиле делает неудачный вход в систему: там — оболочка Chromium без окна, как в живых проверках
+const browser = await chromium.launch({ channel: process.platform === "win32" ? undefined : "chrome" });
 const problems = [];
 let n = 0;
 for (const [w, h, size] of [[1440, 900, "wide"], [390, 844, "narrow"]]) {

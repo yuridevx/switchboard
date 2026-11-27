@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { CLAUDE, findModels, keysLimits, keysList, keysModels, keysValue, LIMIT_WORD, MACHINE_RULES, READ_MS, Refusal, ticketNew, type Account as AccountOut, type Model, type Offer, type Protocol, type SessionState } from "@sb/protocol";
 import { limited } from "../../core/clock.ts";
 import type { HostApi, Module, QueryPart, SessionApi } from "../../core/contract.ts";
-import { cacheOf, hours, launchEnv, launchSig, procModel, wireModel, type Cache, type Pair } from "./pair.ts";
+import { big, cacheOf, hours, launchEnv, launchSig, procModel, wireModel, type Cache, type Pair } from "./pair.ts";
 import { choose, closed, FABLE, FIVE, fits, isFable, isOff, nextReset, read, refusalHeaders, shown, WEEK, type Account, type Candidate } from "./limits.ts";
 
 /** Запись машины: окна и годность аккаунтов переживают подмену Host. */
@@ -42,6 +42,9 @@ export type AccountsApi = {
   keyRoute(name: string): Promise<Route>;
   /** Модели всех провайдеров флота: для «/model слова» из сообщения. Имя модели — имя для документа сессии. */
   offers(): Promise<Offer[]>;
+  /** Граница работ сессии: большой разговор сжимается — «/compact» встаёт во ввод за идущим ходом, следующий ввод придёт после него.
+   *  Порог тот же, что у сжатия при простое. Ответ — ушла ли команда. */
+  squeeze(s: SessionApi): boolean;
 };
 
 const ANTHROPIC = "https://api.anthropic.com";
@@ -459,6 +462,13 @@ export function make(): Module {
   }
 
   const api: AccountsApi = {
+    squeeze(s) {
+      const c = cacheOfSession(s);
+      if (!c || !big(c) || stopping) return false;
+      host.log.info("edge_compact", { callsign: s.callsign, size: c.size, why: `сжатие на границе работ: разговор ${Math.round(c.size / 1000)} К` });
+      s.input("/compact", { priority: "later" });
+      return true;
+    },
     async route(sessionId, skip = [], asked) {
       // вызов пробы идёт названным аккаунтом и ни на какой другой не уходит
       const probed = probes.get(sessionId);
