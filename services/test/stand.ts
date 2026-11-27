@@ -97,7 +97,8 @@ export function stand(fleet = newFleet(), opts: { env?: Partial<Env> } = {}) {
   /** Сырой HTTP-запрос к Worker'у; работа «после ответа» дожидается. */
   async function http(path: string, init?: RequestInit): Promise<Response> {
     const exec = createExecutionContext();
-    const res = await serve(new Request("https://fleet.test" + path, init), e, exec, deps);
+    // путь — на адресе флота; полный адрес — как есть: так приходит запрос на адрес сайта
+    const res = await serve(new Request(path.startsWith("https://") ? path : "https://fleet.test" + path, init), e, exec, deps);
     await waitOnExecutionContext(exec);
     return res;
   }

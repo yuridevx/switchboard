@@ -14,7 +14,7 @@ export const BLOBS = new Map<string, Blob>([
   [H.zip, new Blob([new Uint8Array(48_210)], { type: "application/zip" })],
   [H.spec, new Blob([new Uint8Array(2_412_000)], { type: "application/pdf" })],
 ]);
-/** Адрес сайта мока: статика страницы. У флота — /s/<номер сайта>/ на Worker'е. */
+/** Адрес сайта мока: статика страницы. У флота у сайта свой поддомен. */
 const SITE = "/mock/s/3f9a1c7e5b2d4f608a1c3e5f7b9d0c2e/index.html";
 
 const FLOW = [

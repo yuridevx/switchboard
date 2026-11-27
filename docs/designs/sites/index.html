@@ -1,0 +1,580 @@
+<title>Сайты флота</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* раскладка: сверху вся система одной схемой; ниже — адрес, живая панель (C, A, «Отправить»), тикет, база, круг работы, эталоны картинками, развилки, гейт, порядок */
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --fg: #1c211f; --muted: #66706b; --line: #d9d8d0; --soft: #eceae3;
+  --accent: #1f7a63; --accent-soft: #dcefe8; --new: #b8590f; --new-soft: #fbe9d7; --code: #f0eee7; --chg: #fff3b0;
+  --busy: #2f6fde; --wait: #cf7a00; --wait-soft: #faeed8; --fail: #cf3a34; --note: #fff7cf; --note-line: #e2c94f;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --code: #232a26; --chg: #4a4318;
+  --busy: #6f9cf5; --wait: #f0b040; --wait-soft: #3a2c12; --fail: #ef8a80; --note: #3b3516; --note-line: #7d6f24; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151917; --card: #1d2320; --fg: #e8ece9; --muted: #98a39d; --line: #343c38; --soft: #252c28;
+  --accent: #5fc3a6; --accent-soft: #1d3a31; --new: #f0a25c; --new-soft: #40291a; --code: #232a26; --chg: #4a4318;
+  --busy: #6f9cf5; --wait: #f0b040; --wait-soft: #3a2c12; --fail: #ef8a80; --note: #3b3516; --note-line: #7d6f24; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 Inter, system-ui, sans-serif; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 120px; }
+main { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
+h1, h2 { font-family: "Space Grotesk", Inter, sans-serif; text-wrap: balance; margin: 0; }
+h1 { font-size: 34px; line-height: 1.1; }
+h2 { font-size: 21px; }
+.lead { color: var(--muted); max-width: 66ch; margin: 8px 0 0; }
+section { display: flex; flex-direction: column; gap: 14px; border-radius: 14px; scroll-margin-top: 16px; }
+section.read > h2::after { content: " ✓ просмотрено"; font: 500 12px Inter, sans-serif; color: var(--accent); }
+section.over > h2 { text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 6px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+.chg { background: var(--chg); border-radius: 4px; }
+.say { border-left: 3px solid var(--accent); background: var(--soft); border-radius: 0 10px 10px 0; padding: 10px 14px; min-height: 44px; }
+.say b { font-weight: 600; }
+.say pre { margin: 8px 0 0; }
+pre { font: 12.5px/1.45 "JetBrains Mono", ui-monospace, monospace; background: var(--code); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 0; white-space: pre-wrap; word-break: break-word; }
+code, kbd { font: 12.5px "JetBrains Mono", ui-monospace, monospace; background: var(--code); border-radius: 4px; padding: 1px 5px; }
+kbd { border: 1px solid var(--line); border-bottom-width: 2px; }
+
+.dia { overflow-x: auto; }
+.dia svg { display: block; min-width: 760px; width: 100%; height: auto; }
+.dia text { font: 500 13px Inter, sans-serif; fill: var(--fg); }
+.dia text.s { font-size: 11.5px; fill: var(--muted); font-weight: 400; }
+.dia text.z { font: 500 12px "JetBrains Mono", monospace; fill: var(--muted); }
+.dia marker path { fill: var(--muted); }
+.zone { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 3 5; }
+.n, .a { cursor: pointer; }
+.n rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.n.new rect { fill: var(--new-soft); stroke: var(--new); }
+.n:hover rect, .n.on rect, .n:focus-visible rect { stroke: var(--accent); stroke-width: 2.5; }
+.a path { stroke: var(--muted); stroke-width: 1.8; fill: none; }
+.a path.hit { stroke: transparent; stroke-width: 18; }
+.a:hover path:not(.hit), .a.on path:not(.hit) { stroke: var(--accent); stroke-width: 2.8; }
+.a:hover text, .a.on text { fill: var(--accent); }
+.n:focus, .a:focus { outline: none; }
+
+/* рельс из шагов и стрелок */
+.rail { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
+.rail button { font: inherit; color: var(--fg); background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 9px 12px; cursor: pointer; text-align: left; min-width: 0; }
+.rail button small { display: block; color: var(--muted); font-size: 12px; }
+.rail button.ar { border: none; background: none; color: var(--muted); padding: 9px 4px; font-size: 18px; }
+.rail button.new { background: var(--new-soft); border-color: var(--new); }
+.rail button:hover, .rail button.on, .rail button:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.rail button.ar:hover, .rail button.ar.on { color: var(--accent); font-weight: 600; }
+
+/* адрес по частям */
+.addr { display: flex; flex-wrap: wrap; gap: 4px; font: 500 clamp(15px, 2.6vw, 24px) "JetBrains Mono", monospace; }
+.addr button { font: inherit; color: var(--fg); border: 1.5px solid var(--line); background: var(--card); border-radius: 10px; padding: 12px 10px; cursor: pointer; }
+.addr button small { display: block; font: 400 12px Inter, sans-serif; color: var(--muted); text-align: left; }
+.addr button.sec { background: var(--new-soft); border-color: var(--new); }
+.addr button.no { background: var(--wait-soft); border-color: var(--wait); }
+.addr button:hover, .addr button.on, .addr button:focus-visible { border-color: var(--accent); outline: none; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.tile b { display: block; font: 600 24px "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
+.tile span { color: var(--muted); font-size: 13px; }
+
+/* клавиши */
+.keys { display: flex; flex-wrap: wrap; gap: 12px; }
+.key { display: flex; gap: 12px; align-items: center; flex: 1 1 260px; }
+.cap { width: 54px; height: 54px; border-radius: 10px; border: 1.5px solid var(--line); border-bottom-width: 4px; background: var(--card); display: grid; place-items: center; font: 600 20px "Space Grotesk", sans-serif; flex: none; position: relative; }
+.cap i { position: absolute; right: 6px; bottom: 3px; font: 500 11px Inter, sans-serif; color: var(--muted); font-style: normal; }
+.key span { color: var(--muted); font-size: 13px; } .key b { display: block; color: var(--fg); font-weight: 600; font-size: 15px; }
+
+/* заметки-комментарии внутри блока */
+.notes { display: flex; flex-direction: column; gap: 6px; }
+.note { background: var(--note); border: 1px solid var(--note-line); border-radius: 8px; padding: 8px 10px; display: flex; gap: 10px; align-items: flex-start; }
+.note p { margin: 0; flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+.note small { color: var(--muted); white-space: nowrap; }
+.note button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 15px; padding: 0 4px; }
+
+/* эталоны */
+.et { display: flex; flex-direction: column; gap: 8px; }
+.et h3 { margin: 0; font: 600 14px Inter, sans-serif; display: flex; justify-content: space-between; gap: 8px; }
+.et h3 small { font: 500 11px Inter, sans-serif; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; white-space: nowrap; height: fit-content; }
+.flow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12.5px; }
+.flow span { background: var(--soft); border-radius: 6px; padding: 3px 8px; font-family: "JetBrains Mono", monospace; font-size: 12px; }
+.flow span.ok { background: var(--accent-soft); color: var(--accent); }
+.flow span.no { background: var(--wait-soft); color: var(--wait); }
+.flow i { color: var(--muted); font-style: normal; }
+
+/* развилки */
+.fork { display: flex; flex-direction: column; gap: 10px; }
+.fork h3 { margin: 0; font: 600 15px Inter, sans-serif; }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.opt { border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13.5px; }
+.opt.rec { border-color: var(--accent); background: var(--accent-soft); }
+.opt b { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
+.opt.rec b { color: var(--accent); }
+
+.steps { display: flex; flex-direction: column; gap: 10px; }
+.step { display: grid; grid-template-columns: 34px 1fr; gap: 12px; }
+.step > b { width: 34px; height: 34px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font: 600 15px "Space Grotesk", sans-serif; }
+.step h3 { margin: 4px 0 4px; font: 600 15px Inter, sans-serif; }
+.step p { margin: 0; color: var(--muted); font-size: 13.5px; }
+.step p.done { color: var(--fg); margin-top: 6px; }
+.step p.done::before { content: "Готово: "; font-weight: 600; color: var(--accent); }
+
+/* панель страницы — работает на этой странице как пример */
+#kit { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--card); border-top: 1px solid var(--line); padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+#kit .in { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+#kit .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#kit button { font: 500 14px Inter, sans-serif; color: var(--fg); background: var(--soft); border: 1.5px solid transparent; border-radius: 9px; padding: 7px 12px; cursor: pointer; }
+#kit button.on { border-color: var(--accent); color: var(--accent); }
+#kit button.go { background: var(--accent); color: var(--bg); margin-left: auto; }
+#kit button.go:disabled { background: var(--soft); color: var(--muted); cursor: default; }
+#kit textarea { width: 100%; box-sizing: border-box; min-height: 64px; font: 14px/1.4 Inter, sans-serif; color: var(--fg); background: var(--bg); border: 1.5px solid var(--accent); border-radius: 9px; padding: 8px 10px; resize: vertical; }
+section[data-block] { position: relative; }
+section[data-block] { padding: 14px; margin: -14px; background: var(--chg); }
+section[data-block].read { background: none; }
+section[data-block] .chg, section[data-block].chg { background-color: transparent; }
+section[data-block]:not(.read) { background: var(--chg); }
+body.kit-c, body.kit-c * { cursor: crosshair !important; }
+.pin { position: absolute; z-index: 5; width: 28px; height: 28px; transform: translate(0, -100%); border-radius: 50% 50% 50% 3px; border: 2px solid var(--card); background: #f2b705; color: #1c211f; font: 600 13px Inter, sans-serif; cursor: pointer; padding: 0; box-shadow: 0 1px 4px rgb(0 0 0 / 0.3); }
+.kit-hot { outline: 2px solid #f2b705; outline-offset: 2px; border-radius: 4px; }
+.pin.sent { background: var(--muted); color: var(--card); }
+#kit-pop { position: absolute; z-index: 15; width: min(300px, 100%); box-sizing: border-box; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 6px 24px rgb(0 0 0 / 0.25); }
+#kit-pop p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+#kit-pop textarea { width: 100%; box-sizing: border-box; min-height: 64px; font: 14px/1.4 Inter, sans-serif; color: var(--fg); background: var(--bg); border: 1.5px solid var(--accent); border-radius: 9px; padding: 8px 10px; resize: vertical; }
+#kit-pop button { align-self: flex-start; font: 500 13px Inter, sans-serif; color: var(--fg); background: var(--soft); border: none; border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+#kit-pop .where { color: var(--muted); font-size: 12.5px; }
+</style>
+
+<main>
+<header>
+  <h1>Сайты флота</h1>
+  <p class="lead">Сессия выкладывает папку сайтом на свой адрес. Человек читает, комментирует клавишей <kbd>C</kbd>, отмечает прочитанное клавишей <kbd>A</kbd> и одним нажатием отправляет все комментарии тикетом. У сайта своя база — её видят и страница, и сессия. Работа: большая — меняет адрес сайтов, вход страницы и хранилище.</p>
+</header>
+
+<section id="map" data-block>
+  <h2>Вся система</h2>
+  <div class="card dia">
+    <svg viewBox="0 0 1000 420" role="img" aria-label="Схема: сессия, сайт, человек, тикет">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z"/></marker>
+      </defs>
+      <rect class="zone" x="270" y="40" width="460" height="215" rx="14"/>
+      <text class="z" x="286" y="62">inbox-k7m2x9qa4c3f8t2w-s.pfarm.app</text>
+
+      <g class="n" data-i="n-session"><rect x="20" y="120" width="170" height="110" rx="12"/><text x="105" y="168" text-anchor="middle">Сессия</text><text class="s" x="105" y="188" text-anchor="middle">папка сайта в репозитории</text></g>
+      <g class="n" data-i="n-pages"><rect x="300" y="78" width="400" height="54" rx="12"/><text x="500" y="102" text-anchor="middle">Страницы</text><text class="s" x="500" y="120" text-anchor="middle">статика из хранилища файлов</text></g>
+      <g class="n new" data-i="n-db"><rect x="300" y="168" width="180" height="62" rx="12"/><text x="390" y="195" text-anchor="middle">База сайта</text><text class="s" x="390" y="213" text-anchor="middle">свои таблицы</text></g>
+      <g class="n new" data-i="n-kit"><rect x="520" y="168" width="180" height="62" rx="12"/><text x="610" y="195" text-anchor="middle">Панель</text><text class="s" x="610" y="213" text-anchor="middle">C · A · Отправить</text></g>
+      <g class="n" data-i="n-human"><rect x="810" y="120" width="170" height="110" rx="12"/><text x="895" y="168" text-anchor="middle">Человек</text><text class="s" x="895" y="188" text-anchor="middle">компьютер, телефон</text></g>
+      <g class="n" data-i="n-ticket"><rect x="410" y="330" width="180" height="58" rx="12"/><text x="500" y="355" text-anchor="middle">Тикет</text><text class="s" x="500" y="373" text-anchor="middle">все комментарии разом</text></g>
+
+      <g class="a" data-i="a-remove"><path d="M90 120 C90 40 200 52 268 52" marker-end="url(#ah)"/><path class="hit" d="M90 120 C90 40 200 52 268 52"/><text class="s" x="118" y="48">удалить</text></g>
+      <g class="a" data-i="a-publish"><path d="M190 145 C245 145 250 105 298 105" marker-end="url(#ah)"/><path class="hit" d="M190 145 C245 145 250 105 298 105"/><text class="s" x="196" y="112">выложить</text></g>
+      <g class="a" data-i="a-sessdb"><path d="M192 200 L298 200" marker-start="url(#ah)" marker-end="url(#ah)"/><path class="hit" d="M192 200 L298 200"/><text class="s" x="245" y="222" text-anchor="middle">читает, пишет</text></g>
+      <g class="a" data-i="a-pagedb"><path d="M390 134 L390 166" marker-start="url(#ah)" marker-end="url(#ah)"/><path class="hit" d="M390 134 L390 166"/><text class="s" x="400" y="155">код страницы</text></g>
+      <g class="a" data-i="a-rows"><path d="M518 200 L482 200" marker-end="url(#ah)"/><path class="hit" d="M518 200 L482 200"/></g>
+      <g class="a" data-i="a-open"><path d="M810 145 C760 145 750 105 702 105" marker-end="url(#ah)"/><path class="hit" d="M810 145 C760 145 750 105 702 105"/><text class="s" x="742" y="112">открывает</text></g>
+      <g class="a" data-i="a-keys"><path d="M808 200 L702 200" marker-end="url(#ah)"/><path class="hit" d="M808 200 L702 200"/><text class="s" x="755" y="222" text-anchor="middle">C · A</text></g>
+      <g class="a" data-i="a-submit"><path d="M610 232 C610 300 660 359 592 359" marker-end="url(#ah)"/><path class="hit" d="M610 232 C610 300 660 359 592 359"/><text class="s" x="650" y="300">Отправить</text></g>
+      <g class="a" data-i="a-work"><path d="M408 359 C230 359 105 330 105 232" marker-end="url(#ah)"/><path class="hit" d="M408 359 C230 359 105 330 105 232"/><text class="s" x="170" y="350">работа сессии</text></g>
+    </svg>
+  </div>
+  <div class="say">Нажми на блок или стрелку.</div>
+</section>
+
+<section id="address" data-block>
+  <h2>Адрес</h2>
+  <div class="addr">
+    <button data-i="ad-name">inbox<small>имя</small></button>
+    <button class="sec" data-i="ad-secret">-k7m2x9qa4c3f8t2w<small>секрет · адрес выдан сам</small></button>
+    <button data-i="ad-domain"><span class="chg" data-chg="d-tail">-s</span>.pfarm.app<small>хвост и домен флота</small></button>
+  </div>
+  <div class="addr chg" data-chg="u-manual">
+    <button data-i="ad-manual">inbox-s.pfarm.app<small>адрес назван вручную</small></button>
+    <button class="no" data-i="ad-taken">занят → отказ<small>чужой сайт цел</small></button>
+  </div>
+  <div class="rail">
+    <button data-i="lc-new">Выложить<small>имя новое → новый адрес</small></button>
+    <button class="ar" data-i="lc-a1" aria-label="дальше">→</button>
+    <button data-i="lc-again">Выложить ещё раз<small>адрес тот же, едут изменённые файлы</small></button>
+    <button class="ar" data-i="lc-a2" aria-label="дальше">→</button>
+    <button data-i="lc-remove">Удалить<small>адрес пуст, база стёрта, имя свободно</small></button>
+  </div>
+  <div class="say">Нажми на часть адреса или шаг.</div>
+</section>
+
+<section id="store" data-block class="chg" data-chg="arch-store">
+  <h2>Где что лежит</h2>
+  <div class="card dia">
+    <svg viewBox="0 0 1000 200" role="img" aria-label="Схема: имена флота, запись сайта, содержимое, база сайта">
+      <g class="n new" data-i="st-name"><rect x="20" y="65" width="210" height="70" rx="12"/><text x="125" y="95" text-anchor="middle">Имена флота</text><text class="s" x="125" y="115" text-anchor="middle">inbox → адрес</text></g>
+      <g class="n" data-i="st-site"><rect x="330" y="65" width="250" height="70" rx="12"/><text x="455" y="95" text-anchor="middle">Запись сайта</text><text class="s" x="455" y="115" text-anchor="middle">под адресом: флот, проект, файлы</text></g>
+      <g class="n" data-i="st-content"><rect x="700" y="15" width="280" height="70" rx="12"/><text x="840" y="45" text-anchor="middle">Содержимое</text><text class="s" x="840" y="65" text-anchor="middle">по отпечатку, общее с файлами сессий</text></g>
+      <g class="n new" data-i="st-db"><rect x="700" y="115" width="280" height="70" rx="12"/><text x="840" y="145" text-anchor="middle">База сайта</text><text class="s" x="840" y="165" text-anchor="middle">страница, сессия, панель</text></g>
+      <g class="a" data-i="st-a1"><path d="M232 100 L328 100" marker-end="url(#ah)"/><path class="hit" d="M232 100 L328 100"/><text class="s" x="280" y="90" text-anchor="middle">имя</text></g>
+      <g class="a" data-i="st-a2"><path d="M582 88 C640 88 640 50 698 50" marker-end="url(#ah)"/><path class="hit" d="M582 88 C640 88 640 50 698 50"/><text class="s" x="612" y="56">путь</text></g>
+      <g class="a" data-i="st-a3"><path d="M582 112 C640 112 640 150 698 150" marker-end="url(#ah)"/><path class="hit" d="M582 112 C640 112 640 150 698 150"/><text class="s" x="606" y="156">адрес</text></g>
+    </svg>
+  </div>
+  <div class="say">Нажми на блок или стрелку.</div>
+</section>
+
+<section id="panel" data-block>
+  <h2>Панель: попробуй здесь</h2>
+  <div class="card keys">
+    <div class="key"><div class="cap">C</div><span class="chg" data-chg="u-pin"><b>Комментарий</b>элемент под курсором обведён, нажатие привязывает комментарий к нему; выделен текст — сразу к его элементу</span></div>
+    <div class="key"><div class="cap">A</div><span class="chg" data-chg="u-seen"><b>Просмотрено</b>непросмотренный блок жёлтый целиком; A гасит фон; новая правка в блоке — он снова жёлтый</span></div>
+    <div class="key"><div class="cap">↵</div><span><b>Отправить</b>все комментарии одним тикетом</span></div>
+  </div>
+  <div class="rail">
+    <button data-i="sw-both">Комментарии и метки<small>так выкладывается сайт без настроек</small></button>
+    <button data-i="sw-marks">Только метки<small>comments: false</small></button>
+    <button data-i="sw-none">Без панели<small>comments: false, marks: false <span class="chg" data-chg="arch-kit-none">· sb.db остаётся</span></small></button>
+  </div>
+  <div class="say">Панель внизу этой страницы — пример: метки-комментарии и «просмотрено» живут в этом браузере, «Отправить» показывает тикет в блоке ниже. Нажми метку — откроется комментарий.</div>
+</section>
+
+<section id="ticket" data-block>
+  <h2>Тикет</h2>
+  <div class="card">
+    <pre id="ticket-body">Комментарии к сайту inbox · 3
+https://inbox-k7m2x9qa4c3f8t2w-s.pfarm.app/ · коммит a1b2c3d
+
+1. Блок «Очередь поста» · элемент «Срочный тикет»
+   > срочный встаёт впереди старших
+   А если срочных два — кто первый?
+
+2. Блок «Эталоны» · элемент «8 · Отправить»
+   Нет эталона на пустую очередь.
+
+3. Блок «Порядок» · элемент «Шаг 3»
+   Шаг 3 раньше шага 2.</pre>
+  </div>
+  <div class="rail">
+    <button data-i="tk-draft">Черновики<small>строки в базе сайта</small></button>
+    <button class="ar" data-i="tk-a1" aria-label="дальше">→</button>
+    <button data-i="tk-send">Отправить<small>один тикет <span class="chg" data-chg="arch-tk-by">· от службы сайтов</span></small></button>
+    <button class="ar" data-i="tk-a2" aria-label="дальше">→</button>
+    <button data-i="tk-to">Исполнитель<small>назван при выкладке</small></button>
+    <button class="ar" data-i="tk-a3" aria-label="дальше">→</button>
+    <button data-i="tk-mark">Комментарии помечены<small>номером тикета</small></button>
+  </div>
+  <div class="say">Нажми на шаг или стрелку.</div>
+</section>
+
+<section id="db" data-block>
+  <h2>База сайта</h2>
+  <div class="card dia">
+    <svg viewBox="0 0 1000 200" role="img" aria-label="Схема: страница и сессия работают с одной базой">
+      <g class="n" data-i="db-page"><rect x="20" y="60" width="220" height="80" rx="12"/><text x="130" y="95" text-anchor="middle">Код страницы</text><text class="s" x="130" y="115" text-anchor="middle">sb.db("select …")</text></g>
+      <g class="n new" data-i="db-own"><rect x="370" y="20" width="260" height="70" rx="12"/><text x="500" y="50" text-anchor="middle">Таблицы сайта</text><text class="s" x="500" y="70" text-anchor="middle">votes · tasks · что угодно</text></g>
+      <g class="n new" data-i="db-kit"><rect x="370" y="110" width="260" height="70" rx="12"/><text x="500" y="140" text-anchor="middle">Таблицы панели</text><text class="s" x="500" y="160" text-anchor="middle">sb_comments · sb_marks</text></g>
+      <g class="n" data-i="db-session"><rect x="760" y="60" width="220" height="80" rx="12"/><text x="870" y="95" text-anchor="middle">Сессия</text><text class="s" x="870" y="115" text-anchor="middle">site_db</text></g>
+      <g class="a" data-i="db-a1"><path d="M242 100 L368 100" marker-start="url(#ah)" marker-end="url(#ah)"/><path class="hit" d="M242 100 L368 100"/></g>
+      <g class="a" data-i="db-a2"><path d="M758 100 L632 100" marker-start="url(#ah)" marker-end="url(#ah)"/><path class="hit" d="M758 100 L632 100"/></g>
+    </svg>
+  </div>
+  <div class="say">Нажми на блок или стрелку.</div>
+</section>
+
+<section id="loop" data-block>
+  <h2>Дизайн — результат работы</h2>
+  <div class="rail">
+    <button data-i="lp-task">Тикет<small>«сделай дизайн»</small></button>
+    <button class="ar" data-i="lp-a1" aria-label="дальше">→</button>
+    <button data-i="lp-edit">Папка в репозитории<small>сессия пишет страницу</small></button>
+    <button class="ar" data-i="lp-a2" aria-label="дальше">→</button>
+    <button data-i="lp-commit">Коммит<small>a1b2c3d</small></button>
+    <button class="ar" data-i="lp-a3" aria-label="дальше">→</button>
+    <button class="new" data-i="lp-site">Сайт<small>помнит коммит a1b2c3d</small></button>
+    <button class="ar" data-i="lp-a4" aria-label="дальше">→</button>
+    <button data-i="lp-done">Вердикт «сдал»<small>ссылка на сайт</small></button>
+    <button class="ar" data-i="lp-a5" aria-label="дальше">→</button>
+    <button data-i="lp-read">Человек<small>C, A, Отправить</small></button>
+    <button class="ar" data-i="lp-a6" aria-label="в начало">↩</button>
+  </div>
+  <div class="grid">
+    <div class="card tile"><b>a1b2c3d</b><span>сайт и коммит совпадают — панель показывает номер коммита</span></div>
+    <div class="card tile"><b style="color:var(--wait)">не в коммите</b><span>в папке есть правки вне коммита — панель говорит это вместо номера</span></div>
+    <div class="card tile"><b>скил «артефакт»</b><span>одна инструкция сессии: страница в папке → коммит → выложить → ссылка в вердикте</span></div>
+  </div>
+  <div class="say">Нажми на шаг или стрелку.</div>
+</section>
+
+<section id="etalons" data-block>
+  <h2>Эталоны</h2>
+  <div class="grid">
+    <div class="card et"><h3>1 · Новый сайт <small>слово</small></h3><div class="flow"><span>name: inbox</span><i>→</i><span class="ok">inbox-‹секрет›.домен</span><i>·</i><span class="ok">файлы байт в байт</span><i>·</i><mark class="chg" data-chg="arch-et1" style="color:inherit">в HTML — одна строка панели</mark></div></div>
+    <div class="card et"><h3>2 · Тот же адрес <small>код</small></h3><div class="flow"><span>3 файла, 1 изменён</span><i>→</i><span class="ok">адрес тот же</span><i>·</i><span class="ok">загружен 1</span></div></div>
+    <div class="card et"><h3>3 · Удаление <small>слово</small></h3><div class="flow"><span>удалить inbox</span><i>→</i><span class="no">404</span><i>·</i><span class="ok">база пуста</span><i>·</i><span class="ok">имя свободно</span></div></div>
+    <div class="card et"><h3>4 · Чужой флот <small>код</small></h3><div class="flow"><span>другой флот: inbox</span><i>→</i><span class="ok">другой адрес</span><i>·</i><span class="no">чужой не тронуть</span></div></div>
+    <div class="card et"><h3>5 · Одна база <small>слово</small></h3><div class="flow"><span>сессия пишет строку</span><i>→</i><span class="ok">страница читает её</span><i>·</i><span class="ok">и обратно</span></div></div>
+    <div class="card et"><h3>6 · Клавиша C <small>слово</small></h3><div class="flow"><mark class="chg" data-chg="u-et6" style="color:inherit">клавиша C в любой раскладке, нажатие по элементу</mark><i>→</i><span class="ok">метка у этого элемента</span><i>·</i><mark class="chg" data-chg="u-et6b" style="color:inherit">страница сверстана иначе → метка у того же элемента</mark><i>·</i><span class="ok">жив после перезагрузки</span><i>·</i><span class="no">в поле ввода — буква</span></div></div>
+    <div class="card et"><h3>7 · Клавиша A и выключатели <small>слово</small></h3><div class="flow"><mark class="chg" data-chg="u-et7c" style="color:inherit">клавиша A в любой раскладке</mark><i>→</i><mark class="chg" data-chg="u-et7" style="color:inherit">блок просмотрен, фон блока обычный</mark><i>·</i><span>ещё раз</span><i>→</i><span class="ok">снято</span><i>·</i><mark class="chg" data-chg="u-et7b" style="color:inherit">новая правка → весь блок снова жёлтый</mark><i>·</i><span>обе выключены</span><i>→</i><span class="no">панели нет</span><i>·</i><mark class="chg" data-chg="arch-et7" style="color:inherit">sb.db есть</mark></div></div>
+    <div class="card et"><h3>8 · Отправить <small>слово</small></h3><div class="flow"><span>3 черновика</span><i>→</i><span class="ok">1 тикет, 3 пункта</span><i>·</i><span>0 черновиков</span><i>→</i><span class="no">тикета нет</span></div></div>
+    <div class="card et"><h3>9 · Коммит <small>слово</small></h3><div class="flow"><span>папка в коммите</span><i>→</i><span class="ok">a1b2c3d</span><i>·</i><span>есть правки</span><i>→</i><span class="no">не в коммите</span></div></div>
+    <div class="card et chg" data-chg="u-et10"><h3>10 · Ручной адрес <small>слово</small></h3><div class="flow"><span>address: inbox</span><i>→</i><span class="ok">inbox.домен</span><i>·</i><span>занят</span><i>→</i><span class="no">отказ, чужой сайт цел</span></div></div>
+  </div>
+</section>
+
+<section id="forks" data-block>
+  <h2>Развилки</h2>
+  <div class="card fork"><h3>Кто может открыть сайт, комментировать и писать в базу</h3>
+    <div class="opts"><div class="opt rec"><b>рекомендую · так и будет</b>Тот, у кого ссылка: секрет в адресе. Так сайты сессий работают сегодня. У комментария нет автора.</div><div class="opt"><b>иначе</b>Вход человеком флота, у комментария автор. Нужен отдельный вход для сайтов — отдельный дизайн.</div></div></div>
+  <div class="card fork"><h3>Домен</h3>
+    <div class="opts"><div class="opt rec chg" data-chg="d-fork"><b>сделано</b>‹сайт›-s.pfarm.app на проде, ‹сайт›-t.pfarm.app на тесте. Опыт показал: адреса без хвоста отдали бы сайтам все свободные и чужие поддомены домена.</div><div class="opt"><b>иначе</b>Отдельный домен только для сайтов: чужой код дальше от пульта, цена — домен.</div></div></div>
+  <div class="card fork"><h3>«Синхронизация кодов»: как я понял пункт 7</h3>
+    <div class="opts"><div class="opt rec"><b>рекомендую · так и будет</b>Источник сайта — папка в репозитории. Сайт помнит коммит, с которого выложен; тикет с комментариями называет этот коммит.</div><div class="opt"><b>иначе</b>Выкладка отказывает, пока в папке есть правки вне коммита. Строже, но черновик из временной папки не выложить.</div></div></div>
+  <div class="card fork"><h3>Правило устава о скрипте меток</h3>
+    <div class="opts"><div class="opt rec"><b>рекомендую · жду «да»</b>После шага 5 метки ставит панель сайта. Строка устава «скрипт меток — отдельный последний script, прогон в jsdom» снимается.</div><div class="opt"><b>иначе</b>Строка остаётся, страницы дизайна несут свой скрипт рядом с панелью.</div></div></div>
+  <div class="card fork chg" data-chg="arch-fork-free"><h3>Бесплатный лимит: базы сайтов и записи флота пишут в один суточный запас</h3>
+    <div class="grid"><div class="card tile"><b>100 000</b><span>строк записи в сутки на весь аккаунт Cloudflare — тикеты флота и базы всех сайтов вместе</span></div><div class="card tile"><b>100 000</b><span>запросов в сутки — пульт, файлы сайтов и запросы страниц к базе вместе</span></div></div>
+    <div class="opts"><div class="opt rec"><b>рекомендую · так и будет</b>Своих пределов на сайт нет. Запас кончился — отказ словом и строка журнала; в полночь UTC запас новый.</div><div class="opt"><b>иначе</b>Суточный предел записи на каждый сайт — свой счётчик и своя настройка.</div></div></div>
+</section>
+
+<section id="gate" data-block>
+  <h2>Гейт</h2>
+  <div class="grid">
+    <div class="card tile"><b><span class="chg" data-chg="arch-g1">5 → 0</span></b><span>дубликатов: кто отдаёт сайт, где живут метки, копии скрипта меток, два способа показать страницу<span class="chg" data-chg="arch-g2">, два способа скрипту панели попасть в страницу</span></span></div>
+    <div class="card tile"><b>1 → 3</b><span>инструменты сессии: выложить, удалить, база</span></div>
+    <div class="card tile"><b>0 → 3</b><span>входы страницы: панель, база, отправка</span></div>
+    <div class="card tile"><b>0</b><span>новых секретов, очередей и фоновых работ</span></div>
+  </div>
+  <pre class="chg" data-chg="arch-gate">Гейт: дубликаты ответственности 1 → 0 · состояния 1 → 0 · логики 1 → 0 · смысла 0 → 0 · других 2 → 0 · лишние коммуникации 0 → 0 · циклы 0 → 0
+Числа: модули служб 13 → 14 · инструменты сессии 1 → 3 · входы страницы 0 → 3 · запросы между частями 1 → 1 (запись сайта) · входы для соседних служб +2 (тикет от службы у «Фабрики», чтение содержимого у службы файлов) · адреса сайтов 1 → 1 (путь на адресе пульта → свой поддомен) · секреты 0 → 0 · настройки сайта 0 → 4 (с ручным адресом) · хранилища +2 (имена флота, база на сайт; запись сайта под адресом есть сегодня) · способы скрипту панели попасть в страницу 2 → 1 · ветки сбоев +0 · эталоны +10
+Работа: большая — меняет адрес сайтов, вход страницы и хранилище
+Сделано:
+  1. Один владелец · «сайт» · сайт отдавала служба файлов, которая хранит содержимое → отдельный модуль сайтов, содержимое по-прежнему у службы файлов
+  2. Юнификация · комментарии и метки · не своё хранилище, а строки в базе сайта: сессия читает их тем же инструментом, что и остальные таблицы
+  3. Дубликат логики · скрипт меток · копия в каждой странице дизайна → один скрипт панели, его отдаёт сервер
+  4. Второй механизм · показ страницы человеку · артефакт в чужой системе и сайт → сайт
+  5. Второй механизм · скрипт панели · добавляет только сервер, всегда одной строкой; выключатели решают, что панель показывает; сама страница его не подключает
+  6. Служебное отдельно от пользовательского · блок «Где что лежит» · флот, файлы, исполнитель — в записи сайта; в базе сайта только то, что пишут страница, сессия и панель
+  7. Явное · тикет с комментариями · заводит служба сайтов от адреса .sites в проекте выложившей сессии; нет проекта — отказ словом
+  8. Удаление раньше добавления · старый адрес сайта и песочница браузера сняты: у сайта свой источник; списка сайтов и экрана в пульте нет — их никто не просил
+  9. Платформа раньше своего · поддомены — маршрут и сертификат Cloudflare, база — SQLite объекта Cloudflare, коммит — git
+Развилки пользователю: 5 — в блоке «Развилки»; не скажете иначе — рекомендованные
+Не трогал как редакторское: имена инструментов и таблиц; «design» в примерах — и проект, и пост, и сессия</pre>
+</section>
+
+<section id="order" data-block>
+  <h2>Порядок реализации</h2>
+  <div class="card steps">
+    <div class="step"><b>1</b><div><h3>Адрес</h3><p>Модуль сайтов: поддомен с секретом <span class="chg" data-chg="u-step1">или названный вручную</span>, имя, повторная выкладка, удаление. Старый адрес и песочница сняты.</p><p class="done">эталоны 1–4 <span class="chg" data-chg="u-step1b">и 10 — 5 из 5</span>; на тестовом флоте: выложить → 200 и файл байт в байт, удалить → 404 — 2 из 2.</p></div></div>
+    <div class="step"><b>2</b><div><h3>База сайта</h3><p>Инструмент сессии и вход страницы к одним таблицам.</p><p class="done">эталон 5 — 1 из 1; на тестовом флоте строка сессии прочитана страницей — 1 из 1.</p></div></div>
+    <div class="step"><b>3</b><div><h3>Панель</h3><p><span class="chg" data-chg="u-step3">Комментарии, привязанные к элементам страницы, и «просмотрено»</span> — строками базы, выключатели при выкладке.</p><p class="done">эталоны 6–7 в браузере, клавиши в трёх раскладках (латинская, русская, украинская) и пальцем — 8 жестов из 8; снимки 1280 и 390, светлая и тёмная — 4.</p></div></div>
+    <div class="step"><b>4</b><div><h3>Отправка тикетом</h3><p>Все черновики — один тикет исполнителю, названному при выкладке.</p><p class="done">эталон 8 — 1 из 1; на тестовом флоте 3 комментария → 1 тикет в очереди — 1 из 1.</p></div></div>
+    <div class="step"><b>5</b><div><h3>Скил и процесс</h3><p>Скил «артефакт»; скил дизайна выкладывает сайтом; сайт помнит коммит.</p><p class="done">эталон 9 — 1 из 1; эта страница выложена сайтом по скилу, своих скриптов меток в ней 0.</p></div></div>
+  </div>
+</section>
+</main>
+
+<div id="kit"><div class="in">
+  <div class="row">
+    <button id="kit-c" type="button">💬 Комментарий · C</button>
+    <button id="kit-a" type="button">✓ Просмотрено · A</button>
+    <button id="kit-go" class="go" type="button" disabled>Отправить</button>
+  </div>
+</div></div>
+
+<script>
+// пояснения к блокам и стрелкам
+(() => {
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const J = (o) => "<pre>" + esc(typeof o === "string" ? o : JSON.stringify(o, null, 2)) + "</pre>";
+  const SAY = {
+    "n-session": ["Сессия.", "Пишет сайт в папке своего репозитория и выкладывает её. Выложить, обновить и удалить сайт может любая сессия флота — по имени сайта."],
+    "n-pages": ["Страницы.", "Обычная статика: HTML, стили, скрипты, картинки. Файлы лежат в хранилище, отдаёт их сервер флота; компьютер сессии может быть выключен."],
+    "n-db": ["База сайта.", "У каждого сайта своя база SQLite. В ней и таблицы самой страницы, и комментарии с метками."],
+    "n-kit": ["Панель.", "Один скрипт, сервер сам добавляет его в страницы сайта. Ловит C и A, показывает метки комментариев на странице и кнопку «Отправить». На телефоне те же действия — кнопками панели. <span class='chg' data-chg='arch-block'>Блок — элемент страницы с меткой data-block и своим id: так страницы дизайна размечены уже сегодня.</span> <span class='chg' data-chg='main-noblock'>На странице без таких меток блок один — вся страница.</span>"],
+    "n-human": ["Человек.", "Открывает ссылку из ленты сессии или из тикета. Ссылка и есть пропуск."],
+    "n-ticket": ["Тикет.", "Обычный тикет флота: с номером, исполнителем и вердиктом. В тексте — все комментарии по порядку, адрес сайта и коммит."],
+    "a-publish": ["Выложить.", "name — имя сайта во флоте; feedback — кому пойдёт тикет с комментариями (пост или сессия; не назван — сама сессия, срок сутки)." + J({ tool: "site_publish", input: { to: "design@laptop", dir: "docs/designs/inbox", name: "inbox", feedback: "design" }, output: { url: "https://inbox-k7m2x9qa4c3f8t2w-s.pfarm.app/", files: 4, size: 61250, commit: "a1b2c3d" } })],
+    "a-remove": ["Удалить.", "Адрес перестаёт отвечать, база сайта стирается, имя свободно." + J({ tool: "site_remove", input: { name: "inbox" }, output: { removed: true } })],
+    "a-sessdb": ["Сессия и база.", "Любой запрос SQL к базе сайта: прочитать комментарии, завести таблицу, наполнить данными." + J({ tool: "site_db", input: { name: "inbox", sql: "select block, quote, text from sb_comments where ticket is null" }, output: { rows: [{ block: "queue", quote: "срочный встаёт впереди старших", text: "А если срочных два — кто первый?" }] } })],
+    "a-pagedb": ["Страница и база.", "Код страницы зовёт базу своего сайта одной функцией; её даёт скрипт панели." + J('const rows = await sb.db("select * from votes where day = ?", today);')],
+    "a-rows": ["Панель пишет в базу.", "Комментарий и метка «просмотрено» — строки в таблицах панели. Поэтому они одни на всех устройствах и видны сессии."],
+    "a-open": ["Открыть.", "Сервер находит сайт по поддомену и отдаёт файл из хранилища. Входа нет: адрес нельзя угадать."],
+    "a-keys": ["Клавиши.", "C и A работают в любой раскладке — русской, украинской, какой угодно: панель узнаёт клавишу по её месту на клавиатуре, а не по букве. В поле ввода это обычные буквы."],
+    "a-submit": ["Отправить.", "Сервер собирает все неотправленные комментарии в один тикет и ставит на них его номер." + J({ request: "POST /_sb/submit", response: { ticket: "design-12", comments: 3 } })],
+    "a-work": ["Работа.", "Тикет приходит исполнителю, как любой другой: сессия правит папку, выкладывает снова и сдаёт вердикт."],
+
+    "ad-name": ["Имя.", "Даёт сессия. Во флоте имя одно: выложить с тем же именем — обновить тот же сайт."],
+    "ad-secret": ["Секрет.", "16 случайных знаков, выдаются один раз при первой выкладке. Из-за них адрес нельзя подобрать; в открытые списки сертификатов поддомен не попадает — сертификат один на все сайты."],
+    "ad-domain": ["Хвост и домен флота.", "<span class='chg' data-chg='d-tail-say'>У адресов сайтов свой хвост: -s на проде, -t на тесте. По нему сервер Cloudflare отличает сайты от остальных поддоменов домена — чужие адреса сайты не задевают.</span> У каждого сайта свой поддомен, значит свой источник в браузере: localStorage и cookies у сайта свои, к пульту он доступа не имеет."],
+    "ad-manual": ["Ручной адрес.", "Сессия называет поддомен сама — при первой выкладке; сменить — удалить сайт и выложить снова. Такой адрес можно угадать: сайт, его комментарии и база открыты каждому, кто его наберёт." + J({ tool: "site_publish", input: { to: "design@laptop", dir: "docs/designs/inbox", name: "inbox", address: "inbox" }, output: { url: "https://inbox-s.pfarm.app/", files: 4, size: 61250, commit: "a1b2c3d" } })],
+    "ad-taken": ["Занятый поддомен.", "Занят — значит под ним уже есть сайт: своего флота под другим именем или чужого. Адреса пульта и соседей по домену сайту недоступны совсем — у них нет хвоста сайтов. Выкладка отвечает отказом и ничего не меняет." + J({ tool: "site_publish", input: { to: "design@laptop", dir: "out/site", name: "second", address: "inbox" }, output: { ok: false, error: "taken", why: "адрес inbox-s.pfarm.app занят другим сайтом" } })],
+    "lc-new": ["Первая выкладка.", "Сервер записывает имя в список сайтов флота и выдаёт секрет."],
+    "lc-a1": ["Адрес не меняется.", "Имя уже в списке флота — секрет берётся оттуда."],
+    "lc-again": ["Повторная выкладка.", "Сравниваются отпечатки файлов; в хранилище едут только те, которых там ещё нет. Сайт переключается на новый список файлов разом."],
+    "lc-a2": ["Удаляет сессия.", "Любая сессия флота, по имени."],
+    "lc-remove": ["Удаление.", "Имя убрано из списка, база стёрта. Содержимое файлов остаётся в общем хранилище флота: оно там лежит по отпечатку, как все файлы сессий."],
+
+    "st-name": ["Имена флота.", "Список «имя → адрес», у каждого флота свой. По нему повторная выкладка, удаление и запрос сессии к базе находят сайт; сайт чужого флота по имени не достать."],
+    "st-a1": ["Имя → адрес.", "Сессия называет имя — сервер берёт адрес из списка её флота. Секрет выдан один раз и лежит только здесь."],
+    "st-site": ["Запись сайта.", "Лежит под самим адресом: по поддомену сервер находит сайт, не зная флота. В ней флот, проект, список «путь → отпечаток», коммит, выключатели панели и исполнитель тикетов. Выкладка заменяет её целиком — сайт переключается разом. Так список сайта хранится и сегодня." + J({ fleet: "home", project: "design", name: "inbox", commit: "a1b2c3d", comments: true, marks: true, feedback: "design", files: { "index.html": { hash: "9f2c…", size: 51250 } } })],
+    "st-a2": ["Путь → файл.", "Сервер берёт отпечаток из записи и читает содержимое у службы файлов."],
+    "st-content": ["Содержимое.", "Файлы под своим отпечатком, одно хранилище на флот — то же, где лежат файлы сессий. Его держит служба файлов; сайт под своим именем там ничего не хранит."],
+    "st-a3": ["Адрес → база.", "Запрос страницы приходит на адрес сайта — база у адреса одна."],
+    "st-db": ["База сайта.", "Только то, что пишут страница, сессия и панель. Служебного в ней нет: запросом SQL со страницы не сменить ни файлы сайта, ни исполнителя тикетов."],
+
+    "sw-both": ["Обе системы.", "Сервер добавляет скрипт панели в каждую HTML-страницу сайта. <span class='chg' data-chg='arch-kit-line'>Строка одна и всегда та же; остальные файлы уходят байт в байт.</span>" + J({ tool: "site_publish", input: { to: "design@laptop", dir: "docs/designs/inbox", name: "inbox" } })],
+    "sw-marks": ["Только метки.", "В панели нет комментариев и кнопки «Отправить»." + J({ tool: "site_publish", input: { to: "design@laptop", dir: "out/report", name: "report", comments: false } })],
+    "sw-none": ["Обе выключены.", "<span class='chg' data-chg='arch-kit-one'>Панели на странице нет. Строка скрипта та же — она даёт странице функцию базы. Сама страница скрипт не подключает: способ попасть в страницу у него один.</span>" + J({ tool: "site_publish", input: { to: "game@laptop", dir: "out/game", name: "game", comments: false, marks: false } })],
+
+    "tk-draft": ["Черновики.", "Комментарий сразу сохраняется строкой в базе сайта, без номера тикета. На странице это жёлтая метка у угла элемента, к которому он привязан; нажатие по метке обводит элемент и открывает текст, его можно удалить."],
+    "tk-a1": ["Одно нажатие.", "Кнопка «Отправить» в панели, рядом число черновиков."],
+    "tk-send": ["Один тикет.", "Название — «Комментарии к сайту ‹имя› · ‹число›», текст — как в примере выше. <span class='chg' data-chg='arch-tk-who'>Заводит его служба сайтов: у того, кто открыл ссылку, пропуска флота нет. Автор тикета — .sites, проект — тот, в котором сессия выложила сайт. Проекта у сессии не было — «Отправить» отвечает отказом словом, черновики остаются.</span>" + J({ ticket: { project: "design", by: ".sites", to: "design", title: "Комментарии к сайту inbox · 3", text: "…" } })],
+    "tk-a2": ["Кому.", "Сервер знает исполнителя из выкладки."],
+    "tk-to": ["Исполнитель.", "Пост проекта или сессия — поле feedback при выкладке. Не названо — сессия, которая выложила сайт, срок сутки. <span class='chg' data-chg='arch-tk-ask'>Вопросы исполнителя по такому тикету идут человеку, которого проект зовёт, когда тикет встал.</span> <span class='chg' data-chg='main-closed'>Исполнителя-сессии уже нет — «Отправить» отказывает словом, черновики остаются.</span>"],
+    "tk-a3": ["После отправки.", "Те же строки базы получают номер тикета."],
+    "tk-mark": ["Помечены.", "Метка становится серой, в ней номер тикета. Ответ сессии — поле reply той же строки: он виден в метке. Новые комментарии — снова черновики, уйдут следующим тикетом."],
+
+    "db-page": ["Код страницы.", "Функция из скрипта панели. Запрос идёт на адрес своего сайта, значит только в свою базу." + J('await sb.db("create table if not exists votes (day text, n int)");\nawait sb.db("insert into votes values (?, ?)", today, 1);\nconst rows = await sb.db("select * from votes");')],
+    "db-own": ["Таблицы сайта.", "Заводит кто угодно из двух — страница или сессия. Схему никто заранее не описывает."],
+    "db-kit": ["Таблицы панели.", "sb_comments: блок, элемент в нём (его id либо путь от блока), подпись элемента, цитата, текст, номер тикета, ответ сессии. Метка стоит у элемента при любой ширине экрана; элемента после новой выкладки нет — метка встаёт на блок. sb_marks: блок и правки, которые человек в нём видел, — по ним панель красит фон блока целиком. Обычные таблицы той же базы." + J({ sb_comments: [{ id: 7, block: "queue", el: "2/0/1", label: "срочный встаёт впереди старших", quote: "срочный встаёт впереди старших", text: "А если срочных два — кто первый?", ticket: null, reply: null }], sb_marks: [{ block: "queue", seen: ["arch-store", "u-pin"] }] })],
+    "db-session": ["Сессия.", "Тот же SQL инструментом флота." + J({ tool: "site_db", input: { name: "inbox", sql: "insert into votes values (?, ?)", params: ["2026-11-27", 3] }, output: { rows: [] } })],
+    "db-a1": ["Страница ↔ база.", "Один запрос страницы — один запрос SQL; ответ — строки." + J({ request: "POST /_sb/db", body: { sql: "select * from votes where day = ?", params: ["2026-11-27"] }, response: { rows: [{ day: "2026-11-27", n: 3 }] } })],
+    "db-a2": ["Сессия ↔ база.", "Сессия называет сайт по имени; чужого флота сайт не достать."],
+
+    "lp-task": ["Тикет.", "Работа «сделай дизайн» приходит сессии тикетом."],
+    "lp-a1": ["Сессия берёт тикет.", "Страница дизайна — файлы в репозитории, не текст в разговоре."],
+    "lp-edit": ["Папка.", "Источник сайта — всегда папка в репозитории. На сайте ничего не правится руками."],
+    "lp-a2": ["Коммит.", "Сессия коммитит папку перед выкладкой — так велит скил."],
+    "lp-commit": ["Коммит.", "Его номер — точка сверки: что выложено и что в репозитории."],
+    "lp-a3": ["Выкладка.", "Компьютер сессии читает номер коммита папки и говорит, есть ли в ней правки вне коммита."],
+    "lp-site": ["Сайт помнит коммит.", "Номер коммита — в ответе выкладки, в панели сайта и в тикете с комментариями." + J({ tool: "site_publish", output: { url: "https://inbox-k7m2x9qa4c3f8t2w-s.pfarm.app/", files: 4, size: 61250, commit: "a1b2c3d" } })],
+    "lp-a4": ["Сдача.", "Работа сдаётся вердиктом, в заметке — ссылка."],
+    "lp-done": ["Вердикт.", "Результат работы — сайт." + J({ tool: "ticket_set", input: { ticket: "design-11", verdict: "done", note: "Дизайн: https://inbox-k7m2x9qa4c3f8t2w-s.pfarm.app/ · коммит a1b2c3d" } })],
+    "lp-a5": ["Человек открывает ссылку.", "Из тикета или из ленты сессии."],
+    "lp-read": ["Чтение.", "A — просмотрено: жёлтый фон блока гаснет. C — комментарий к элементу. «Отправить» — тикет."],
+    "lp-a6": ["Круг.", "Тикет с комментариями — новая работа: сессия правит папку, коммитит, выкладывает на тот же адрес."],
+  };
+  const show = (el) => {
+    const sec = el.closest("section");
+    const [title, body] = SAY[el.dataset.i];
+    for (const x of sec.querySelectorAll("[data-i].on")) x.classList.remove("on");
+    el.classList.add("on");
+    sec.querySelector(".say").innerHTML = "<b>" + title + "</b> " + body;
+  };
+  for (const el of document.querySelectorAll("[data-i]")) {
+    el.addEventListener("click", () => show(el));
+    if (el.tagName !== "BUTTON") { el.setAttribute("tabindex", "0"); el.setAttribute("role", "button"); el.addEventListener("keydown", (e) => e.key === "Enter" && show(el)); }
+  }
+})();
+</script>
+<script>
+// панель: «просмотрено» — клавиша A (латинская или русская), снимает жёлтый фон правок блока; комментарии — клавиша C: комментарий привязан к элементу страницы, метка стоит у его угла; «Отправить» — тикет. Здесь — пример: всё хранится в браузере.
+(() => {
+  const KEY = "sites-design.kit3";
+  let st = { seen: {}, pins: [], sent: 0 };
+  try { st = { ...st, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") }; } catch {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} };
+  const $ = (id) => document.getElementById(id);
+  const blocks = [...document.querySelectorAll("[data-block]")];
+  const title = (s) => s.querySelector("h2").textContent;
+  const el = (tag, cls, text) => { const x = document.createElement(tag); if (cls) x.className = cls; if (text != null) x.textContent = text; return x; };
+  // правки блока: просмотрен он, пока в нём нет правки, которой человек ещё не видел
+  const chgOf = (s) => [...(s.matches("[data-chg]") ? [s] : []), ...s.querySelectorAll("[data-chg]")].filter((e) => !e.closest(".say")).map((e) => e.dataset.chg);
+  const viewed = (s) => !!st.seen[s.id] && chgOf(s).every((c) => st.seen[s.id].includes(c));
+  // якорь комментария — элемент: его имя на схеме либо путь от блока по номерам детей
+  const pick = (t) => t.closest("[data-i]") ?? t.closest("svg") ?? t;
+  const pathOf = (s, e) => { if (e === s) return ""; if (e.dataset?.i) return `[data-i="${e.dataset.i}"]`; const p = []; for (let x = e; x && x !== s; x = x.parentElement) p.unshift([...x.parentElement.children].indexOf(x)); return p.join("/"); };
+  const find = (s, path) => { if (!path) return s; if (path[0] === "[") return s.querySelector(path) ?? s; let x = s; for (const i of path.split("/")) x = x?.children[+i]; return x ?? s; };
+  const nameOf = (e) => (e.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  let over = null, mode = null, hot = null;
+  const pop = el("div"); pop.id = "kit-pop";
+
+  const light = (e) => { hot?.classList.remove("kit-hot"); hot = e; hot?.classList.add("kit-hot"); };
+  const setMode = (m) => { mode = m; document.body.classList.toggle("kit-c", m === "c"); if (!m) light(null); draw(); };
+  const closePop = () => { pop.remove(); light(null); };
+  // где элемент стоит внутри блока: метка — у правого верхнего угла, пузырь — под элементом
+  const spot = (s, e) => { const a = s.getBoundingClientRect(), b = e.getBoundingClientRect(); return { x: b.right - a.left, top: b.top - a.top, bottom: b.bottom - a.top }; };
+  const place = (s, e) => {
+    s.append(pop); light(e);
+    const w = s.clientWidth || 600, at = spot(s, e);
+    pop.style.left = Math.max(0, Math.min(at.x - 150, w - Math.min(300, w))) + "px";
+    pop.style.top = at.bottom + 8 + "px";
+  };
+  const ask = (s, e, quote) => {
+    const text = el("textarea"); text.setAttribute("aria-label", "Комментарий"); text.id = "kit-text";
+    const keep = () => { const t = text.value.trim(); if (t) { st.pins.push({ id: Date.now(), block: s.id, path: pathOf(s, e), label: nameOf(e), quote, text: t, ticket: null }); save(); } closePop(); draw(); };
+    text.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closePop(); if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); keep(); } });
+    pop.replaceChildren(...(quote ? [el("div", "where", "«" + quote + "»")] : []), text);
+    place(s, e); text.focus();
+  };
+  const open = (p) => {
+    const kids = [...(p.quote ? [el("div", "where", "«" + p.quote + "»")] : []), el("p", "", p.text)];
+    if (p.ticket) kids.push(el("div", "where", "тикет " + p.ticket));
+    else { const b = el("button", "", "Удалить"); b.type = "button"; b.onclick = () => { st.pins = st.pins.filter((x) => x.id !== p.id); save(); closePop(); draw(); }; kids.push(b); }
+    pop.replaceChildren(...kids);
+    place($(p.block), find($(p.block), p.path));
+  };
+
+  const draw = () => {
+    for (const s of blocks) s.classList.toggle("read", viewed(s));
+    for (const x of document.querySelectorAll(".pin")) x.remove();
+    st.pins.forEach((p, i) => {
+      const s = $(p.block); if (!s) return;
+      const at = spot(s, find(s, p.path));
+      const b = el("button", "pin" + (p.ticket ? " sent" : ""), String(i + 1)); b.type = "button";
+      b.style.left = at.x - 8 + "px"; b.style.top = at.top + 8 + "px";
+      b.setAttribute("aria-label", "Комментарий " + (i + 1));
+      b.onclick = () => open(p);
+      s.append(b);
+    });
+    const drafts = st.pins.filter((p) => !p.ticket).length;
+    $("kit-go").disabled = !drafts;
+    $("kit-go").textContent = drafts ? "Отправить · " + drafts : "Отправить";
+    $("kit-c").classList.toggle("on", mode === "c");
+    $("kit-a").classList.toggle("on", mode === "a");
+  };
+
+  const mark = (s) => { if (viewed(s)) delete st.seen[s.id]; else st.seen[s.id] = chgOf(s); save(); draw(); };
+  const send = () => {
+    const drafts = st.pins.filter((p) => !p.ticket);
+    if (!drafts.length) return;
+    const id = "design-" + (12 + st.sent++);
+    const lines = drafts.map((p, i) => `${i + 1}. Блок «${title($(p.block))}» · элемент «${p.label}»` + (p.quote ? `\n   > ${p.quote}` : "") + `\n   ${p.text.replace(/\n/g, "\n   ")}`);
+    $("ticket-body").textContent = `Комментарии к сайту sites · ${drafts.length}\nhttps://sites-k7m2x9qa4c3f8t2w-s.pfarm.app/ · коммит a1b2c3d\n\n${lines.join("\n\n")}`;
+    for (const p of drafts) p.ticket = id;
+    save(); closePop(); draw();
+    $("ticket").scrollIntoView({ block: "start" });
+  };
+
+  const inKit = (t) => t.closest("#kit, .pin, #kit-pop");
+  for (const s of blocks) {
+    s.addEventListener("mouseenter", () => { over = s; s.classList.add("over"); });
+    s.addEventListener("mouseleave", () => s.classList.remove("over"));
+  }
+  // в режиме комментария элемент под курсором обведён
+  document.addEventListener("mouseover", (e) => { const t = e.target; if (mode === "c" && t instanceof Element && !inKit(t) && t.closest("[data-block]")) light(pick(t)); });
+  // нажатие в режиме комментария выбирает элемент и не доходит до страницы; режим «просмотрено» с панели — для телефона
+  document.addEventListener("click", (e) => {
+    const t = e.target;
+    if (!(t instanceof Element) || inKit(t)) return;
+    if (!mode) return closePop();
+    const s = t.closest("[data-block]");
+    if (!s) return;
+    e.preventDefault(); e.stopPropagation();
+    const m = mode; setMode(null);
+    m === "a" ? mark(s) : ask(s, pick(t), "");
+  }, true);
+  $("kit-c").onclick = () => setMode(mode === "c" ? null : "c");
+  $("kit-a").onclick = () => setMode(mode === "a" ? null : "a");
+  $("kit-go").onclick = send;
+  window.addEventListener("resize", draw);
+
+  document.addEventListener("keydown", (e) => {
+    const t = e.target;
+    if (e.ctrlKey || e.metaKey || e.altKey || (t instanceof Element && t.matches("input, textarea, select, [contenteditable]"))) return;
+    if (e.key === "Escape") { setMode(null); return closePop(); }
+    // клавиша узнаётся по месту на клавиатуре (code), а не по букве: раскладка любая
+    if (e.code === "KeyA" && over) mark(over);
+    else if (e.code === "KeyC") {
+      e.preventDefault();
+      // выделен текст — комментарий сразу к элементу с этим текстом; иначе режим: следующее нажатие выбирает элемент
+      const sel = window.getSelection?.(); const quote = String(sel ?? "").trim().slice(0, 200);
+      const node = quote && sel.rangeCount ? sel.getRangeAt(0).commonAncestorContainer : null;
+      const e2 = node && (node.nodeType === 1 ? node : node.parentElement);
+      const s = e2?.closest("[data-block]");
+      if (s && !inKit(e2)) ask(s, pick(e2), quote);
+      else setMode(mode === "c" ? null : "c");
+    }
+  });
+  draw();
+})();
+</script>

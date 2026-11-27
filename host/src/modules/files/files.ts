@@ -1,11 +1,11 @@
-// Файлы сессии: отправить человеку файл из папки (file.send), поднять папку сайтом (site.publish) и принять файлы сообщения в папку сессии.
+// Файлы сессии: отправить человеку файл из папки (file.send), выложить папку сайтом флота (site.publish) и принять файлы сообщения в папку сессии.
 // Содержимое лежит в хранилище флота под своим хэшем; в разговоре, ленте и журнале — имя, хэш и размер. Свой шаг один: посчитать хэш →
 // спросить у службы, чего в хранилище нет → загрузить недостающее по ссылке; в обратную сторону — скачать по ссылке и сверить хэш.
-import { createHmac } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { CALL_MS, filesGet, filesPut, filesSite, Refusal, type FileIn } from "@sb/protocol";
+import { CALL_MS, filesGet, filesPut, Refusal, sitesPut, type FileIn } from "@sb/protocol";
 import type { Ctx, HostApi, Module, SessionApi } from "../../core/contract.ts";
 import { fileHash, sha256, storeInto, storePut } from "./store.ts";
 
@@ -13,6 +13,8 @@ import { fileHash, sha256, storeInto, storePut } from "./store.ts";
 const UPLOADS = "uploads";
 /** Строка уведомления в тексте сообщения — единственная запись о его файлах в разговоре. Собирает и разбирает её только этот модуль. */
 const NOTE = "Загружены файлы в папку сессии:";
+/** Предел одного вопроса к git о папке сайта. */
+const GIT_MS = 5000;
 const LINE = /^- (.+) · (\d+) байт · sha256 ([0-9a-f]{64})$/;
 
 /** Что модуль файлов отдаёт соседям этого Host. */
@@ -112,8 +114,14 @@ export function make(o: { limitMs?: number } = {}): Module {
       .sort((a, b) => (a.path < b.path ? -1 : 1));
   }
 
-  /** Номер сайта выводится, а не запоминается: секрет машины, позывной и папка. Та же сессия и та же папка — тот же адрес; без секрета номер не подобрать. */
-  const siteId = (callsign: string, root: string) => createHmac("sha256", host.key).update(`${callsign}\n${resolve(root)}`).digest("hex").slice(0, 32);
+  /** Коммит, с которого выложена папка: её репозиторий git; dirty — в папке есть правки вне коммита. Папка не в git — пусто. */
+  function commitOf(root: string): { commit?: string; dirty?: boolean } {
+    const git = (...args: string[]) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8", timeout: GIT_MS, windowsHide: true });
+    const head = git("rev-parse", "--short", "HEAD");
+    if (head.status !== 0) return {};
+    const changed = git("status", "--porcelain", "--", ".");
+    return { commit: head.stdout.trim(), dirty: changed.status !== 0 || changed.stdout.trim() !== "" };
+  }
 
   return {
     name: "host-files",
@@ -132,7 +140,7 @@ export function make(o: { limitMs?: number } = {}): Module {
         return out;
       },
 
-      async "site.publish"({ to, dir, title }: { to: string; dir: string; title?: string }, ctx: Ctx) {
+      async "site.publish"({ to, dir, name, address, title, comments, marks, feedback }: { to: string; dir: string; name: string; address?: string; title?: string; comments?: boolean; marks?: boolean; feedback?: string }, ctx: Ctx) {
         const s = own(to, ctx);
         const t0 = host.clock.now();
         const root = pathOf(s, dir);
@@ -145,11 +153,11 @@ export function make(o: { limitMs?: number } = {}): Module {
           return { path, hash, size: body.length };
         });
         const sent = await upload([...byHash.keys()].map((hash) => ({ hash, size: files.find((f) => f.hash === hash)!.size })), (hash) => readFileSync(byHash.get(hash)!), limit(ctx.signal));
-        const site = siteId(to, root);
-        const { url } = await host.call(filesSite, { site, files });
+        const at = commitOf(root);
+        const { url } = await host.call(sitesPut, { name, callsign: to, files, ...at, ...(address ? { address } : {}), ...(comments === undefined ? {} : { comments }), ...(marks === undefined ? {} : { marks }), ...(feedback ? { feedback } : {}) });
         const size = files.reduce((n, f) => n + f.size, 0);
-        ctx.log.info("site_publish", { callsign: to, site, files: files.length, size, sent, ms: host.clock.now() - t0, ...(title ? { title } : {}) });
-        return { url, files: files.length, size };
+        ctx.log.info("site_publish", { callsign: to, site: name, url, files: files.length, size, sent, ms: host.clock.now() - t0, ...at, ...(title ? { title } : {}) });
+        return { url, files: files.length, size, ...at };
       },
     },
   };

@@ -1,21 +1,24 @@
 // Worker служб v2: без состояния. Вход /call, сервер MCP и вход OAuth для внешних клиентов, проход сокетов в платформу,
-// вебхук Telegram флота (/telegram/<флот>), адреса с секретом для событий снаружи (/h/<флот>/<секрет>), события приложения GitHub флота (/github/<флот>), сайты сессий (/s/<номер>/),
+// вебхук Telegram флота (/telegram/<флот>), адреса с секретом для событий снаружи (/h/<флот>/<секрет>), события приложения GitHub флота (/github/<флот>), сайты флота (свои поддомены: запрос на адрес сайта разбирает модуль сайтов),
 // файлы страницы; потребитель очереди аналитики.
 import type { Deps, Env, Module, PointNote } from "./env.ts";
 import { callHttp, handlersOf } from "./entrance.ts";
-import { analytics, consume, archive, builds, clock, factory, files, github, githubHook, hook, hooks, keys, ledger, mcp, obs, prefs, reach, site, telegram } from "./modules/index.ts";
+import { analytics, consume, archive, builds, clock, factory, files, github, githubHook, hook, hooks, keys, ledger, mcp, obs, prefs, reach, site, sites, telegram } from "./modules/index.ts";
 import { oauth } from "./oauth.ts";
 
 export { Records } from "./records.ts";
 
 /** Модули служб: у каждого имени запроса один хозяин — двое не соберутся. */
-export const MODULES: Module[] = [builds, ledger, archive, files, reach, prefs, keys, github, analytics, obs, clock, factory, hooks];
+export const MODULES: Module[] = [builds, ledger, archive, files, reach, prefs, keys, github, analytics, obs, clock, factory, hooks, sites];
 const handlers = handlersOf(MODULES);
 
 const CALL_PREFLIGHT = { "access-control-allow-origin": "*", "access-control-allow-methods": "POST", "access-control-allow-headers": "authorization, content-type, x-sb-as", "access-control-max-age": "86400" };
 
 /** Запрос к Worker'у; deps — подмена платформы и сети в тестах. */
 export async function serve(req: Request, env: Env, exec: ExecutionContext, deps: Deps = {}): Promise<Response> {
+  // адрес сайта флота — весь его: остальные пути входа на нём не действуют
+  const page = await site(req, env, deps);
+  if (page) return page;
   const { pathname } = new URL(req.url);
   if (pathname === "/call") {
     // страница с другого источника (разработка фронта на живом флоте): вход — пропуск в заголовке, куки не используются
@@ -32,7 +35,6 @@ export async function serve(req: Request, env: Env, exec: ExecutionContext, deps
   if (pathname.startsWith("/telegram/")) return telegram(req, env, exec, deps);
   if (pathname.startsWith("/h/")) return hook(req, env, deps);
   if (pathname.startsWith("/github/")) return githubHook(req, env, deps);
-  if (pathname.startsWith("/s/")) return site(req, env);
   if (pathname === "/manifest.webmanifest" && env.ASSETS) {
     // Манифест приложения; с приглашением — адрес запуска несёт его, чтобы приложение с экрана «Домой» вошло само
     const invite = new URL(req.url).searchParams.get("invite");

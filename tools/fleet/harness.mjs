@@ -36,7 +36,7 @@ export const local = () => /^http:\/\/127\.0\.0\.1[:/]/.test(fleetEnv.SB2_BASE ?
 export const newTag = () => crypto.randomBytes(3).toString("hex");
 
 /** Чего у флота нет — список в SB2_WITHOUT через пробел. Флот в коробке (tools/box/box.mjs) называет им то, чего на одном компьютере не бывает:
- *  mind — модель, которая понимает прочитанное; claude — аккаунты Claude; clickhouse — история флота; r2 — подписанные ссылки хранилища;
+ *  mind — модель, которая понимает прочитанное; claude — аккаунты Claude; clickhouse — история флота; r2 — подписанные ссылки хранилища; sites — свои поддомены сайтов флота;
  *  push — уведомления браузера; github — репозитории кусочков и проектов; keeper — служба машины со сборками Host.
  *  Шаг или проверка, которым это нужно, на таком флоте не идут. */
 export const lacks = (what) => (process.env.SB2_WITHOUT ?? "").split(" ").includes(what);

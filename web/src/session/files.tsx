@@ -98,7 +98,7 @@ export function Site({ call }: { call: Call }) {
   const title = typeof call.input?.title === "string" ? call.input.title : "";
   const site = answer<{ url: string; files: number; size: number }>(call);
   const [open, setOpen] = useState(false);
-  const frame = (full: boolean) => site && <div className={full ? "fileframe full" : "fileframe"}><iframe className="htmlframe" title={title || dir} sandbox="allow-scripts allow-forms" referrerPolicy="no-referrer" src={site.url} /></div>;
+  const frame = (full: boolean) => site && <div className={full ? "fileframe full" : "fileframe"}><iframe className="htmlframe" title={title || dir} sandbox="allow-scripts allow-forms allow-popups allow-same-origin" referrerPolicy="no-referrer" src={site.url} /></div>;
   return (
     <div className="codeblock fileshow seen" data-site={dir}>
       <div className="codebar">

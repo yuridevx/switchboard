@@ -28,7 +28,8 @@ const FLEET = "box", DEVICE = "cli", MACHINES = ["m1", "m2"], KEY = "box";
 // история флота — настоящий ClickHouse: коробка его не запускает, а получает адрес в SB2_BOX_CH (http://пользователь:пароль@хост:порт);
 // на раннере это служба работы, у себя — `docker run -p 127.0.0.1:18123:8123 -e CLICKHOUSE_PASSWORD=box clickhouse/clickhouse-server`
 const history = process.env.SB2_BOX_CH ? new URL(process.env.SB2_BOX_CH) : null;
-const WITHOUT = ["mind", "push", ...(history ? [] : ["clickhouse"])].join(" ");
+// sites — своих поддоменов на одном компьютере нет: сайтам флота в коробке негде жить
+const WITHOUT = ["mind", "push", "sites", ...(history ? [] : ["clickhouse"])].join(" ");
 const ACCOUNTS = ["a", "b"];
 const DIALECTS = ["openai", "meta"];
 const UP_MS = 60_000; // предел подъёма одной части
@@ -111,11 +112,12 @@ async function up() {
   // «database is locked»). Первым стоит вход (tools/box/storage): подписанную ссылку принимает сам, всё остальное отдаёт службам привязкой.
   // Настройки из --var до второго Worker'а не доходят, поэтому у служб — производная настройка: та же, что в репо, с адресами коробки.
   const product = JSON.parse(fs.readFileSync(path.join(root, "services/wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, ""));
-  const { env: _prod, ...local } = product;
+  // маршруты сайтов в коробку не идут: с ними wrangler подменяет адрес запроса адресом зоны, и подпись ссылки хранилища не сходится
+  const { env: _prod, routes: _routes, ...local } = product;
   const bucket = product.r2_buckets[0].bucket_name;
   const secret = { R2_ACCESS_KEY_ID: "box", R2_SECRET_ACCESS_KEY: "box-secret-0000" };
   const ch = history ? { CH_URL: history.origin, CH_USER: decodeURIComponent(history.username) || "default", CH_PASSWORD: decodeURIComponent(history.password) } : {};
-  fs.writeFileSync(path.join(state, "services.jsonc"), JSON.stringify({ ...local, main: path.join(root, "services", product.main), assets: { ...product.assets, directory: path.join(root, "web/dist") }, vars: { ...product.vars, DIGEST: "box", R2_ENDPOINT: base, GITHUB_API: `http://127.0.0.1:${pGithub}`, TELEGRAM_API: `http://127.0.0.1:${pTelegram}`, ...secret, ...ch } }));
+  fs.writeFileSync(path.join(state, "services.jsonc"), JSON.stringify({ ...local, main: path.join(root, "services", product.main), assets: { ...product.assets, directory: path.join(root, "web/dist") }, vars: { ...product.vars, SITES_HOST: "", DIGEST: "box", R2_ENDPOINT: base, GITHUB_API: `http://127.0.0.1:${pGithub}`, TELEGRAM_API: `http://127.0.0.1:${pTelegram}`, ...secret, ...ch } }));
   fs.writeFileSync(path.join(state, "storage.jsonc"), JSON.stringify({ name: "sb2-box-storage", main: path.join(root, "tools/box/storage/worker.js"), compatibility_date: product.compatibility_date, r2_buckets: [{ binding: "FILES", bucket_name: bucket }], services: [{ binding: "SERVICES", service: product.name }], vars: { FILES_BUCKET: bucket, ...secret } }));
   wrangler("services", pServices, iServices, [], [path.join(state, "storage.jsonc"), path.join(state, "services.jsonc")]);
   const healthy = (url) => until(url, async () => (await (await fetch(url, { signal: AbortSignal.timeout(3000) })).json()).ok);

@@ -162,7 +162,8 @@ describe("файлы: сессия отправила", () => {
     const card = document.querySelector('.fileshow[data-site="out/site"]') as HTMLElement;
     expect(card.textContent).toContain("Отчёт за сутки");
     const frame = card.querySelector("iframe.htmlframe") as HTMLIFrameElement;
-    expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-forms");
+    // у сайта свой адрес: рамка оставляет ему его источник — без него панель сайта не достаёт до своей базы
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-forms allow-popups allow-same-origin");
     expect(frame.getAttribute("src")).toMatch(/\/s\/[0-9a-f]{32}\//);
     const link = card.querySelector("a") as HTMLAnchorElement;
     expect([link.getAttribute("href"), link.target, link.rel]).toEqual([frame.getAttribute("src"), "_blank", "noreferrer noopener"]);

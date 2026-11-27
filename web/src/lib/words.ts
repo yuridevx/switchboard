@@ -18,7 +18,7 @@ export const SAY: Record<string, string> = {
   account_dir_busy: "Папка аккаунта занята", slot_dir_busy: "Папка входа занята", refresh_locked: "Вход обновляется другим процессом", no_key: "Такого ключа нет", rate_limit: "Лимит исчерпан",
   upstream: "Провайдер модели отказал", muse_version: "Версия Muse не получена", rules_unavailable: "Правила прокси не прочитаны", bad_rule: "Правило не разобрано", check_failed: "Проверка не прошла",
   // профили, точки, архив
-  no_profile: "Такого кусочка нет", bad_profile: "Кусочек не собирается", no_file: "Такого файла нет", no_index: "В папке нет index.html", not_self: "Только в свою ленту", bad_file: "Файл пришёл не тот", no_files: "Файлы на машине не работают", missing: "В архиве этого нет", bad_point: "Точка не подходит", not_owner: "Это не ваша сессия",
+  no_profile: "Такого кусочка нет", bad_profile: "Кусочек не собирается", no_file: "Такого файла нет", no_index: "В папке нет index.html", no_sites: "У флота нет адреса сайтов", no_site: "Такого сайта нет", taken: "Адрес занят", bad_sql: "Запрос SQL не прошёл",not_self: "Только в свою ленту", bad_file: "Файл пришёл не тот", no_files: "Файлы на машине не работают", missing: "В архиве этого нет", bad_point: "Точка не подходит", not_owner: "Это не ваша сессия",
   changed: "В архиве уже другое", blocks_missing: "Блоки точки не загружены", no_links: "Ссылки на блоки не получены", store_failed: "Хранилище не ответило", records_failed: "Записи не ответили",
   no_search: "Поиск недоступен", analytics_unavailable: "Аналитика недоступна",
   // скрипты, инциденты, машина
