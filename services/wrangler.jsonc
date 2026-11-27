@@ -6,9 +6,10 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   "assets": { "directory": "../web/dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": true },
-  // Сайты флота: поддомены с хвостом «-t» идут сюда; запись DNS «*.pfarm.app» одна на оба флота. Маршрут со звёздочкой без хвоста
+  // Сайты флота: поддомены с хвостом SITES_HOST идут сюда по маршруту зоны. Маршрут и запись DNS «*.pfarm.app» ставит один раз
+  // tools/deploy/sites.mjs, а не эта настройка: маршрут здесь снимает с Worker'а адрес workers.dev, на котором стоит тестовый флот
+  // (27 нояб. 2026 тестовый флот так пролежал 3 минуты), и токену выкладки CI маршруты зоны не даны. Маршрут со звёздочкой без хвоста
   // перехватил бы чужие поддомены зоны, поэтому у каждого флота свой хвост.
-  "routes": [{ "pattern": "*-t.pfarm.app/*", "zone_name": "pfarm.app" }],
   "services": [{ "binding": "PLATFORM", "service": "sb2-platform", "entrypoint": "Platform" }],
   "durable_objects": { "bindings": [{ "name": "RECORDS", "class_name": "Records" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Records"] }],
@@ -25,8 +26,7 @@
       "routes": [
         { "pattern": "pult.pfarm.app", "custom_domain": true },
         { "pattern": "phone.pfarm.app", "custom_domain": true },
-        { "pattern": "relay.pfarm.app", "custom_domain": true },
-        { "pattern": "*-s.pfarm.app/*", "zone_name": "pfarm.app" }
+        { "pattern": "relay.pfarm.app", "custom_domain": true }
       ],
       "workers_dev": true,
       "services": [{ "binding": "PLATFORM", "service": "sb2-platform-prod", "entrypoint": "Platform" }],
