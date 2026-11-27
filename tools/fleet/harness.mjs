@@ -27,7 +27,12 @@ const { chromium } = createRequire(path.join(root, "package.json"))("playwright-
 
 /** Браузер живых сценариев — одна точка запуска. На Windows это свой chrome-headless-shell из Playwright: настоящий Chrome на свежем профиле
  *  проверяет, не пуст ли пароль Windows, входом с пустым паролем; каждый запуск — отказ входа, десять отказов за десять минут блокируют учётную запись. */
-export const launchBrowser = () => chromium.launch({ channel: process.platform === "win32" ? undefined : "chrome" });
+/** Ошибка страницы одной строкой: слова, экран и восемь верхних строк стека без адреса сайта. */
+export function pageError(e, url) {
+  const frames = String(e.stack ?? "").split("\n").slice(1, 9).map((l) => l.trim().replace(/^at /, "").replace(/https?:\/\/[^/]+\/(assets\/)?/, ""));
+  return `${e.message.split("; visit")[0]} · экран ${url.split("#")[1] ?? ""} · ${frames.join(" < ")}`;
+}
+export const launchBrowser =() => chromium.launch({ channel: process.platform === "win32" ? undefined : "chrome" });
 
 /** Флот в коробке: его адрес — этот компьютер. Проверка, которая меняет сам флот (несёт на него сборку), идёт только на таком. */
 export const local = () => /^http:\/\/127\.0\.0\.1[:/]/.test(fleetEnv.SB2_BASE ?? "");
@@ -382,7 +387,9 @@ export function kit(o) {
     ctx.setDefaultNavigationTimeout(left());
     const p = ctx.pages()[0] ?? (await ctx.newPage());
     pages.push(p);
-    p.on("pageerror", (e) => pageErrors.push(e.message));
+    // ошибка страницы — со своим местом: экран, на котором страница стояла, и верх стека (файл сборки, строка, столбец):
+    // по ним причина находится без повтора
+    p.on("pageerror", (e) => pageErrors.push(pageError(e, p.url())));
     if (logs) p.on("console", (m) => m.type() === "error" && pageErrors.push(m.text()));
     await p.goto(`${o.base}/#invite=${encodeURIComponent(inv.invite)}`);
     // вход принят: навигация приложения на месте и адрес от приглашения очищен — переход, начатый раньше, страница перебила бы своим;
@@ -439,7 +446,7 @@ export function kit(o) {
       if (e !== STOP) red(current ?? (ok + bad ? "проверка дошла до конца" : "проверка не запустилась"), e);
     }
     // страница, которая бросила ошибку, — красный, даже когда все шаги зелёные
-    if (pageErrors.length) red("страница без ошибок", new Error([...new Set(pageErrors)].slice(0, 3).join(" | ").slice(0, 400)));
+    if (pageErrors.length) red("страница без ошибок", new Error([...new Set(pageErrors)].slice(0, 2).join(" | ").slice(0, 1200)));
     stopped = true;
     await cleanup();
     return bad ? 1 : 0;
