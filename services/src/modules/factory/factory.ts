@@ -1,6 +1,8 @@
 // Фабрика: тикеты флота. Тикет — единица работы проекта: исполнитель, состояние и заметки с вердиктами; записи — объект на проект.
 // Исполнитель — пост из определения проекта либо сессия по позывному. Пост — очередь роли: тикеты из неё берут его сессии,
-// свободная — срочный, потом старший; тикет, который сессия уже вела (возврат, проснувшийся), ждёт её. Определение — файл factory.json
+// свободная — срочный, потом старший; тикет, который сессия уже вела (возврат, проснувшийся), ждёт её. У поста своё правило разговора
+// (context): на границе тикетов разговор сессии продолжается или начинается заново — по предмету тикета (key). Пост «по предмету» отдаёт
+// тикеты одного предмета одной сессии по очереди. Работу посту с раздающими (givers) дают только их сессии. Определение — файл factory.json
 // в репозитории ролей, применяется явным вызовом; битое не применяется. Тикет отдаётся сессии запросом «дать работу» её машине; кончает
 // работу вердикт — сессии, которая его ведёт, машины этой сессии или человека — либо срок. Тикеты заводят и правила входа из определения:
 // по сроку правила идёт проверка-скрипт на машине, код 0 — тихо, иначе её вывод — находка: новый тикет или заметка в открытый с тем же
@@ -10,12 +12,14 @@
 // она доходит до сессии при выдаче и отказом перед «сдал». Итог тикета ложится одной заметкой в тикет, с которого он заведён, и в тикеты,
 // которые его ждут.
 // Сама Фабрика ничего не чинит и не повторяет: отказ машины, второй возврат и вышедший срок ставят тикет в «стоп» с причиной.
+// «Стоп», который поставила платформа (служба или машина), идёт событием правила stop — тикетом посту-надзирателю; один раз на тикет.
+// «Стоп» по слову сессии или человека, повторный «стоп» и «стоп» тикета самого надзирателя зовут людей проекта.
 import {
-  CALL_MS, canReach, checkOutcome, checkRun, errFields, FACTORY, FACTORY_FILE, FactoryDef, type FactoryState, type FileIn, kindOf, machineOf, newId, postOf, postSessions, type Project, Refusal,
+  CALL_MS, canReach, checkOutcome, checkRun, errFields, FACTORY, FACTORY_FILE, FactoryDef, type FactoryState, type FileIn, kindOf, MACHINE_RULES, machineOf, newId, type PostDef, postOf, postSessions, type Project, Refusal,
   RULE_CHECK_MS, type RuleDef, sessionName, type Spec, splitPiece, termMs, type Ticket, type TicketAct, type TicketNote, type TicketState, type Verdict, within,
 } from "@sb/protocol";
 import type { Ctx, Env, Module, Outside } from "../../env.ts";
-import { type Op, records } from "../../records.ts";
+import { type Db, type Op, records } from "../../records.ts";
 import { line as historyLine } from "../analytics/contract.ts";
 import { drop, list as timers, next, on, set } from "../clock/contract.ts";
 import { file } from "../github/contract.ts";
@@ -52,6 +56,8 @@ const SCHEMA = [
   // спящий тикет → тикет, итога которого он ждёт: строка уходит с итогом; строк не осталось — тикет просыпается
   "CREATE TABLE IF NOT EXISTS waits (n INTEGER NOT NULL, blocker INTEGER NOT NULL, PRIMARY KEY (n, blocker))",
   "CREATE INDEX IF NOT EXISTS waits_blocker ON waits (blocker)",
+  // о чём разговор сессии поста: последний выданный ей тикет и его предмет — по ним решается «заново» и свой предмет в очереди
+  "CREATE TABLE IF NOT EXISTS talks (session TEXT PRIMARY KEY, n INTEGER NOT NULL, key TEXT)",
 ];
 const db = (env: Env, fleet: string, project: string) => records(env, fleet, NAME, SCHEMA, project);
 
@@ -94,13 +100,19 @@ async function applied(env: Env, fleet: string, project: string): Promise<{ def:
   return row ? { def: JSON.parse(row.json) as FactoryDef, row } : null;
 }
 
-/** Тикет глазами спросившего. Строка списка — без текста, файлов и заметок: их несёт тикет, названный по номеру (full). */
-const ticket = (project: string, s: Stored, def: FactoryDef | null, full?: { notes: TicketNote[] }): Ticket => {
+/** Номера вставших тикетов, которыми занят надзиратель: их называют ключом открытые тикеты правила stop. */
+const watched = async (d: Db): Promise<Set<string>> =>
+  new Set((await d.all<{ key: string }>("SELECT key FROM tickets WHERE rule = ? AND state <> 'done'", MACHINE_RULES.stop)).map((x) => x.key));
+
+/** Тикет глазами спросившего. Строка списка — без текста, файлов и заметок: их несёт тикет, названный по номеру (full).
+ *  busy — вставшие тикеты у надзирателя: остальные вставшие ждут человека. */
+const ticket = (project: string, s: Stored, def: FactoryDef | null, busy: Set<string>, full?: { notes: TicketNote[] }): Ticket => {
   const id = idOf(project, s.n);
   const check = s.state === "work" && s.dest ? def?.posts?.[s.dest]?.check : undefined;
   return {
     id, project, title: s.title, state: s.state, by: s.by, returns: s.returns, since: s.since, moved: s.moved,
     ...(s.dest ? { to: s.dest } : {}), ...(s.session ? { session: s.session } : {}), ...(s.why ? { why: s.why } : {}), ...(s.key ? { key: s.key } : {}),
+    ...(s.state === "stop" && !busy.has(id) ? { human: true } : {}),
     ...(s.rule ? { on: s.rule } : {}), ...(s.start ? { start: s.start } : {}), ...(s.until ? { until: s.until } : {}), ...(s.dropped ? { dropped: true } : {}),
     ...(s.rank < 0 ? { first: true } : {}), ...(s.waits ? { after: String(s.waits).split(",").map((n) => idOf(project, Number(n))) } : {}),
     ...(check ? { check: { ...check, run: fill(check.run, id) } } : {}), ...(s.parent ? { parent: idOf(project, s.parent) } : {}),
@@ -158,6 +170,20 @@ async function toMachine(w: Outside, fleet: string, trace: string, frame: Record
 }
 
 /* ===== Кто ведёт тикет ===== */
+
+/** Пост исполнителя: сам пост либо пост, которому принадлежит сессия; исполнитель вне постов — undefined. */
+const doer = (def: FactoryDef | null, to: string | null | undefined): { name: string; post: PostDef } | undefined =>
+  !def || !to ? undefined : def.posts[to] ? { name: to, post: def.posts[to]! } : postOf(def.posts, to);
+
+/** Почему пришедший не вправе дать работу исполнителю to; вправе — null. У поста с раздающими работу другому дают только их сессии;
+ *  тикет самой себе, службы флота, правила определения и человек проходят. */
+function ungiven(def: FactoryDef | null, by: string, to: string | null | undefined): Refusal | null {
+  if (kindOf(by) !== "session" || by === to) return null;
+  const dest = doer(def, to);
+  if (!dest?.post.givers) return null;
+  const from = postOf(def!.posts, by)?.name;
+  return from && dest.post.givers.includes(from) ? null : new Refusal("not_giver", `посту ${dest.name} работу раздают ${dest.post.givers.join(", ")}: отдай находку им`);
+}
 
 /** Куда встаёт тикет: в очередь к цели (посту или сессии) либо в «стоп». Цели нет — бэклог. */
 type Plan = { state: "ready"; target: string | null; term: number | null } | { state: "stop"; why: string };
@@ -244,6 +270,23 @@ function body(id: string, s: Stored, last: { back?: string; notes: Fresh[] }): s
   ].join("\n");
 }
 
+/** Тикет встал: кому об этом сказать. «Стоп» платформы — службы или машины — идёт событием правила stop: тикетом посту-надзирателю с ключом
+ *  вставшего тикета; пока такой тикет открыт, повтор ложится в него заметкой. Людей проекта зовут, когда надзиратель уже разбирал этот тикет
+ *  (его тикет закрыт), встал тикет самого надзирателя, «стоп» — слово сессии или человека либо правила stop у проекта нет. */
+async function fell(env: Env, w: Outside, fleet: string, project: string, def: FactoryDef | null, s: Stored, by: string, now: number): Promise<void> {
+  const id = idOf(project, s.n);
+  const rule = def?.on.find((r) => r.name === MACHINE_RULES.stop);
+  if (def && rule && (by === FACTORY || kindOf(by) === "machine") && s.rule !== rule.name) {
+    const past = await db(env, fleet, project).first<{ state: TicketState }>("SELECT state FROM tickets WHERE rule = ? AND key = ? ORDER BY n DESC LIMIT 1", rule.name, id);
+    if (past?.state !== "done") {
+      const f = await found(env, w, fleet, project, def, rule, { key: id, text: `${id} встал: ${s.why ?? ""}\n${s.title}`, by: FACTORY }, newId("t"), now);
+      await ruleLine(env, w, fleet, project, rule.name, "name", f.note ? "note" : "ticket", { text: s.why ?? "", data: { ticket: f.id, by: FACTORY, fell: id } });
+      return;
+    }
+  }
+  await call(env, w, fleet, def, `Тикет ${id} встал`, `${s.title} — ${s.why ?? ""}`);
+}
+
 /** Тикет в «стоп» с причиной — если он ещё в том состоянии, из которого его ставят. Итог — заведшему и ждущим. Ответ — тикет и проснулся ли кто. */
 async function stop(env: Env, w: Outside, fleet: string, project: string, n: number, from: TicketState, why: string, by: string, def: FactoryDef | null, now = Date.now()): Promise<{ s: Stored; woke: boolean } | null> {
   const got = await db(env, fleet, project).batch([
@@ -253,7 +296,7 @@ async function stop(env: Env, w: Outside, fleet: string, project: string, n: num
   const s = (got[0]![0] as unknown as Stored | undefined) ?? null;
   if (!s) return null;
   await trail(env, w, fleet, project, s, "stop", by, why);
-  await call(env, w, fleet, def, `Тикет ${idOf(project, n)} встал`, `${s.title} — ${why}`);
+  await fell(env, w, fleet, project, def, s, by, now);
   return { s, woke: await report(env, w, fleet, project, s, `${idOf(project, n)} встал: ${why}`, now) };
 }
 
@@ -277,8 +320,13 @@ async function give(env: Env, w: Outside, fleet: string, project: string, def: F
     : undefined;
   // заметки, которых сессия ещё не получала: после последней выданной ей, а у новой сессии тикета — после последнего вердикта.
   // Номер последней заметки тикета запоминается в записи: что придёт позже, сессия увидит до того, как тикет закроет
+  // граница тикета: разговор сессии поста начинается заново перед каждым тикетом (fresh) или перед тикетом другого предмета (thread).
+  // Тот же тикет подряд разговор продолжает всегда. Сжатие большого разговора решает машина: размер знает она
+  const talk = post ? await d.first<{ n: number; key: string | null }>("SELECT n, key FROM talks WHERE session = ?", session) : null;
+  const clear = !!post && talk?.n !== s.n && (post.context === "fresh" || (post.context === "thread" && !(s.key && talk?.key === s.key)));
+  // после «заново» прежних заметок в разговоре нет: тикет несёт их как новой сессии
   const ran = runOf(s);
-  const seen = ran?.s === session ? ran.seen : undefined;
+  const seen = !clear && ran?.s === session ? ran.seen : undefined;
   const notes = await d.batch([
     ["SELECT text FROM notes WHERE n = ? AND verdict = 'back' ORDER BY at DESC LIMIT 1", s.n],
     ["SELECT rowid, by, text FROM notes WHERE n = ?1 AND verdict IS NULL AND rowid > coalesce(?2, (SELECT max(rowid) FROM notes WHERE n = ?1 AND verdict IS NOT NULL), 0) ORDER BY rowid", s.n, seen ?? null],
@@ -291,7 +339,7 @@ async function give(env: Env, w: Outside, fleet: string, project: string, def: F
   const r = await toMachine(w, fleet, trace, {
     type: "work.give", to: "@" + machineOf(session), name, ticket: id, text: body(id, now_, last),
     ...(spec ? { spec } : {}), ...(s.rule ? { on: s.rule } : {}), ...(s.key ? { key: s.key } : {}), ...(s.files ? { files: JSON.parse(s.files) as FileIn[] } : {}),
-    ...(askerOf(def, s, session) ? { asker: askerOf(def, s, session) } : {}),
+    ...(askerOf(def, s, session) ? { asker: askerOf(def, s, session) } : {}), ...(clear ? { clear: true } : {}),
   });
   if (!r.ok) {
     // итог вставшего тикета мог разбудить ждущих: они раздаются сразу
@@ -299,18 +347,24 @@ async function give(env: Env, w: Outside, fleet: string, project: string, def: F
     if (st?.woke) await run(env, w, fleet, project, trace);
     return;
   }
+  if (post?.context === "thread" || post?.context === "fresh") await d.run("INSERT INTO talks (session, n, key) VALUES (?1, ?2, ?3) ON CONFLICT (session) DO UPDATE SET n = ?2, key = ?3", session, s.n, s.key);
   await set(env, fleet, { id: timer(project, s.n), kind: TERM, at: s.until!, input: { project, n: s.n } });
-  await trail(env, w, fleet, project, now_, "given", FACTORY);
+  await trail(env, w, fleet, project, now_, "given", FACTORY, "", { ...(clear ? { clear: true } : {}), ...(s.key ? { key: s.key } : {}) });
 }
 
 /** Раздать готовое. Место берётся одной записью — два одновременных события не запустят тикет дважды. У сессии один тикет в работе.
  *  Сначала сессия получает своё (возврат, проснувшийся, тикет по позывному), потом свободные сессии поста берут из его очереди:
- *  срочный, потом старший. Запросы не перечисляют посты и сессии: число значений в каждом от размера определения не зависит.
- *  Проект на паузе — тикеты не выдаются. */
+ *  срочный, потом старший. У поста «по предмету» занят предмет, а не исполнитель: тикет, чей предмет в работе у другой сессии поста,
+ *  не выдаётся — ни из очереди, ни свой; среди обычных сессия берёт сначала свой предмет — тот, о котором её разговор.
+ *  Запросы не перечисляют посты и сессии: число значений в каждом от размера определения не зависит. Проект на паузе — тикеты не выдаются. */
 export async function run(env: Env, w: Outside, fleet: string, project: string, trace: string, now = Date.now()): Promise<void> {
   const a = await applied(env, fleet, project);
   if (a?.row.paused) return;
   const def = a?.def ?? null;
+  // посты «по предмету» — одним значением: имена читает сам запрос
+  const threads = JSON.stringify(Object.entries(def?.posts ?? {}).filter(([, p]) => p.context === "thread").map(([name]) => name));
+  /** Предмет тикета t в работе у другой сессии его поста; me — сессия, которой тикет достался бы. */
+  const held = (me: string) => `(t.key IS NOT NULL AND EXISTS (SELECT 1 FROM tickets b WHERE b.state = 'work' AND b.dest = t.dest AND b.key = t.key AND b.session <> ${me}))`;
   const ops: Op[] = [
     // своё — сессии: по одному на свободную сессию
     [
@@ -318,20 +372,31 @@ export async function run(env: Env, w: Outside, fleet: string, project: string, 
          SELECT n FROM (
            SELECT t.n, row_number() OVER (PARTITION BY t.target ORDER BY t.rank, t.n) AS same
            FROM tickets t WHERE t.state = 'ready' AND t.target LIKE '%@%' AND NOT EXISTS (SELECT 1 FROM tickets b WHERE b.state = 'work' AND b.session = t.target)
+             AND NOT (t.dest IN (SELECT value FROM json_each(?)) AND ${held("t.target")})
          ) WHERE same = 1
        ) RETURNING *`,
-      now, now,
+      now, now, threads,
     ],
   ];
-  // очередь поста: каждая свободная сессия берёт срочный, потом старший
+  // очередь поста: каждая свободная сессия берёт срочный, потом старший; у поста «по предмету» — срочный, свой предмет, старший
   for (const [name, post] of Object.entries(def?.posts ?? {}))
     for (const session of postSessions(name, post))
-      ops.push([
-        `UPDATE tickets SET state = 'work', moved = ?, until = ? + term, session = ? WHERE n = (
-           SELECT t.n FROM tickets t WHERE t.state = 'ready' AND t.target = ? ORDER BY t.rank, t.n LIMIT 1
-         ) AND NOT EXISTS (SELECT 1 FROM tickets b WHERE b.state = 'work' AND b.session = ?) RETURNING *`,
-        now, now, session, name, session,
-      ]);
+      ops.push(
+        post.context === "thread"
+          ? [
+              `UPDATE tickets SET state = 'work', moved = ?1, until = ?1 + term, session = ?2 WHERE n = (
+                 SELECT t.n FROM tickets t WHERE t.state = 'ready' AND t.target = ?3 AND NOT ${held("?2")}
+                 ORDER BY t.rank, coalesce(t.key = (SELECT key FROM talks WHERE session = ?2), 0) DESC, t.n LIMIT 1
+               ) AND NOT EXISTS (SELECT 1 FROM tickets b WHERE b.state = 'work' AND b.session = ?2) RETURNING *`,
+              now, session, name,
+            ]
+          : [
+              `UPDATE tickets SET state = 'work', moved = ?, until = ? + term, session = ? WHERE n = (
+                 SELECT t.n FROM tickets t WHERE t.state = 'ready' AND t.target = ? ORDER BY t.rank, t.n LIMIT 1
+               ) AND NOT EXISTS (SELECT 1 FROM tickets b WHERE b.state = 'work' AND b.session = ?) RETURNING *`,
+              now, now, session, name, session,
+            ],
+      );
   const taken = (await db(env, fleet, project).batch(ops)).flat() as unknown as Stored[];
   await Promise.all(taken.map((s) => give(env, w, fleet, project, def, s, trace)));
 }
@@ -349,7 +414,7 @@ async function settle(env: Env, w: Outside, fleet: string, project: string, def:
   // у назначения — из какого состояния тикет ушёл: «из работы» — его передала сессия, которая его вела
   await trail(env, w, fleet, project, s, move, by, note, { ...(move === "assign" && was ? { from: was.state } : {}), ...(move === "defer" && s.start ? { start: s.start } : {}) });
   if (s.state === "stop" && was?.state !== "stop") {
-    await call(env, w, fleet, def, `Тикет ${id} встал`, `${s.title} — ${s.why ?? ""}`);
+    await fell(env, w, fleet, project, def, s, by, now);
     await report(env, w, fleet, project, s, `${id} встал: ${s.why ?? ""}`, now);
   }
   if (s.state === "done" && was?.state !== "done") await report(env, w, fleet, project, s, `${id} ${s.dropped ? "снят" : "сдан"}${note ? `: ${note}` : ""}`, now);
@@ -531,6 +596,12 @@ async function make(env: Env, w: Outside, fleet: string, i: Asked): Promise<{ de
     if (!(await within(w.platform.sessions(fleet), CALL_MS, "платформа не назвала сессии")).some((s) => s.callsign === i.to)) throw new Refusal("no_session", `сессии ${i.to} нет во флоте`);
   }
   if ((i.in || i.after) && i.to === undefined) throw new Refusal("bad_input", "спать может тикет с исполнителем: назовите to");
+  // работу посту с раздающими даёт сессия раздающего; предмет посту «по предмету» сессия называет сама: без него срез пошёл бы
+  // рядом с соседом в то же место
+  const refusal = ungiven(def, i.by, i.to);
+  if (refusal) throw refusal;
+  const dest = doer(def, i.to);
+  if (kindOf(i.by) === "session" && !i.key && dest?.post.context === "thread") throw new Refusal("bad_input", `посту ${dest.name} нужен key — предмет тикета: место кода или тема; тикеты одного предмета идут одной сессии по очереди`);
   const after = i.after ? await blockers(env, fleet, i.project, null, i.after) : undefined;
   const made = await create(
     env, w, fleet, i.project, def,
@@ -635,6 +706,7 @@ async function check(ctx: Ctx, project: string, text: string): Promise<FactoryDe
     for (const p of post.pieces ?? []) if (!repos.includes(splitPiece(p)?.repo ?? "")) errors.push(`posts.${name}.pieces: роли ${p} нет в репозиториях флота (${REPOS})`);
     // вторая и следующие сессии поста зовутся имя-2, имя-3: такое имя не должно быть занято
     for (const session of postSessions(name, post).slice(1).map(sessionName)) if (def.posts[session]) errors.push(`posts.${name}.size: имя сессии ${session} занято постом`);
+    for (const g of post.givers ?? []) if (!def.posts[g]) errors.push(`posts.${name}.givers: поста ${g} нет в posts`);
   }
   const names = new Set<string>();
   def.on.forEach((rule, i) => {
@@ -683,7 +755,7 @@ export const factory: Module = {
       return { id: idOf(project, made.n) };
     },
 
-    async "ticket.list"(i: { project?: string; ticket?: string; to?: string; state?: TicketState; session?: string }, ctx) {
+    async "ticket.list"(i: { project?: string; ticket?: string; to?: string; state?: TicketState; session?: string; key?: string }, ctx) {
       const d = (project: string) => db(ctx.env, ctx.fleet, project);
       if (i.ticket) {
         const { project, n } = parse(i.ticket);
@@ -696,7 +768,7 @@ export const factory: Module = {
         if (!s) throw new Refusal("no_ticket", `тикета ${i.ticket} нет`);
         const notes = (got[1] as unknown as { at: number; by: string; verdict: Verdict | null; text: string }[]).map((x) => ({ at: x.at, by: x.by, text: x.text, ...(x.verdict ? { verdict: x.verdict } : {}) }));
         const acts = ACTS.filter((act) => !barred(i.ticket!, s, ctx.who.addr, act));
-        return { tickets: [{ ...ticket(project, s, (await applied(ctx.env, ctx.fleet, project))?.def ?? null, { notes }), acts }] };
+        return { tickets: [{ ...ticket(project, s, (await applied(ctx.env, ctx.fleet, project))?.def ?? null, await watched(d(project)), { notes }), acts }] };
       }
       const project = await projectOf(ctx, i.project);
       const where = ["1 = 1"];
@@ -704,10 +776,12 @@ export const factory: Module = {
       if (i.state) (where.push("t.state = ?"), params.push(i.state));
       if (i.to) (where.push("t.dest = ?"), params.push(i.to));
       if (i.session) (where.push("t.session = ?"), params.push(i.session));
+      if (i.key) (where.push("t.key = ?"), params.push(i.key));
       // строка списка — без текста: текст тикета читают по его номеру
       const rows = await d(project).all<Stored>(`SELECT ${ROW} WHERE ${where.join(" AND ")} ORDER BY t.n DESC LIMIT 500`, ...params);
       const def = (await applied(ctx.env, ctx.fleet, project))?.def ?? null;
-      return { tickets: rows.map((s) => ticket(project, s, def)) };
+      const busy = rows.some((s) => s.state === "stop") ? await watched(d(project)) : new Set<string>();
+      return { tickets: rows.map((s) => ticket(project, s, def, busy)) };
     },
 
     async "ticket.set"(i: { ticket: string; verdict?: Verdict; note?: string; to?: string; for?: string; resume?: boolean; drop?: boolean; in?: string; after?: string[]; first?: boolean }, ctx) {
@@ -768,6 +842,8 @@ export const factory: Module = {
         const term = i.for ? termMs(i.for) : was.term;
         if (i.to !== undefined) {
           no("assign");
+          const refusal = ungiven(def, by, i.to);
+          if (refusal) throw refusal;
           const p = plan(def, { ...was, dest: i.to, term, runs: "{}" });
           if (p.state === "stop") throw new Refusal(kindOf(i.to) === "session" && !term ? "no_term" : "no_dest", p.why);
           // вставший тикет исполнителя меняет, но в очередь не идёт: его возвращает resume
